@@ -149,8 +149,9 @@ async function extractAndStoreMemory(userMsg: string, assistantReply: string) {
 
 const TTSInput = z.object({
   text: z.string().min(1).max(2000),
-  voiceId: z.string().default("XrExE9yKIg1WjnnlVkGX"), // Matilda - sweet feminine
+  voiceId: z.string().default("XrExE9yKIg1WjnnlVkGX"),
   language: z.enum(["ja", "en", "id", "auto"]).default("auto"),
+  speed: z.number().min(0.7).max(1.2).default(1.0),
 });
 
 export const speakFurina = createServerFn({ method: "POST" })
@@ -175,10 +176,12 @@ export const speakFurina = createServerFn({ method: "POST" })
             similarity_boost: 0.8,
             style: 0.45,
             use_speaker_boost: true,
+            speed: data.speed,
           },
         }),
       },
     );
+
     if (!res.ok) {
       const txt = await res.text();
       throw new Error(`TTS failed: ${res.status} ${txt}`);
