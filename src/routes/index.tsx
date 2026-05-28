@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
-import { Send, Settings, Trash2, Plus, Volume2, VolumeX, Image as ImageIcon, RotateCcw } from "lucide-react";
+import { Send, Settings, Trash2, Plus, Volume2, VolumeX, Image as ImageIcon, RotateCcw, Play, Pause, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetDescription } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
@@ -10,7 +10,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import { Slider } from "@/components/ui/slider";
 import { toast } from "sonner";
+
 import furinaDefault from "@/assets/furina.jpg";
 import {
   chatWithFurina,
@@ -43,7 +45,9 @@ const STORAGE = {
   persona: "furina:persona",
   lang: "furina:lang",
   tts: "furina:ttsEnabled",
+  speed: "furina:ttsSpeed",
 };
+
 
 const VOICES = [
   { id: "XrExE9yKIg1WjnnlVkGX", label: "Matilda — sweet, soft" },
@@ -71,12 +75,17 @@ function FurinaApp() {
   const [persona, setPersona] = useState("");
   const [language, setLanguage] = useState<"auto" | "ja" | "en" | "id">("auto");
   const [ttsOn, setTtsOn] = useState(true);
+  const [speed, setSpeed] = useState(1.0);
   const [openSettings, setOpenSettings] = useState(false);
   const [memories, setMemories] = useState<{ id: string; content: string }[]>([]);
   const [newMem, setNewMem] = useState("");
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const [paused, setPaused] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioCache = useRef<Map<string, string>>(new Map());
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+
 
   // Load persisted state
   useEffect(() => {
@@ -96,8 +105,11 @@ function FurinaApp() {
       if (l) setLanguage(l as typeof language);
       const t = localStorage.getItem(STORAGE.tts);
       if (t) setTtsOn(t === "1");
+      const sp = localStorage.getItem(STORAGE.speed);
+      if (sp) setSpeed(Math.min(1.2, Math.max(0.7, parseFloat(sp) || 1.0)));
     } catch {}
   }, []);
+
 
   useEffect(() => {
     try { localStorage.setItem(STORAGE.msgs, JSON.stringify(messages)); } catch {}
@@ -126,7 +138,7 @@ function FurinaApp() {
       });
       const aiMsg: Msg = { id: crypto.randomUUID(), role: "assistant", content: reply, at: Date.now() };
       setMessages((prev) => [...prev, aiMsg]);
-      if (ttsOn) playTTS(reply);
+      if (ttsOn) playTTS(aiMsg.id, reply);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Something went wrong";
       toast.error(msg);
@@ -136,22 +148,56 @@ function FurinaApp() {
     }
   }
 
-  async function playTTS(text: string) {
+  function stopTTS() {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current = null;
+    }
+    setPlayingId(null);
+    setPaused(false);
+  }
+
+  function pauseTTS() {
+    if (audioRef.current && !audioRef.current.paused) {
+      audioRef.current.pause();
+      setPaused(true);
+    }
+  }
+
+  async function resumeTTS() {
+    if (audioRef.current && audioRef.current.paused) {
+      await audioRef.current.play();
+      setPaused(false);
+    }
+  }
+
+  async function playTTS(msgId: string, text: string) {
     try {
       const clean = text.replace(/\*[^*]+\*/g, "").trim();
       if (!clean) return;
-      const { audio } = await tts({ data: { text: clean.slice(0, 1500), voiceId, language } });
-      if (audioRef.current) {
-        audioRef.current.pause();
+      stopTTS();
+      const cacheKey = `${msgId}:${voiceId}:${speed}`;
+      let src = audioCache.current.get(cacheKey);
+      if (!src) {
+        const { audio } = await tts({ data: { text: clean.slice(0, 1500), voiceId, language, speed } });
+        src = `data:audio/mpeg;base64,${audio}`;
+        audioCache.current.set(cacheKey, src);
       }
-      const a = new Audio(`data:audio/mpeg;base64,${audio}`);
+      const a = new Audio(src);
       audioRef.current = a;
+      setPlayingId(msgId);
+      setPaused(false);
+      a.onended = () => { setPlayingId(null); setPaused(false); audioRef.current = null; };
       await a.play();
     } catch (e) {
+      setPlayingId(null);
+      setPaused(false);
       const msg = e instanceof Error ? e.message : "Voice failed";
       toast.error(msg);
     }
   }
+
 
   function handleBgUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -242,7 +288,21 @@ function FurinaApp() {
                   <Label className="flex items-center gap-2">{ttsOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />} TTS otomatis</Label>
                   <Switch checked={ttsOn} onCheckedChange={(c) => { setTtsOn(c); savePref(STORAGE.tts, c ? "1" : "0"); }} />
                 </div>
+                <div className="pt-2 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Kecepatan bicara</Label>
+                    <span className="text-xs text-muted-foreground tabular-nums">{speed.toFixed(2)}x</span>
+                  </div>
+                  <Slider
+                    min={0.7}
+                    max={1.2}
+                    step={0.05}
+                    value={[speed]}
+                    onValueChange={(v) => { const s = v[0] ?? 1; setSpeed(s); savePref(STORAGE.speed, String(s)); audioCache.current.clear(); }}
+                  />
+                </div>
               </section>
+
 
               <section className="space-y-2">
                 <Label>Bahasa balasan</Label>
@@ -324,18 +384,64 @@ function FurinaApp() {
           </div>
         )}
         <div className="mt-auto" />
-        {messages.map((m) => (
-          <div
-            key={m.id}
-            className={
-              m.role === "user"
-                ? "max-w-[85%] self-end rounded-2xl bg-[oklch(0.55_0.18_265)] px-4 py-2.5 text-sm text-white shadow-lg"
-                : "max-w-[85%] self-start rounded-2xl bg-white/95 px-4 py-2.5 text-sm text-foreground shadow-lg backdrop-blur"
-            }
-          >
-            {m.content}
-          </div>
-        ))}
+        {messages.map((m) => {
+          const isUser = m.role === "user";
+          const isPlaying = playingId === m.id;
+          return (
+            <div key={m.id} className={isUser ? "flex max-w-[85%] self-end flex-col items-end" : "flex max-w-[85%] self-start flex-col items-start"}>
+              <div
+                className={
+                  isUser
+                    ? "rounded-2xl bg-[oklch(0.55_0.18_265)] px-4 py-2.5 text-sm text-white shadow-lg"
+                    : "rounded-2xl bg-white/95 px-4 py-2.5 text-sm text-foreground shadow-lg backdrop-blur"
+                }
+              >
+                {m.content}
+              </div>
+              {!isUser && (
+                <div className="mt-1 flex items-center gap-1 px-1">
+                  {!isPlaying && (
+                    <button
+                      onClick={() => playTTS(m.id, m.content)}
+                      className="rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition hover:bg-black/60"
+                      aria-label="Putar suara"
+                    >
+                      <Play className="h-3 w-3" />
+                    </button>
+                  )}
+                  {isPlaying && !paused && (
+                    <button
+                      onClick={pauseTTS}
+                      className="rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition hover:bg-black/60"
+                      aria-label="Jeda"
+                    >
+                      <Pause className="h-3 w-3" />
+                    </button>
+                  )}
+                  {isPlaying && paused && (
+                    <button
+                      onClick={resumeTTS}
+                      className="rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition hover:bg-black/60"
+                      aria-label="Lanjutkan"
+                    >
+                      <Play className="h-3 w-3" />
+                    </button>
+                  )}
+                  {isPlaying && (
+                    <button
+                      onClick={stopTTS}
+                      className="rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition hover:bg-black/60"
+                      aria-label="Berhenti"
+                    >
+                      <Square className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
         {sending && (
           <div className="max-w-[85%] self-start rounded-2xl bg-white/90 px-4 py-2.5 text-sm text-muted-foreground shadow-lg backdrop-blur">
             <span className="inline-flex gap-1">
