@@ -45,7 +45,9 @@ const STORAGE = {
   persona: "furina:persona",
   lang: "furina:lang",
   tts: "furina:ttsEnabled",
+  speed: "furina:ttsSpeed",
 };
+
 
 const VOICES = [
   { id: "XrExE9yKIg1WjnnlVkGX", label: "Matilda — sweet, soft" },
