@@ -384,18 +384,64 @@ function FurinaApp() {
           </div>
         )}
         <div className="mt-auto" />
-        {messages.map((m) => (
-          <div
-            key={m.id}
-            className={
-              m.role === "user"
-                ? "max-w-[85%] self-end rounded-2xl bg-[oklch(0.55_0.18_265)] px-4 py-2.5 text-sm text-white shadow-lg"
-                : "max-w-[85%] self-start rounded-2xl bg-white/95 px-4 py-2.5 text-sm text-foreground shadow-lg backdrop-blur"
-            }
-          >
-            {m.content}
-          </div>
-        ))}
+        {messages.map((m) => {
+          const isUser = m.role === "user";
+          const isPlaying = playingId === m.id;
+          return (
+            <div key={m.id} className={isUser ? "flex max-w-[85%] self-end flex-col items-end" : "flex max-w-[85%] self-start flex-col items-start"}>
+              <div
+                className={
+                  isUser
+                    ? "rounded-2xl bg-[oklch(0.55_0.18_265)] px-4 py-2.5 text-sm text-white shadow-lg"
+                    : "rounded-2xl bg-white/95 px-4 py-2.5 text-sm text-foreground shadow-lg backdrop-blur"
+                }
+              >
+                {m.content}
+              </div>
+              {!isUser && (
+                <div className="mt-1 flex items-center gap-1 px-1">
+                  {!isPlaying && (
+                    <button
+                      onClick={() => playTTS(m.id, m.content)}
+                      className="rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition hover:bg-black/60"
+                      aria-label="Putar suara"
+                    >
+                      <Play className="h-3 w-3" />
+                    </button>
+                  )}
+                  {isPlaying && !paused && (
+                    <button
+                      onClick={pauseTTS}
+                      className="rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition hover:bg-black/60"
+                      aria-label="Jeda"
+                    >
+                      <Pause className="h-3 w-3" />
+                    </button>
+                  )}
+                  {isPlaying && paused && (
+                    <button
+                      onClick={resumeTTS}
+                      className="rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition hover:bg-black/60"
+                      aria-label="Lanjutkan"
+                    >
+                      <Play className="h-3 w-3" />
+                    </button>
+                  )}
+                  {isPlaying && (
+                    <button
+                      onClick={stopTTS}
+                      className="rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition hover:bg-black/60"
+                      aria-label="Berhenti"
+                    >
+                      <Square className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
         {sending && (
           <div className="max-w-[85%] self-start rounded-2xl bg-white/90 px-4 py-2.5 text-sm text-muted-foreground shadow-lg backdrop-blur">
             <span className="inline-flex gap-1">
