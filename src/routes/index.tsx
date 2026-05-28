@@ -75,12 +75,17 @@ function FurinaApp() {
   const [persona, setPersona] = useState("");
   const [language, setLanguage] = useState<"auto" | "ja" | "en" | "id">("auto");
   const [ttsOn, setTtsOn] = useState(true);
+  const [speed, setSpeed] = useState(1.0);
   const [openSettings, setOpenSettings] = useState(false);
   const [memories, setMemories] = useState<{ id: string; content: string }[]>([]);
   const [newMem, setNewMem] = useState("");
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const [paused, setPaused] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioCache = useRef<Map<string, string>>(new Map());
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+
 
   // Load persisted state
   useEffect(() => {
