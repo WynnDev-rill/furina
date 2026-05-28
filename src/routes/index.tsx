@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
-import { Send, Settings, Trash2, Plus, Volume2, VolumeX, Image as ImageIcon, RotateCcw } from "lucide-react";
+import { Send, Settings, Trash2, Plus, Volume2, VolumeX, Image as ImageIcon, RotateCcw, Play, Pause, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetDescription } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
@@ -10,7 +10,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import { Slider } from "@/components/ui/slider";
 import { toast } from "sonner";
+
 import furinaDefault from "@/assets/furina.jpg";
 import {
   chatWithFurina,
