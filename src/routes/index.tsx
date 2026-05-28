@@ -107,8 +107,9 @@ function FurinaApp() {
       if (t) setTtsOn(t === "1");
       const sp = localStorage.getItem(STORAGE.speed);
       if (sp) setSpeed(Math.min(1.2, Math.max(0.7, parseFloat(sp) || 1.0)));
-
+    } catch {}
   }, []);
+
 
   useEffect(() => {
     try { localStorage.setItem(STORAGE.msgs, JSON.stringify(messages)); } catch {}
