@@ -105,7 +105,9 @@ function FurinaApp() {
       if (l) setLanguage(l as typeof language);
       const t = localStorage.getItem(STORAGE.tts);
       if (t) setTtsOn(t === "1");
-    } catch {}
+      const sp = localStorage.getItem(STORAGE.speed);
+      if (sp) setSpeed(Math.min(1.2, Math.max(0.7, parseFloat(sp) || 1.0)));
+
   }, []);
 
   useEffect(() => {
