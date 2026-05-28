@@ -138,7 +138,7 @@ function FurinaApp() {
       });
       const aiMsg: Msg = { id: crypto.randomUUID(), role: "assistant", content: reply, at: Date.now() };
       setMessages((prev) => [...prev, aiMsg]);
-      if (ttsOn) playTTS(reply);
+      if (ttsOn) playTTS(aiMsg.id, reply);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Something went wrong";
       toast.error(msg);
@@ -148,22 +148,56 @@ function FurinaApp() {
     }
   }
 
-  async function playTTS(text: string) {
+  function stopTTS() {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current = null;
+    }
+    setPlayingId(null);
+    setPaused(false);
+  }
+
+  function pauseTTS() {
+    if (audioRef.current && !audioRef.current.paused) {
+      audioRef.current.pause();
+      setPaused(true);
+    }
+  }
+
+  async function resumeTTS() {
+    if (audioRef.current && audioRef.current.paused) {
+      await audioRef.current.play();
+      setPaused(false);
+    }
+  }
+
+  async function playTTS(msgId: string, text: string) {
     try {
       const clean = text.replace(/\*[^*]+\*/g, "").trim();
       if (!clean) return;
-      const { audio } = await tts({ data: { text: clean.slice(0, 1500), voiceId, language } });
-      if (audioRef.current) {
-        audioRef.current.pause();
+      stopTTS();
+      const cacheKey = `${msgId}:${voiceId}:${speed}`;
+      let src = audioCache.current.get(cacheKey);
+      if (!src) {
+        const { audio } = await tts({ data: { text: clean.slice(0, 1500), voiceId, language, speed } });
+        src = `data:audio/mpeg;base64,${audio}`;
+        audioCache.current.set(cacheKey, src);
       }
-      const a = new Audio(`data:audio/mpeg;base64,${audio}`);
+      const a = new Audio(src);
       audioRef.current = a;
+      setPlayingId(msgId);
+      setPaused(false);
+      a.onended = () => { setPlayingId(null); setPaused(false); audioRef.current = null; };
       await a.play();
     } catch (e) {
+      setPlayingId(null);
+      setPaused(false);
       const msg = e instanceof Error ? e.message : "Voice failed";
       toast.error(msg);
     }
   }
+
 
   function handleBgUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
