@@ -288,7 +288,21 @@ function FurinaApp() {
                   <Label className="flex items-center gap-2">{ttsOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />} TTS otomatis</Label>
                   <Switch checked={ttsOn} onCheckedChange={(c) => { setTtsOn(c); savePref(STORAGE.tts, c ? "1" : "0"); }} />
                 </div>
+                <div className="pt-2 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Kecepatan bicara</Label>
+                    <span className="text-xs text-muted-foreground tabular-nums">{speed.toFixed(2)}x</span>
+                  </div>
+                  <Slider
+                    min={0.7}
+                    max={1.2}
+                    step={0.05}
+                    value={[speed]}
+                    onValueChange={(v) => { const s = v[0] ?? 1; setSpeed(s); savePref(STORAGE.speed, String(s)); audioCache.current.clear(); }}
+                  />
+                </div>
               </section>
+
 
               <section className="space-y-2">
                 <Label>Bahasa balasan</Label>
