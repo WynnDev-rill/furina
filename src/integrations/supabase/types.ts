@@ -14,13 +14,40 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      memories: {
+        Row: {
+          content: string
+          created_at: string
+          embedding: string
+          id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          embedding: string
+          id?: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          embedding?: string
+          id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      match_memories: {
+        Args: { match_count?: number; query_embedding: string }
+        Returns: {
+          content: string
+          id: string
+          similarity: number
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
