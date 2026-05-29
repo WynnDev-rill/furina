@@ -17,6 +17,7 @@ import furinaDefault from "@/assets/furina.jpg";
 import {
   chatWithFurina,
   speakFurina,
+  speakVoicevox,
   listMemories,
   deleteMemory,
   addMemory,
@@ -36,6 +37,7 @@ export const Route = createFileRoute("/")({
 });
 
 type Msg = { id: string; role: "user" | "assistant"; content: string; at: number };
+type TTSProvider = "elevenlabs" | "voicevox";
 
 const STORAGE = {
   msgs: "furina:messages",
@@ -46,6 +48,9 @@ const STORAGE = {
   lang: "furina:lang",
   tts: "furina:ttsEnabled",
   speed: "furina:ttsSpeed",
+  provider: "furina:ttsProvider",
+  vvSpeaker: "furina:vvSpeaker",
+  vvTranslate: "furina:vvTranslate",
 };
 
 
@@ -56,6 +61,18 @@ const VOICES = [
   { id: "cgSgspJ2msm6clMCkdW9", label: "Jessica — gentle" },
   { id: "pFZP5JQG7iQjIQuC4Bku", label: "Lily — soft anime-like" },
   { id: "FGY2WhTYpPnrIDTdsKH5", label: "Laura — clear feminine" },
+];
+
+// VOICEVOX speakers — 100% gratis, suara anime Jepang natural
+const VV_SPEAKERS = [
+  { id: 3, label: "ずんだもん (Zundamon) — maskot imut, ceria" },
+  { id: 2, label: "四国めたん (Metan) — gadis muda manis" },
+  { id: 8, label: "春日部つむぎ (Tsumugi) — cerah, energik" },
+  { id: 10, label: "雨晴はう (Hau) — lembut, tenang" },
+  { id: 9, label: "波音リツ (Ritsu) — dewasa, kalem" },
+  { id: 14, label: "冥鳴ひまり (Himari) — anggun, dramatis" },
+  { id: 20, label: "もち子さん (Mochiko) — hangat, kakak" },
+  { id: 23, label: "WhiteCUL — manis, polos" },
 ];
 
 function FurinaApp() {
