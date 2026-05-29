@@ -321,14 +321,57 @@ function FurinaApp() {
                 />
               </section>
 
-              <section className="space-y-2">
-                <Label>Suara (ElevenLabs)</Label>
-                <Select value={voiceId} onValueChange={(v) => { setVoiceId(v); savePref(STORAGE.voice, v); }}>
+              <section className="space-y-3">
+                <Label>Mesin suara (TTS)</Label>
+                <Select
+                  value={provider}
+                  onValueChange={(v) => {
+                    setProvider(v as TTSProvider);
+                    savePref(STORAGE.provider, v);
+                    audioCache.current.clear();
+                  }}
+                >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {VOICES.map((v) => <SelectItem key={v.id} value={v.id}>{v.label}</SelectItem>)}
+                    <SelectItem value="voicevox">VOICEVOX — anime Jepang (gratis)</SelectItem>
+                    <SelectItem value="elevenlabs">ElevenLabs — multibahasa (premium)</SelectItem>
                   </SelectContent>
                 </Select>
+
+                {provider === "elevenlabs" ? (
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Voice ElevenLabs</Label>
+                    <Select value={voiceId} onValueChange={(v) => { setVoiceId(v); savePref(STORAGE.voice, v); audioCache.current.clear(); }}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {VOICES.map((v) => <SelectItem key={v.id} value={v.id}>{v.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Karakter VOICEVOX (suara anime Jepang)</Label>
+                    <Select
+                      value={String(vvSpeaker)}
+                      onValueChange={(v) => { const n = parseInt(v, 10); setVvSpeaker(n); savePref(STORAGE.vvSpeaker, v); audioCache.current.clear(); }}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {VV_SPEAKERS.map((s) => <SelectItem key={s.id} value={String(s.id)}>{s.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <div className="flex items-center justify-between pt-1">
+                      <Label className="text-xs">Auto-terjemah balasan ke Jepang</Label>
+                      <Switch
+                        checked={vvTranslate}
+                        onCheckedChange={(c) => { setVvTranslate(c); savePref(STORAGE.vvTranslate, c ? "1" : "0"); audioCache.current.clear(); }}
+                      />
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">
+                      Teks balasan tetap dalam bahasa pilihanmu (mis. Indonesia), tapi suaranya otomatis dibacakan dalam bahasa Jepang ala anime. 100% gratis lewat VOICEVOX.
+                    </p>
+                  </div>
+                )}
                 <div className="flex items-center justify-between pt-2">
                   <Label className="flex items-center gap-2">{ttsOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />} TTS otomatis</Label>
                   <Switch checked={ttsOn} onCheckedChange={(c) => { setTtsOn(c); savePref(STORAGE.tts, c ? "1" : "0"); }} />
