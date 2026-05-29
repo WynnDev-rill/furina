@@ -78,6 +78,7 @@ const VV_SPEAKERS = [
 function FurinaApp() {
   const chat = useServerFn(chatWithFurina);
   const tts = useServerFn(speakFurina);
+  const ttsVV = useServerFn(speakVoicevox);
   const listMemFn = useServerFn(listMemories);
   const delMemFn = useServerFn(deleteMemory);
   const addMemFn = useServerFn(addMemory);
@@ -93,6 +94,9 @@ function FurinaApp() {
   const [language, setLanguage] = useState<"auto" | "ja" | "en" | "id">("auto");
   const [ttsOn, setTtsOn] = useState(true);
   const [speed, setSpeed] = useState(1.0);
+  const [provider, setProvider] = useState<TTSProvider>("voicevox");
+  const [vvSpeaker, setVvSpeaker] = useState<number>(VV_SPEAKERS[0].id);
+  const [vvTranslate, setVvTranslate] = useState(true);
   const [openSettings, setOpenSettings] = useState(false);
   const [memories, setMemories] = useState<{ id: string; content: string }[]>([]);
   const [newMem, setNewMem] = useState("");
@@ -124,6 +128,13 @@ function FurinaApp() {
       if (t) setTtsOn(t === "1");
       const sp = localStorage.getItem(STORAGE.speed);
       if (sp) setSpeed(Math.min(1.2, Math.max(0.7, parseFloat(sp) || 1.0)));
+      const pr = localStorage.getItem(STORAGE.provider);
+      if (pr === "elevenlabs" || pr === "voicevox") setProvider(pr);
+      const vs = localStorage.getItem(STORAGE.vvSpeaker);
+      if (vs) setVvSpeaker(parseInt(vs, 10) || VV_SPEAKERS[0].id);
+      const vt = localStorage.getItem(STORAGE.vvTranslate);
+      if (vt) setVvTranslate(vt === "1");
+
     } catch {}
   }, []);
 
