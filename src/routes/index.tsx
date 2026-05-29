@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
-import { Send, Settings, Trash2, Plus, Volume2, VolumeX, Image as ImageIcon, RotateCcw, Play, Pause, Square } from "lucide-react";
+import { Send, Settings, Trash2, Plus, Volume2, VolumeX, Image as ImageIcon, RotateCcw, Play, Pause, Square, Loader2, MessageSquarePlus, MessagesSquare, Check, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetDescription } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
@@ -38,9 +38,11 @@ export const Route = createFileRoute("/")({
 
 type Msg = { id: string; role: "user" | "assistant"; content: string; at: number };
 type TTSProvider = "elevenlabs" | "voicevox";
+type Conversation = { id: string; title: string; messages: Msg[]; updatedAt: number };
 
 const STORAGE = {
-  msgs: "furina:messages",
+  convos: "furina:conversations",
+  activeId: "furina:activeConvoId",
   bg: "furina:bg",
   voice: "furina:voiceId",
   name: "furina:name",
@@ -51,7 +53,13 @@ const STORAGE = {
   provider: "furina:ttsProvider",
   vvSpeaker: "furina:vvSpeaker",
   vvTranslate: "furina:vvTranslate",
+  legacyMsgs: "furina:messages",
 };
+
+function newConversation(): Conversation {
+  return { id: crypto.randomUUID(), title: "Percakapan baru", messages: [], updatedAt: Date.now() };
+}
+
 
 
 const VOICES = [
