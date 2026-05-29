@@ -650,6 +650,7 @@ function FurinaApp() {
         {messages.map((m) => {
           const isUser = m.role === "user";
           const isPlaying = playingId === m.id;
+          const isLoading = loadingId === m.id;
           return (
             <div key={m.id} className={isUser ? "flex max-w-[85%] self-end flex-col items-end" : "flex max-w-[85%] self-start flex-col items-start"}>
               <div
@@ -663,7 +664,18 @@ function FurinaApp() {
               </div>
               {!isUser && (
                 <div className="mt-1 flex items-center gap-1 px-1">
-                  {!isPlaying && (
+                  {isLoading && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1 text-[11px] text-white backdrop-blur-md animate-pulse">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Menyiapkan suara…
+                      <span className="inline-flex gap-0.5 ml-0.5">
+                        <span className="h-1 w-1 animate-bounce rounded-full bg-white/80 [animation-delay:-0.3s]" />
+                        <span className="h-1 w-1 animate-bounce rounded-full bg-white/80 [animation-delay:-0.15s]" />
+                        <span className="h-1 w-1 animate-bounce rounded-full bg-white/80" />
+                      </span>
+                    </span>
+                  )}
+                  {!isLoading && !isPlaying && (
                     <button
                       onClick={() => playTTS(m.id, m.content)}
                       className="rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition hover:bg-black/60"
@@ -672,7 +684,7 @@ function FurinaApp() {
                       <Play className="h-3 w-3" />
                     </button>
                   )}
-                  {isPlaying && !paused && (
+                  {!isLoading && isPlaying && !paused && (
                     <button
                       onClick={pauseTTS}
                       className="rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition hover:bg-black/60"
@@ -681,7 +693,7 @@ function FurinaApp() {
                       <Pause className="h-3 w-3" />
                     </button>
                   )}
-                  {isPlaying && paused && (
+                  {!isLoading && isPlaying && paused && (
                     <button
                       onClick={resumeTTS}
                       className="rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition hover:bg-black/60"
@@ -690,7 +702,7 @@ function FurinaApp() {
                       <Play className="h-3 w-3" />
                     </button>
                   )}
-                  {isPlaying && (
+                  {!isLoading && isPlaying && (
                     <button
                       onClick={stopTTS}
                       className="rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition hover:bg-black/60"
