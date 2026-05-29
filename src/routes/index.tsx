@@ -92,7 +92,8 @@ function FurinaApp() {
   const addMemFn = useServerFn(addMemory);
   const clearMemFn = useServerFn(clearAllMemories);
 
-  const [messages, setMessages] = useState<Msg[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeId, setActiveId] = useState<string>("");
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [bg, setBg] = useState<string>(furinaDefault);
@@ -106,22 +107,45 @@ function FurinaApp() {
   const [vvSpeaker, setVvSpeaker] = useState<number>(VV_SPEAKERS[0].id);
   const [vvTranslate, setVvTranslate] = useState(true);
   const [openSettings, setOpenSettings] = useState(false);
+  const [openConvos, setOpenConvos] = useState(false);
   const [memories, setMemories] = useState<{ id: string; content: string }[]>([]);
   const [newMem, setNewMem] = useState("");
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [loadingId, setLoadingId] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
+  const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
+  const [editingTitleVal, setEditingTitleVal] = useState("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioCache = useRef<Map<string, string>>(new Map());
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
+  const activeConvo = conversations.find((c) => c.id === activeId);
+  const messages = activeConvo?.messages ?? [];
 
   // Load persisted state
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      const m = localStorage.getItem(STORAGE.msgs);
-      if (m) setMessages(JSON.parse(m));
+      const rawConvos = localStorage.getItem(STORAGE.convos);
+      let loaded: Conversation[] = [];
+      if (rawConvos) {
+        loaded = JSON.parse(rawConvos);
+      } else {
+        const legacy = localStorage.getItem(STORAGE.legacyMsgs);
+        if (legacy) {
+          const msgs: Msg[] = JSON.parse(legacy);
+          if (msgs.length) {
+            loaded = [{ id: crypto.randomUUID(), title: "Percakapan lama", messages: msgs, updatedAt: Date.now() }];
+          }
+          localStorage.removeItem(STORAGE.legacyMsgs);
+        }
+      }
+      if (!loaded.length) loaded = [newConversation()];
+      setConversations(loaded);
+      const savedActive = localStorage.getItem(STORAGE.activeId);
+      setActiveId(savedActive && loaded.some((c) => c.id === savedActive) ? savedActive : loaded[0].id);
+
       const b = localStorage.getItem(STORAGE.bg);
       if (b) setBg(b);
       const v = localStorage.getItem(STORAGE.voice);
@@ -142,17 +166,59 @@ function FurinaApp() {
       if (vs) setVvSpeaker(parseInt(vs, 10) || VV_SPEAKERS[0].id);
       const vt = localStorage.getItem(STORAGE.vvTranslate);
       if (vt) setVvTranslate(vt === "1");
-
     } catch {}
   }, []);
 
+  useEffect(() => {
+    if (!conversations.length) return;
+    try { localStorage.setItem(STORAGE.convos, JSON.stringify(conversations)); } catch {}
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [conversations, activeId]);
 
   useEffect(() => {
-    try { localStorage.setItem(STORAGE.msgs, JSON.stringify(messages)); } catch {}
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages]);
+    if (activeId) try { localStorage.setItem(STORAGE.activeId, activeId); } catch {}
+  }, [activeId]);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
+
+  function updateActiveMessages(updater: (prev: Msg[]) => Msg[]) {
+    setConversations((convos) =>
+      convos.map((c) =>
+        c.id === activeId
+          ? { ...c, messages: updater(c.messages), updatedAt: Date.now() }
+          : c,
+      ),
+    );
+  }
+
+  function startNewConversation() {
+    stopTTS();
+    const c = newConversation();
+    setConversations((prev) => [c, ...prev]);
+    setActiveId(c.id);
+    setOpenConvos(false);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  function selectConversation(id: string) {
+    stopTTS();
+    setActiveId(id);
+    setOpenConvos(false);
+  }
+
+  function deleteConversation(id: string) {
+    setConversations((prev) => {
+      const filtered = prev.filter((c) => c.id !== id);
+      const next = filtered.length ? filtered : [newConversation()];
+      if (id === activeId) setActiveId(next[0].id);
+      return next;
+    });
+  }
+
+  function renameConversation(id: string, title: string) {
+    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, title: title.trim() || c.title } : c)));
+  }
+
 
   async function send() {
     const text = input.trim();
