@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
-import { Send, Settings, Trash2, Plus, Volume2, VolumeX, Image as ImageIcon, RotateCcw, Play, Pause, Square } from "lucide-react";
+import { Send, Settings, Trash2, Plus, Volume2, VolumeX, Image as ImageIcon, RotateCcw, Play, Pause, Square, Loader2, MessageSquarePlus, MessagesSquare, Check, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetDescription } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
@@ -38,9 +38,11 @@ export const Route = createFileRoute("/")({
 
 type Msg = { id: string; role: "user" | "assistant"; content: string; at: number };
 type TTSProvider = "elevenlabs" | "voicevox";
+type Conversation = { id: string; title: string; messages: Msg[]; updatedAt: number };
 
 const STORAGE = {
-  msgs: "furina:messages",
+  convos: "furina:conversations",
+  activeId: "furina:activeConvoId",
   bg: "furina:bg",
   voice: "furina:voiceId",
   name: "furina:name",
@@ -51,7 +53,13 @@ const STORAGE = {
   provider: "furina:ttsProvider",
   vvSpeaker: "furina:vvSpeaker",
   vvTranslate: "furina:vvTranslate",
+  legacyMsgs: "furina:messages",
 };
+
+function newConversation(): Conversation {
+  return { id: crypto.randomUUID(), title: "Percakapan baru", messages: [], updatedAt: Date.now() };
+}
+
 
 
 const VOICES = [
@@ -84,7 +92,8 @@ function FurinaApp() {
   const addMemFn = useServerFn(addMemory);
   const clearMemFn = useServerFn(clearAllMemories);
 
-  const [messages, setMessages] = useState<Msg[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeId, setActiveId] = useState<string>("");
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [bg, setBg] = useState<string>(furinaDefault);
@@ -98,22 +107,45 @@ function FurinaApp() {
   const [vvSpeaker, setVvSpeaker] = useState<number>(VV_SPEAKERS[0].id);
   const [vvTranslate, setVvTranslate] = useState(true);
   const [openSettings, setOpenSettings] = useState(false);
+  const [openConvos, setOpenConvos] = useState(false);
   const [memories, setMemories] = useState<{ id: string; content: string }[]>([]);
   const [newMem, setNewMem] = useState("");
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [loadingId, setLoadingId] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
+  const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
+  const [editingTitleVal, setEditingTitleVal] = useState("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioCache = useRef<Map<string, string>>(new Map());
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
+  const activeConvo = conversations.find((c) => c.id === activeId);
+  const messages = activeConvo?.messages ?? [];
 
   // Load persisted state
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      const m = localStorage.getItem(STORAGE.msgs);
-      if (m) setMessages(JSON.parse(m));
+      const rawConvos = localStorage.getItem(STORAGE.convos);
+      let loaded: Conversation[] = [];
+      if (rawConvos) {
+        loaded = JSON.parse(rawConvos);
+      } else {
+        const legacy = localStorage.getItem(STORAGE.legacyMsgs);
+        if (legacy) {
+          const msgs: Msg[] = JSON.parse(legacy);
+          if (msgs.length) {
+            loaded = [{ id: crypto.randomUUID(), title: "Percakapan lama", messages: msgs, updatedAt: Date.now() }];
+          }
+          localStorage.removeItem(STORAGE.legacyMsgs);
+        }
+      }
+      if (!loaded.length) loaded = [newConversation()];
+      setConversations(loaded);
+      const savedActive = localStorage.getItem(STORAGE.activeId);
+      setActiveId(savedActive && loaded.some((c) => c.id === savedActive) ? savedActive : loaded[0].id);
+
       const b = localStorage.getItem(STORAGE.bg);
       if (b) setBg(b);
       const v = localStorage.getItem(STORAGE.voice);
@@ -134,24 +166,71 @@ function FurinaApp() {
       if (vs) setVvSpeaker(parseInt(vs, 10) || VV_SPEAKERS[0].id);
       const vt = localStorage.getItem(STORAGE.vvTranslate);
       if (vt) setVvTranslate(vt === "1");
-
     } catch {}
   }, []);
 
+  useEffect(() => {
+    if (!conversations.length) return;
+    try { localStorage.setItem(STORAGE.convos, JSON.stringify(conversations)); } catch {}
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [conversations, activeId]);
 
   useEffect(() => {
-    try { localStorage.setItem(STORAGE.msgs, JSON.stringify(messages)); } catch {}
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages]);
+    if (activeId) try { localStorage.setItem(STORAGE.activeId, activeId); } catch {}
+  }, [activeId]);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
+
+  function updateActiveMessages(updater: (prev: Msg[]) => Msg[]) {
+    setConversations((convos) =>
+      convos.map((c) =>
+        c.id === activeId
+          ? { ...c, messages: updater(c.messages), updatedAt: Date.now() }
+          : c,
+      ),
+    );
+  }
+
+  function startNewConversation() {
+    stopTTS();
+    const c = newConversation();
+    setConversations((prev) => [c, ...prev]);
+    setActiveId(c.id);
+    setOpenConvos(false);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  function selectConversation(id: string) {
+    stopTTS();
+    setActiveId(id);
+    setOpenConvos(false);
+  }
+
+  function deleteConversation(id: string) {
+    setConversations((prev) => {
+      const filtered = prev.filter((c) => c.id !== id);
+      const next = filtered.length ? filtered : [newConversation()];
+      if (id === activeId) setActiveId(next[0].id);
+      return next;
+    });
+  }
+
+  function renameConversation(id: string, title: string) {
+    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, title: title.trim() || c.title } : c)));
+  }
+
 
   async function send() {
     const text = input.trim();
     if (!text || sending) return;
     const userMsg: Msg = { id: crypto.randomUUID(), role: "user", content: text, at: Date.now() };
     const next = [...messages, userMsg];
-    setMessages(next);
+    updateActiveMessages(() => next);
+    // Auto-title percakapan baru dari pesan pertama
+    if (activeConvo && (activeConvo.title === "Percakapan baru" || !activeConvo.title)) {
+      const t = text.slice(0, 40).replace(/\s+/g, " ").trim();
+      renameConversation(activeConvo.id, t || "Percakapan baru");
+    }
     setInput("");
     setSending(true);
     try {
@@ -165,7 +244,7 @@ function FurinaApp() {
         },
       });
       const aiMsg: Msg = { id: crypto.randomUUID(), role: "assistant", content: reply, at: Date.now() };
-      setMessages((prev) => [...prev, aiMsg]);
+      updateActiveMessages((prev) => [...prev, aiMsg]);
       if (ttsOn) playTTS(aiMsg.id, reply);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Something went wrong";
@@ -175,6 +254,7 @@ function FurinaApp() {
       setTimeout(() => inputRef.current?.focus(), 0);
     }
   }
+
 
   function stopTTS() {
     if (audioRef.current) {
@@ -211,23 +291,28 @@ function FurinaApp() {
           : `el:${msgId}:${voiceId}:${speed}`;
       let src = audioCache.current.get(cacheKey);
       if (!src) {
-        if (provider === "voicevox") {
-          const { audio } = await ttsVV({
-            data: {
-              text: clean.slice(0, 1200),
-              speaker: vvSpeaker,
-              speed,
-              translateToJa: vvTranslate,
-            },
-          });
-          src = `data:audio/mpeg;base64,${audio}`;
-        } else {
-          const { audio } = await tts({
-            data: { text: clean.slice(0, 1500), voiceId, language, speed },
-          });
-          src = `data:audio/mpeg;base64,${audio}`;
+        setLoadingId(msgId);
+        try {
+          if (provider === "voicevox") {
+            const { audio } = await ttsVV({
+              data: {
+                text: clean.slice(0, 1200),
+                speaker: vvSpeaker,
+                speed,
+                translateToJa: vvTranslate,
+              },
+            });
+            src = `data:audio/mpeg;base64,${audio}`;
+          } else {
+            const { audio } = await tts({
+              data: { text: clean.slice(0, 1500), voiceId, language, speed },
+            });
+            src = `data:audio/mpeg;base64,${audio}`;
+          }
+          audioCache.current.set(cacheKey, src);
+        } finally {
+          setLoadingId(null);
         }
-        audioCache.current.set(cacheKey, src);
       }
       const a = new Audio(src);
       audioRef.current = a;
@@ -236,12 +321,14 @@ function FurinaApp() {
       a.onended = () => { setPlayingId(null); setPaused(false); audioRef.current = null; };
       await a.play();
     } catch (e) {
+      setLoadingId(null);
       setPlayingId(null);
       setPaused(false);
       const msg = e instanceof Error ? e.message : "Voice failed";
       toast.error(msg);
     }
   }
+
 
 
   function handleBgUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -268,9 +355,9 @@ function FurinaApp() {
   }
 
   function clearChat() {
-    setMessages([]);
-    try { localStorage.removeItem(STORAGE.msgs); } catch {}
+    updateActiveMessages(() => []);
   }
+
 
   function savePref(key: string, value: string) {
     try { localStorage.setItem(key, value); } catch {}
@@ -290,15 +377,101 @@ function FurinaApp() {
 
       {/* Top bar */}
       <header className="absolute left-0 right-0 top-0 z-20 flex items-center justify-between p-4">
-        <div className="rounded-full bg-black/30 px-4 py-1.5 text-sm font-medium text-white backdrop-blur-md">
-          {name}
+        <div className="flex items-center gap-2">
+          <div className="rounded-full bg-black/30 px-4 py-1.5 text-sm font-medium text-white backdrop-blur-md max-w-[55vw] truncate">
+            {name}
+            {activeConvo && <span className="ml-2 text-xs text-white/60 truncate">· {activeConvo.title}</span>}
+          </div>
         </div>
-        <Sheet open={openSettings} onOpenChange={(o) => { setOpenSettings(o); if (o) refreshMemories(); }}>
-          <SheetTrigger asChild>
-            <Button size="icon" variant="ghost" className="rounded-full bg-black/30 text-white backdrop-blur-md hover:bg-black/50">
-              <Settings className="h-5 w-5" />
-            </Button>
-          </SheetTrigger>
+        <div className="flex items-center gap-2">
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={startNewConversation}
+            className="rounded-full bg-black/30 text-white backdrop-blur-md hover:bg-black/50"
+            aria-label="Percakapan baru"
+            title="Percakapan baru"
+          >
+            <MessageSquarePlus className="h-5 w-5" />
+          </Button>
+
+          <Sheet open={openConvos} onOpenChange={setOpenConvos}>
+            <SheetTrigger asChild>
+              <Button size="icon" variant="ghost" className="rounded-full bg-black/30 text-white backdrop-blur-md hover:bg-black/50" aria-label="Riwayat percakapan" title="Riwayat percakapan">
+                <MessagesSquare className="h-5 w-5" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="w-full overflow-y-auto sm:max-w-sm">
+              <SheetHeader>
+                <SheetTitle>Riwayat Percakapan</SheetTitle>
+                <SheetDescription>Semua percakapanmu tersimpan lokal di browser.</SheetDescription>
+              </SheetHeader>
+              <div className="mt-4 space-y-2">
+                <Button onClick={startNewConversation} className="w-full">
+                  <Plus className="mr-2 h-4 w-4" /> Percakapan baru
+                </Button>
+                <div className="mt-3 space-y-1">
+                  {[...conversations].sort((a, b) => b.updatedAt - a.updatedAt).map((c) => {
+                    const isActive = c.id === activeId;
+                    const preview = c.messages[c.messages.length - 1]?.content?.slice(0, 60) ?? "Belum ada pesan";
+                    return (
+                      <div
+                        key={c.id}
+                        className={`group rounded-lg border p-2 transition ${isActive ? "border-primary bg-accent" : "hover:bg-muted"}`}
+                      >
+                        {editingTitleId === c.id ? (
+                          <div className="flex items-center gap-1">
+                            <Input
+                              autoFocus
+                              value={editingTitleVal}
+                              onChange={(e) => setEditingTitleVal(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") { renameConversation(c.id, editingTitleVal); setEditingTitleId(null); }
+                                if (e.key === "Escape") setEditingTitleId(null);
+                              }}
+                              className="h-7 text-sm"
+                            />
+                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { renameConversation(c.id, editingTitleVal); setEditingTitleId(null); }}>
+                              <Check className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <button onClick={() => selectConversation(c.id)} className="flex w-full flex-col text-left">
+                            <span className="truncate text-sm font-medium">{c.title}</span>
+                            <span className="truncate text-xs text-muted-foreground">{preview}</span>
+                            <span className="text-[10px] text-muted-foreground">{new Date(c.updatedAt).toLocaleString()}</span>
+                          </button>
+                        )}
+                        {editingTitleId !== c.id && (
+                          <div className="mt-1 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
+                            <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => { setEditingTitleId(c.id); setEditingTitleVal(c.title); }}>
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-6 w-6 text-destructive"
+                              onClick={() => { if (confirm("Hapus percakapan ini?")) deleteConversation(c.id); }}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          <Sheet open={openSettings} onOpenChange={(o) => { setOpenSettings(o); if (o) refreshMemories(); }}>
+            <SheetTrigger asChild>
+              <Button size="icon" variant="ghost" className="rounded-full bg-black/30 text-white backdrop-blur-md hover:bg-black/50">
+                <Settings className="h-5 w-5" />
+              </Button>
+            </SheetTrigger>
+
           <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-md">
             <SheetHeader>
               <SheetTitle>Pengaturan</SheetTitle>
@@ -459,7 +632,9 @@ function FurinaApp() {
             </div>
           </SheetContent>
         </Sheet>
+        </div>
       </header>
+
 
       {/* Chat messages overlay */}
       <main
@@ -475,6 +650,7 @@ function FurinaApp() {
         {messages.map((m) => {
           const isUser = m.role === "user";
           const isPlaying = playingId === m.id;
+          const isLoading = loadingId === m.id;
           return (
             <div key={m.id} className={isUser ? "flex max-w-[85%] self-end flex-col items-end" : "flex max-w-[85%] self-start flex-col items-start"}>
               <div
@@ -488,7 +664,18 @@ function FurinaApp() {
               </div>
               {!isUser && (
                 <div className="mt-1 flex items-center gap-1 px-1">
-                  {!isPlaying && (
+                  {isLoading && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1 text-[11px] text-white backdrop-blur-md animate-pulse">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Menyiapkan suara…
+                      <span className="inline-flex gap-0.5 ml-0.5">
+                        <span className="h-1 w-1 animate-bounce rounded-full bg-white/80 [animation-delay:-0.3s]" />
+                        <span className="h-1 w-1 animate-bounce rounded-full bg-white/80 [animation-delay:-0.15s]" />
+                        <span className="h-1 w-1 animate-bounce rounded-full bg-white/80" />
+                      </span>
+                    </span>
+                  )}
+                  {!isLoading && !isPlaying && (
                     <button
                       onClick={() => playTTS(m.id, m.content)}
                       className="rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition hover:bg-black/60"
@@ -497,7 +684,7 @@ function FurinaApp() {
                       <Play className="h-3 w-3" />
                     </button>
                   )}
-                  {isPlaying && !paused && (
+                  {!isLoading && isPlaying && !paused && (
                     <button
                       onClick={pauseTTS}
                       className="rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition hover:bg-black/60"
@@ -506,7 +693,7 @@ function FurinaApp() {
                       <Pause className="h-3 w-3" />
                     </button>
                   )}
-                  {isPlaying && paused && (
+                  {!isLoading && isPlaying && paused && (
                     <button
                       onClick={resumeTTS}
                       className="rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition hover:bg-black/60"
@@ -515,7 +702,7 @@ function FurinaApp() {
                       <Play className="h-3 w-3" />
                     </button>
                   )}
-                  {isPlaying && (
+                  {!isLoading && isPlaying && (
                     <button
                       onClick={stopTTS}
                       className="rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition hover:bg-black/60"

@@ -198,46 +198,87 @@ const VVInput = z.object({
   translateToJa: z.boolean().default(true),
 });
 
+type Emotion = "neutral" | "happy" | "sad" | "angry" | "excited" | "shy" | "tender" | "playful";
+
+// Per-emotion voice profile (pitch + intonation + speed multiplier).
+// VOICEVOX tts.quest: pitch (-0.15..0.15), intonationScale (0..2), speed multiplier.
+const EMOTION_PROFILES: Record<Emotion, { pitch: number; intonation: number; speedMul: number; hint: string }> = {
+  neutral:  { pitch:  0.00, intonation: 1.00, speedMul: 1.00, hint: "tone biasa, natural" },
+  happy:    { pitch:  0.05, intonation: 1.40, speedMul: 1.05, hint: "ceria, ringan, tersenyum — boleh tambah ふふっ / えへへ" },
+  excited:  { pitch:  0.08, intonation: 1.60, speedMul: 1.10, hint: "sangat bersemangat — boleh tambah わぁ! / すごい!" },
+  playful:  { pitch:  0.06, intonation: 1.45, speedMul: 1.05, hint: "menggoda, jenaka — boleh tambah ふふん~ / もう~" },
+  tender:   { pitch:  0.02, intonation: 1.10, speedMul: 0.95, hint: "lembut, hangat, perhatian — pelankan akhir kalimat" },
+  shy:      { pitch:  0.04, intonation: 0.85, speedMul: 0.95, hint: "malu, ragu — boleh tambah あの… / えっと…" },
+  sad:      { pitch: -0.04, intonation: 0.70, speedMul: 0.88, hint: "sedih, lirih, helaan napas — boleh tambah はぁ… / そっか…" },
+  angry:    { pitch: -0.02, intonation: 1.70, speedMul: 1.08, hint: "kesal, tegas — boleh tambah もう! / ちょっと!" },
+};
+
+async function detectEmotionAndTranslate(srcText: string): Promise<{ ja: string; emotion: Emotion }> {
+  const res = await fetch(`${GATEWAY}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-flash-lite",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You convert text into natural spoken Japanese for an anime-style female voice AND classify the dominant emotion.\n" +
+            "Allowed emotions: neutral, happy, sad, angry, excited, shy, tender, playful.\n" +
+            "Rules:\n" +
+            "- Output STRICT JSON: {\"emotion\":\"<one>\",\"ja\":\"<japanese text>\"}\n" +
+            "- ja must be ONLY natural spoken Japanese (no romaji, no quotes, no explanation).\n" +
+            "- Add small expressive interjections that fit the emotion (ふふっ, あら~, もう!, はぁ…, わぁ!, えっと…) sparingly.\n" +
+            "- Convert numbers/symbols to Japanese reading.",
+        },
+        { role: "user", content: srcText },
+      ],
+    }),
+  });
+  if (!res.ok) return { ja: srcText, emotion: "neutral" };
+  const j = await res.json();
+  const raw: string = j.choices?.[0]?.message?.content?.trim() ?? "";
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (!m) return { ja: srcText, emotion: "neutral" };
+  try {
+    const parsed = JSON.parse(m[0]);
+    const emotion = (["neutral","happy","sad","angry","excited","shy","tender","playful"].includes(parsed.emotion)
+      ? parsed.emotion : "neutral") as Emotion;
+    const ja = typeof parsed.ja === "string" ? parsed.ja.replace(/^["「『]+|["」』]+$/g, "").trim() : srcText;
+    return { ja: ja || srcText, emotion };
+  } catch {
+    return { ja: srcText, emotion: "neutral" };
+  }
+}
+
 export const speakVoicevox = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => VVInput.parse(d))
   .handler(async ({ data }) => {
     let jaText = data.text;
+    let emotion: Emotion = "neutral";
 
-    // Auto-translate to Japanese for natural anime voice
     if (data.translateToJa) {
       try {
-        const tr = await fetch(`${GATEWAY}/chat/completions`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Lovable-API-Key": apiKey(),
-          },
-          body: JSON.stringify({
-            model: "google/gemini-2.5-flash-lite",
-            messages: [
-              {
-                role: "system",
-                content:
-                  "Translate the user's text into natural spoken Japanese suitable for an anime-style female voice. Output ONLY the Japanese translation — no quotes, no romaji, no explanation. Use casual/expressive register with small interjections (ふふっ, あら, もう~) when fitting. Convert numbers/symbols to Japanese reading.",
-              },
-              { role: "user", content: data.text },
-            ],
-          }),
-        });
-        if (tr.ok) {
-          const j = await tr.json();
-          const t: string | undefined = j.choices?.[0]?.message?.content?.trim();
-          if (t) jaText = t.replace(/^["「『]+|["」』]+$/g, "").trim();
-        }
+        const r = await detectEmotionAndTranslate(data.text);
+        jaText = r.ja;
+        emotion = r.emotion;
       } catch (e) {
-        console.error("Translate to JA failed:", e);
+        console.error("Translate+emotion failed:", e);
       }
     }
 
-    // tts.quest free public VOICEVOX API
-    const initUrl = `https://api.tts.quest/v3/voicevox/synthesis?speaker=${data.speaker}&text=${encodeURIComponent(
-      jaText,
-    )}&speed=${data.speed}`;
+    const profile = EMOTION_PROFILES[emotion];
+    const finalSpeed = Math.min(2, Math.max(0.5, data.speed * profile.speedMul));
+
+    // tts.quest free public VOICEVOX API — with pitch & intonation for emotion
+    const params = new URLSearchParams({
+      speaker: String(data.speaker),
+      text: jaText,
+      speed: finalSpeed.toFixed(2),
+      pitch: profile.pitch.toFixed(2),
+      intonationScale: profile.intonation.toFixed(2),
+    });
+    const initUrl = `https://api.tts.quest/v3/voicevox/synthesis?${params.toString()}`;
     const init = await fetch(initUrl);
     if (!init.ok) throw new Error(`VOICEVOX init failed: ${init.status}`);
     const meta = await init.json();
@@ -269,6 +310,7 @@ export const speakVoicevox = createServerFn({ method: "POST" })
     return {
       audio: Buffer.from(buf).toString("base64"),
       japaneseText: jaText,
+      emotion,
     };
   });
 
