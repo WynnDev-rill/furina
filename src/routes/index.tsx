@@ -355,9 +355,9 @@ function FurinaApp() {
   }
 
   function clearChat() {
-    setMessages([]);
-    try { localStorage.removeItem(STORAGE.msgs); } catch {}
+    updateActiveMessages(() => []);
   }
+
 
   function savePref(key: string, value: string) {
     try { localStorage.setItem(key, value); } catch {}
