@@ -191,6 +191,87 @@ export const speakFurina = createServerFn({ method: "POST" })
     return { audio: base64 };
   });
 
+const VVInput = z.object({
+  text: z.string().min(1).max(1500),
+  speaker: z.number().int().min(0).max(100).default(3),
+  speed: z.number().min(0.5).max(2).default(1.0),
+  translateToJa: z.boolean().default(true),
+});
+
+export const speakVoicevox = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => VVInput.parse(d))
+  .handler(async ({ data }) => {
+    let jaText = data.text;
+
+    // Auto-translate to Japanese for natural anime voice
+    if (data.translateToJa) {
+      try {
+        const tr = await fetch(`${GATEWAY}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Lovable-API-Key": apiKey(),
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash-lite",
+            messages: [
+              {
+                role: "system",
+                content:
+                  "Translate the user's text into natural spoken Japanese suitable for an anime-style female voice. Output ONLY the Japanese translation — no quotes, no romaji, no explanation. Use casual/expressive register with small interjections (ふふっ, あら, もう~) when fitting. Convert numbers/symbols to Japanese reading.",
+              },
+              { role: "user", content: data.text },
+            ],
+          }),
+        });
+        if (tr.ok) {
+          const j = await tr.json();
+          const t: string | undefined = j.choices?.[0]?.message?.content?.trim();
+          if (t) jaText = t.replace(/^["「『]+|["」』]+$/g, "").trim();
+        }
+      } catch (e) {
+        console.error("Translate to JA failed:", e);
+      }
+    }
+
+    // tts.quest free public VOICEVOX API
+    const initUrl = `https://api.tts.quest/v3/voicevox/synthesis?speaker=${data.speaker}&text=${encodeURIComponent(
+      jaText,
+    )}&speed=${data.speed}`;
+    const init = await fetch(initUrl);
+    if (!init.ok) throw new Error(`VOICEVOX init failed: ${init.status}`);
+    const meta = await init.json();
+    if (!meta.success) {
+      throw new Error(meta.errorMessage || "VOICEVOX request failed");
+    }
+
+    // Poll audio status until ready
+    const statusUrl: string = meta.audioStatusUrl;
+    const mp3Url: string = meta.mp3DownloadUrl;
+    let ready = false;
+    for (let i = 0; i < 40; i++) {
+      const s = await fetch(statusUrl);
+      if (s.ok) {
+        const sj = await s.json();
+        if (sj.isAudioReady) {
+          ready = true;
+          break;
+        }
+        if (sj.isAudioError) throw new Error("VOICEVOX synthesis error");
+      }
+      await new Promise((r) => setTimeout(r, 600));
+    }
+    if (!ready) throw new Error("VOICEVOX timeout (server busy, coba lagi)");
+
+    const audio = await fetch(mp3Url);
+    if (!audio.ok) throw new Error(`VOICEVOX fetch failed: ${audio.status}`);
+    const buf = await audio.arrayBuffer();
+    return {
+      audio: Buffer.from(buf).toString("base64"),
+      japaneseText: jaText,
+    };
+  });
+
 export const listMemories = createServerFn({ method: "GET" }).handler(async () => {
   const { data, error } = await supabaseAdmin
     .from("memories")
