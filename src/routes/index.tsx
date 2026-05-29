@@ -205,11 +205,28 @@ function FurinaApp() {
       const clean = text.replace(/\*[^*]+\*/g, "").trim();
       if (!clean) return;
       stopTTS();
-      const cacheKey = `${msgId}:${voiceId}:${speed}`;
+      const cacheKey =
+        provider === "voicevox"
+          ? `vv:${msgId}:${vvSpeaker}:${speed}:${vvTranslate ? 1 : 0}`
+          : `el:${msgId}:${voiceId}:${speed}`;
       let src = audioCache.current.get(cacheKey);
       if (!src) {
-        const { audio } = await tts({ data: { text: clean.slice(0, 1500), voiceId, language, speed } });
-        src = `data:audio/mpeg;base64,${audio}`;
+        if (provider === "voicevox") {
+          const { audio } = await ttsVV({
+            data: {
+              text: clean.slice(0, 1200),
+              speaker: vvSpeaker,
+              speed,
+              translateToJa: vvTranslate,
+            },
+          });
+          src = `data:audio/mpeg;base64,${audio}`;
+        } else {
+          const { audio } = await tts({
+            data: { text: clean.slice(0, 1500), voiceId, language, speed },
+          });
+          src = `data:audio/mpeg;base64,${audio}`;
+        }
         audioCache.current.set(cacheKey, src);
       }
       const a = new Audio(src);
