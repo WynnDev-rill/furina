@@ -291,23 +291,28 @@ function FurinaApp() {
           : `el:${msgId}:${voiceId}:${speed}`;
       let src = audioCache.current.get(cacheKey);
       if (!src) {
-        if (provider === "voicevox") {
-          const { audio } = await ttsVV({
-            data: {
-              text: clean.slice(0, 1200),
-              speaker: vvSpeaker,
-              speed,
-              translateToJa: vvTranslate,
-            },
-          });
-          src = `data:audio/mpeg;base64,${audio}`;
-        } else {
-          const { audio } = await tts({
-            data: { text: clean.slice(0, 1500), voiceId, language, speed },
-          });
-          src = `data:audio/mpeg;base64,${audio}`;
+        setLoadingId(msgId);
+        try {
+          if (provider === "voicevox") {
+            const { audio } = await ttsVV({
+              data: {
+                text: clean.slice(0, 1200),
+                speaker: vvSpeaker,
+                speed,
+                translateToJa: vvTranslate,
+              },
+            });
+            src = `data:audio/mpeg;base64,${audio}`;
+          } else {
+            const { audio } = await tts({
+              data: { text: clean.slice(0, 1500), voiceId, language, speed },
+            });
+            src = `data:audio/mpeg;base64,${audio}`;
+          }
+          audioCache.current.set(cacheKey, src);
+        } finally {
+          setLoadingId(null);
         }
-        audioCache.current.set(cacheKey, src);
       }
       const a = new Audio(src);
       audioRef.current = a;
@@ -316,12 +321,14 @@ function FurinaApp() {
       a.onended = () => { setPlayingId(null); setPaused(false); audioRef.current = null; };
       await a.play();
     } catch (e) {
+      setLoadingId(null);
       setPlayingId(null);
       setPaused(false);
       const msg = e instanceof Error ? e.message : "Voice failed";
       toast.error(msg);
     }
   }
+
 
 
   function handleBgUpload(e: React.ChangeEvent<HTMLInputElement>) {
