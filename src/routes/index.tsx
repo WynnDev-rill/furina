@@ -377,15 +377,101 @@ function FurinaApp() {
 
       {/* Top bar */}
       <header className="absolute left-0 right-0 top-0 z-20 flex items-center justify-between p-4">
-        <div className="rounded-full bg-black/30 px-4 py-1.5 text-sm font-medium text-white backdrop-blur-md">
-          {name}
+        <div className="flex items-center gap-2">
+          <div className="rounded-full bg-black/30 px-4 py-1.5 text-sm font-medium text-white backdrop-blur-md max-w-[55vw] truncate">
+            {name}
+            {activeConvo && <span className="ml-2 text-xs text-white/60 truncate">· {activeConvo.title}</span>}
+          </div>
         </div>
-        <Sheet open={openSettings} onOpenChange={(o) => { setOpenSettings(o); if (o) refreshMemories(); }}>
-          <SheetTrigger asChild>
-            <Button size="icon" variant="ghost" className="rounded-full bg-black/30 text-white backdrop-blur-md hover:bg-black/50">
-              <Settings className="h-5 w-5" />
-            </Button>
-          </SheetTrigger>
+        <div className="flex items-center gap-2">
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={startNewConversation}
+            className="rounded-full bg-black/30 text-white backdrop-blur-md hover:bg-black/50"
+            aria-label="Percakapan baru"
+            title="Percakapan baru"
+          >
+            <MessageSquarePlus className="h-5 w-5" />
+          </Button>
+
+          <Sheet open={openConvos} onOpenChange={setOpenConvos}>
+            <SheetTrigger asChild>
+              <Button size="icon" variant="ghost" className="rounded-full bg-black/30 text-white backdrop-blur-md hover:bg-black/50" aria-label="Riwayat percakapan" title="Riwayat percakapan">
+                <MessagesSquare className="h-5 w-5" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="w-full overflow-y-auto sm:max-w-sm">
+              <SheetHeader>
+                <SheetTitle>Riwayat Percakapan</SheetTitle>
+                <SheetDescription>Semua percakapanmu tersimpan lokal di browser.</SheetDescription>
+              </SheetHeader>
+              <div className="mt-4 space-y-2">
+                <Button onClick={startNewConversation} className="w-full">
+                  <Plus className="mr-2 h-4 w-4" /> Percakapan baru
+                </Button>
+                <div className="mt-3 space-y-1">
+                  {[...conversations].sort((a, b) => b.updatedAt - a.updatedAt).map((c) => {
+                    const isActive = c.id === activeId;
+                    const preview = c.messages[c.messages.length - 1]?.content?.slice(0, 60) ?? "Belum ada pesan";
+                    return (
+                      <div
+                        key={c.id}
+                        className={`group rounded-lg border p-2 transition ${isActive ? "border-primary bg-accent" : "hover:bg-muted"}`}
+                      >
+                        {editingTitleId === c.id ? (
+                          <div className="flex items-center gap-1">
+                            <Input
+                              autoFocus
+                              value={editingTitleVal}
+                              onChange={(e) => setEditingTitleVal(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") { renameConversation(c.id, editingTitleVal); setEditingTitleId(null); }
+                                if (e.key === "Escape") setEditingTitleId(null);
+                              }}
+                              className="h-7 text-sm"
+                            />
+                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { renameConversation(c.id, editingTitleVal); setEditingTitleId(null); }}>
+                              <Check className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <button onClick={() => selectConversation(c.id)} className="flex w-full flex-col text-left">
+                            <span className="truncate text-sm font-medium">{c.title}</span>
+                            <span className="truncate text-xs text-muted-foreground">{preview}</span>
+                            <span className="text-[10px] text-muted-foreground">{new Date(c.updatedAt).toLocaleString()}</span>
+                          </button>
+                        )}
+                        {editingTitleId !== c.id && (
+                          <div className="mt-1 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
+                            <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => { setEditingTitleId(c.id); setEditingTitleVal(c.title); }}>
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-6 w-6 text-destructive"
+                              onClick={() => { if (confirm("Hapus percakapan ini?")) deleteConversation(c.id); }}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          <Sheet open={openSettings} onOpenChange={(o) => { setOpenSettings(o); if (o) refreshMemories(); }}>
+            <SheetTrigger asChild>
+              <Button size="icon" variant="ghost" className="rounded-full bg-black/30 text-white backdrop-blur-md hover:bg-black/50">
+                <Settings className="h-5 w-5" />
+              </Button>
+            </SheetTrigger>
+
           <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-md">
             <SheetHeader>
               <SheetTitle>Pengaturan</SheetTitle>
