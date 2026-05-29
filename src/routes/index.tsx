@@ -632,7 +632,9 @@ function FurinaApp() {
             </div>
           </SheetContent>
         </Sheet>
+        </div>
       </header>
+
 
       {/* Chat messages overlay */}
       <main
