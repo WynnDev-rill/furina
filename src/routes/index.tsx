@@ -225,7 +225,12 @@ function FurinaApp() {
     if (!text || sending) return;
     const userMsg: Msg = { id: crypto.randomUUID(), role: "user", content: text, at: Date.now() };
     const next = [...messages, userMsg];
-    setMessages(next);
+    updateActiveMessages(() => next);
+    // Auto-title percakapan baru dari pesan pertama
+    if (activeConvo && (activeConvo.title === "Percakapan baru" || !activeConvo.title)) {
+      const t = text.slice(0, 40).replace(/\s+/g, " ").trim();
+      renameConversation(activeConvo.id, t || "Percakapan baru");
+    }
     setInput("");
     setSending(true);
     try {
@@ -239,7 +244,7 @@ function FurinaApp() {
         },
       });
       const aiMsg: Msg = { id: crypto.randomUUID(), role: "assistant", content: reply, at: Date.now() };
-      setMessages((prev) => [...prev, aiMsg]);
+      updateActiveMessages((prev) => [...prev, aiMsg]);
       if (ttsOn) playTTS(aiMsg.id, reply);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Something went wrong";
@@ -249,6 +254,7 @@ function FurinaApp() {
       setTimeout(() => inputRef.current?.focus(), 0);
     }
   }
+
 
   function stopTTS() {
     if (audioRef.current) {
