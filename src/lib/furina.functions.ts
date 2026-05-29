@@ -310,6 +310,7 @@ export const speakVoicevox = createServerFn({ method: "POST" })
     return {
       audio: Buffer.from(buf).toString("base64"),
       japaneseText: jaText,
+      emotion,
     };
   });
 
