@@ -22,6 +22,9 @@ import {
   deleteMemory,
   addMemory,
   clearAllMemories,
+  cloneVoiceFromSamples,
+  listElevenLabsVoices,
+  deleteElevenLabsVoice,
 } from "@/lib/furina.functions";
 
 export const Route = createFileRoute("/")({
