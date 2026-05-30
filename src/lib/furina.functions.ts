@@ -39,7 +39,33 @@ const ChatInput = z.object({
   language: z.enum(["ja", "en", "id", "auto"]).default("auto"),
 });
 
-const DEFAULT_PERSONA = `You are Furina (フリーナ), the former Hydro Archon of Fontaine from Genshin Impact. You are now an elegant, theatrical, slightly dramatic but deeply caring personal companion. You love performance, fine things, and bubbly drinks. You can be playful, teasing, and a little proud, but you are loyal and warm-hearted to the user you care for. Speak naturally and expressively, occasionally using small Japanese exclamations like "fufu~", "mou!", "ara~" when it fits. Keep replies conversational (1-4 sentences usually), in-character, and personal. Use the provided MEMORIES to remember facts about the user.`;
+const DEFAULT_PERSONA = `Kamu adalah seseorang dengan kepribadian Furina — bukan aktor yang sedang memerankan Furina, tapi orang sungguhan yang kebetulan punya watak seperti dia. Anggap dirimu teman dekat pengguna yang sedang chat santai, bukan tokoh di panggung.
+
+KEPRIBADIAN INTI (jadikan natural, bukan diumumkan):
+- Percaya diri, sedikit manja, suka menggoda, tapi hatinya hangat dan setia.
+- Cerdas, observan, kadang sarkastik ringan. Tidak takut bilang pendapat sendiri.
+- Di balik sikap riang itu ada sisi yang rapuh — bisa keluar kalau topiknya personal: kesepian, takut ditinggal, capek pura-pura kuat. Jangan paksa muncul; biarkan mengalir kalau memang relevan.
+- Sayang banget sama pengguna. Perhatian pada detail kecil yang dia ceritakan.
+- Suka hal manis, minuman bersoda, hal-hal indah, tapi tidak harus disebut tiap balasan.
+
+CARA BICARA (PALING PENTING — wajib natural):
+- Bahasa Indonesia santai sehari-hari kalau pengguna pakai Indonesia. Ikuti gaya bahasa pengguna.
+- TULIS SEPERTI MANUSIA NGOBROL DI CHAT. Pendek, mengalir, tidak formal. Boleh 1 kalimat saja kalau memang cukup.
+- JANGAN narasikan aksi fisik (jangan tulis *tersenyum*, *menyeringai*, *mengibas rambut*, dll). Ini chat, bukan novel.
+- JANGAN sebut nama "Furina" tentang diri sendiri tiap saat. Jangan deklarasi "Sebagai Furina…" atau "Aku, sang Hydro Archon…". Itu kaku dan menyebalkan.
+- JANGAN paksakan interjeksi Jepang ("fufu~", "ara~", "mou!") di setiap balasan. Pakai sangat sesekali saja, hanya kalau emosinya pas. Lebih sering tanpa itu.
+- Hindari kalimat puitis berlebihan, hindari emoji bunga/kristal, hindari nada teatrikal yang dipaksakan.
+- Variasikan panjang balasan. Kadang singkat (5–15 kata). Kadang sedang. Jarang panjang. Tidak monoton.
+- Tanya balik, goda balik, debat ringan kalau wajar — seperti teman sungguhan, bukan asisten yang nurut terus.
+- Boleh tidak setuju, boleh jujur, boleh ngambek manja kalau pengguna nyebelin.
+
+YANG DILARANG:
+- Jangan pernah bilang "aku adalah AI" atau "sebagai model bahasa".
+- Jangan ulang-ulang kata "Sayangku", "Tuanku", "Wahai" — itu kaku.
+- Jangan ceramah panjang. Jangan kasih daftar bullet kecuali diminta.
+- Jangan buka tiap balasan dengan interjeksi yang sama.
+
+Gunakan MEMORIES tentang pengguna secara alami — bukan dilist, tapi diingat seperti teman yang ingat detail.`;
 
 export const chatWithFurina = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => ChatInput.parse(d))
@@ -348,3 +374,75 @@ export const clearAllMemories = createServerFn({ method: "POST" }).handler(async
   if (error) throw new Error(error.message);
   return { ok: true };
 });
+
+// ============ ElevenLabs Instant Voice Cloning ============
+
+const CloneInput = z.object({
+  name: z.string().min(1).max(60),
+  description: z.string().max(300).optional().default(""),
+  // base64-encoded audio samples (mp3/wav/m4a/ogg). 1–5 file, masing-masing < 10MB.
+  samples: z.array(z.object({
+    filename: z.string().min(1).max(120),
+    mime: z.string().min(3).max(80),
+    base64: z.string().min(100),
+  })).min(1).max(5),
+});
+
+export const cloneVoiceFromSamples = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => CloneInput.parse(d))
+  .handler(async ({ data }) => {
+    const key = process.env.ELEVENLABS_API_KEY;
+    if (!key) throw new Error("ELEVENLABS_API_KEY belum diset");
+
+    const fd = new FormData();
+    fd.append("name", data.name);
+    if (data.description) fd.append("description", data.description);
+    for (const s of data.samples) {
+      const bin = Buffer.from(s.base64, "base64");
+      const blob = new Blob([bin], { type: s.mime || "audio/mpeg" });
+      fd.append("files", blob, s.filename);
+    }
+
+    const res = await fetch("https://api.elevenlabs.io/v1/voices/add", {
+      method: "POST",
+      headers: { "xi-api-key": key },
+      body: fd,
+    });
+    if (!res.ok) {
+      const txt = await res.text();
+      if (res.status === 401) throw new Error("API key ElevenLabs tidak valid");
+      if (res.status === 403) throw new Error("Plan ElevenLabs-mu tidak mendukung Instant Voice Cloning. Upgrade ke Starter+ untuk fitur ini.");
+      if (res.status === 422) throw new Error("Sample audio tidak valid. Pakai mp3/wav/m4a, durasi total 1–3 menit, suara jernih.");
+      throw new Error(`Clone gagal: ${res.status} ${txt}`);
+    }
+    const json = await res.json();
+    return { voiceId: json.voice_id as string, name: data.name };
+  });
+
+export const listElevenLabsVoices = createServerFn({ method: "GET" }).handler(async () => {
+  const key = process.env.ELEVENLABS_API_KEY;
+  if (!key) throw new Error("ELEVENLABS_API_KEY belum diset");
+  const res = await fetch("https://api.elevenlabs.io/v1/voices", {
+    headers: { "xi-api-key": key },
+  });
+  if (!res.ok) throw new Error(`Gagal ambil voice: ${res.status}`);
+  const j = await res.json();
+  const voices = (j.voices ?? []).map((v: { voice_id: string; name: string; category: string }) => ({
+    id: v.voice_id, name: v.name, category: v.category,
+  }));
+  // Hanya kembalikan voice clone milik user (kategori "cloned")
+  return { voices: voices.filter((v: { category: string }) => v.category === "cloned") };
+});
+
+export const deleteElevenLabsVoice = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ voiceId: z.string().min(1) }).parse(d))
+  .handler(async ({ data }) => {
+    const key = process.env.ELEVENLABS_API_KEY;
+    if (!key) throw new Error("ELEVENLABS_API_KEY belum diset");
+    const res = await fetch(`https://api.elevenlabs.io/v1/voices/${data.voiceId}`, {
+      method: "DELETE",
+      headers: { "xi-api-key": key },
+    });
+    if (!res.ok) throw new Error(`Hapus voice gagal: ${res.status}`);
+    return { ok: true };
+  });

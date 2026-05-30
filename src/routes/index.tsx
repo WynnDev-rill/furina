@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
-import { Send, Settings, Trash2, Plus, Volume2, VolumeX, Image as ImageIcon, RotateCcw, Play, Pause, Square, Loader2, MessageSquarePlus, MessagesSquare, Check, Pencil } from "lucide-react";
+import { Send, Settings, Trash2, Plus, Volume2, Image as ImageIcon, RotateCcw, Play, Pause, Square, Loader2, MessageSquarePlus, MessagesSquare, Check, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetDescription } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
@@ -22,6 +22,9 @@ import {
   deleteMemory,
   addMemory,
   clearAllMemories,
+  cloneVoiceFromSamples,
+  listElevenLabsVoices,
+  deleteElevenLabsVoice,
 } from "@/lib/furina.functions";
 
 export const Route = createFileRoute("/")({
@@ -91,6 +94,9 @@ function FurinaApp() {
   const delMemFn = useServerFn(deleteMemory);
   const addMemFn = useServerFn(addMemory);
   const clearMemFn = useServerFn(clearAllMemories);
+  const cloneVoiceFn = useServerFn(cloneVoiceFromSamples);
+  const listVoicesFn = useServerFn(listElevenLabsVoices);
+  const delVoiceFn = useServerFn(deleteElevenLabsVoice);
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string>("");
@@ -101,7 +107,6 @@ function FurinaApp() {
   const [name, setName] = useState("Furina");
   const [persona, setPersona] = useState("");
   const [language, setLanguage] = useState<"auto" | "ja" | "en" | "id">("auto");
-  const [ttsOn, setTtsOn] = useState(true);
   const [speed, setSpeed] = useState(1.0);
   const [provider, setProvider] = useState<TTSProvider>("voicevox");
   const [vvSpeaker, setVvSpeaker] = useState<number>(VV_SPEAKERS[0].id);
@@ -115,6 +120,10 @@ function FurinaApp() {
   const [paused, setPaused] = useState(false);
   const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
   const [editingTitleVal, setEditingTitleVal] = useState("");
+  const [clonedVoices, setClonedVoices] = useState<{ id: string; name: string }[]>([]);
+  const [cloneName, setCloneName] = useState("");
+  const [cloneFiles, setCloneFiles] = useState<File[]>([]);
+  const [cloning, setCloning] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioCache = useRef<Map<string, string>>(new Map());
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -156,8 +165,7 @@ function FurinaApp() {
       if (p) setPersona(p);
       const l = localStorage.getItem(STORAGE.lang);
       if (l) setLanguage(l as typeof language);
-      const t = localStorage.getItem(STORAGE.tts);
-      if (t) setTtsOn(t === "1");
+      // (legacy "ttsOn" preference dihapus — TTS sekarang manual lewat tombol play di tiap pesan)
       const sp = localStorage.getItem(STORAGE.speed);
       if (sp) setSpeed(Math.min(1.2, Math.max(0.7, parseFloat(sp) || 1.0)));
       const pr = localStorage.getItem(STORAGE.provider);
@@ -245,7 +253,7 @@ function FurinaApp() {
       });
       const aiMsg: Msg = { id: crypto.randomUUID(), role: "assistant", content: reply, at: Date.now() };
       updateActiveMessages((prev) => [...prev, aiMsg]);
-      if (ttsOn) playTTS(aiMsg.id, reply);
+      // TTS hanya jalan saat user menekan tombol play, bukan otomatis.
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Something went wrong";
       toast.error(msg);
@@ -351,6 +359,58 @@ function FurinaApp() {
       setMemories(memories);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed loading memories");
+    }
+  }
+
+  async function refreshClonedVoices() {
+    try {
+      const { voices } = await listVoicesFn();
+      setClonedVoices(voices);
+    } catch (e) {
+      // Diam saja kalau API key belum diset / plan tidak support — biar tidak ganggu.
+      console.warn("listVoices:", e);
+      setClonedVoices([]);
+    }
+  }
+
+  function fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => {
+        const s = String(r.result);
+        const idx = s.indexOf(",");
+        resolve(idx >= 0 ? s.slice(idx + 1) : s);
+      };
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+  }
+
+  async function handleCloneVoice() {
+    if (!cloneName.trim() || cloneFiles.length === 0) return;
+    setCloning(true);
+    try {
+      const samples = await Promise.all(
+        cloneFiles.map(async (f) => ({
+          filename: f.name,
+          mime: f.type || "audio/mpeg",
+          base64: await fileToBase64(f),
+        })),
+      );
+      const { voiceId: newId, name: newName } = await cloneVoiceFn({
+        data: { name: cloneName.trim(), samples },
+      });
+      toast.success(`Suara "${newName}" berhasil di-clone`);
+      setCloneName("");
+      setCloneFiles([]);
+      await refreshClonedVoices();
+      setVoiceId(newId);
+      savePref(STORAGE.voice, newId);
+      audioCache.current.clear();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Clone gagal");
+    } finally {
+      setCloning(false);
     }
   }
 
@@ -465,7 +525,7 @@ function FurinaApp() {
             </SheetContent>
           </Sheet>
 
-          <Sheet open={openSettings} onOpenChange={(o) => { setOpenSettings(o); if (o) refreshMemories(); }}>
+          <Sheet open={openSettings} onOpenChange={(o) => { setOpenSettings(o); if (o) { refreshMemories(); refreshClonedVoices(); } }}>
             <SheetTrigger asChild>
               <Button size="icon" variant="ghost" className="rounded-full bg-black/30 text-white backdrop-blur-md hover:bg-black/50">
                 <Settings className="h-5 w-5" />
@@ -512,14 +572,93 @@ function FurinaApp() {
                 </Select>
 
                 {provider === "elevenlabs" ? (
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <Label className="text-xs text-muted-foreground">Voice ElevenLabs</Label>
                     <Select value={voiceId} onValueChange={(v) => { setVoiceId(v); savePref(STORAGE.voice, v); audioCache.current.clear(); }}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
+                        {clonedVoices.length > 0 && (
+                          <>
+                            <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">Suara hasil clone</div>
+                            {clonedVoices.map((v) => (
+                              <SelectItem key={v.id} value={v.id}>★ {v.name}</SelectItem>
+                            ))}
+                            <div className="my-1 border-t" />
+                            <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">Preset</div>
+                          </>
+                        )}
                         {VOICES.map((v) => <SelectItem key={v.id} value={v.id}>{v.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
+
+                    {/* Voice Clone */}
+                    <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-semibold">Clone suara baru</Label>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-2 text-[10px]"
+                          onClick={refreshClonedVoices}
+                        >
+                          Refresh
+                        </Button>
+                      </div>
+                      <p className="text-[10px] leading-relaxed text-muted-foreground">
+                        Upload 1–5 file audio (mp3/wav/m4a), total ~1–3 menit, suara jernih tanpa musik latar. Butuh ElevenLabs Starter+ untuk Instant Voice Cloning.
+                      </p>
+                      <Input
+                        placeholder="Nama suara (mis. Furina Asli)"
+                        value={cloneName}
+                        onChange={(e) => setCloneName(e.target.value)}
+                        className="h-8 text-xs"
+                      />
+                      <input
+                        type="file"
+                        accept="audio/*"
+                        multiple
+                        onChange={(e) => setCloneFiles(Array.from(e.target.files ?? []).slice(0, 5))}
+                        className="block w-full text-xs"
+                      />
+                      {cloneFiles.length > 0 && (
+                        <p className="text-[10px] text-muted-foreground">{cloneFiles.length} file dipilih</p>
+                      )}
+                      <Button
+                        size="sm"
+                        className="w-full"
+                        disabled={cloning || !cloneName.trim() || cloneFiles.length === 0}
+                        onClick={handleCloneVoice}
+                      >
+                        {cloning ? (
+                          <><Loader2 className="mr-2 h-3 w-3 animate-spin" /> Meng-clone…</>
+                        ) : (
+                          <>Clone sekarang</>
+                        )}
+                      </Button>
+
+                      {clonedVoices.length > 0 && (
+                        <div className="space-y-1 pt-1">
+                          {clonedVoices.map((v) => (
+                            <div key={v.id} className="flex items-center justify-between rounded bg-background/60 px-2 py-1 text-xs">
+                              <span className="truncate">★ {v.name}</span>
+                              <button
+                                onClick={async () => {
+                                  if (!confirm(`Hapus suara "${v.name}"?`)) return;
+                                  try {
+                                    await delVoiceFn({ data: { voiceId: v.id } });
+                                    if (voiceId === v.id) setVoiceId(VOICES[0].id);
+                                    refreshClonedVoices();
+                                  } catch (e) { toast.error(e instanceof Error ? e.message : "Gagal hapus"); }
+                                }}
+                                className="text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -545,10 +684,10 @@ function FurinaApp() {
                     </p>
                   </div>
                 )}
-                <div className="flex items-center justify-between pt-2">
-                  <Label className="flex items-center gap-2">{ttsOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />} TTS otomatis</Label>
-                  <Switch checked={ttsOn} onCheckedChange={(c) => { setTtsOn(c); savePref(STORAGE.tts, c ? "1" : "0"); }} />
-                </div>
+                <p className="pt-2 text-[11px] leading-relaxed text-muted-foreground">
+                  <Volume2 className="mr-1 inline h-3 w-3" />
+                  Suara hanya berbunyi saat kamu menekan tombol ▶ di balon pesan.
+                </p>
                 <div className="pt-2 space-y-2">
                   <div className="flex items-center justify-between">
                     <Label>Kecepatan bicara</Label>
