@@ -248,7 +248,7 @@ function FurinaApp() {
       });
       const aiMsg: Msg = { id: crypto.randomUUID(), role: "assistant", content: reply, at: Date.now() };
       updateActiveMessages((prev) => [...prev, aiMsg]);
-      if (ttsOn) playTTS(aiMsg.id, reply);
+      // TTS hanya jalan saat user menekan tombol play, bukan otomatis.
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Something went wrong";
       toast.error(msg);
