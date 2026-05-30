@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
-import { Send, Settings, Trash2, Plus, Volume2, VolumeX, Image as ImageIcon, RotateCcw, Play, Pause, Square, Loader2, MessageSquarePlus, MessagesSquare, Check, Pencil } from "lucide-react";
+import { Send, Settings, Trash2, Plus, Volume2, Image as ImageIcon, RotateCcw, Play, Pause, Square, Loader2, MessageSquarePlus, MessagesSquare, Check, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetDescription } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
