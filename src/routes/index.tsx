@@ -362,6 +362,58 @@ function FurinaApp() {
     }
   }
 
+  async function refreshClonedVoices() {
+    try {
+      const { voices } = await listVoicesFn();
+      setClonedVoices(voices);
+    } catch (e) {
+      // Diam saja kalau API key belum diset / plan tidak support — biar tidak ganggu.
+      console.warn("listVoices:", e);
+      setClonedVoices([]);
+    }
+  }
+
+  function fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => {
+        const s = String(r.result);
+        const idx = s.indexOf(",");
+        resolve(idx >= 0 ? s.slice(idx + 1) : s);
+      };
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+  }
+
+  async function handleCloneVoice() {
+    if (!cloneName.trim() || cloneFiles.length === 0) return;
+    setCloning(true);
+    try {
+      const samples = await Promise.all(
+        cloneFiles.map(async (f) => ({
+          filename: f.name,
+          mime: f.type || "audio/mpeg",
+          base64: await fileToBase64(f),
+        })),
+      );
+      const { voiceId: newId, name: newName } = await cloneVoiceFn({
+        data: { name: cloneName.trim(), samples },
+      });
+      toast.success(`Suara "${newName}" berhasil di-clone`);
+      setCloneName("");
+      setCloneFiles([]);
+      await refreshClonedVoices();
+      setVoiceId(newId);
+      savePref(STORAGE.voice, newId);
+      audioCache.current.clear();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Clone gagal");
+    } finally {
+      setCloning(false);
+    }
+  }
+
   function clearChat() {
     updateActiveMessages(() => []);
   }
