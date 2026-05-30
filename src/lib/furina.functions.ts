@@ -374,3 +374,75 @@ export const clearAllMemories = createServerFn({ method: "POST" }).handler(async
   if (error) throw new Error(error.message);
   return { ok: true };
 });
+
+// ============ ElevenLabs Instant Voice Cloning ============
+
+const CloneInput = z.object({
+  name: z.string().min(1).max(60),
+  description: z.string().max(300).optional().default(""),
+  // base64-encoded audio samples (mp3/wav/m4a/ogg). 1–5 file, masing-masing < 10MB.
+  samples: z.array(z.object({
+    filename: z.string().min(1).max(120),
+    mime: z.string().min(3).max(80),
+    base64: z.string().min(100),
+  })).min(1).max(5),
+});
+
+export const cloneVoiceFromSamples = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => CloneInput.parse(d))
+  .handler(async ({ data }) => {
+    const key = process.env.ELEVENLABS_API_KEY;
+    if (!key) throw new Error("ELEVENLABS_API_KEY belum diset");
+
+    const fd = new FormData();
+    fd.append("name", data.name);
+    if (data.description) fd.append("description", data.description);
+    for (const s of data.samples) {
+      const bin = Buffer.from(s.base64, "base64");
+      const blob = new Blob([bin], { type: s.mime || "audio/mpeg" });
+      fd.append("files", blob, s.filename);
+    }
+
+    const res = await fetch("https://api.elevenlabs.io/v1/voices/add", {
+      method: "POST",
+      headers: { "xi-api-key": key },
+      body: fd,
+    });
+    if (!res.ok) {
+      const txt = await res.text();
+      if (res.status === 401) throw new Error("API key ElevenLabs tidak valid");
+      if (res.status === 403) throw new Error("Plan ElevenLabs-mu tidak mendukung Instant Voice Cloning. Upgrade ke Starter+ untuk fitur ini.");
+      if (res.status === 422) throw new Error("Sample audio tidak valid. Pakai mp3/wav/m4a, durasi total 1–3 menit, suara jernih.");
+      throw new Error(`Clone gagal: ${res.status} ${txt}`);
+    }
+    const json = await res.json();
+    return { voiceId: json.voice_id as string, name: data.name };
+  });
+
+export const listElevenLabsVoices = createServerFn({ method: "GET" }).handler(async () => {
+  const key = process.env.ELEVENLABS_API_KEY;
+  if (!key) throw new Error("ELEVENLABS_API_KEY belum diset");
+  const res = await fetch("https://api.elevenlabs.io/v1/voices", {
+    headers: { "xi-api-key": key },
+  });
+  if (!res.ok) throw new Error(`Gagal ambil voice: ${res.status}`);
+  const j = await res.json();
+  const voices = (j.voices ?? []).map((v: { voice_id: string; name: string; category: string }) => ({
+    id: v.voice_id, name: v.name, category: v.category,
+  }));
+  // Hanya kembalikan voice clone milik user (kategori "cloned")
+  return { voices: voices.filter((v: { category: string }) => v.category === "cloned") };
+});
+
+export const deleteElevenLabsVoice = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ voiceId: z.string().min(1) }).parse(d))
+  .handler(async ({ data }) => {
+    const key = process.env.ELEVENLABS_API_KEY;
+    if (!key) throw new Error("ELEVENLABS_API_KEY belum diset");
+    const res = await fetch(`https://api.elevenlabs.io/v1/voices/${data.voiceId}`, {
+      method: "DELETE",
+      headers: { "xi-api-key": key },
+    });
+    if (!res.ok) throw new Error(`Hapus voice gagal: ${res.status}`);
+    return { ok: true };
+  });
