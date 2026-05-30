@@ -520,14 +520,93 @@ function FurinaApp() {
                 </Select>
 
                 {provider === "elevenlabs" ? (
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <Label className="text-xs text-muted-foreground">Voice ElevenLabs</Label>
                     <Select value={voiceId} onValueChange={(v) => { setVoiceId(v); savePref(STORAGE.voice, v); audioCache.current.clear(); }}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
+                        {clonedVoices.length > 0 && (
+                          <>
+                            <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">Suara hasil clone</div>
+                            {clonedVoices.map((v) => (
+                              <SelectItem key={v.id} value={v.id}>★ {v.name}</SelectItem>
+                            ))}
+                            <div className="my-1 border-t" />
+                            <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">Preset</div>
+                          </>
+                        )}
                         {VOICES.map((v) => <SelectItem key={v.id} value={v.id}>{v.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
+
+                    {/* Voice Clone */}
+                    <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-semibold">Clone suara baru</Label>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-2 text-[10px]"
+                          onClick={refreshClonedVoices}
+                        >
+                          Refresh
+                        </Button>
+                      </div>
+                      <p className="text-[10px] leading-relaxed text-muted-foreground">
+                        Upload 1–5 file audio (mp3/wav/m4a), total ~1–3 menit, suara jernih tanpa musik latar. Butuh ElevenLabs Starter+ untuk Instant Voice Cloning.
+                      </p>
+                      <Input
+                        placeholder="Nama suara (mis. Furina Asli)"
+                        value={cloneName}
+                        onChange={(e) => setCloneName(e.target.value)}
+                        className="h-8 text-xs"
+                      />
+                      <input
+                        type="file"
+                        accept="audio/*"
+                        multiple
+                        onChange={(e) => setCloneFiles(Array.from(e.target.files ?? []).slice(0, 5))}
+                        className="block w-full text-xs"
+                      />
+                      {cloneFiles.length > 0 && (
+                        <p className="text-[10px] text-muted-foreground">{cloneFiles.length} file dipilih</p>
+                      )}
+                      <Button
+                        size="sm"
+                        className="w-full"
+                        disabled={cloning || !cloneName.trim() || cloneFiles.length === 0}
+                        onClick={handleCloneVoice}
+                      >
+                        {cloning ? (
+                          <><Loader2 className="mr-2 h-3 w-3 animate-spin" /> Meng-clone…</>
+                        ) : (
+                          <>Clone sekarang</>
+                        )}
+                      </Button>
+
+                      {clonedVoices.length > 0 && (
+                        <div className="space-y-1 pt-1">
+                          {clonedVoices.map((v) => (
+                            <div key={v.id} className="flex items-center justify-between rounded bg-background/60 px-2 py-1 text-xs">
+                              <span className="truncate">★ {v.name}</span>
+                              <button
+                                onClick={async () => {
+                                  if (!confirm(`Hapus suara "${v.name}"?`)) return;
+                                  try {
+                                    await delVoiceFn({ data: { voiceId: v.id } });
+                                    if (voiceId === v.id) setVoiceId(VOICES[0].id);
+                                    refreshClonedVoices();
+                                  } catch (e) { toast.error(e instanceof Error ? e.message : "Gagal hapus"); }
+                                }}
+                                className="text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-2">
