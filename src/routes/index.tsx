@@ -525,7 +525,7 @@ function FurinaApp() {
             </SheetContent>
           </Sheet>
 
-          <Sheet open={openSettings} onOpenChange={(o) => { setOpenSettings(o); if (o) refreshMemories(); }}>
+          <Sheet open={openSettings} onOpenChange={(o) => { setOpenSettings(o); if (o) { refreshMemories(); refreshClonedVoices(); } }}>
             <SheetTrigger asChild>
               <Button size="icon" variant="ghost" className="rounded-full bg-black/30 text-white backdrop-blur-md hover:bg-black/50">
                 <Settings className="h-5 w-5" />
