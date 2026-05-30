@@ -165,8 +165,7 @@ function FurinaApp() {
       if (p) setPersona(p);
       const l = localStorage.getItem(STORAGE.lang);
       if (l) setLanguage(l as typeof language);
-      const t = localStorage.getItem(STORAGE.tts);
-      if (t) setTtsOn(t === "1");
+      // (legacy "ttsOn" preference dihapus — TTS sekarang manual lewat tombol play di tiap pesan)
       const sp = localStorage.getItem(STORAGE.speed);
       if (sp) setSpeed(Math.min(1.2, Math.max(0.7, parseFloat(sp) || 1.0)));
       const pr = localStorage.getItem(STORAGE.provider);
