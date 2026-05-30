@@ -553,10 +553,10 @@ function FurinaApp() {
                     </p>
                   </div>
                 )}
-                <div className="flex items-center justify-between pt-2">
-                  <Label className="flex items-center gap-2">{ttsOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />} TTS otomatis</Label>
-                  <Switch checked={ttsOn} onCheckedChange={(c) => { setTtsOn(c); savePref(STORAGE.tts, c ? "1" : "0"); }} />
-                </div>
+                <p className="pt-2 text-[11px] leading-relaxed text-muted-foreground">
+                  <Volume2 className="mr-1 inline h-3 w-3" />
+                  Suara hanya berbunyi saat kamu menekan tombol ▶ di balon pesan.
+                </p>
                 <div className="pt-2 space-y-2">
                   <div className="flex items-center justify-between">
                     <Label>Kecepatan bicara</Label>
