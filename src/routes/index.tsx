@@ -94,6 +94,9 @@ function FurinaApp() {
   const delMemFn = useServerFn(deleteMemory);
   const addMemFn = useServerFn(addMemory);
   const clearMemFn = useServerFn(clearAllMemories);
+  const cloneVoiceFn = useServerFn(cloneVoiceFromSamples);
+  const listVoicesFn = useServerFn(listElevenLabsVoices);
+  const delVoiceFn = useServerFn(deleteElevenLabsVoice);
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string>("");
@@ -104,7 +107,6 @@ function FurinaApp() {
   const [name, setName] = useState("Furina");
   const [persona, setPersona] = useState("");
   const [language, setLanguage] = useState<"auto" | "ja" | "en" | "id">("auto");
-  const [ttsOn, setTtsOn] = useState(true);
   const [speed, setSpeed] = useState(1.0);
   const [provider, setProvider] = useState<TTSProvider>("voicevox");
   const [vvSpeaker, setVvSpeaker] = useState<number>(VV_SPEAKERS[0].id);
@@ -118,6 +120,10 @@ function FurinaApp() {
   const [paused, setPaused] = useState(false);
   const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
   const [editingTitleVal, setEditingTitleVal] = useState("");
+  const [clonedVoices, setClonedVoices] = useState<{ id: string; name: string }[]>([]);
+  const [cloneName, setCloneName] = useState("");
+  const [cloneFiles, setCloneFiles] = useState<File[]>([]);
+  const [cloning, setCloning] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioCache = useRef<Map<string, string>>(new Map());
   const scrollRef = useRef<HTMLDivElement | null>(null);
