@@ -14,113 +14,24 @@ export type Database = {
   }
   public: {
     Tables: {
-      conversations: {
-        Row: {
-          character_id: string
-          created_at: string
-          id: string
-          title: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          character_id: string
-          created_at?: string
-          id?: string
-          title?: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          character_id?: string
-          created_at?: string
-          id?: string
-          title?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       memories: {
         Row: {
-          character_id: string
           content: string
           created_at: string
           embedding: string
           id: string
-          user_id: string
         }
         Insert: {
-          character_id?: string
           content: string
           created_at?: string
           embedding: string
           id?: string
-          user_id: string
         }
         Update: {
-          character_id?: string
           content?: string
           created_at?: string
           embedding?: string
           id?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      messages: {
-        Row: {
-          content: string
-          conversation_id: string
-          created_at: string
-          id: string
-          role: string
-          status: string
-          user_id: string
-        }
-        Insert: {
-          content: string
-          conversation_id: string
-          created_at?: string
-          id?: string
-          role: string
-          status?: string
-          user_id: string
-        }
-        Update: {
-          content?: string
-          conversation_id?: string
-          created_at?: string
-          id?: string
-          role?: string
-          status?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "messages_conversation_id_fkey"
-            columns: ["conversation_id"]
-            isOneToOne: false
-            referencedRelation: "conversations"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      user_settings: {
-        Row: {
-          data: Json
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          data?: Json
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          data?: Json
-          updated_at?: string
-          user_id?: string
         }
         Relationships: []
       }
@@ -130,12 +41,7 @@ export type Database = {
     }
     Functions: {
       match_memories: {
-        Args: {
-          match_character_id: string
-          match_count?: number
-          match_user_id: string
-          query_embedding: string
-        }
+        Args: { match_count?: number; query_embedding: string }
         Returns: {
           content: string
           id: string
