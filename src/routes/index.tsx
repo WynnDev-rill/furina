@@ -1,893 +1,548 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useRef, useState } from "react";
-import { Send, Settings, Trash2, Plus, Volume2, Image as ImageIcon, RotateCcw, Play, Pause, Square, Loader2, MessageSquarePlus, MessagesSquare, Check, Pencil } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Send, Settings as SettingsIcon, Volume2, Pause, MessageSquarePlus, MessagesSquare,
+  Trash2, Pencil, LogOut, Check, CheckCheck, AlertCircle, RotateCw, Loader2, X, Users, Heart,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetDescription } from "@/components/ui/sheet";
-import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Separator } from "@/components/ui/separator";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Slider } from "@/components/ui/slider";
-import { toast } from "sonner";
-
-import furinaDefault from "@/assets/furina.jpg";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Label } from "@/components/ui/label";
+import { Toaster, toast } from "sonner";
+import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
+import { lovable } from "@/integrations/lovable/index";
+import { CHARACTERS, VV_SPEAKERS, characterList, type CharacterId } from "@/lib/characters";
 import {
-  chatWithFurina,
-  speakFurina,
-  speakVoicevox,
-  listMemories,
-  deleteMemory,
-  addMemory,
-  clearAllMemories,
-  cloneVoiceFromSamples,
-  listElevenLabsVoices,
-  deleteElevenLabsVoice,
+  chatWithCharacter, speakVoicevox,
+  listConversations, createConversation, renameConversation, deleteConversation,
+  listMessages, saveMessage,
 } from "@/lib/furina.functions";
+import { getCachedAudio, setCachedAudio, base64ToBlob } from "@/lib/audio-cache";
 
 export const Route = createFileRoute("/")({
-  head: () => ({
-    meta: [
-      { title: "Furina — AI Companion" },
-      { name: "description", content: "Your personal anime AI companion with natural Japanese/English voice, RAG memory, and a customizable Furina character." },
-      { property: "og:title", content: "Furina — AI Companion" },
-      { property: "og:description", content: "Personal AI companion with voice, memory, and Furina personality." },
-    ],
-  }),
-  component: FurinaApp,
+  component: AppPage,
+  head: () => ({ meta: [{ title: "Furina & Hu Tao — AI Companion" }] }),
 });
 
-type Msg = { id: string; role: "user" | "assistant"; content: string; at: number };
-type TTSProvider = "elevenlabs" | "voicevox";
-type Conversation = { id: string; title: string; messages: Msg[]; updatedAt: number };
+interface Msg {
+  id: string;            // db id or local pending id
+  role: "user" | "assistant";
+  content: string;
+  status: "sending" | "sent" | "delivered" | "read" | "failed";
+  created_at: string;
+}
+interface Conv { id: string; title: string; updated_at: string }
 
-const STORAGE = {
-  convos: "furina:conversations",
-  activeId: "furina:activeConvoId",
-  bg: "furina:bg",
-  voice: "furina:voiceId",
-  name: "furina:name",
-  persona: "furina:persona",
-  lang: "furina:lang",
-  tts: "furina:ttsEnabled",
-  speed: "furina:ttsSpeed",
-  provider: "furina:ttsProvider",
-  vvSpeaker: "furina:vvSpeaker",
-  vvTranslate: "furina:vvTranslate",
-  legacyMsgs: "furina:messages",
+const LS = {
+  charId: "furina:character",
+  romantic: (c: string) => `furina:romantic:${c}`,
+  voice: (c: string) => `furina:voice:${c}`,
+  speed: "furina:speed",
+  translate: "furina:translate",
+  activeConv: (c: string) => `furina:activeConv:${c}`,
 };
 
-function newConversation(): Conversation {
-  return { id: crypto.randomUUID(), title: "Percakapan baru", messages: [], updatedAt: Date.now() };
-}
+function AppPage() {
+  const [session, setSession] = useState<Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"]>(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
-
-
-const VOICES = [
-  { id: "XrExE9yKIg1WjnnlVkGX", label: "Matilda — sweet, soft" },
-  { id: "EXAVITQu4vr4xnSDxMaL", label: "Sarah — warm feminine" },
-  { id: "Xb7hH8MSUJpSbSDYk0k2", label: "Alice — bright young" },
-  { id: "cgSgspJ2msm6clMCkdW9", label: "Jessica — gentle" },
-  { id: "pFZP5JQG7iQjIQuC4Bku", label: "Lily — soft anime-like" },
-  { id: "FGY2WhTYpPnrIDTdsKH5", label: "Laura — clear feminine" },
-];
-
-// VOICEVOX speakers — 100% gratis, suara anime Jepang natural
-const VV_SPEAKERS = [
-  { id: 3, label: "ずんだもん (Zundamon) — maskot imut, ceria" },
-  { id: 2, label: "四国めたん (Metan) — gadis muda manis" },
-  { id: 8, label: "春日部つむぎ (Tsumugi) — cerah, energik" },
-  { id: 10, label: "雨晴はう (Hau) — lembut, tenang" },
-  { id: 9, label: "波音リツ (Ritsu) — dewasa, kalem" },
-  { id: 14, label: "冥鳴ひまり (Himari) — anggun, dramatis" },
-  { id: 20, label: "もち子さん (Mochiko) — hangat, kakak" },
-  { id: 23, label: "WhiteCUL — manis, polos" },
-];
-
-function FurinaApp() {
-  const chat = useServerFn(chatWithFurina);
-  const tts = useServerFn(speakFurina);
-  const ttsVV = useServerFn(speakVoicevox);
-  const listMemFn = useServerFn(listMemories);
-  const delMemFn = useServerFn(deleteMemory);
-  const addMemFn = useServerFn(addMemory);
-  const clearMemFn = useServerFn(clearAllMemories);
-  const cloneVoiceFn = useServerFn(cloneVoiceFromSamples);
-  const listVoicesFn = useServerFn(listElevenLabsVoices);
-  const delVoiceFn = useServerFn(deleteElevenLabsVoice);
-
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeId, setActiveId] = useState<string>("");
-  const [input, setInput] = useState("");
-  const [sending, setSending] = useState(false);
-  const [bg, setBg] = useState<string>(furinaDefault);
-  const [voiceId, setVoiceId] = useState(VOICES[0].id);
-  const [name, setName] = useState("Furina");
-  const [persona, setPersona] = useState("");
-  const [language, setLanguage] = useState<"auto" | "ja" | "en" | "id">("auto");
-  const [speed, setSpeed] = useState(1.0);
-  const [provider, setProvider] = useState<TTSProvider>("voicevox");
-  const [vvSpeaker, setVvSpeaker] = useState<number>(VV_SPEAKERS[0].id);
-  const [vvTranslate, setVvTranslate] = useState(true);
-  const [openSettings, setOpenSettings] = useState(false);
-  const [openConvos, setOpenConvos] = useState(false);
-  const [memories, setMemories] = useState<{ id: string; content: string }[]>([]);
-  const [newMem, setNewMem] = useState("");
-  const [playingId, setPlayingId] = useState<string | null>(null);
-  const [loadingId, setLoadingId] = useState<string | null>(null);
-  const [paused, setPaused] = useState(false);
-  const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
-  const [editingTitleVal, setEditingTitleVal] = useState("");
-  const [clonedVoices, setClonedVoices] = useState<{ id: string; name: string }[]>([]);
-  const [cloneName, setCloneName] = useState("");
-  const [cloneFiles, setCloneFiles] = useState<File[]>([]);
-  const [cloning, setCloning] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioCache = useRef<Map<string, string>>(new Map());
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLTextAreaElement | null>(null);
-
-  const activeConvo = conversations.find((c) => c.id === activeId);
-  const messages = activeConvo?.messages ?? [];
-
-  // Load persisted state
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const rawConvos = localStorage.getItem(STORAGE.convos);
-      let loaded: Conversation[] = [];
-      if (rawConvos) {
-        loaded = JSON.parse(rawConvos);
-      } else {
-        const legacy = localStorage.getItem(STORAGE.legacyMsgs);
-        if (legacy) {
-          const msgs: Msg[] = JSON.parse(legacy);
-          if (msgs.length) {
-            loaded = [{ id: crypto.randomUUID(), title: "Percakapan lama", messages: msgs, updatedAt: Date.now() }];
-          }
-          localStorage.removeItem(STORAGE.legacyMsgs);
-        }
-      }
-      if (!loaded.length) loaded = [newConversation()];
-      setConversations(loaded);
-      const savedActive = localStorage.getItem(STORAGE.activeId);
-      setActiveId(savedActive && loaded.some((c) => c.id === savedActive) ? savedActive : loaded[0].id);
-
-      const b = localStorage.getItem(STORAGE.bg);
-      if (b) setBg(b);
-      const v = localStorage.getItem(STORAGE.voice);
-      if (v) setVoiceId(v);
-      const n = localStorage.getItem(STORAGE.name);
-      if (n) setName(n);
-      const p = localStorage.getItem(STORAGE.persona);
-      if (p) setPersona(p);
-      const l = localStorage.getItem(STORAGE.lang);
-      if (l) setLanguage(l as typeof language);
-      // (legacy "ttsOn" preference dihapus — TTS sekarang manual lewat tombol play di tiap pesan)
-      const sp = localStorage.getItem(STORAGE.speed);
-      if (sp) setSpeed(Math.min(1.2, Math.max(0.7, parseFloat(sp) || 1.0)));
-      const pr = localStorage.getItem(STORAGE.provider);
-      if (pr === "elevenlabs" || pr === "voicevox") setProvider(pr);
-      const vs = localStorage.getItem(STORAGE.vvSpeaker);
-      if (vs) setVvSpeaker(parseInt(vs, 10) || VV_SPEAKERS[0].id);
-      const vt = localStorage.getItem(STORAGE.vvTranslate);
-      if (vt) setVvTranslate(vt === "1");
-    } catch {}
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setAuthLoading(false); });
+    return () => subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
-    if (!conversations.length) return;
-    try { localStorage.setItem(STORAGE.convos, JSON.stringify(conversations)); } catch {}
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [conversations, activeId]);
+  if (authLoading) return <FullScreen><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></FullScreen>;
+  if (!session) return <LoginScreen />;
+  return <ChatApp />;
+}
 
-  useEffect(() => {
-    if (activeId) try { localStorage.setItem(STORAGE.activeId, activeId); } catch {}
-  }, [activeId]);
+function FullScreen({ children }: { children: React.ReactNode }) {
+  return <div className="min-h-screen flex items-center justify-center bg-background">{children}</div>;
+}
 
-  useEffect(() => { inputRef.current?.focus(); }, []);
+function LoginScreen() {
+  const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [mode, setMode] = useState<"login" | "signup">("login");
 
-  function updateActiveMessages(updater: (prev: Msg[]) => Msg[]) {
-    setConversations((convos) =>
-      convos.map((c) =>
-        c.id === activeId
-          ? { ...c, messages: updater(c.messages), updatedAt: Date.now() }
-          : c,
-      ),
-    );
-  }
+  const handleGoogle = async () => {
+    setLoading(true);
+    const r = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin });
+    if (r.error) { toast.error("Login Google gagal: " + (r.error as Error).message); setLoading(false); }
+  };
 
-  function startNewConversation() {
-    stopTTS();
-    const c = newConversation();
-    setConversations((prev) => [c, ...prev]);
-    setActiveId(c.id);
-    setOpenConvos(false);
-    setTimeout(() => inputRef.current?.focus(), 0);
-  }
-
-  function selectConversation(id: string) {
-    stopTTS();
-    setActiveId(id);
-    setOpenConvos(false);
-  }
-
-  function deleteConversation(id: string) {
-    setConversations((prev) => {
-      const filtered = prev.filter((c) => c.id !== id);
-      const next = filtered.length ? filtered : [newConversation()];
-      if (id === activeId) setActiveId(next[0].id);
-      return next;
-    });
-  }
-
-  function renameConversation(id: string, title: string) {
-    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, title: title.trim() || c.title } : c)));
-  }
-
-
-  async function send() {
-    const text = input.trim();
-    if (!text || sending) return;
-    const userMsg: Msg = { id: crypto.randomUUID(), role: "user", content: text, at: Date.now() };
-    const next = [...messages, userMsg];
-    updateActiveMessages(() => next);
-    // Auto-title percakapan baru dari pesan pertama
-    if (activeConvo && (activeConvo.title === "Percakapan baru" || !activeConvo.title)) {
-      const t = text.slice(0, 40).replace(/\s+/g, " ").trim();
-      renameConversation(activeConvo.id, t || "Percakapan baru");
-    }
-    setInput("");
-    setSending(true);
+  const handleEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
     try {
-      const apiMessages = next.slice(-12).map((m) => ({ role: m.role, content: m.content }));
-      const { reply } = await chat({
-        data: {
-          messages: apiMessages,
-          characterName: name,
-          systemPersona: persona,
-          language,
-        },
-      });
-      const aiMsg: Msg = { id: crypto.randomUUID(), role: "assistant", content: reply, at: Date.now() };
-      updateActiveMessages((prev) => [...prev, aiMsg]);
-      // TTS hanya jalan saat user menekan tombol play, bukan otomatis.
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Something went wrong";
-      toast.error(msg);
-    } finally {
-      setSending(false);
-      setTimeout(() => inputRef.current?.focus(), 0);
-    }
-  }
-
-
-  function stopTTS() {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-      audioRef.current = null;
-    }
-    setPlayingId(null);
-    setPaused(false);
-  }
-
-  function pauseTTS() {
-    if (audioRef.current && !audioRef.current.paused) {
-      audioRef.current.pause();
-      setPaused(true);
-    }
-  }
-
-  async function resumeTTS() {
-    if (audioRef.current && audioRef.current.paused) {
-      await audioRef.current.play();
-      setPaused(false);
-    }
-  }
-
-  async function playTTS(msgId: string, text: string) {
-    try {
-      const clean = text.replace(/\*[^*]+\*/g, "").trim();
-      if (!clean) return;
-      stopTTS();
-      const cacheKey =
-        provider === "voicevox"
-          ? `vv:${msgId}:${vvSpeaker}:${speed}:${vvTranslate ? 1 : 0}`
-          : `el:${msgId}:${voiceId}:${speed}`;
-      let src = audioCache.current.get(cacheKey);
-      if (!src) {
-        setLoadingId(msgId);
-        try {
-          if (provider === "voicevox") {
-            const { audio } = await ttsVV({
-              data: {
-                text: clean.slice(0, 1200),
-                speaker: vvSpeaker,
-                speed,
-                translateToJa: vvTranslate,
-              },
-            });
-            src = `data:audio/mpeg;base64,${audio}`;
-          } else {
-            const { audio } = await tts({
-              data: { text: clean.slice(0, 1500), voiceId, language, speed },
-            });
-            src = `data:audio/mpeg;base64,${audio}`;
-          }
-          audioCache.current.set(cacheKey, src);
-        } finally {
-          setLoadingId(null);
-        }
+      if (mode === "login") {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin } });
+        if (error) throw error;
+        toast.success("Akun dibuat. Silakan login.");
+        setMode("login");
       }
-      const a = new Audio(src);
-      audioRef.current = a;
-      setPlayingId(msgId);
-      setPaused(false);
-      a.onended = () => { setPlayingId(null); setPaused(false); audioRef.current = null; };
-      await a.play();
-    } catch (e) {
-      setLoadingId(null);
-      setPlayingId(null);
-      setPaused(false);
-      const msg = e instanceof Error ? e.message : "Voice failed";
-      toast.error(msg);
-    }
-  }
-
-
-
-  function handleBgUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const url = String(reader.result);
-      setBg(url);
-      try { localStorage.setItem(STORAGE.bg, url); } catch (err) {
-        toast.error("Image too large to save persistently");
-      }
-    };
-    reader.readAsDataURL(file);
-  }
-
-  async function refreshMemories() {
-    try {
-      const { memories } = await listMemFn();
-      setMemories(memories);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed loading memories");
-    }
-  }
-
-  async function refreshClonedVoices() {
-    try {
-      const { voices } = await listVoicesFn();
-      setClonedVoices(voices);
-    } catch (e) {
-      // Diam saja kalau API key belum diset / plan tidak support — biar tidak ganggu.
-      console.warn("listVoices:", e);
-      setClonedVoices([]);
-    }
-  }
-
-  function fileToBase64(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => {
-        const s = String(r.result);
-        const idx = s.indexOf(",");
-        resolve(idx >= 0 ? s.slice(idx + 1) : s);
-      };
-      r.onerror = reject;
-      r.readAsDataURL(file);
-    });
-  }
-
-  async function handleCloneVoice() {
-    if (!cloneName.trim() || cloneFiles.length === 0) return;
-    setCloning(true);
-    try {
-      const samples = await Promise.all(
-        cloneFiles.map(async (f) => ({
-          filename: f.name,
-          mime: f.type || "audio/mpeg",
-          base64: await fileToBase64(f),
-        })),
-      );
-      const { voiceId: newId, name: newName } = await cloneVoiceFn({
-        data: { name: cloneName.trim(), samples },
-      });
-      toast.success(`Suara "${newName}" berhasil di-clone`);
-      setCloneName("");
-      setCloneFiles([]);
-      await refreshClonedVoices();
-      setVoiceId(newId);
-      savePref(STORAGE.voice, newId);
-      audioCache.current.clear();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Clone gagal");
-    } finally {
-      setCloning(false);
-    }
-  }
-
-  function clearChat() {
-    updateActiveMessages(() => []);
-  }
-
-
-  function savePref(key: string, value: string) {
-    try { localStorage.setItem(key, value); } catch {}
-  }
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally { setLoading(false); }
+  };
 
   return (
-    <div className="relative h-[100dvh] w-full overflow-hidden bg-black">
-      {/* Background character */}
-      <img
-        src={bg}
-        alt={`${name} background`}
-        className="absolute inset-0 h-full w-full object-cover"
-        draggable={false}
-      />
-      {/* Subtle vertical fade for legibility */}
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-black/60" />
-
-      {/* Top bar */}
-      <header className="absolute left-0 right-0 top-0 z-20 flex items-center justify-between p-4">
-        <div className="flex items-center gap-2">
-          <div className="rounded-full bg-black/30 px-4 py-1.5 text-sm font-medium text-white backdrop-blur-md max-w-[55vw] truncate">
-            {name}
-            {activeConvo && <span className="ml-2 text-xs text-white/60 truncate">· {activeConvo.title}</span>}
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-indigo-950 to-rose-950 p-4">
+      <Toaster richColors position="top-center" />
+      <div className="w-full max-w-sm rounded-2xl bg-background/90 backdrop-blur p-6 shadow-2xl border border-border">
+        <div className="flex flex-col items-center gap-3 mb-5">
+          <div className="flex -space-x-3">
+            <Avatar className="h-14 w-14 ring-2 ring-cyan-400"><AvatarImage src={CHARACTERS.furina.avatar} /><AvatarFallback>F</AvatarFallback></Avatar>
+            <Avatar className="h-14 w-14 ring-2 ring-rose-400"><AvatarImage src={CHARACTERS.hutao.avatar} /><AvatarFallback>H</AvatarFallback></Avatar>
           </div>
+          <h1 className="text-xl font-bold">Selamat datang</h1>
+          <p className="text-xs text-muted-foreground text-center">Ngobrol dengan Furina & Hu Tao. Data tersimpan di akunmu.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={startNewConversation}
-            className="rounded-full bg-black/30 text-white backdrop-blur-md hover:bg-black/50"
-            aria-label="Percakapan baru"
-            title="Percakapan baru"
-          >
-            <MessageSquarePlus className="h-5 w-5" />
-          </Button>
 
-          <Sheet open={openConvos} onOpenChange={setOpenConvos}>
-            <SheetTrigger asChild>
-              <Button size="icon" variant="ghost" className="rounded-full bg-black/30 text-white backdrop-blur-md hover:bg-black/50" aria-label="Riwayat percakapan" title="Riwayat percakapan">
-                <MessagesSquare className="h-5 w-5" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="left" className="w-full overflow-y-auto sm:max-w-sm">
-              <SheetHeader>
-                <SheetTitle>Riwayat Percakapan</SheetTitle>
-                <SheetDescription>Semua percakapanmu tersimpan lokal di browser.</SheetDescription>
-              </SheetHeader>
-              <div className="mt-4 space-y-2">
-                <Button onClick={startNewConversation} className="w-full">
-                  <Plus className="mr-2 h-4 w-4" /> Percakapan baru
-                </Button>
-                <div className="mt-3 space-y-1">
-                  {[...conversations].sort((a, b) => b.updatedAt - a.updatedAt).map((c) => {
-                    const isActive = c.id === activeId;
-                    const preview = c.messages[c.messages.length - 1]?.content?.slice(0, 60) ?? "Belum ada pesan";
-                    return (
-                      <div
-                        key={c.id}
-                        className={`group rounded-lg border p-2 transition ${isActive ? "border-primary bg-accent" : "hover:bg-muted"}`}
-                      >
-                        {editingTitleId === c.id ? (
-                          <div className="flex items-center gap-1">
-                            <Input
-                              autoFocus
-                              value={editingTitleVal}
-                              onChange={(e) => setEditingTitleVal(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") { renameConversation(c.id, editingTitleVal); setEditingTitleId(null); }
-                                if (e.key === "Escape") setEditingTitleId(null);
-                              }}
-                              className="h-7 text-sm"
-                            />
-                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { renameConversation(c.id, editingTitleVal); setEditingTitleId(null); }}>
-                              <Check className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ) : (
-                          <button onClick={() => selectConversation(c.id)} className="flex w-full flex-col text-left">
-                            <span className="truncate text-sm font-medium">{c.title}</span>
-                            <span className="truncate text-xs text-muted-foreground">{preview}</span>
-                            <span className="text-[10px] text-muted-foreground">{new Date(c.updatedAt).toLocaleString()}</span>
-                          </button>
-                        )}
-                        {editingTitleId !== c.id && (
-                          <div className="mt-1 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
-                            <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => { setEditingTitleId(c.id); setEditingTitleVal(c.title); }}>
-                              <Pencil className="h-3 w-3" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-6 w-6 text-destructive"
-                              onClick={() => { if (confirm("Hapus percakapan ini?")) deleteConversation(c.id); }}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+        <Button onClick={handleGoogle} disabled={loading} className="w-full mb-3 bg-white text-black hover:bg-white/90">
+          <svg className="w-4 h-4 mr-2" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+          Lanjut dengan Google
+        </Button>
+
+        <div className="flex items-center gap-3 my-4"><div className="h-px bg-border flex-1" /><span className="text-xs text-muted-foreground">atau email</span><div className="h-px bg-border flex-1" /></div>
+
+        <form onSubmit={handleEmail} className="space-y-2">
+          <Input type="email" placeholder="email@kamu.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <Input type="password" placeholder="password (min 6)" value={password} onChange={(e) => setPassword(e.target.value)} minLength={6} required />
+          <Button type="submit" disabled={loading} className="w-full">{mode === "login" ? "Login" : "Daftar"}</Button>
+        </form>
+        <button onClick={() => setMode(mode === "login" ? "signup" : "login")} className="w-full text-xs text-muted-foreground mt-3 hover:text-foreground">
+          {mode === "login" ? "Belum punya akun? Daftar" : "Sudah punya akun? Login"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ChatApp() {
+  // character selection
+  const [charId, setCharId] = useState<CharacterId>(() => (typeof localStorage !== "undefined" ? (localStorage.getItem(LS.charId) as CharacterId) : null) || "furina");
+  const character = CHARACTERS[charId];
+
+  const [romantic, setRomantic] = useState<boolean>(() => typeof localStorage !== "undefined" ? localStorage.getItem(LS.romantic(charId)) === "1" : false);
+  const [voiceId, setVoiceId] = useState<string>(() => typeof localStorage !== "undefined" ? localStorage.getItem(LS.voice(charId)) || character.recommendedVoice.id : character.recommendedVoice.id);
+  const [speed, setSpeed] = useState<number>(() => Number(typeof localStorage !== "undefined" ? localStorage.getItem(LS.speed) : null) || 1.0);
+  const [translate, setTranslate] = useState<boolean>(() => typeof localStorage !== "undefined" ? localStorage.getItem(LS.translate) !== "0" : true);
+
+  // when char changes, load that char's settings
+  useEffect(() => {
+    localStorage.setItem(LS.charId, charId);
+    setRomantic(localStorage.getItem(LS.romantic(charId)) === "1");
+    setVoiceId(localStorage.getItem(LS.voice(charId)) || character.recommendedVoice.id);
+  }, [charId, character.recommendedVoice.id]);
+
+  useEffect(() => { localStorage.setItem(LS.romantic(charId), romantic ? "1" : "0"); }, [romantic, charId]);
+  useEffect(() => { localStorage.setItem(LS.voice(charId), voiceId); }, [voiceId, charId]);
+  useEffect(() => { localStorage.setItem(LS.speed, String(speed)); }, [speed]);
+  useEffect(() => { localStorage.setItem(LS.translate, translate ? "1" : "0"); }, [translate]);
+
+  // conversations & messages
+  const [convs, setConvs] = useState<Conv[]>([]);
+  const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const [msgs, setMsgs] = useState<Msg[]>([]);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const listConvsFn = useServerFn(listConversations);
+  const createConvFn = useServerFn(createConversation);
+  const renameConvFn = useServerFn(renameConversation);
+  const deleteConvFn = useServerFn(deleteConversation);
+  const listMsgsFn = useServerFn(listMessages);
+  const saveMsgFn = useServerFn(saveMessage);
+  const chatFn = useServerFn(chatWithCharacter);
+  const speakFn = useServerFn(speakVoicevox);
+
+  // load conversations when character changes
+  const loadConvs = useCallback(async () => {
+    const r = await listConvsFn({ data: { characterId: charId } });
+    setConvs(r.conversations);
+    const stored = localStorage.getItem(LS.activeConv(charId));
+    const next = (stored && r.conversations.find((c) => c.id === stored)?.id) || r.conversations[0]?.id || null;
+    setActiveConvId(next);
+  }, [charId, listConvsFn]);
+
+  useEffect(() => { loadConvs().catch((e) => toast.error("Gagal load: " + e.message)); }, [loadConvs]);
+
+  // load messages when conv changes
+  useEffect(() => {
+    if (!activeConvId) { setMsgs([]); return; }
+    localStorage.setItem(LS.activeConv(charId), activeConvId);
+    listMsgsFn({ data: { conversationId: activeConvId } })
+      .then((r) => setMsgs(r.messages as Msg[]))
+      .catch((e) => toast.error("Gagal muat pesan: " + e.message));
+  }, [activeConvId, charId, listMsgsFn]);
+
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { scrollerRef.current?.scrollTo({ top: scrollerRef.current.scrollHeight, behavior: "smooth" }); }, [msgs, sending]);
+
+  const ensureConv = async (): Promise<string> => {
+    if (activeConvId) return activeConvId;
+    const r = await createConvFn({ data: { characterId: charId, title: "Percakapan baru" } });
+    setConvs((c) => [r.conversation as Conv, ...c]);
+    setActiveConvId(r.conversation.id);
+    return r.conversation.id;
+  };
+
+  const sendMessage = async (textOverride?: string, retryMsgId?: string) => {
+    const text = (textOverride ?? input).trim();
+    if (!text || sending) return;
+    setSending(true);
+    setInput("");
+
+    const convId = await ensureConv();
+
+    // Optimistic user message
+    const localId = retryMsgId || `local-${Date.now()}`;
+    const userMsg: Msg = {
+      id: localId, role: "user", content: text, status: "sending", created_at: new Date().toISOString(),
+    };
+    setMsgs((m) => retryMsgId ? m.map((x) => x.id === retryMsgId ? userMsg : x) : [...m, userMsg]);
+
+    try {
+      // Save user message
+      const saved = await saveMsgFn({ data: { conversationId: convId, role: "user", content: text, status: "sent" } });
+      setMsgs((m) => m.map((x) => x.id === localId ? { ...(saved.message as Msg), status: "sent" } : x));
+
+      // Auto-title from first message
+      if (msgs.length === 0) {
+        const title = text.slice(0, 40);
+        renameConvFn({ data: { id: convId, title } }).catch(() => {});
+        setConvs((c) => c.map((cc) => cc.id === convId ? { ...cc, title } : cc));
+      }
+
+      // Build context for AI
+      const persona = romantic ? character.personaRomantic : character.persona;
+      const history = [...msgs, { role: "user" as const, content: text, id: "", status: "sent" as const, created_at: "" }]
+        .map((m) => ({ role: m.role, content: m.content }));
+
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Jakarta";
+      const r = await chatFn({ data: { messages: history, characterId: charId, persona, romantic, userTimezone: tz } });
+
+      // Mark user msg as "read" (blue ticks)
+      setMsgs((m) => m.map((x) => x.id === (saved.message as Msg).id ? { ...x, status: "read" } : x));
+
+      const aiSaved = await saveMsgFn({ data: { conversationId: convId, role: "assistant", content: r.reply, status: "sent" } });
+      setMsgs((m) => [...m, aiSaved.message as Msg]);
+
+      // refresh conv list ordering
+      setConvs((cs) => {
+        const idx = cs.findIndex((c) => c.id === convId);
+        if (idx < 0) return cs;
+        const updated = { ...cs[idx], updated_at: new Date().toISOString() };
+        return [updated, ...cs.filter((c) => c.id !== convId)];
+      });
+    } catch (err) {
+      setMsgs((m) => m.map((x) => x.id === localId ? { ...x, status: "failed" } : x));
+      toast.error("Pesan gagal: " + (err as Error).message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // ============ TTS ============
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const [loadingTtsId, setLoadingTtsId] = useState<string | null>(null);
+
+  const stopAudio = () => {
+    audioRef.current?.pause();
+    audioRef.current = null;
+    setPlayingId(null);
+  };
+
+  const playMessage = async (msg: Msg) => {
+    if (playingId === msg.id) { stopAudio(); return; }
+    stopAudio();
+
+    const voice = resolveVoice(voiceId, character);
+    if (!voice || voice.isOriginal) {
+      toast.info("Suara original belum tersedia untuk karakter ini.");
+      return;
+    }
+
+    const cacheKey = `${msg.id}:${voice.id}:${speed}:${translate ? 1 : 0}`;
+    let blob = await getCachedAudio(cacheKey);
+
+    if (!blob) {
+      setLoadingTtsId(msg.id);
+      try {
+        const r = await speakFn({ data: { text: msg.content, speaker: voice.speaker!, speed, translateToJa: translate } });
+        blob = base64ToBlob(r.audio);
+        await setCachedAudio(cacheKey, blob);
+      } catch (e) {
+        toast.error("TTS gagal: " + (e as Error).message);
+        setLoadingTtsId(null);
+        return;
+      }
+      setLoadingTtsId(null);
+    }
+
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.playbackRate = 1.0;
+    audio.onended = () => { setPlayingId(null); URL.revokeObjectURL(url); };
+    audio.onpause = () => { if (audio.ended) return; };
+    audioRef.current = audio;
+    setPlayingId(msg.id);
+    audio.play().catch((e) => { toast.error("Tidak bisa play: " + e.message); setPlayingId(null); });
+  };
+
+  // ============ Conversation actions ============
+  const newChat = async () => {
+    const r = await createConvFn({ data: { characterId: charId, title: "Percakapan baru" } });
+    setConvs((c) => [r.conversation as Conv, ...c]);
+    setActiveConvId(r.conversation.id);
+    setMsgs([]);
+  };
+  const deleteChat = async (id: string) => {
+    if (!confirm("Hapus percakapan ini?")) return;
+    await deleteConvFn({ data: { id } });
+    setConvs((c) => c.filter((x) => x.id !== id));
+    if (id === activeConvId) {
+      const next = convs.find((c) => c.id !== id);
+      setActiveConvId(next?.id || null);
+    }
+  };
+  const renameChat = async (id: string, current: string) => {
+    const title = prompt("Judul baru:", current);
+    if (!title) return;
+    await renameConvFn({ data: { id, title } });
+    setConvs((c) => c.map((x) => x.id === id ? { ...x, title } : x));
+  };
+
+  const logout = async () => { stopAudio(); await supabase.auth.signOut(); };
+
+  return (
+    <div className="min-h-screen flex flex-col bg-background">
+      <Toaster richColors position="top-center" />
+
+      {/* Header */}
+      <header className={cn("border-b border-border bg-gradient-to-r", character.accent)}>
+        <div className="max-w-3xl mx-auto px-3 py-2 flex items-center gap-3 backdrop-blur">
+          <Select value={charId} onValueChange={(v) => setCharId(v as CharacterId)}>
+            <SelectTrigger className="border-0 bg-transparent hover:bg-white/10 w-auto gap-2 p-1 h-auto">
+              <div className="flex items-center gap-2">
+                <Avatar className="h-9 w-9"><AvatarImage src={character.avatar} /><AvatarFallback>{character.name[0]}</AvatarFallback></Avatar>
+                <div className="text-left">
+                  <div className="text-sm font-semibold leading-tight">{character.name}</div>
+                  <div className="text-[10px] text-muted-foreground leading-tight">{character.tagline}</div>
                 </div>
+              </div>
+            </SelectTrigger>
+            <SelectContent>
+              {characterList().map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  <div className="flex items-center gap-2">
+                    <Avatar className="h-6 w-6"><AvatarImage src={c.avatar} /><AvatarFallback>{c.name[0]}</AvatarFallback></Avatar>
+                    <span>{c.name}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <div className="flex-1" />
+
+          {romantic && <Heart className="h-4 w-4 text-rose-400 fill-rose-400" />}
+
+          <Sheet>
+            <SheetTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><MessagesSquare className="h-4 w-4" /></Button></SheetTrigger>
+            <SheetContent side="left" className="w-80">
+              <SheetHeader><SheetTitle>Percakapan</SheetTitle></SheetHeader>
+              <div className="mt-4 space-y-2 overflow-y-auto max-h-[calc(100vh-8rem)]">
+                <Button variant="outline" className="w-full justify-start" onClick={newChat}><MessageSquarePlus className="h-4 w-4 mr-2" /> Percakapan baru</Button>
+                {convs.map((c) => (
+                  <div key={c.id} className={cn("flex items-center gap-1 rounded-md px-2 py-1.5 group", c.id === activeConvId && "bg-accent")}>
+                    <button onClick={() => setActiveConvId(c.id)} className="flex-1 text-left text-sm truncate">{c.title}</button>
+                    <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100" onClick={() => renameChat(c.id, c.title)}><Pencil className="h-3 w-3" /></Button>
+                    <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100" onClick={() => deleteChat(c.id)}><Trash2 className="h-3 w-3" /></Button>
+                  </div>
+                ))}
               </div>
             </SheetContent>
           </Sheet>
 
-          <Sheet open={openSettings} onOpenChange={(o) => { setOpenSettings(o); if (o) { refreshMemories(); refreshClonedVoices(); } }}>
-            <SheetTrigger asChild>
-              <Button size="icon" variant="ghost" className="rounded-full bg-black/30 text-white backdrop-blur-md hover:bg-black/50">
-                <Settings className="h-5 w-5" />
-              </Button>
-            </SheetTrigger>
-
-          <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-md">
-            <SheetHeader>
-              <SheetTitle>Pengaturan</SheetTitle>
-              <SheetDescription>Personalisasi karakter, suara, dan memori.</SheetDescription>
-            </SheetHeader>
-
-            <div className="mt-6 space-y-6">
-              <section className="space-y-2">
-                <Label>Nama karakter</Label>
-                <Input value={name} onChange={(e) => { setName(e.target.value); savePref(STORAGE.name, e.target.value); }} />
-              </section>
-
-              <section className="space-y-2">
-                <Label>Kepribadian / system prompt (opsional)</Label>
-                <Textarea
-                  rows={5}
-                  placeholder="Kosongkan untuk kepribadian Furina default…"
-                  value={persona}
-                  onChange={(e) => { setPersona(e.target.value); savePref(STORAGE.persona, e.target.value); }}
-                />
-              </section>
-
-              <section className="space-y-3">
-                <Label>Mesin suara (TTS)</Label>
-                <Select
-                  value={provider}
-                  onValueChange={(v) => {
-                    setProvider(v as TTSProvider);
-                    savePref(STORAGE.provider, v);
-                    audioCache.current.clear();
-                  }}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="voicevox">VOICEVOX — anime Jepang (gratis)</SelectItem>
-                    <SelectItem value="elevenlabs">ElevenLabs — multibahasa (premium)</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                {provider === "elevenlabs" ? (
-                  <div className="space-y-3">
-                    <Label className="text-xs text-muted-foreground">Voice ElevenLabs</Label>
-                    <Select value={voiceId} onValueChange={(v) => { setVoiceId(v); savePref(STORAGE.voice, v); audioCache.current.clear(); }}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {clonedVoices.length > 0 && (
-                          <>
-                            <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">Suara hasil clone</div>
-                            {clonedVoices.map((v) => (
-                              <SelectItem key={v.id} value={v.id}>★ {v.name}</SelectItem>
-                            ))}
-                            <div className="my-1 border-t" />
-                            <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">Preset</div>
-                          </>
-                        )}
-                        {VOICES.map((v) => <SelectItem key={v.id} value={v.id}>{v.label}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-
-                    {/* Voice Clone */}
-                    <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-xs font-semibold">Clone suara baru</Label>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 px-2 text-[10px]"
-                          onClick={refreshClonedVoices}
-                        >
-                          Refresh
-                        </Button>
-                      </div>
-                      <p className="text-[10px] leading-relaxed text-muted-foreground">
-                        Upload 1–5 file audio (mp3/wav/m4a), total ~1–3 menit, suara jernih tanpa musik latar. Butuh ElevenLabs Starter+ untuk Instant Voice Cloning.
-                      </p>
-                      <Input
-                        placeholder="Nama suara (mis. Furina Asli)"
-                        value={cloneName}
-                        onChange={(e) => setCloneName(e.target.value)}
-                        className="h-8 text-xs"
-                      />
-                      <input
-                        type="file"
-                        accept="audio/*"
-                        multiple
-                        onChange={(e) => setCloneFiles(Array.from(e.target.files ?? []).slice(0, 5))}
-                        className="block w-full text-xs"
-                      />
-                      {cloneFiles.length > 0 && (
-                        <p className="text-[10px] text-muted-foreground">{cloneFiles.length} file dipilih</p>
-                      )}
-                      <Button
-                        size="sm"
-                        className="w-full"
-                        disabled={cloning || !cloneName.trim() || cloneFiles.length === 0}
-                        onClick={handleCloneVoice}
-                      >
-                        {cloning ? (
-                          <><Loader2 className="mr-2 h-3 w-3 animate-spin" /> Meng-clone…</>
-                        ) : (
-                          <>Clone sekarang</>
-                        )}
-                      </Button>
-
-                      {clonedVoices.length > 0 && (
-                        <div className="space-y-1 pt-1">
-                          {clonedVoices.map((v) => (
-                            <div key={v.id} className="flex items-center justify-between rounded bg-background/60 px-2 py-1 text-xs">
-                              <span className="truncate">★ {v.name}</span>
-                              <button
-                                onClick={async () => {
-                                  if (!confirm(`Hapus suara "${v.name}"?`)) return;
-                                  try {
-                                    await delVoiceFn({ data: { voiceId: v.id } });
-                                    if (voiceId === v.id) setVoiceId(VOICES[0].id);
-                                    refreshClonedVoices();
-                                  } catch (e) { toast.error(e instanceof Error ? e.message : "Gagal hapus"); }
-                                }}
-                                className="text-muted-foreground hover:text-destructive"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">Karakter VOICEVOX (suara anime Jepang)</Label>
-                    <Select
-                      value={String(vvSpeaker)}
-                      onValueChange={(v) => { const n = parseInt(v, 10); setVvSpeaker(n); savePref(STORAGE.vvSpeaker, v); audioCache.current.clear(); }}
-                    >
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {VV_SPEAKERS.map((s) => <SelectItem key={s.id} value={String(s.id)}>{s.label}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    <div className="flex items-center justify-between pt-1">
-                      <Label className="text-xs">Auto-terjemah balasan ke Jepang</Label>
-                      <Switch
-                        checked={vvTranslate}
-                        onCheckedChange={(c) => { setVvTranslate(c); savePref(STORAGE.vvTranslate, c ? "1" : "0"); audioCache.current.clear(); }}
-                      />
-                    </div>
-                    <p className="text-[11px] leading-relaxed text-muted-foreground">
-                      Teks balasan tetap dalam bahasa pilihanmu (mis. Indonesia), tapi suaranya otomatis dibacakan dalam bahasa Jepang ala anime. 100% gratis lewat VOICEVOX.
-                    </p>
-                  </div>
-                )}
-                <p className="pt-2 text-[11px] leading-relaxed text-muted-foreground">
-                  <Volume2 className="mr-1 inline h-3 w-3" />
-                  Suara hanya berbunyi saat kamu menekan tombol ▶ di balon pesan.
-                </p>
-                <div className="pt-2 space-y-2">
+          <Sheet>
+            <SheetTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><SettingsIcon className="h-4 w-4" /></Button></SheetTrigger>
+            <SheetContent side="right" className="w-80 overflow-y-auto">
+              <SheetHeader><SheetTitle>Pengaturan</SheetTitle></SheetHeader>
+              <div className="mt-4 space-y-5">
+                <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label>Kecepatan bicara</Label>
-                    <span className="text-xs text-muted-foreground tabular-nums">{speed.toFixed(2)}x</span>
+                    <Label className="flex items-center gap-2"><Heart className="h-4 w-4 text-rose-400" /> Mode Pasangan</Label>
+                    <Switch checked={romantic} onCheckedChange={setRomantic} />
                   </div>
-                  <Slider
-                    min={0.7}
-                    max={1.2}
-                    step={0.05}
-                    value={[speed]}
-                    onValueChange={(v) => { const s = v[0] ?? 1; setSpeed(s); savePref(STORAGE.speed, String(s)); audioCache.current.clear(); }}
-                  />
+                  <p className="text-xs text-muted-foreground">{character.name} akan lebih mesra & intim, seperti pacar.</p>
                 </div>
-              </section>
 
+                <div className="space-y-2">
+                  <Label>Voice ({character.name})</Label>
+                  <Select value={voiceId} onValueChange={setVoiceId}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectLabel>⭐ Rekomendasi</SelectLabel>
+                        <SelectItem value={character.recommendedVoice.id}>{character.recommendedVoice.label}</SelectItem>
+                      </SelectGroup>
+                      {character.originalVoice && (
+                        <SelectGroup>
+                          <SelectLabel>🎤 Suara Original</SelectLabel>
+                          <SelectItem value="original" disabled>{character.originalVoice.label}</SelectItem>
+                        </SelectGroup>
+                      )}
+                      <SelectGroup>
+                        <SelectLabel>VOICEVOX (lain)</SelectLabel>
+                        {VV_SPEAKERS.filter((s) => `vv:${s.id}` !== character.recommendedVoice.id).map((s) => (
+                          <SelectItem key={s.id} value={`vv:${s.id}`}>{s.name}</SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-              <section className="space-y-2">
-                <Label>Bahasa balasan</Label>
-                <Select value={language} onValueChange={(v) => { setLanguage(v as typeof language); savePref(STORAGE.lang, v); }}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="auto">Auto (mengikuti kamu)</SelectItem>
-                    <SelectItem value="ja">日本語</SelectItem>
-                    <SelectItem value="en">English</SelectItem>
-                    <SelectItem value="id">Indonesia</SelectItem>
-                  </SelectContent>
-                </Select>
-              </section>
+                <div className="space-y-2">
+                  <Label>Kecepatan: {speed.toFixed(2)}x</Label>
+                  <Slider min={0.5} max={1.5} step={0.05} value={[speed]} onValueChange={(v) => setSpeed(v[0])} />
+                </div>
 
-              <Separator />
-
-              <section className="space-y-2">
-                <Label className="flex items-center gap-2"><ImageIcon className="h-4 w-4" /> Background karakter</Label>
-                <input type="file" accept="image/*" onChange={handleBgUpload} className="block w-full text-sm" />
-                <Button variant="outline" size="sm" onClick={() => { setBg(furinaDefault); localStorage.removeItem(STORAGE.bg); }}>
-                  <RotateCcw className="mr-2 h-4 w-4" /> Kembalikan Furina default
-                </Button>
-              </section>
-
-              <Separator />
-
-              <section className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label>Memori (RAG)</Label>
-                  <Button variant="ghost" size="sm" onClick={async () => {
-                    if (!confirm("Hapus semua memori?")) return;
-                    await clearMemFn();
-                    refreshMemories();
-                    toast.success("Memori dibersihkan");
-                  }}>Hapus semua</Button>
+                  <Label>Auto-terjemah ke Jepang</Label>
+                  <Switch checked={translate} onCheckedChange={setTranslate} />
                 </div>
-                <div className="flex gap-2">
-                  <Input placeholder="Tambah fakta tentang dirimu…" value={newMem} onChange={(e) => setNewMem(e.target.value)} />
-                  <Button size="icon" onClick={async () => {
-                    if (newMem.trim().length < 3) return;
-                    try {
-                      await addMemFn({ data: { content: newMem.trim() } });
-                      setNewMem("");
-                      refreshMemories();
-                    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
-                  }}><Plus className="h-4 w-4" /></Button>
-                </div>
-                <div className="max-h-64 space-y-1 overflow-y-auto rounded-md border p-2 text-sm">
-                  {memories.length === 0 && <p className="text-muted-foreground">Belum ada memori. Furina akan otomatis mengingat fakta dari obrolan.</p>}
-                  {memories.map((m) => (
-                    <div key={m.id} className="flex items-start gap-2 rounded p-1 hover:bg-muted">
-                      <span className="flex-1">{m.content}</span>
-                      <button onClick={async () => { await delMemFn({ data: { id: m.id } }); refreshMemories(); }} className="text-muted-foreground hover:text-destructive">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </section>
 
-              <Separator />
-
-              <Button variant="outline" className="w-full" onClick={clearChat}>
-                <Trash2 className="mr-2 h-4 w-4" /> Bersihkan percakapan
-              </Button>
-            </div>
-          </SheetContent>
-        </Sheet>
+                <Button variant="outline" className="w-full" onClick={logout}><LogOut className="h-4 w-4 mr-2" /> Logout</Button>
+              </div>
+            </SheetContent>
+          </Sheet>
         </div>
       </header>
 
-
-      {/* Chat messages overlay */}
-      <main
-        ref={scrollRef}
-        className="absolute inset-0 z-10 flex flex-col gap-3 overflow-y-auto px-4 pt-20 pb-32"
-      >
-        {messages.length === 0 && (
-          <div className="mt-auto mb-4 max-w-[85%] self-start rounded-2xl bg-white/95 px-4 py-3 text-sm text-foreground shadow-lg backdrop-blur">
-            Halo… ara, akhirnya kamu datang juga~ ✦ Aku {name}. Ceritakan apa saja padaku.
-          </div>
-        )}
-        <div className="mt-auto" />
-        {messages.map((m) => {
-          const isUser = m.role === "user";
-          const isPlaying = playingId === m.id;
-          const isLoading = loadingId === m.id;
-          return (
-            <div key={m.id} className={isUser ? "flex max-w-[85%] self-end flex-col items-end" : "flex max-w-[85%] self-start flex-col items-start"}>
-              <div
-                className={
-                  isUser
-                    ? "rounded-2xl bg-[oklch(0.55_0.18_265)] px-4 py-2.5 text-sm text-white shadow-lg"
-                    : "rounded-2xl bg-white/95 px-4 py-2.5 text-sm text-foreground shadow-lg backdrop-blur"
-                }
-              >
-                {m.content}
-              </div>
-              {!isUser && (
-                <div className="mt-1 flex items-center gap-1 px-1">
-                  {isLoading && (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1 text-[11px] text-white backdrop-blur-md animate-pulse">
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                      Menyiapkan suara…
-                      <span className="inline-flex gap-0.5 ml-0.5">
-                        <span className="h-1 w-1 animate-bounce rounded-full bg-white/80 [animation-delay:-0.3s]" />
-                        <span className="h-1 w-1 animate-bounce rounded-full bg-white/80 [animation-delay:-0.15s]" />
-                        <span className="h-1 w-1 animate-bounce rounded-full bg-white/80" />
-                      </span>
-                    </span>
-                  )}
-                  {!isLoading && !isPlaying && (
-                    <button
-                      onClick={() => playTTS(m.id, m.content)}
-                      className="rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition hover:bg-black/60"
-                      aria-label="Putar suara"
-                    >
-                      <Play className="h-3 w-3" />
-                    </button>
-                  )}
-                  {!isLoading && isPlaying && !paused && (
-                    <button
-                      onClick={pauseTTS}
-                      className="rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition hover:bg-black/60"
-                      aria-label="Jeda"
-                    >
-                      <Pause className="h-3 w-3" />
-                    </button>
-                  )}
-                  {!isLoading && isPlaying && paused && (
-                    <button
-                      onClick={resumeTTS}
-                      className="rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition hover:bg-black/60"
-                      aria-label="Lanjutkan"
-                    >
-                      <Play className="h-3 w-3" />
-                    </button>
-                  )}
-                  {!isLoading && isPlaying && (
-                    <button
-                      onClick={stopTTS}
-                      className="rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition hover:bg-black/60"
-                      aria-label="Berhenti"
-                    >
-                      <Square className="h-3 w-3" />
-                    </button>
-                  )}
-                </div>
-              )}
+      {/* Messages */}
+      <div ref={scrollerRef} className="flex-1 overflow-y-auto px-3 py-4">
+        <div className="max-w-3xl mx-auto space-y-3">
+          {msgs.length === 0 && (
+            <div className="text-center text-sm text-muted-foreground mt-12">
+              Sapa {character.name} duluan 👋
             </div>
-          );
-        })}
+          )}
+          {msgs.map((m) => (
+            <MessageBubble
+              key={m.id}
+              msg={m}
+              character={character}
+              isPlaying={playingId === m.id}
+              isLoadingTts={loadingTtsId === m.id}
+              onPlay={() => playMessage(m)}
+              onRetry={() => sendMessage(m.content, m.id)}
+            />
+          ))}
+          {sending && <TypingIndicator character={character} />}
+        </div>
+      </div>
 
-        {sending && (
-          <div className="max-w-[85%] self-start rounded-2xl bg-white/90 px-4 py-2.5 text-sm text-muted-foreground shadow-lg backdrop-blur">
-            <span className="inline-flex gap-1">
-              <span className="h-2 w-2 animate-bounce rounded-full bg-foreground/50 [animation-delay:-0.3s]" />
-              <span className="h-2 w-2 animate-bounce rounded-full bg-foreground/50 [animation-delay:-0.15s]" />
-              <span className="h-2 w-2 animate-bounce rounded-full bg-foreground/50" />
-            </span>
-          </div>
-        )}
-      </main>
-
-      {/* Composer */}
-      <div className="absolute bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-background/85 p-3 backdrop-blur-md">
-        <div className="mx-auto flex max-w-2xl items-end gap-2">
+      {/* Input */}
+      <div className="border-t border-border p-3">
+        <form
+          onSubmit={(e) => { e.preventDefault(); sendMessage(); }}
+          className="max-w-3xl mx-auto flex gap-2"
+        >
           <Textarea
-            ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                send();
-              }
-            }}
-            placeholder="Ketik pesan Anda di sini..."
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+            placeholder={`Pesan untuk ${character.name}...`}
+            className="resize-none min-h-[44px] max-h-32"
             rows={1}
-            className="max-h-32 min-h-[44px] flex-1 resize-none border-0 bg-transparent focus-visible:ring-0"
+            disabled={sending}
           />
-          <Button onClick={send} disabled={sending || !input.trim()} size="icon" className="h-11 w-11 rounded-full">
-            <Send className="h-5 w-5" />
+          <Button type="submit" disabled={sending || !input.trim()} size="icon" className="h-11 w-11 shrink-0">
+            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </Button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function resolveVoice(voiceId: string, character: typeof CHARACTERS["furina"]) {
+  if (voiceId === "original") return character.originalVoice;
+  if (voiceId === character.recommendedVoice.id) return character.recommendedVoice;
+  if (voiceId.startsWith("vv:")) {
+    const sp = parseInt(voiceId.slice(3), 10);
+    const meta = VV_SPEAKERS.find((s) => s.id === sp);
+    return { id: voiceId, label: meta?.name ?? "VOICEVOX", speaker: sp };
+  }
+  return character.recommendedVoice;
+}
+
+function MessageBubble({
+  msg, character, isPlaying, isLoadingTts, onPlay, onRetry,
+}: {
+  msg: Msg; character: typeof CHARACTERS["furina"];
+  isPlaying: boolean; isLoadingTts: boolean; onPlay: () => void; onRetry: () => void;
+}) {
+  const isUser = msg.role === "user";
+  const time = msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+
+  return (
+    <div className={cn("flex gap-2", isUser ? "justify-end" : "justify-start")}>
+      {!isUser && <Avatar className="h-7 w-7 mt-1 shrink-0"><AvatarImage src={character.avatar} /><AvatarFallback>{character.name[0]}</AvatarFallback></Avatar>}
+      <div className={cn("max-w-[75%] rounded-2xl px-3 py-2 text-sm",
+        isUser ? "bg-primary text-primary-foreground rounded-br-sm" : "bg-muted rounded-bl-sm")}>
+        <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+        <div className={cn("flex items-center gap-1 mt-1 text-[10px] opacity-70", isUser ? "justify-end" : "justify-start")}>
+          {!isUser && (
+            <button onClick={onPlay} className="mr-1 inline-flex items-center hover:opacity-100 opacity-80" title="Putar suara">
+              {isLoadingTts ? <Loader2 className="h-3 w-3 animate-spin" /> : isPlaying ? <Pause className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
+            </button>
+          )}
+          <span>{time}</span>
+          {isUser && <StatusTick status={msg.status} onRetry={onRetry} />}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function StatusTick({ status, onRetry }: { status: Msg["status"]; onRetry: () => void }) {
+  if (status === "failed") {
+    return (
+      <button onClick={onRetry} className="inline-flex items-center gap-0.5 text-red-400 hover:text-red-300" title="Kirim ulang">
+        <AlertCircle className="h-3 w-3" /><RotateCw className="h-3 w-3" />
+      </button>
+    );
+  }
+  if (status === "sending") return <Loader2 className="h-3 w-3 animate-spin" />;
+  if (status === "sent" || status === "delivered") return <Check className="h-3 w-3" />;
+  if (status === "read") return <CheckCheck className="h-3 w-3 text-sky-400 animate-in fade-in zoom-in duration-300" />;
+  return null;
+}
+
+function TypingIndicator({ character }: { character: typeof CHARACTERS["furina"] }) {
+  return (
+    <div className="flex gap-2 justify-start">
+      <Avatar className="h-7 w-7 mt-1"><AvatarImage src={character.avatar} /><AvatarFallback>{character.name[0]}</AvatarFallback></Avatar>
+      <div className="bg-muted rounded-2xl rounded-bl-sm px-3 py-2.5 flex gap-1">
+        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" />
+        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce [animation-delay:120ms]" />
+        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce [animation-delay:240ms]" />
       </div>
     </div>
   );
