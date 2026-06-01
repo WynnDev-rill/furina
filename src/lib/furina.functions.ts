@@ -410,23 +410,24 @@ export const updateMessageStatus = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-// ============ USER SETTINGS ============
+// ============ USER SETTINGS (JSON string roundtrip for serialization safety) ============
 export const getUserSettings = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("user_settings").select("data").eq("user_id", context.userId).maybeSingle();
     if (error) throw new Error(error.message);
-    return { settings: (data?.data as Record<string, unknown>) ?? {} };
+    return { settingsJson: JSON.stringify(data?.data ?? {}) };
   });
 
 export const saveUserSettings = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => z.object({ data: z.record(z.string(), z.unknown()) }).parse(d))
+  .inputValidator((d: unknown) => z.object({ dataJson: z.string().max(50000) }).parse(d))
   .handler(async ({ data, context }) => {
+    const parsed = JSON.parse(data.dataJson);
     const { error } = await context.supabase
       .from("user_settings")
-      .upsert({ user_id: context.userId, data: data.data, updated_at: new Date().toISOString() });
+      .upsert({ user_id: context.userId, data: parsed, updated_at: new Date().toISOString() });
     if (error) throw new Error(error.message);
     return { ok: true };
   });
