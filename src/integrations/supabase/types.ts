@@ -70,6 +70,8 @@ export type Database = {
       }
       messages: {
         Row: {
+          audio_emotion: string | null
+          audio_url: string | null
           content: string
           conversation_id: string
           created_at: string
@@ -79,6 +81,8 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          audio_emotion?: string | null
+          audio_url?: string | null
           content: string
           conversation_id: string
           created_at?: string
@@ -88,6 +92,8 @@ export type Database = {
           user_id: string
         }
         Update: {
+          audio_emotion?: string | null
+          audio_url?: string | null
           content?: string
           conversation_id?: string
           created_at?: string
