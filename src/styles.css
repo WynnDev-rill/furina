@@ -137,8 +137,49 @@
     border-color: var(--color-border);
   }
 
+  html, body {
+    height: 100%;
+  }
+
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
   }
+}
+
+@keyframes pop {
+  0%   { transform: scale(0.6); opacity: 0; }
+  60%  { transform: scale(1.25); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* Chat surfaces — translucent, readable in both themes */
+.bubble-ai {
+  background: color-mix(in oklab, var(--color-card) 72%, transparent);
+  color: var(--color-card-foreground);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid color-mix(in oklab, var(--color-foreground) 8%, transparent);
+}
+.bubble-user {
+  background: linear-gradient(135deg,
+    color-mix(in oklab, oklch(0.62 0.18 265) 88%, transparent),
+    color-mix(in oklab, oklch(0.55 0.20 295) 88%, transparent));
+  color: #fff;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.14);
+}
+.glass-chip {
+  background: color-mix(in oklab, var(--color-background) 55%, transparent);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  border: 1px solid color-mix(in oklab, var(--color-foreground) 10%, transparent);
+  color: var(--color-foreground);
+}
+.composer-glass {
+  background: color-mix(in oklab, var(--color-background) 78%, transparent);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  border-top: 1px solid color-mix(in oklab, var(--color-foreground) 10%, transparent);
 }
