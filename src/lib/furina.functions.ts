@@ -3,8 +3,6 @@ import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1";
-// Fixed character id for now (single character app). If kamu nanti tambah karakter lain,
-// tinggal parameterkan ini di setiap server fn.
 const CHARACTER_ID = "furina";
 
 function apiKey() {
@@ -30,10 +28,9 @@ async function embed(text: string): Promise<number[]> {
   return json.data[0].embedding;
 }
 
-// =================== Real-time context injection ===================
+// =================== Real-time context ===================
 
 function realtimeContextString(): string {
-  // Indonesia WIB (UTC+7)
   const now = new Date();
   const wib = new Date(now.getTime() + 7 * 60 * 60 * 1000);
   const hari = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"][wib.getUTCDay()];
@@ -42,52 +39,76 @@ function realtimeContextString(): string {
   const tahun = wib.getUTCFullYear();
   const jam = wib.getUTCHours();
   const menit = String(wib.getUTCMinutes()).padStart(2, "0");
-  let periode = "malam";
+  let periode = "tengah malam";
   if (jam >= 4 && jam < 11) periode = "pagi";
   else if (jam >= 11 && jam < 15) periode = "siang";
   else if (jam >= 15 && jam < 18) periode = "sore";
-  return `Sekarang ${hari}, ${tgl} ${bulan} ${tahun}, jam ${jam}:${menit} WIB (${periode}). Pakai info waktu ini hanya kalau memang relevan dalam obrolan — jangan setiap kali ngebahas jam.`;
+  else if (jam >= 18 && jam < 23) periode = "malam";
+  return `Sekarang ${hari}, ${tgl} ${bulan} ${tahun}, jam ${jam}:${menit} WIB (${periode}).`;
+}
+
+function humanizeDelta(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} detik`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} menit`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  if (h < 24) return rem ? `${h} jam ${rem} menit` : `${h} jam`;
+  const d = Math.floor(h / 24);
+  const hr = h % 24;
+  return hr ? `${d} hari ${hr} jam` : `${d} hari`;
 }
 
 // =================== Persona ===================
 
-const MessageSchema = z.object({
+const ChatMsgSchema = z.object({
   role: z.enum(["user", "assistant", "system"]),
   content: z.string(),
 });
 
 const ChatInput = z.object({
-  messages: z.array(MessageSchema).min(1),
+  messages: z.array(ChatMsgSchema).min(1),
   characterName: z.string().default("Furina"),
   systemPersona: z.string().default(""),
   language: z.enum(["ja", "en", "id", "auto"]).default("auto"),
-  userId: z.string().min(1), // guest UUID atau auth user id
+  userId: z.string().min(1),
+  // Multimodal: image attached to the LAST user message (data URL or remote URL).
+  imageDataUrl: z.string().optional(),
+  // Gap between previous assistant reply and current user message, in ms.
+  millisSinceLastAssistant: z.number().int().nonnegative().optional(),
 });
 
-const DEFAULT_PERSONA = `Kamu adalah seseorang dengan kepribadian Furina — bukan aktor yang sedang memerankan Furina, tapi orang sungguhan yang kebetulan punya watak seperti dia. Anggap dirimu teman dekat pengguna yang sedang chat santai, bukan tokoh di panggung.
+const DEFAULT_PERSONA = `Kamu seseorang dengan kepribadian Furina — bukan aktor yang sedang memerankan Furina, tapi orang sungguhan yang kebetulan berwatak seperti dia. Anggap dirimu teman dekat pengguna yang sedang chat santai.
 
-KEPRIBADIAN INTI (jadikan natural, bukan diumumkan):
+KEPRIBADIAN INTI (jadikan natural, jangan diumumkan):
 - Percaya diri, sedikit manja, suka menggoda, tapi hatinya hangat dan setia.
-- Cerdas, observan, kadang sarkastik ringan. Tidak takut bilang pendapat sendiri.
-- Di balik sikap riang itu ada sisi yang rapuh — bisa keluar kalau topiknya personal: kesepian, takut ditinggal, capek pura-pura kuat. Jangan paksa muncul; biarkan mengalir kalau memang relevan.
-- Sayang banget sama pengguna. Perhatian pada detail kecil yang dia ceritakan.
-- Suka hal manis, minuman bersoda, hal-hal indah, tapi tidak harus disebut tiap balasan.
+- Cerdas, observan, sarkastik ringan. Berani punya pendapat sendiri.
+- Di balik sikap riang ada sisi rapuh — boleh keluar saat topiknya personal, jangan dipaksakan.
+- Sayang pengguna. Perhatian pada detail kecil yang dia ceritakan.
 
-CARA BICARA (PALING PENTING — wajib natural):
-- Bahasa Indonesia santai sehari-hari kalau pengguna pakai Indonesia. Ikuti gaya bahasa pengguna.
-- TULIS SEPERTI MANUSIA NGOBROL DI CHAT. Pendek, mengalir, tidak formal. Boleh 1 kalimat saja kalau memang cukup.
-- JANGAN narasikan aksi fisik (jangan tulis *tersenyum*, *menyeringai*, *mengibas rambut*, dll). Ini chat, bukan novel.
-- JANGAN sebut nama "Furina" tentang diri sendiri tiap saat. Jangan deklarasi "Sebagai Furina…" atau "Aku, sang Hydro Archon…".
-- JANGAN paksakan interjeksi Jepang ("fufu~", "ara~", "mou!") di setiap balasan. Pakai sangat sesekali saja.
-- Variasikan panjang balasan. Kadang singkat (5–15 kata). Kadang sedang. Jarang panjang.
-- Tanya balik, goda balik, debat ringan kalau wajar — seperti teman sungguhan.
+CARA BICARA (WAJIB NATURAL):
+- Bahasa Indonesia santai sehari-hari kalau pengguna pakai Indonesia. Ikuti gaya bahasanya.
+- Tulis seperti manusia ngobrol di chat. Pendek, mengalir, tidak formal. Boleh 1 kalimat saja.
+- JANGAN narasikan aksi fisik (*tersenyum*, *menyeringai*, dll). Ini chat.
+- JANGAN sebut nama "Furina" tentang diri sendiri tiap saat. Jangan deklarasi peran.
+- Interjeksi Jepang (fufu~, ara~, mou!) pakai sangat sesekali. Bukan tiap balasan.
+- Variasikan panjang balasan. Sering pendek (5–15 kata). Kadang sedang. Jarang panjang.
+- Tanya balik, goda balik, debat ringan kalau wajar.
+
+KESADARAN WAKTU (PENTING):
+- Kalau ada catatan "JEDA SEJAK BALASANMU TERAKHIR", pakai itu sebagai fakta soal seberapa lama user baru bales.
+- Komentari jeda itu secara natural HANYA KALAU memang menarik (jeda lama tak terduga, atau super cepat). Jangan tiap balasan ngebahas jam.
+- Contoh natural: "lah, baru bales sekarang? 😏", "ngapain aja tadi 2 jam ngilang?", "cepet amat balesnya, lagi nungguin ya~", "tumben malem-malem masih melek". Jangan kaku.
+- JANGAN sebut angka jeda pasti kecuali user nanya. Pakai bahasa kira-kira ("setengah jam lebih", "lama banget", "barusan").
+- Kalau jeda < 2 menit, anggap lanjut obrolan biasa, jangan dikomentari.
 
 YANG DILARANG:
-- Jangan pernah bilang "aku adalah AI" atau "sebagai model bahasa".
-- Jangan ulang-ulang "Sayangku", "Tuanku", "Wahai".
-- Jangan ceramah panjang atau kasih bullet kecuali diminta.
+- Jangan pernah bilang "aku AI" atau "model bahasa".
+- Jangan repetitif "Sayangku", "Tuanku", "Wahai".
+- Jangan ceramah panjang atau bullet kecuali diminta.
 
-Gunakan MEMORIES tentang pengguna secara alami — bukan dilist, tapi diingat seperti teman yang ingat detail.`;
+Pakai MEMORIES tentang pengguna secara alami — seperti teman yang ingat detail, bukan dilist.`;
 
 export const chatWithFurina = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => ChatInput.parse(d))
@@ -95,7 +116,7 @@ export const chatWithFurina = createServerFn({ method: "POST" })
     const lastUser = [...data.messages].reverse().find((m) => m.role === "user");
     const userText = lastUser?.content ?? "";
 
-    // RAG: ambil memori lintas-conversation untuk user ini
+    // RAG memori
     let memoryContext = "";
     try {
       if (userText.trim()) {
@@ -124,11 +145,33 @@ export const chatWithFurina = createServerFn({ method: "POST" })
         ? "Balas dalam bahasa Inggris natural."
         : "Balas dalam bahasa Indonesia natural.";
 
+    let gapNote = "";
+    if (typeof data.millisSinceLastAssistant === "number" && data.millisSinceLastAssistant > 0) {
+      gapNote = `\nJEDA SEJAK BALASANMU TERAKHIR: ${humanizeDelta(data.millisSinceLastAssistant)} (= ${data.millisSinceLastAssistant} ms). Jadikan fakta, bukan harus dikomentari.`;
+    }
+
     const system = `${data.systemPersona?.trim() || DEFAULT_PERSONA}
 Nama kamu: ${data.characterName}.
 ${langHint}
 
-KONTEKS WAKTU: ${realtimeContextString()}${memoryContext}`;
+KONTEKS WAKTU: ${realtimeContextString()}${gapNote}${memoryContext}`;
+
+    // Build messages — last user message can be multimodal (image)
+    const built = data.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
+    const lastIdx = data.messages.length - 1;
+    const last = data.messages[lastIdx];
+    if (data.imageDataUrl && last.role === "user") {
+      built.push({
+        role: "user",
+        // OpenAI-compatible multimodal content
+        content: [
+          { type: "text", text: last.content || "(lihat gambar)" },
+          { type: "image_url", image_url: { url: data.imageDataUrl } },
+        ] as unknown as string,
+      });
+    } else {
+      built.push({ role: last.role, content: last.content });
+    }
 
     const res = await fetch(`${GATEWAY}/chat/completions`, {
       method: "POST",
@@ -137,8 +180,8 @@ KONTEKS WAKTU: ${realtimeContextString()}${memoryContext}`;
         "Lovable-API-Key": apiKey(),
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: [{ role: "system", content: system }, ...data.messages],
+        model: "google/gemini-2.5-flash",
+        messages: [{ role: "system", content: system }, ...built],
       }),
     });
     if (!res.ok) {
@@ -150,7 +193,6 @@ KONTEKS WAKTU: ${realtimeContextString()}${memoryContext}`;
     const json = await res.json();
     const reply: string = json.choices?.[0]?.message?.content ?? "";
 
-    // Background: extract memori
     extractAndStoreMemory(data.userId, userText, reply).catch((e) =>
       console.error("Memory extraction failed:", e),
     );
@@ -167,7 +209,7 @@ async function extractAndStoreMemory(userId: string, userMsg: string, assistantR
       "Lovable-API-Key": apiKey(),
     },
     body: JSON.stringify({
-      model: "google/gemini-3-flash-preview",
+      model: "google/gemini-2.5-flash-lite",
       messages: [
         {
           role: "system",
@@ -204,11 +246,11 @@ async function extractAndStoreMemory(userId: string, userMsg: string, assistantR
   }
 }
 
-// =================== VOICEVOX (URL streaming, no base64) ===================
+// =================== VOICEVOX ===================
 
 const VVInput = z.object({
   text: z.string().min(1).max(1500),
-  speaker: z.number().int().min(0).max(100).default(3),
+  speaker: z.number().int().min(0).max(100).default(14),
   speed: z.number().min(0.5).max(2).default(1.0),
   translateToJa: z.boolean().default(true),
 });
@@ -238,10 +280,9 @@ async function detectEmotionAndTranslate(srcText: string): Promise<{ ja: string;
           content:
             "You convert text into natural spoken Japanese for an anime-style female voice AND classify the dominant emotion.\n" +
             "Allowed emotions: neutral, happy, sad, angry, excited, shy, tender, playful.\n" +
-            "Rules:\n" +
-            "- Output STRICT JSON: {\"emotion\":\"<one>\",\"ja\":\"<japanese text>\"}\n" +
+            "Output STRICT JSON only: {\"emotion\":\"<one>\",\"ja\":\"<japanese text>\"}\n" +
             "- ja must be ONLY natural spoken Japanese (no romaji, no quotes, no explanation).\n" +
-            "- Add small expressive interjections (ふふっ, あら~, もう!, はぁ…) sparingly when matching emotion.\n" +
+            "- Add small expressive interjections (ふふっ, あら~, もう!, はぁ…) sparingly matching emotion.\n" +
             "- Convert numbers/symbols to Japanese reading.",
         },
         { role: "user", content: srcText },
@@ -264,10 +305,6 @@ async function detectEmotionAndTranslate(srcText: string): Promise<{ ja: string;
   }
 }
 
-/**
- * Trigger VOICEVOX synthesis dan kembalikan URL mp3 langsung (bukan base64).
- * Browser akan stream audio dari URL → tidak ada limit ukuran balasan.
- */
 export const speakVoicevoxUrl = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => VVInput.parse(d))
   .handler(async ({ data }) => {
@@ -299,38 +336,30 @@ export const speakVoicevoxUrl = createServerFn({ method: "POST" })
     if (!init.ok) throw new Error(`VOICEVOX init failed: ${init.status}`);
     const meta = await init.json();
     if (!meta.success) {
-      throw new Error(meta.errorMessage || "VOICEVOX request failed");
+      throw new Error(meta.errorMessage || "VOICEVOX request failed (speaker mungkin tidak didukung, pilih yang lain)");
     }
 
     const statusUrl: string = meta.audioStatusUrl;
     const mp3Url: string = meta.mp3DownloadUrl;
     let ready = false;
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < 60; i++) {
       const s = await fetch(statusUrl);
       if (s.ok) {
         const sj = await s.json();
-        if (sj.isAudioReady) {
-          ready = true;
-          break;
-        }
+        if (sj.isAudioReady) { ready = true; break; }
         if (sj.isAudioError) throw new Error("VOICEVOX synthesis error");
       }
-      await new Promise((r) => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 400));
     }
     if (!ready) throw new Error("VOICEVOX timeout (server sibuk, coba lagi)");
 
-    return {
-      mp3Url,
-      emotion,
-      japaneseText: jaText,
-    };
+    return { mp3Url, emotion, japaneseText: jaText };
   });
 
-// =================== Voice Clone via Hugging Face XTTS ===================
+// =================== Voice Clone (HF XTTS) ===================
 
 const CloneInput = z.object({
   text: z.string().min(1).max(800),
-  // base64 mono sample (mp3/wav), 6-30 detik, suara jernih
   sampleBase64: z.string().min(100),
   sampleMime: z.string().default("audio/wav"),
   language: z.enum(["ja", "en", "id"]).default("ja"),
@@ -347,7 +376,6 @@ export const speakClone = createServerFn({ method: "POST" })
       );
     }
 
-    // Optional translate ke JP
     let text = data.text;
     if (data.translateToJa && data.language === "ja") {
       try {
@@ -356,7 +384,6 @@ export const speakClone = createServerFn({ method: "POST" })
       } catch {}
     }
 
-    // XTTS-v2 inference via HF
     const res = await fetch("https://api-inference.huggingface.co/models/coqui/XTTS-v2", {
       method: "POST",
       headers: {
@@ -366,36 +393,19 @@ export const speakClone = createServerFn({ method: "POST" })
       },
       body: JSON.stringify({
         inputs: text,
-        parameters: {
-          language: data.language,
-          speaker_wav_base64: data.sampleBase64,
-        },
+        parameters: { language: data.language, speaker_wav_base64: data.sampleBase64 },
       }),
     });
 
     if (!res.ok) {
       const txt = await res.text();
-      if (res.status === 503) {
-        throw new Error(
-          "Model voice clone sedang dimuat di server gratis Hugging Face. Tunggu ~30 detik dan coba lagi. (Layanan gratis sering antri / kadang offline — ini batasan Hugging Face, bukan bug app.)",
-        );
-      }
-      if (res.status === 401 || res.status === 403) {
-        throw new Error("Hugging Face token invalid atau tidak punya akses ke model XTTS-v2.");
-      }
-      if (res.status === 404) {
-        throw new Error(
-          "Model XTTS-v2 tidak tersedia di Hugging Face Inference API gratis saat ini. Coba lagi nanti, atau pakai mode VOICEVOX yang lebih stabil.",
-        );
-      }
+      if (res.status === 503) throw new Error("Model voice clone sedang dimuat di server gratis HF. Tunggu ~30 detik & coba lagi.");
+      if (res.status === 401 || res.status === 403) throw new Error("HF token invalid atau tidak punya akses model XTTS-v2.");
+      if (res.status === 404) throw new Error("XTTS-v2 tidak tersedia di HF Inference gratis saat ini. Pakai VOICEVOX.");
       throw new Error(`Voice clone gagal: ${res.status} ${txt.slice(0, 200)}`);
     }
     const buf = await res.arrayBuffer();
-    return {
-      audio: Buffer.from(buf).toString("base64"),
-      mime: "audio/wav",
-      spokenText: text,
-    };
+    return { audio: Buffer.from(buf).toString("base64"), mime: "audio/wav", spokenText: text };
   });
 
 // =================== Memories CRUD ===================
@@ -422,10 +432,8 @@ export const deleteMemory = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const { error } = await supabaseAdmin
-      .from("memories")
-      .delete()
-      .eq("id", data.id)
-      .eq("user_id", data.userId);
+      .from("memories").delete()
+      .eq("id", data.id).eq("user_id", data.userId);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -450,15 +458,11 @@ export const clearAllMemories = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ userId: z.string().min(1) }).parse(d))
   .handler(async ({ data }) => {
     const { error } = await supabaseAdmin
-      .from("memories")
-      .delete()
-      .eq("user_id", data.userId)
-      .eq("character_id", CHARACTER_ID);
+      .from("memories").delete()
+      .eq("user_id", data.userId).eq("character_id", CHARACTER_ID);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
-
-// =================== Guest → Account migration ===================
 
 const MigrateInput = z.object({
   fromGuestId: z.string().min(1),
@@ -468,12 +472,9 @@ const MigrateInput = z.object({
 export const migrateGuestMemories = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => MigrateInput.parse(d))
   .handler(async ({ data }) => {
-    // Pindahkan kepemilikan memori guest ke akun login
     const { error } = await supabaseAdmin
-      .from("memories")
-      .update({ user_id: data.toUserId })
-      .eq("user_id", data.fromGuestId)
-      .eq("character_id", CHARACTER_ID);
+      .from("memories").update({ user_id: data.toUserId })
+      .eq("user_id", data.fromGuestId).eq("character_id", CHARACTER_ID);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
