@@ -1,13 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Send, Settings, Trash2, Plus, Volume2, Image as ImageIcon, RotateCcw,
   Play, Pause, Square, Loader2, MessageSquarePlus, MessagesSquare, Check,
   CheckCheck, Pencil, AlertCircle, LogIn, LogOut, Sparkles, Sun, Moon, X,
+  Smile,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetDescription } from "@/components/ui/sheet";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,15 +31,16 @@ import {
   addMemory,
   clearAllMemories,
   migrateGuestMemories,
+  summarizeConversation,
 } from "@/lib/furina.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "Furina — AI Companion" },
-      { name: "description", content: "Personal AI companion dengan suara Jepang natural, memori RAG, dan kepribadian Furina." },
+      { name: "description", content: "Personal AI companion dengan suara Jepang natural, memori lintas-percakapan, dan kepribadian Furina." },
       { property: "og:title", content: "Furina — AI Companion" },
-      { property: "og:description", content: "Personal AI companion with voice, memory, vision, and Furina personality." },
+      { property: "og:description", content: "Personal AI companion with voice, memory, vision, stickers, and Furina personality." },
     ],
   }),
   component: FurinaApp,
@@ -54,9 +57,10 @@ type Msg = {
   audioEmotion?: string;
   failedPayload?: string;
   imageDataUrl?: string;
+  stickerId?: string;
 };
 type TTSProvider = "voicevox" | "clone";
-type Conversation = { id: string; title: string; messages: Msg[]; updatedAt: number };
+type Conversation = { id: string; title: string; messages: Msg[]; updatedAt: number; lastSummaryCount?: number };
 type ThemeMode = "dark" | "light";
 
 const STORAGE = {
@@ -80,6 +84,20 @@ const STORAGE = {
   preGen: "furina:preGenAudio",
 };
 
+const ALL_FURINA_KEYS = [
+  STORAGE.convos, STORAGE.activeId, STORAGE.bg, STORAGE.name, STORAGE.persona,
+  STORAGE.lang, STORAGE.speed, STORAGE.provider, STORAGE.vvSpeaker, STORAGE.vvTranslate,
+  STORAGE.cloneSample, STORAGE.cloneSampleMime, STORAGE.cloneSampleName,
+  STORAGE.theme, STORAGE.preGen,
+  // guestId and migratedFlag are NOT cleared on logout — they belong to the browser identity
+];
+
+function clearAllFurinaLocal() {
+  for (const k of ALL_FURINA_KEYS) {
+    try { localStorage.removeItem(k); } catch {}
+  }
+}
+
 function newConversation(): Conversation {
   return { id: crypto.randomUUID(), title: "Percakapan baru", messages: [], updatedAt: Date.now() };
 }
@@ -90,8 +108,6 @@ function getOrCreateGuestId(): string {
   return id;
 }
 
-// VOICEVOX — speakers + style IDs yang sudah diverifikasi via tts.quest (VOICEVOX core).
-// Sumber: VOICEVOX official speaker list. Style id = "speaker" param.
 const VV_SPEAKERS = [
   { id: 14, label: "★ Rekomendasi Furina — 冥鳴ひまり (ノーマル, anggun)" },
   { id: 8,  label: "春日部つむぎ — ノーマル (cerah, energik)" },
@@ -111,9 +127,100 @@ const VV_SPEAKERS = [
   { id: 52, label: "雀松朱司 — ノーマル" },
 ];
 
+// ===== Stickers (emoji-based, 100% free, no API) =====
+const STICKERS: { id: string; emoji: string; label: string }[] = [
+  { id: "happy", emoji: "😄", label: "ketawa" },
+  { id: "smile", emoji: "🙂", label: "senyum" },
+  { id: "love", emoji: "🥰", label: "sayang" },
+  { id: "kiss", emoji: "😘", label: "muach" },
+  { id: "wink", emoji: "😉", label: "kedip" },
+  { id: "blush", emoji: "☺️", label: "malu" },
+  { id: "cry", emoji: "😢", label: "sedih" },
+  { id: "sob", emoji: "😭", label: "nangis" },
+  { id: "pout", emoji: "😤", label: "kesel" },
+  { id: "angry", emoji: "😡", label: "marah" },
+  { id: "tired", emoji: "😩", label: "capek" },
+  { id: "sleepy", emoji: "😴", label: "ngantuk" },
+  { id: "shock", emoji: "😱", label: "kaget" },
+  { id: "think", emoji: "🤔", label: "mikir" },
+  { id: "smirk", emoji: "😏", label: "smirk" },
+  { id: "tongue", emoji: "😛", label: "iseng" },
+  { id: "laugh", emoji: "🤣", label: "ngakak" },
+  { id: "cool", emoji: "😎", label: "keren" },
+  { id: "sick", emoji: "🤒", label: "sakit" },
+  { id: "scared", emoji: "😨", label: "takut" },
+  { id: "heart", emoji: "❤️", label: "cinta" },
+  { id: "broken", emoji: "💔", label: "patah hati" },
+  { id: "sparkle", emoji: "✨", label: "sparkle" },
+  { id: "fire", emoji: "🔥", label: "fire" },
+  { id: "ok", emoji: "👍", label: "oke" },
+  { id: "no", emoji: "👎", label: "nope" },
+  { id: "clap", emoji: "👏", label: "tepuk tangan" },
+  { id: "wave", emoji: "👋", label: "halo" },
+  { id: "pray", emoji: "🙏", label: "tolong" },
+  { id: "muscle", emoji: "💪", label: "semangat" },
+  { id: "cake", emoji: "🎂", label: "ulang tahun" },
+  { id: "party", emoji: "🎉", label: "selamat" },
+  { id: "food", emoji: "🍜", label: "lapar" },
+  { id: "coffee", emoji: "☕", label: "kopi" },
+  { id: "rain", emoji: "🌧️", label: "hujan" },
+  { id: "moon", emoji: "🌙", label: "malam" },
+];
+
+function findSticker(id: string) {
+  return STICKERS.find((s) => s.id === id);
+}
+
+// Natural relative time (display side — matches server humanizeDelta vibe)
+function relTime(ts: number, now: number): string {
+  const ms = now - ts;
+  const s = Math.round(ms / 1000);
+  if (s < 10) return "baru saja";
+  if (s < 60) return "beberapa detik lalu";
+  const m = Math.round(s / 60);
+  if (m < 2) return "barusan";
+  if (m < 5) return "beberapa menit lalu";
+  if (m < 25) return `${m} menit lalu`;
+  if (m < 40) return "setengah jam lalu";
+  if (m < 80) return "sekitar sejam lalu";
+  const h = Math.round(m / 60);
+  if (h < 6) return `${h} jam lalu`;
+  const d = new Date(ts);
+  const sameDay = new Date(now).toDateString() === d.toDateString();
+  if (sameDay) {
+    const hh = d.getHours();
+    if (hh < 11) return "tadi pagi";
+    if (hh < 15) return "tadi siang";
+    if (hh < 18) return "tadi sore";
+    return "tadi malam";
+  }
+  const yest = new Date(now); yest.setDate(yest.getDate() - 1);
+  if (yest.toDateString() === d.toDateString()) return "kemarin";
+  const days = Math.round((now - ts) / 86400000);
+  if (days < 7) return `${days} hari lalu`;
+  return d.toLocaleDateString();
+}
+
 function fmtTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
+
+// ===== Settings snapshot (sync to DB) =====
+type SettingsSnapshot = {
+  bg?: string;
+  name?: string;
+  persona?: string;
+  lang?: string;
+  speed?: number;
+  provider?: TTSProvider;
+  vvSpeaker?: number;
+  vvTranslate?: boolean;
+  preGen?: boolean;
+  theme?: ThemeMode;
+  cloneSampleName?: string;
+  cloneSampleMime?: string;
+  cloneSampleB64?: string; // small samples only — large ones live in storage bucket
+};
 
 function FurinaApp() {
   const chat = useServerFn(chatWithFurina);
@@ -124,8 +231,11 @@ function FurinaApp() {
   const addMemFn = useServerFn(addMemory);
   const clearMemFn = useServerFn(clearAllMemories);
   const migrateMemFn = useServerFn(migrateGuestMemories);
+  const summarizeFn = useServerFn(summarizeConversation);
 
   const [authUser, setAuthUser] = useState<{ id: string; email?: string } | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [guestId] = useState<string>(() => getOrCreateGuestId());
   const userId = authUser?.id ?? guestId;
 
@@ -146,7 +256,8 @@ function FurinaApp() {
   const [preGenAudio, setPreGenAudio] = useState(true);
   const [openSettings, setOpenSettings] = useState(false);
   const [openConvos, setOpenConvos] = useState(false);
-  const [memories, setMemories] = useState<{ id: string; content: string }[]>([]);
+  const [openStickers, setOpenStickers] = useState(false);
+  const [memories, setMemories] = useState<{ id: string; content: string; kind?: string }[]>([]);
   const [newMem, setNewMem] = useState("");
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
@@ -160,9 +271,13 @@ function FurinaApp() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const lastSyncedAuthIdRef = useRef<string | null>(null);
+  const initialLoadDoneRef = useRef(false);
+  const settingsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const conversationsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeConvo = conversations.find((c) => c.id === activeId);
-  const messages = activeConvo?.messages ?? [];
+  const messages = useMemo(() => activeConvo?.messages ?? [], [activeConvo]);
 
   // ===== Apply theme to <html> =====
   useEffect(() => {
@@ -170,10 +285,11 @@ function FurinaApp() {
     document.documentElement.classList.toggle("dark", theme === "dark");
   }, [theme]);
 
-  // ===== Auth =====
+  // ===== Auth listener =====
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session?.user) setAuthUser({ id: data.session.user.id, email: data.session.user.email ?? undefined });
+      setAuthReady(true);
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
       setAuthUser(session?.user ? { id: session.user.id, email: session.user.email ?? undefined } : null);
@@ -181,19 +297,37 @@ function FurinaApp() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
-    if (!authUser) return;
-    const migratedTo = localStorage.getItem(STORAGE.migratedFlag);
-    if (migratedTo === authUser.id) return;
-    migrateMemFn({ data: { fromGuestId: guestId, toUserId: authUser.id } })
-      .then(() => {
-        localStorage.setItem(STORAGE.migratedFlag, authUser.id);
-        toast.success("Data guest dipindahkan ke akunmu.");
-      })
-      .catch((e) => console.warn("migrate failed:", e));
-  }, [authUser, guestId, migrateMemFn]);
+  // ===== Build settings snapshot =====
+  const buildSettings = useCallback((): SettingsSnapshot => ({
+    bg, name, persona, lang: language, speed, provider, vvSpeaker, vvTranslate, preGen: preGenAudio, theme,
+    cloneSampleName,
+    cloneSampleMime: typeof window !== "undefined" ? localStorage.getItem(STORAGE.cloneSampleMime) ?? undefined : undefined,
+    cloneSampleB64: typeof window !== "undefined" ? localStorage.getItem(STORAGE.cloneSample) ?? undefined : undefined,
+  }), [bg, name, persona, language, speed, provider, vvSpeaker, vvTranslate, preGenAudio, theme, cloneSampleName]);
 
-  // ===== Persisted load =====
+  const applySettings = useCallback((s: SettingsSnapshot) => {
+    if (s.bg) setBg(s.bg);
+    if (s.name) setName(s.name);
+    if (typeof s.persona === "string") setPersona(s.persona);
+    if (s.lang) setLanguage(s.lang as typeof language);
+    if (typeof s.speed === "number") setSpeed(s.speed);
+    if (s.provider === "voicevox" || s.provider === "clone") setProvider(s.provider);
+    if (typeof s.vvSpeaker === "number") setVvSpeaker(s.vvSpeaker);
+    if (typeof s.vvTranslate === "boolean") setVvTranslate(s.vvTranslate);
+    if (typeof s.preGen === "boolean") setPreGenAudio(s.preGen);
+    if (s.theme === "dark" || s.theme === "light") setTheme(s.theme);
+    if (s.cloneSampleName) setCloneSampleName(s.cloneSampleName);
+    if (s.cloneSampleB64 && s.cloneSampleMime) {
+      try {
+        localStorage.setItem(STORAGE.cloneSample, s.cloneSampleB64);
+        localStorage.setItem(STORAGE.cloneSampleMime, s.cloneSampleMime);
+        if (s.cloneSampleName) localStorage.setItem(STORAGE.cloneSampleName, s.cloneSampleName);
+        setHasCloneSample(true);
+      } catch {}
+    }
+  }, []);
+
+  // ===== Load from local on mount (guest mode entry point) =====
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -235,12 +369,158 @@ function FurinaApp() {
       setHasCloneSample(!!cs);
       if (csn) setCloneSampleName(csn);
     } catch {}
+    initialLoadDoneRef.current = true;
   }, []);
 
+  // ===== Sync on auth change =====
+  useEffect(() => {
+    if (!authReady) return;
+    if (!authUser) {
+      // Logged out — already handled by logout(); nothing to pull
+      lastSyncedAuthIdRef.current = null;
+      return;
+    }
+    if (lastSyncedAuthIdRef.current === authUser.id) return;
+    lastSyncedAuthIdRef.current = authUser.id;
+    pullFromCloud(authUser.id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authReady, authUser]);
+
+  async function pullFromCloud(uid: string) {
+    setSyncing(true);
+    try {
+      const [{ data: settingsRow }, { data: convosRows }, { data: msgsRows }] = await Promise.all([
+        supabase.from("user_settings").select("data").eq("user_id", uid).maybeSingle(),
+        supabase.from("conversations").select("*").eq("user_id", uid).eq("character_id", "furina").order("updated_at", { ascending: false }),
+        supabase.from("messages").select("*").eq("user_id", uid).order("created_at", { ascending: true }),
+      ]);
+
+      const hasCloudData = !!settingsRow || (convosRows && convosRows.length > 0);
+      const hasLocalData = !!localStorage.getItem(STORAGE.convos) || !!localStorage.getItem(STORAGE.name);
+
+      if (!hasCloudData && hasLocalData) {
+        const migratedTo = localStorage.getItem(STORAGE.migratedFlag);
+        if (migratedTo !== uid) {
+          // Auto-migrate guest data → account
+          await migrateMemFn({ data: { fromGuestId: guestId, toUserId: uid } }).catch((e) => console.warn("mem migrate:", e));
+          await pushSettingsTo(uid, buildSettings());
+          await pushAllConversationsTo(uid, conversations);
+          localStorage.setItem(STORAGE.migratedFlag, uid);
+          toast.success("Data guest dipindahkan ke akunmu.");
+          setSyncing(false);
+          return;
+        }
+      }
+
+      if (hasCloudData) {
+        // Hydrate from cloud (this is the source of truth)
+        if (settingsRow?.data) applySettings(settingsRow.data as SettingsSnapshot);
+
+        const byConv: Record<string, Msg[]> = {};
+        for (const r of (msgsRows ?? [])) {
+          const list = byConv[r.conversation_id] ?? (byConv[r.conversation_id] = []);
+          list.push({
+            id: r.id,
+            role: (r.role as "user" | "assistant"),
+            content: r.content,
+            at: new Date(r.created_at).getTime(),
+            status: (r.status as MsgStatus) ?? "read",
+            audioUrl: r.audio_url ?? undefined,
+            audioEmotion: r.audio_emotion ?? undefined,
+            imageDataUrl: r.image_url ?? undefined,
+            stickerId: r.sticker_id ?? undefined,
+          });
+        }
+        const convList: Conversation[] = (convosRows ?? []).map((c) => ({
+          id: c.id,
+          title: c.title,
+          messages: byConv[c.id] ?? [],
+          updatedAt: new Date(c.updated_at).getTime(),
+        }));
+        if (!convList.length) convList.push(newConversation());
+        setConversations(convList);
+        setActiveId(convList[0].id);
+      } else {
+        // Brand new account, no local data either → fresh start
+        const fresh = [newConversation()];
+        setConversations(fresh);
+        setActiveId(fresh[0].id);
+        // Also reset visual / settings to defaults
+        setBg(furinaDefault); setName("Furina"); setPersona(""); setLanguage("auto");
+        setSpeed(1.0); setProvider("voicevox"); setVvSpeaker(VV_SPEAKERS[0].id);
+        setVvTranslate(true); setPreGenAudio(true);
+      }
+    } catch (e) {
+      console.error("pullFromCloud:", e);
+      toast.error("Gagal sinkronisasi data dari akun.");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function pushSettingsTo(uid: string, s: SettingsSnapshot) {
+    try {
+      await supabase.from("user_settings").upsert({ user_id: uid, data: s, updated_at: new Date().toISOString() });
+    } catch (e) {
+      console.warn("settings push failed:", e);
+    }
+  }
+
+  async function pushAllConversationsTo(uid: string, convs: Conversation[]) {
+    if (!convs.length) return;
+    try {
+      const convRows = convs.map((c) => ({
+        id: c.id, user_id: uid, character_id: "furina", title: c.title,
+        updated_at: new Date(c.updatedAt).toISOString(),
+      }));
+      await supabase.from("conversations").upsert(convRows);
+      const msgRows = convs.flatMap((c) => c.messages.map((m) => ({
+        id: m.id, conversation_id: c.id, user_id: uid, role: m.role,
+        content: m.content, status: m.status ?? "sent",
+        created_at: new Date(m.at).toISOString(),
+        audio_url: m.audioUrl ?? null, audio_emotion: m.audioEmotion ?? null,
+        image_url: m.imageDataUrl && m.imageDataUrl.length < 300000 ? m.imageDataUrl : null,
+        sticker_id: m.stickerId ?? null,
+      })));
+      // chunk to avoid payload limits
+      for (let i = 0; i < msgRows.length; i += 200) {
+        await supabase.from("messages").upsert(msgRows.slice(i, i + 200));
+      }
+    } catch (e) {
+      console.warn("conversations push failed:", e);
+    }
+  }
+
+  async function upsertSingleMessage(uid: string, convId: string, m: Msg) {
+    try {
+      await supabase.from("messages").upsert({
+        id: m.id, conversation_id: convId, user_id: uid, role: m.role,
+        content: m.content, status: m.status ?? "sent",
+        created_at: new Date(m.at).toISOString(),
+        audio_url: m.audioUrl ?? null, audio_emotion: m.audioEmotion ?? null,
+        image_url: m.imageDataUrl && m.imageDataUrl.length < 300000 ? m.imageDataUrl : null,
+        sticker_id: m.stickerId ?? null,
+      });
+    } catch (e) {
+      console.warn("message upsert:", e);
+    }
+  }
+
+  async function upsertSingleConversation(uid: string, c: Conversation) {
+    try {
+      await supabase.from("conversations").upsert({
+        id: c.id, user_id: uid, character_id: "furina", title: c.title,
+        updated_at: new Date(c.updatedAt).toISOString(),
+      });
+    } catch (e) {
+      console.warn("conv upsert:", e);
+    }
+  }
+
+  // ===== Auto-persist conversations to localStorage + cloud (debounced) =====
   useEffect(() => {
     if (!conversations.length) return;
     try {
-      // Strip large image dataUrls before persisting to localStorage (quota safe).
       const slim = conversations.map((c) => ({
         ...c,
         messages: c.messages.map((m) =>
@@ -250,11 +530,27 @@ function FurinaApp() {
       localStorage.setItem(STORAGE.convos, JSON.stringify(slim));
     } catch {}
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [conversations, activeId]);
+
+    if (authUser && initialLoadDoneRef.current) {
+      if (conversationsDebounceRef.current) clearTimeout(conversationsDebounceRef.current);
+      conversationsDebounceRef.current = setTimeout(() => {
+        pushAllConversationsTo(authUser.id, conversations).catch(() => {});
+      }, 1200);
+    }
+  }, [conversations, authUser]);
 
   useEffect(() => {
     if (activeId) try { localStorage.setItem(STORAGE.activeId, activeId); } catch {}
   }, [activeId]);
+
+  // ===== Auto-persist settings to cloud (debounced) =====
+  useEffect(() => {
+    if (!authUser || !initialLoadDoneRef.current) return;
+    if (settingsDebounceRef.current) clearTimeout(settingsDebounceRef.current);
+    settingsDebounceRef.current = setTimeout(() => {
+      pushSettingsTo(authUser.id, buildSettings()).catch(() => {});
+    }, 800);
+  }, [authUser, buildSettings]);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -283,27 +579,38 @@ function FurinaApp() {
     setConversations((prev) => [c, ...prev]);
     setActiveId(c.id);
     setOpenConvos(false);
+    if (authUser) upsertSingleConversation(authUser.id, c);
     setTimeout(() => inputRef.current?.focus(), 0);
   }
   function selectConversation(id: string) { stopTTS(); setActiveId(id); setOpenConvos(false); }
-  function deleteConversation(id: string) {
+  async function deleteConversation(id: string) {
     setConversations((prev) => {
       const filtered = prev.filter((c) => c.id !== id);
       const next = filtered.length ? filtered : [newConversation()];
       if (id === activeId) setActiveId(next[0].id);
       return next;
     });
+    if (authUser) {
+      try {
+        await supabase.from("messages").delete().eq("conversation_id", id).eq("user_id", authUser.id);
+        await supabase.from("conversations").delete().eq("id", id).eq("user_id", authUser.id);
+      } catch (e) { console.warn(e); }
+    }
   }
   function renameConversation(id: string, title: string) {
     setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, title: title.trim() || c.title } : c)));
+    if (authUser) {
+      const c = conversations.find((x) => x.id === id);
+      if (c) upsertSingleConversation(authUser.id, { ...c, title: title.trim() || c.title });
+    }
   }
 
-  // ===== Pre-generate TTS in background for instant playback =====
   async function preGenerateAudio(msg: Msg) {
     if (!preGenAudio) return;
     if (provider !== "voicevox") return;
     if (msg.audioUrl) return;
-    const clean = msg.content.replace(/\*[^*]+\*/g, "").trim();
+    if (msg.stickerId) return;
+    const clean = msg.content.replace(/\*[^*]+\*/g, "").replace(/\[stiker:[^\]]*\]/g, "").trim();
     if (!clean) return;
     try {
       const { mp3Url, emotion } = await ttsVV({
@@ -311,17 +618,37 @@ function FurinaApp() {
       });
       updateMessageById(msg.id, { audioUrl: mp3Url, audioEmotion: emotion });
     } catch (e) {
-      // silent — user can still trigger manually
       console.warn("pre-gen tts failed:", e);
     }
   }
 
-  // ===== Send message =====
-  async function sendMessage(text: string, retryMsgId?: string) {
+  // Trigger summarization every 20 user+assistant messages
+  async function maybeSummarize(conv: Conversation) {
+    const total = conv.messages.length;
+    const last = conv.lastSummaryCount ?? 0;
+    if (total - last < 20) return;
+    const transcript = conv.messages
+      .slice(-30)
+      .map((m) => `${m.role === "user" ? "USER" : "FURINA"}: ${m.content}`)
+      .join("\n");
+    try {
+      await summarizeFn({ data: { userId, conversationTitle: conv.title, transcript } });
+      setConversations((prev) => prev.map((c) => c.id === conv.id ? { ...c, lastSummaryCount: total } : c));
+    } catch (e) {
+      console.warn("summarize failed:", e);
+    }
+  }
+
+  // ===== Send =====
+  async function sendMessage(text: string, retryMsgId?: string, sticker?: { id: string; emoji: string; label: string }) {
     const trimmed = text.trim();
-    if ((!trimmed && !pendingImage) || sending) return;
+    if (!sticker && !trimmed && !pendingImage) return;
+    if (sending) return;
 
     const imageDataUrl = pendingImage?.dataUrl;
+    const messageContent = sticker
+      ? `[stiker: ${sticker.emoji} ${sticker.label}]`
+      : (trimmed || (imageDataUrl ? "(gambar)" : ""));
 
     let userMsgId: string;
     if (retryMsgId) {
@@ -331,14 +658,19 @@ function FurinaApp() {
       userMsgId = crypto.randomUUID();
       const userMsg: Msg = {
         id: userMsgId, role: "user",
-        content: trimmed || (imageDataUrl ? "(gambar)" : ""),
+        content: messageContent,
         at: Date.now(), status: "sending",
         imageDataUrl,
+        stickerId: sticker?.id,
       };
       updateActiveMessages((prev) => [...prev, userMsg]);
       if (activeConvo && (activeConvo.title === "Percakapan baru" || !activeConvo.title)) {
-        const t = (trimmed || "Gambar baru").slice(0, 40).replace(/\s+/g, " ").trim();
+        const t = (trimmed || sticker?.label || "Gambar baru").slice(0, 40).replace(/\s+/g, " ").trim();
         renameConversation(activeConvo.id, t || "Percakapan baru");
+      }
+      if (authUser && activeConvo) {
+        upsertSingleMessage(authUser.id, activeConvo.id, userMsg);
+        upsertSingleConversation(authUser.id, { ...activeConvo, updatedAt: Date.now() });
       }
       setInput("");
       setPendingImage(null);
@@ -354,11 +686,10 @@ function FurinaApp() {
         .filter((m) => m.status !== "failed")
         .slice(-12)
         .map((m) => ({ role: m.role, content: m.content || "" }));
-      if (!ctxMsgs.length || ctxMsgs[ctxMsgs.length - 1]?.content !== (trimmed || (imageDataUrl ? "(gambar)" : ""))) {
-        ctxMsgs.push({ role: "user", content: trimmed || (imageDataUrl ? "(gambar)" : "") });
+      if (!ctxMsgs.length || ctxMsgs[ctxMsgs.length - 1]?.content !== messageContent) {
+        ctxMsgs.push({ role: "user", content: messageContent });
       }
 
-      // Time delta sejak balasan AI terakhir
       const lastAssistant = [...currentMsgs].reverse().find((m) => m.role === "assistant");
       const millisSinceLastAssistant = lastAssistant ? Math.max(0, Date.now() - lastAssistant.at) : undefined;
 
@@ -371,18 +702,28 @@ function FurinaApp() {
           userId,
           imageDataUrl,
           millisSinceLastAssistant,
+          conversationId: activeId,
         },
       });
 
       updateMessageById(userMsgId, { status: "read" });
 
+      // Parse sticker tag from AI reply
+      const stickerMatch = reply.match(/\[stiker:\s*([^\s\]]+)\s*([^\]]+)\]/);
+      const aiSticker = stickerMatch ? STICKERS.find((s) => s.label.toLowerCase() === stickerMatch[2].trim().toLowerCase()) : null;
+
       const aiMsg: Msg = {
         id: crypto.randomUUID(), role: "assistant", content: reply, at: Date.now(),
+        stickerId: aiSticker?.id,
       };
       updateActiveMessages((prev) => [...prev, aiMsg]);
+      if (authUser && activeConvo) upsertSingleMessage(authUser.id, activeConvo.id, aiMsg);
 
-      // Background pre-gen TTS untuk instant play
       preGenerateAudio(aiMsg);
+
+      // Background: maybe summarize
+      const updatedConv = conversations.find((c) => c.id === activeId);
+      if (updatedConv) maybeSummarize({ ...updatedConv, messages: [...updatedConv.messages, aiMsg] });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Gagal kirim";
       toast.error(msg);
@@ -395,7 +736,12 @@ function FurinaApp() {
 
   function retrySend(m: Msg) { sendMessage(m.failedPayload ?? m.content, m.id); }
 
-  // ===== TTS =====
+  function sendSticker(s: { id: string; emoji: string; label: string }) {
+    setOpenStickers(false);
+    sendMessage("", undefined, s);
+  }
+
+  // ===== TTS controls =====
   function stopTTS() {
     if (audioRef.current) {
       audioRef.current.pause();
@@ -413,7 +759,7 @@ function FurinaApp() {
 
   async function playTTS(msg: Msg) {
     try {
-      const clean = msg.content.replace(/\*[^*]+\*/g, "").trim();
+      const clean = msg.content.replace(/\*[^*]+\*/g, "").replace(/\[stiker:[^\]]*\]/g, "").trim();
       if (!clean) return;
       stopTTS();
 
@@ -456,7 +802,7 @@ function FurinaApp() {
     }
   }
 
-  // ===== Background image =====
+  // ===== Misc =====
   function handleBgUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -469,7 +815,6 @@ function FurinaApp() {
     reader.readAsDataURL(file);
   }
 
-  // ===== Memories =====
   async function refreshMemories() {
     try {
       const { memories } = await listMemFn({ data: { userId } });
@@ -477,7 +822,6 @@ function FurinaApp() {
     } catch (e) { toast.error(e instanceof Error ? e.message : "Gagal memuat memori"); }
   }
 
-  // ===== Clone sample upload =====
   function handleSampleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -504,7 +848,6 @@ function FurinaApp() {
     setHasCloneSample(false); setCloneSampleName("");
   }
 
-  // ===== Chat image attach (multimodal vision) =====
   async function handleImagePick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -520,16 +863,29 @@ function FurinaApp() {
     }
   }
 
-  // ===== Auth =====
   async function loginGoogle() {
     try {
       const result = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin });
       if (result.error) toast.error("Login gagal: " + (result.error.message ?? "unknown"));
     } catch (e) { toast.error(e instanceof Error ? e.message : "Login gagal"); }
   }
+
   async function logout() {
     await supabase.auth.signOut();
-    toast.success("Sudah logout. Kembali ke mode guest.");
+    // Wipe ALL furina:* keys from this browser → guest comes back blank
+    clearAllFurinaLocal();
+    // Reset state to defaults
+    setAuthUser(null);
+    setBg(furinaDefault); setName("Furina"); setPersona(""); setLanguage("auto");
+    setSpeed(1.0); setProvider("voicevox"); setVvSpeaker(VV_SPEAKERS[0].id);
+    setVvTranslate(true); setPreGenAudio(true); setTheme("dark");
+    setHasCloneSample(false); setCloneSampleName("");
+    setMemories([]);
+    const fresh = [newConversation()];
+    setConversations(fresh);
+    setActiveId(fresh[0].id);
+    lastSyncedAuthIdRef.current = null;
+    toast.success("Sudah logout. Mode guest mulai bersih.");
   }
 
   function savePref(key: string, value: string) { try { localStorage.setItem(key, value); } catch {} }
@@ -548,7 +904,7 @@ function FurinaApp() {
       <header className="absolute left-0 right-0 top-0 z-20 flex items-center justify-between p-3 sm:p-4">
         <div className="flex items-center gap-2 min-w-0">
           <div className="glass-chip rounded-full px-3 py-1.5 text-sm font-medium max-w-[55vw] truncate flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+            <span className={`h-2 w-2 rounded-full ${syncing ? "bg-amber-400 animate-pulse" : "bg-emerald-400"} shadow-[0_0_8px_rgba(52,211,153,0.8)]`} />
             <span className="truncate">{name}</span>
             {activeConvo && <span className="text-xs opacity-60 truncate">· {activeConvo.title}</span>}
           </div>
@@ -573,7 +929,7 @@ function FurinaApp() {
             <SheetContent side="left" className="w-full overflow-y-auto sm:max-w-sm">
               <SheetHeader>
                 <SheetTitle>Riwayat Percakapan</SheetTitle>
-                <SheetDescription>Tersimpan di browser{authUser ? " & akun kamu" : " (mode guest)"}.</SheetDescription>
+                <SheetDescription>{authUser ? "Tersinkron ke akunmu." : "Mode guest — login untuk simpan ke cloud."}</SheetDescription>
               </SheetHeader>
               <div className="mt-4 space-y-2">
                 <Button onClick={startNewConversation} className="w-full">
@@ -604,7 +960,7 @@ function FurinaApp() {
                           <button onClick={() => selectConversation(c.id)} className="flex w-full flex-col text-left">
                             <span className="truncate text-sm font-medium">{c.title}</span>
                             <span className="truncate text-xs text-muted-foreground">{preview}</span>
-                            <span className="text-[10px] text-muted-foreground">{new Date(c.updatedAt).toLocaleString()}</span>
+                            <span className="text-[10px] text-muted-foreground">{relTime(c.updatedAt, Date.now())}</span>
                           </button>
                         )}
                         {editingTitleId !== c.id && (
@@ -656,14 +1012,17 @@ function FurinaApp() {
                   {authUser ? (
                     <div className="space-y-2">
                       <p className="text-sm">Login sebagai <span className="font-medium">{authUser.email ?? authUser.id}</span></p>
+                      <p className="text-[11px] text-muted-foreground">
+                        ✓ Semua chat, kepribadian, dan pengaturan tersimpan otomatis ke akunmu.
+                      </p>
                       <Button variant="outline" size="sm" className="w-full" onClick={logout}>
-                        <LogOut className="mr-2 h-4 w-4" /> Logout
+                        <LogOut className="mr-2 h-4 w-4" /> Logout (kembali ke guest kosong)
                       </Button>
                     </div>
                   ) : (
                     <div className="space-y-2">
                       <p className="text-xs text-muted-foreground">
-                        Mode guest. Login opsional — saat login pertama, memori guest otomatis dipindahkan.
+                        Mode guest. Login pertama kali → data guest dipindahkan otomatis ke akun. Login berikutnya → memuat data akunmu.
                       </p>
                       <Button size="sm" className="w-full" onClick={loginGoogle}>
                         <LogIn className="mr-2 h-4 w-4" /> Masuk dengan Google
@@ -690,7 +1049,7 @@ function FurinaApp() {
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="voicevox">VOICEVOX — anime Jepang (gratis, stabil)</SelectItem>
-                      <SelectItem value="clone">Voice Clone — suara asli (HF, beta)</SelectItem>
+                      <SelectItem value="clone">Voice Clone — suara karakter custom (XTTS Space)</SelectItem>
                     </SelectContent>
                   </Select>
 
@@ -714,9 +1073,6 @@ function FurinaApp() {
                         <Switch checked={preGenAudio}
                           onCheckedChange={(c) => { setPreGenAudio(c); savePref(STORAGE.preGen, c ? "1" : "0"); }} />
                       </div>
-                      <p className="text-[11px] leading-relaxed text-muted-foreground">
-                        Teks tetap bahasamu, suara dibacakan Jepang ala anime. Saat aktif, audio disiapkan otomatis di latar agar tombol ▶ langsung berbunyi tanpa delay.
-                      </p>
                     </div>
                   ) : (
                     <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
@@ -724,7 +1080,7 @@ function FurinaApp() {
                         <Sparkles className="h-3 w-3" /> Sampel suara karakter
                       </Label>
                       <p className="text-[10px] leading-relaxed text-muted-foreground">
-                        Upload 1 file audio (mp3/wav, 10–30 detik, jernih, tanpa musik). Clone via Hugging Face XTTS-v2 (kadang antri).
+                        Upload 1 file audio (mp3/wav, 6–15 detik, jernih, satu suara, tanpa musik). Clone via Coqui XTTS HF Space — gratis tanpa API key, kadang antri ~30 detik.
                       </p>
                       <input type="file" accept="audio/*" onChange={handleSampleUpload} className="block w-full text-xs" />
                       {hasCloneSample && (
@@ -780,7 +1136,7 @@ function FurinaApp() {
 
                 <section className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label>Memori (RAG, lintas-percakapan)</Label>
+                    <Label>Memori (lintas-percakapan)</Label>
                     <Button variant="ghost" size="sm" onClick={async () => {
                       if (!confirm("Hapus semua memori?")) return;
                       await clearMemFn({ data: { userId } });
@@ -788,6 +1144,9 @@ function FurinaApp() {
                       toast.success("Memori dibersihkan");
                     }}>Hapus semua</Button>
                   </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Fakta tentang kamu (otomatis dipelajari) + ringkasan percakapan lama. AI pakai ini supaya konsisten lintas chat.
+                  </p>
                   <div className="flex gap-2">
                     <Input placeholder="Tambah fakta tentang dirimu…" value={newMem} onChange={(e) => setNewMem(e.target.value)} />
                     <Button size="icon" onClick={async () => {
@@ -802,6 +1161,7 @@ function FurinaApp() {
                     {memories.length === 0 && <p className="text-muted-foreground">Belum ada memori.</p>}
                     {memories.map((m) => (
                       <div key={m.id} className="flex items-start gap-2 rounded p-1 hover:bg-muted">
+                        {m.kind === "summary" && <span className="mt-0.5 rounded bg-primary/20 px-1 text-[9px] font-semibold uppercase">ringkasan</span>}
                         <span className="flex-1">{m.content}</span>
                         <button onClick={async () => { await delMemFn({ data: { id: m.id, userId } }); refreshMemories(); }} className="text-muted-foreground hover:text-destructive">
                           <Trash2 className="h-4 w-4" />
@@ -829,7 +1189,7 @@ function FurinaApp() {
             <div className="bubble-ai rounded-2xl px-4 py-3 text-sm shadow-lg">
               Halo… akhirnya kamu datang juga~ ✦ Aku {name}. Ceritakan apa saja.
             </div>
-            <div className="mt-1 px-1 text-[10px] opacity-70">{fmtTime(Date.now())}</div>
+            <div className="mt-1 px-1 text-[10px] opacity-70">baru saja</div>
           </div>
         )}
         <div className="mt-auto" />
@@ -837,17 +1197,24 @@ function FurinaApp() {
           const isUser = m.role === "user";
           const isPlaying = playingId === m.id;
           const isLoading = loadingId === m.id;
+          const sticker = m.stickerId ? findSticker(m.stickerId) : null;
           return (
             <div key={m.id} className={`flex max-w-[85%] flex-col animate-fade-in ${isUser ? "self-end items-end" : "self-start items-start"}`}>
-              <div className={`${isUser ? "bubble-user" : "bubble-ai"} rounded-2xl px-4 py-2.5 text-sm shadow-lg`}>
-                {m.imageDataUrl && (
-                  <img src={m.imageDataUrl} alt="lampiran" className="mb-2 max-h-64 w-full rounded-lg object-cover" />
-                )}
-                {m.content && <div className="whitespace-pre-wrap break-words">{m.content}</div>}
-              </div>
+              {sticker ? (
+                <div className="select-none text-6xl leading-none drop-shadow-lg" title={sticker.label}>
+                  {sticker.emoji}
+                </div>
+              ) : (
+                <div className={`${isUser ? "bubble-user" : "bubble-ai"} rounded-2xl px-4 py-2.5 text-sm shadow-lg`}>
+                  {m.imageDataUrl && (
+                    <img src={m.imageDataUrl} alt="lampiran" className="mb-2 max-h-64 w-full rounded-lg object-cover" />
+                  )}
+                  {m.content && <div className="whitespace-pre-wrap break-words">{m.content.replace(/\[stiker:[^\]]*\]/g, "").trim() || (m.imageDataUrl ? "" : m.content)}</div>}
+                </div>
+              )}
 
               <div className="mt-1 flex items-center gap-1.5 px-1">
-                <span className="text-[10px] opacity-70 tabular-nums">{fmtTime(m.at)}</span>
+                <span className="text-[10px] opacity-70 tabular-nums" title={new Date(m.at).toLocaleString()}>{fmtTime(m.at)}</span>
 
                 {isUser && <MsgStatusIcon status={m.status} />}
 
@@ -858,7 +1225,7 @@ function FurinaApp() {
                   </button>
                 )}
 
-                {!isUser && (
+                {!isUser && !sticker && (
                   <div className="flex items-center gap-1">
                     {isLoading && (
                       <span className="glass-chip inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px]">
@@ -930,6 +1297,27 @@ function FurinaApp() {
               onClick={() => imageInputRef.current?.click()} aria-label="Kirim gambar" title="Kirim gambar">
               <ImageIcon className="h-4 w-4" />
             </Button>
+
+            <Popover open={openStickers} onOpenChange={setOpenStickers}>
+              <PopoverTrigger asChild>
+                <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full" aria-label="Stiker" title="Stiker">
+                  <Smile className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent side="top" className="w-72 p-2">
+                <p className="mb-2 px-1 text-xs text-muted-foreground">Stiker</p>
+                <div className="grid grid-cols-6 gap-1 max-h-64 overflow-y-auto">
+                  {STICKERS.map((s) => (
+                    <button key={s.id} onClick={() => sendSticker(s)}
+                      title={s.label}
+                      className="flex aspect-square items-center justify-center rounded-md text-3xl transition hover:bg-muted">
+                      {s.emoji}
+                    </button>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+
             <Textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
               placeholder="Ketik pesan..." rows={1}
@@ -959,7 +1347,6 @@ function MsgStatusIcon({ status }: { status?: MsgStatus }) {
   return null;
 }
 
-// Compress an uploaded image to a downscaled JPEG dataURL.
 async function compressImage(file: File, maxDim: number, quality: number): Promise<string> {
   const dataUrl: string = await new Promise((res, rej) => {
     const r = new FileReader();
