@@ -48,7 +48,6 @@ export type Database = {
           created_at: string
           embedding: string
           id: string
-          kind: string
           user_id: string
         }
         Insert: {
@@ -57,7 +56,6 @@ export type Database = {
           created_at?: string
           embedding: string
           id?: string
-          kind?: string
           user_id: string
         }
         Update: {
@@ -66,7 +64,6 @@ export type Database = {
           created_at?: string
           embedding?: string
           id?: string
-          kind?: string
           user_id?: string
         }
         Relationships: []
@@ -79,10 +76,8 @@ export type Database = {
           conversation_id: string
           created_at: string
           id: string
-          image_url: string | null
           role: string
           status: string
-          sticker_id: string | null
           user_id: string
         }
         Insert: {
@@ -92,10 +87,8 @@ export type Database = {
           conversation_id: string
           created_at?: string
           id?: string
-          image_url?: string | null
           role: string
           status?: string
-          sticker_id?: string | null
           user_id: string
         }
         Update: {
@@ -105,10 +98,8 @@ export type Database = {
           conversation_id?: string
           created_at?: string
           id?: string
-          image_url?: string | null
           role?: string
           status?: string
-          sticker_id?: string | null
           user_id?: string
         }
         Relationships: [
