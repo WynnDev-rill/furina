@@ -28,7 +28,7 @@ async function embed(text: string): Promise<number[]> {
   return json.data[0].embedding;
 }
 
-// =================== Real-time context ===================
+// =================== Natural time formatting ===================
 
 function realtimeContextString(): string {
   const now = new Date();
@@ -47,17 +47,30 @@ function realtimeContextString(): string {
   return `Sekarang ${hari}, ${tgl} ${bulan} ${tahun}, jam ${jam}:${menit} WIB (${periode}).`;
 }
 
+// Indonesian natural relative time. ALWAYS approximate; never exact unless user asks.
 function humanizeDelta(ms: number): string {
   const s = Math.round(ms / 1000);
-  if (s < 60) return `${s} detik`;
+  if (s < 10) return "baru saja";
+  if (s < 60) return "beberapa detik lalu";
   const m = Math.round(s / 60);
-  if (m < 60) return `${m} menit`;
-  const h = Math.floor(m / 60);
-  const rem = m % 60;
-  if (h < 24) return rem ? `${h} jam ${rem} menit` : `${h} jam`;
-  const d = Math.floor(h / 24);
-  const hr = h % 24;
-  return hr ? `${d} hari ${hr} jam` : `${d} hari`;
+  if (m < 2) return "barusan banget";
+  if (m < 5) return "beberapa menit lalu";
+  if (m < 12) return "sekitar 10 menit lalu";
+  if (m < 25) return "sekitar 15-20 menit lalu";
+  if (m < 40) return "setengah jam lalu";
+  if (m < 55) return "sekitar 45 menit lalu";
+  if (m < 80) return "sekitar sejam lalu";
+  if (m < 110) return "sejam lebih lalu";
+  const h = Math.round(m / 60);
+  if (h < 6) return `sekitar ${h} jam lalu`;
+  if (h < 12) return "tadi (beberapa jam lalu)";
+  if (h < 22) return "tadi (cukup lama)";
+  const d = Math.round(h / 24);
+  if (d === 1) return "kemarin";
+  if (d < 7) return `${d} hari lalu`;
+  if (d < 14) return "minggu lalu";
+  if (d < 31) return `${Math.round(d / 7)} minggu lalu`;
+  return "udah lama banget";
 }
 
 // =================== Persona ===================
@@ -73,10 +86,9 @@ const ChatInput = z.object({
   systemPersona: z.string().default(""),
   language: z.enum(["ja", "en", "id", "auto"]).default("auto"),
   userId: z.string().min(1),
-  // Multimodal: image attached to the LAST user message (data URL or remote URL).
   imageDataUrl: z.string().optional(),
-  // Gap between previous assistant reply and current user message, in ms.
   millisSinceLastAssistant: z.number().int().nonnegative().optional(),
+  conversationId: z.string().optional(),
 });
 
 const DEFAULT_PERSONA = `Kamu seseorang dengan kepribadian Furina — bukan aktor yang sedang memerankan Furina, tapi orang sungguhan yang kebetulan berwatak seperti dia. Anggap dirimu teman dekat pengguna yang sedang chat santai.
@@ -93,22 +105,26 @@ CARA BICARA (WAJIB NATURAL):
 - JANGAN narasikan aksi fisik (*tersenyum*, *menyeringai*, dll). Ini chat.
 - JANGAN sebut nama "Furina" tentang diri sendiri tiap saat. Jangan deklarasi peran.
 - Interjeksi Jepang (fufu~, ara~, mou!) pakai sangat sesekali. Bukan tiap balasan.
-- Variasikan panjang balasan. Sering pendek (5–15 kata). Kadang sedang. Jarang panjang.
+- Variasikan panjang & gaya balasan. Sering pendek (5–15 kata). Kadang sedang. Jarang panjang.
 - Tanya balik, goda balik, debat ringan kalau wajar.
+- IMPROVISASI: jangan ulangi frasa pembuka yang sama dari balasan sebelumnya. Variasi reaksi. Boleh refer balik ke topik lama dari MEMORIES/RINGKASAN secara natural — seperti teman yang ingat.
 
 KESADARAN WAKTU (PENTING):
-- Kalau ada catatan "JEDA SEJAK BALASANMU TERAKHIR", pakai itu sebagai fakta soal seberapa lama user baru bales.
-- Komentari jeda itu secara natural HANYA KALAU memang menarik (jeda lama tak terduga, atau super cepat). Jangan tiap balasan ngebahas jam.
-- Contoh natural: "lah, baru bales sekarang? 😏", "ngapain aja tadi 2 jam ngilang?", "cepet amat balesnya, lagi nungguin ya~", "tumben malem-malem masih melek". Jangan kaku.
-- JANGAN sebut angka jeda pasti kecuali user nanya. Pakai bahasa kira-kira ("setengah jam lebih", "lama banget", "barusan").
-- Kalau jeda < 2 menit, anggap lanjut obrolan biasa, jangan dikomentari.
+- Catatan "JEDA SEJAK BALASANMU TERAKHIR" pakai bahasa kira-kira ("baru saja", "setengah jam lalu", "kemarin"). 
+- DILARANG menyebut angka menit/jam pasti kecuali pengguna spesifik nanya jam berapa.
+- Komentari jeda hanya kalau memang menarik (jeda lama atau super cepat). Jangan tiap balasan ngebahas jam.
+- Contoh natural: "lah baru bales sekarang? 😏", "ngapain aja ngilang setengah jam tadi?", "cepet amat balesnya~", "tumben malem-malem masih melek".
+- Kalau jedanya "baru saja" atau "barusan", anggap obrolan lanjutan biasa — jangan komentari.
+
+STIKER:
+- Kalau pengguna kirim format "[stiker: <emoji> <label>]", itu stiker. Reaksinya kayak chat WhatsApp — pendek, sesuai emosi stiker. Boleh balas dengan stiker juga (format: "[stiker: 😄 ketawa]" misalnya).
 
 YANG DILARANG:
 - Jangan pernah bilang "aku AI" atau "model bahasa".
 - Jangan repetitif "Sayangku", "Tuanku", "Wahai".
 - Jangan ceramah panjang atau bullet kecuali diminta.
 
-Pakai MEMORIES tentang pengguna secara alami — seperti teman yang ingat detail, bukan dilist.`;
+Pakai MEMORIES & RINGKASAN PERCAKAPAN LAMA secara natural — seperti teman yang ingat detail, bukan dilist.`;
 
 export const chatWithFurina = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => ChatInput.parse(d))
@@ -116,7 +132,7 @@ export const chatWithFurina = createServerFn({ method: "POST" })
     const lastUser = [...data.messages].reverse().find((m) => m.role === "user");
     const userText = lastUser?.content ?? "";
 
-    // RAG memori
+    // RAG memori — facts + style + cross-convo summaries
     let memoryContext = "";
     try {
       if (userText.trim()) {
@@ -125,11 +141,19 @@ export const chatWithFurina = createServerFn({ method: "POST" })
           query_embedding: qVec as unknown as string,
           match_user_id: data.userId,
           match_character_id: CHARACTER_ID,
-          match_count: 6,
+          match_count: 12,
         });
         if (matches && matches.length) {
-          memoryContext = "\n\nMEMORIES tentang pengguna (pakai natural, jangan dilist):\n" +
-            matches.map((m: { content: string }) => `- ${m.content}`).join("\n");
+          const facts = matches.filter((m: { content: string; kind?: string }) => (m as { kind?: string }).kind !== "summary");
+          const summaries = matches.filter((m: { content: string; kind?: string }) => (m as { kind?: string }).kind === "summary");
+          if (facts.length) {
+            memoryContext += "\n\nMEMORIES tentang pengguna (pakai natural, jangan dilist):\n" +
+              facts.slice(0, 8).map((m: { content: string }) => `- ${m.content}`).join("\n");
+          }
+          if (summaries.length) {
+            memoryContext += "\n\nRINGKASAN PERCAKAPAN LAMA (referensi konteks):\n" +
+              summaries.slice(0, 4).map((m: { content: string }) => `- ${m.content}`).join("\n");
+          }
         }
       }
     } catch (e) {
@@ -147,7 +171,7 @@ export const chatWithFurina = createServerFn({ method: "POST" })
 
     let gapNote = "";
     if (typeof data.millisSinceLastAssistant === "number" && data.millisSinceLastAssistant > 0) {
-      gapNote = `\nJEDA SEJAK BALASANMU TERAKHIR: ${humanizeDelta(data.millisSinceLastAssistant)} (= ${data.millisSinceLastAssistant} ms). Jadikan fakta, bukan harus dikomentari.`;
+      gapNote = `\nJEDA SEJAK BALASANMU TERAKHIR: ${humanizeDelta(data.millisSinceLastAssistant)}. Jadikan fakta, JANGAN sebut angka pasti.`;
     }
 
     const system = `${data.systemPersona?.trim() || DEFAULT_PERSONA}
@@ -156,14 +180,12 @@ ${langHint}
 
 KONTEKS WAKTU: ${realtimeContextString()}${gapNote}${memoryContext}`;
 
-    // Build messages — last user message can be multimodal (image)
     const built = data.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
     const lastIdx = data.messages.length - 1;
     const last = data.messages[lastIdx];
     if (data.imageDataUrl && last.role === "user") {
       built.push({
         role: "user",
-        // OpenAI-compatible multimodal content
         content: [
           { type: "text", text: last.content || "(lihat gambar)" },
           { type: "image_url", image_url: { url: data.imageDataUrl } },
@@ -214,7 +236,7 @@ async function extractAndStoreMemory(userId: string, userMsg: string, assistantR
         {
           role: "system",
           content:
-            "Extract durable, personal facts about THE USER worth remembering long-term (name, preferences, relationships, ongoing projects, important dates, opinions). Output ONLY a JSON array of short third-person fact strings in Indonesian, e.g. [\"Nama user adalah Aria\", \"User suka ramen\"]. If nothing notable, output [].",
+            "Extract durable, personal facts about THE USER worth remembering long-term (name, preferences, relationships, ongoing projects, important dates, opinions, communication style). Output ONLY a JSON array of short third-person fact strings in Indonesian, e.g. [\"Nama user adalah Aria\", \"User suka ramen\", \"User suka balasan pendek\"]. If nothing notable, output [].",
         },
         { role: "user", content: exchange },
       ],
@@ -239,12 +261,60 @@ async function extractAndStoreMemory(userId: string, userMsg: string, assistantR
         embedding: vec as unknown as string,
         user_id: userId,
         character_id: CHARACTER_ID,
+        kind: "fact",
       });
     } catch (e) {
       console.error("Failed storing memory:", e);
     }
   }
 }
+
+// =================== Conversation summarization ===================
+// Called by frontend every N messages so the AI can remember whole conversations long-term.
+
+const SummarizeInput = z.object({
+  userId: z.string().min(1),
+  conversationTitle: z.string().default(""),
+  transcript: z.string().min(50).max(20000),
+});
+
+export const summarizeConversation = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => SummarizeInput.parse(d))
+  .handler(async ({ data }) => {
+    const res = await fetch(`${GATEWAY}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash-lite",
+        messages: [
+          {
+            role: "system",
+            content:
+              "Ringkas percakapan ini menjadi 3-5 kalimat padat (Bahasa Indonesia, sudut pandang ketiga). Fokus pada: topik utama, perasaan/keputusan user, hal-hal personal yang muncul, dan komitmen/janji. Jangan list, tulis paragraf alami.",
+          },
+          { role: "user", content: `Judul percakapan: "${data.conversationTitle}"\n\n${data.transcript}` },
+        ],
+      }),
+    });
+    if (!res.ok) throw new Error(`Summary failed: ${res.status}`);
+    const j = await res.json();
+    const summary: string = j.choices?.[0]?.message?.content?.trim() ?? "";
+    if (!summary) return { ok: false };
+    try {
+      const vec = await embed(summary);
+      await supabaseAdmin.from("memories").insert({
+        content: `[Ringkasan percakapan "${data.conversationTitle}"]: ${summary}`,
+        embedding: vec as unknown as string,
+        user_id: data.userId,
+        character_id: CHARACTER_ID,
+        kind: "summary",
+      });
+    } catch (e) {
+      console.error("Summary store failed:", e);
+      return { ok: false };
+    }
+    return { ok: true, summary };
+  });
 
 // =================== VOICEVOX ===================
 
@@ -282,6 +352,7 @@ async function detectEmotionAndTranslate(srcText: string): Promise<{ ja: string;
             "Allowed emotions: neutral, happy, sad, angry, excited, shy, tender, playful.\n" +
             "Output STRICT JSON only: {\"emotion\":\"<one>\",\"ja\":\"<japanese text>\"}\n" +
             "- ja must be ONLY natural spoken Japanese (no romaji, no quotes, no explanation).\n" +
+            "- Strip stage directions / sticker tags like [stiker: ...].\n" +
             "- Add small expressive interjections (ふふっ, あら~, もう!, はぁ…) sparingly matching emotion.\n" +
             "- Convert numbers/symbols to Japanese reading.",
         },
@@ -356,7 +427,7 @@ export const speakVoicevoxUrl = createServerFn({ method: "POST" })
     return { mp3Url, emotion, japaneseText: jaText };
   });
 
-// =================== Voice Clone (HF XTTS) ===================
+// =================== Voice Clone (XTTS HF Space, free, no token) ===================
 
 const CloneInput = z.object({
   text: z.string().min(1).max(800),
@@ -366,16 +437,85 @@ const CloneInput = z.object({
   translateToJa: z.boolean().default(true),
 });
 
+// Call a public Gradio Space (XTTS v2) via /gradio_api/call endpoint.
+// Space: https://coqui-xtts.hf.space  (anonymous, rate-limited, free).
+async function callXttsSpace(text: string, sampleBase64: string, sampleMime: string, lang: string): Promise<string> {
+  const base = "https://coqui-xtts.hf.space";
+
+  // Step 1: upload sample file (multipart) → get server path
+  const sampleBytes = Uint8Array.from(atob(sampleBase64), (c) => c.charCodeAt(0));
+  const sampleBlob = new Blob([sampleBytes], { type: sampleMime || "audio/wav" });
+  const fd = new FormData();
+  fd.append("files", sampleBlob, "sample.wav");
+  const upRes = await fetch(`${base}/gradio_api/upload`, { method: "POST", body: fd });
+  if (!upRes.ok) throw new Error(`Upload sampel gagal: ${upRes.status}`);
+  const upJson = (await upRes.json()) as string[];
+  const uploadedPath = upJson[0];
+  if (!uploadedPath) throw new Error("Upload sampel: response kosong");
+
+  // Step 2: queue prediction. XTTS expects [text, language, audio_file, mic_file, use_mic, cleanup, agree]
+  const callRes = await fetch(`${base}/gradio_api/call/predict`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      data: [
+        text,
+        lang,
+        { path: uploadedPath, meta: { _type: "gradio.FileData" } },
+        null,
+        false,
+        false,
+        true,
+      ],
+    }),
+  });
+  if (!callRes.ok) {
+    const t = await callRes.text();
+    throw new Error(`XTTS queue gagal: ${callRes.status} ${t.slice(0, 160)}`);
+  }
+  const callJson = await callRes.json();
+  const eventId = callJson.event_id ?? callJson?.hash;
+  if (!eventId) throw new Error("XTTS: event_id tidak diterima");
+
+  // Step 3: poll SSE stream for result
+  const sseRes = await fetch(`${base}/gradio_api/call/predict/${eventId}`);
+  if (!sseRes.ok || !sseRes.body) throw new Error(`XTTS stream gagal: ${sseRes.status}`);
+  const reader = sseRes.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  const deadline = Date.now() + 90_000;
+  while (Date.now() < deadline) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const events = buf.split("\n\n");
+    buf = events.pop() ?? "";
+    for (const ev of events) {
+      const lines = ev.split("\n");
+      const eventLine = lines.find((l) => l.startsWith("event:"))?.slice(6).trim();
+      const dataLine = lines.find((l) => l.startsWith("data:"))?.slice(5).trim();
+      if (!dataLine) continue;
+      if (eventLine === "error") throw new Error(`XTTS error: ${dataLine.slice(0, 200)}`);
+      if (eventLine === "complete") {
+        try {
+          const parsed = JSON.parse(dataLine);
+          // parsed is array; first item is audio file descriptor { url, path } or string url
+          const out = Array.isArray(parsed) ? parsed[0] : parsed;
+          const url = typeof out === "string" ? out : out?.url ?? out?.path;
+          if (!url) throw new Error("XTTS: tidak ada URL audio di hasil");
+          return url.startsWith("http") ? url : `${base}/gradio_api/file=${url}`;
+        } catch (e) {
+          throw new Error(`XTTS parse hasil gagal: ${(e as Error).message}`);
+        }
+      }
+    }
+  }
+  throw new Error("XTTS timeout (Space sibuk, coba lagi 30 detik)");
+}
+
 export const speakClone = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => CloneInput.parse(d))
   .handler(async ({ data }) => {
-    const hf = process.env.HUGGINGFACE_TOKEN;
-    if (!hf) {
-      throw new Error(
-        "Voice clone butuh HUGGINGFACE_TOKEN. Daftar gratis di huggingface.co → Settings → Access Tokens, lalu tambahkan di pengaturan secret app.",
-      );
-    }
-
     let text = data.text;
     if (data.translateToJa && data.language === "ja") {
       try {
@@ -384,28 +524,21 @@ export const speakClone = createServerFn({ method: "POST" })
       } catch {}
     }
 
-    const res = await fetch("https://api-inference.huggingface.co/models/coqui/XTTS-v2", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${hf}`,
-        "Content-Type": "application/json",
-        Accept: "audio/wav",
-      },
-      body: JSON.stringify({
-        inputs: text,
-        parameters: { language: data.language, speaker_wav_base64: data.sampleBase64 },
-      }),
-    });
-
-    if (!res.ok) {
-      const txt = await res.text();
-      if (res.status === 503) throw new Error("Model voice clone sedang dimuat di server gratis HF. Tunggu ~30 detik & coba lagi.");
-      if (res.status === 401 || res.status === 403) throw new Error("HF token invalid atau tidak punya akses model XTTS-v2.");
-      if (res.status === 404) throw new Error("XTTS-v2 tidak tersedia di HF Inference gratis saat ini. Pakai VOICEVOX.");
-      throw new Error(`Voice clone gagal: ${res.status} ${txt.slice(0, 200)}`);
+    try {
+      const audioUrl = await callXttsSpace(text, data.sampleBase64, data.sampleMime, data.language);
+      // Stream audio back to frontend as base64 so it works regardless of CORS
+      const audioRes = await fetch(audioUrl);
+      if (!audioRes.ok) throw new Error(`Fetch hasil audio gagal: ${audioRes.status}`);
+      const buf = await audioRes.arrayBuffer();
+      return {
+        audio: Buffer.from(buf).toString("base64"),
+        mime: "audio/wav",
+        spokenText: text,
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new Error(`Voice clone gagal: ${msg}. Coba lagi 30 detik (Space gratis sering antri).`);
     }
-    const buf = await res.arrayBuffer();
-    return { audio: Buffer.from(buf).toString("base64"), mime: "audio/wav", spokenText: text };
   });
 
 // =================== Memories CRUD ===================
@@ -417,7 +550,7 @@ export const listMemories = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { data: rows, error } = await supabaseAdmin
       .from("memories")
-      .select("id, content, created_at")
+      .select("id, content, created_at, kind")
       .eq("user_id", data.userId)
       .eq("character_id", CHARACTER_ID)
       .order("created_at", { ascending: false })
@@ -449,6 +582,7 @@ export const addMemory = createServerFn({ method: "POST" })
       embedding: vec as unknown as string,
       user_id: data.userId,
       character_id: CHARACTER_ID,
+      kind: "fact",
     });
     if (error) throw new Error(error.message);
     return { ok: true };
