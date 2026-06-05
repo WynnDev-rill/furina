@@ -29,9 +29,11 @@ import {
   listMemories,
   deleteMemory,
   addMemory,
+  updateMemory,
   clearAllMemories,
   migrateGuestMemories,
   summarizeConversation,
+  updateStyleProfile,
 } from "@/lib/furina.functions";
 
 export const Route = createFileRoute("/")({
@@ -213,9 +215,11 @@ function FurinaApp() {
   const listMemFn = useServerFn(listMemories);
   const delMemFn = useServerFn(deleteMemory);
   const addMemFn = useServerFn(addMemory);
+  const updateMemFn = useServerFn(updateMemory);
   const clearMemFn = useServerFn(clearAllMemories);
   const migrateMemFn = useServerFn(migrateGuestMemories);
   const summarizeFn = useServerFn(summarizeConversation);
+  const updateStyleFn = useServerFn(updateStyleProfile);
 
   const [authUser, setAuthUser] = useState<{ id: string; email?: string } | null>(null);
   const [authReady, setAuthReady] = useState(false);
@@ -241,8 +245,11 @@ function FurinaApp() {
   const [openSettings, setOpenSettings] = useState(false);
   const [openConvos, setOpenConvos] = useState(false);
   const [openStickers, setOpenStickers] = useState(false);
-  const [memories, setMemories] = useState<{ id: string; content: string; kind?: string }[]>([]);
+  const [memories, setMemories] = useState<{ id: string; content: string; kind?: string; importance?: number; occurred_at?: string | null }[]>([]);
   const [newMem, setNewMem] = useState("");
+  const [editingMemId, setEditingMemId] = useState<string | null>(null);
+  const [editingMemContent, setEditingMemContent] = useState("");
+  const [editingMemImportance, setEditingMemImportance] = useState(5);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
@@ -373,6 +380,34 @@ function FurinaApp() {
     pullFromCloud(authUser.id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authReady, authUser]);
+
+  // Load custom stickers for the signed-in user
+  useEffect(() => {
+    if (!authUser) { setCustomStickers([]); return; }
+    let cancelled = false;
+    (async () => {
+      const { data: rows, error } = await supabase
+        .from("user_stickers")
+        .select("id, url, label, cached_label, pack_name")
+        .eq("user_id", authUser.id)
+        .order("created_at", { ascending: false });
+      if (error || !rows || cancelled) return;
+      const signed = await Promise.all(rows.map(async (r) => {
+        const { data: s } = await supabase.storage.from("stickers").createSignedUrl(r.url, 60 * 60 * 24 * 7);
+        return {
+          id: r.id,
+          url: s?.signedUrl ?? "",
+          label: r.label ?? r.cached_label ?? "stiker",
+          isDefault: false,
+          dbId: r.id,
+          storagePath: r.url,
+        } as StickerEntry;
+      }));
+      if (!cancelled) setCustomStickers(signed.filter((s) => s.url));
+    })();
+    return () => { cancelled = true; };
+  }, [authUser]);
+
 
   async function pullFromCloud(uid: string) {
     setSyncing(true);
@@ -713,6 +748,18 @@ function FurinaApp() {
       // Background: maybe summarize
       const updatedConv = conversations.find((c) => c.id === activeId);
       if (updatedConv) maybeSummarize({ ...updatedConv, messages: [...updatedConv.messages, aiMsg] });
+
+      // Style profile update every 10 user messages
+      userMsgCountRef.current += 1;
+      if (userMsgCountRef.current % 10 === 0) {
+        const recentUserMsgs = (updatedConv?.messages ?? [])
+          .filter((m) => m.role === "user" && m.content && !m.stickerId)
+          .slice(-30)
+          .map((m) => m.content);
+        if (recentUserMsgs.length >= 3) {
+          updateStyleFn({ data: { userId, userMessages: recentUserMsgs } }).catch(() => {});
+        }
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Gagal kirim";
       toast.error(msg);
@@ -1193,18 +1240,80 @@ function FurinaApp() {
                       } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
                     }}><Plus className="h-4 w-4" /></Button>
                   </div>
-                  <div className="max-h-64 space-y-1 overflow-y-auto rounded-md border p-2 text-sm">
+                  <div className="max-h-72 space-y-1 overflow-y-auto rounded-md border p-2 text-sm">
                     {memories.length === 0 && <p className="text-muted-foreground">Belum ada memori.</p>}
-                    {memories.map((m) => (
-                      <div key={m.id} className="flex items-start gap-2 rounded p-1 hover:bg-muted">
-                        {m.kind === "summary" && <span className="mt-0.5 rounded bg-primary/20 px-1 text-[9px] font-semibold uppercase">ringkasan</span>}
-                        <span className="flex-1">{m.content}</span>
-                        <button onClick={async () => { await delMemFn({ data: { id: m.id, userId } }); refreshMemories(); }} className="text-muted-foreground hover:text-destructive">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ))}
+                    {memories.map((m) => {
+                      const isEditing = editingMemId === m.id;
+                      return (
+                        <div key={m.id} className="rounded p-1.5 hover:bg-muted/60">
+                          {isEditing ? (
+                            <div className="space-y-2">
+                              <Textarea
+                                value={editingMemContent}
+                                onChange={(e) => setEditingMemContent(e.target.value)}
+                                rows={3}
+                                className="text-sm"
+                              />
+                              <div className="flex items-center gap-2">
+                                <Label className="text-[10px] text-muted-foreground">Penting</Label>
+                                <Slider
+                                  value={[editingMemImportance]}
+                                  min={1} max={10} step={1}
+                                  onValueChange={(v) => setEditingMemImportance(v[0] ?? 5)}
+                                  className="flex-1"
+                                />
+                                <span className="w-6 text-right text-[11px] font-medium">{editingMemImportance}</span>
+                              </div>
+                              <div className="flex justify-end gap-2">
+                                <Button size="sm" variant="ghost" onClick={() => setEditingMemId(null)}>Batal</Button>
+                                <Button size="sm" onClick={async () => {
+                                  if (editingMemContent.trim().length < 3) return;
+                                  try {
+                                    await updateMemFn({ data: {
+                                      id: m.id, userId,
+                                      content: editingMemContent.trim(),
+                                      importance: editingMemImportance,
+                                    }});
+                                    setEditingMemId(null);
+                                    refreshMemories();
+                                    toast.success("Memori diperbarui");
+                                  } catch (e) { toast.error(e instanceof Error ? e.message : "Gagal simpan"); }
+                                }}>Simpan</Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-start gap-2">
+                              {m.kind === "summary" && <span className="mt-0.5 rounded bg-primary/20 px-1 text-[9px] font-semibold uppercase">ringkasan</span>}
+                              {m.kind === "style" && <span className="mt-0.5 rounded bg-accent/30 px-1 text-[9px] font-semibold uppercase">gaya</span>}
+                              <span className="flex-1 break-words">{m.content}</span>
+                              <span className="mt-0.5 rounded bg-muted px-1 text-[9px] text-muted-foreground" title="Importance">
+                                {m.importance ?? 5}
+                              </span>
+                              <button
+                                onClick={() => {
+                                  setEditingMemId(m.id);
+                                  setEditingMemContent(m.content);
+                                  setEditingMemImportance(m.importance ?? 5);
+                                }}
+                                className="text-muted-foreground hover:text-primary"
+                                title="Edit"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={async () => { await delMemFn({ data: { id: m.id, userId } }); refreshMemories(); }}
+                                className="text-muted-foreground hover:text-destructive"
+                                title="Hapus"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
+
                 </section>
 
                 <Separator />
