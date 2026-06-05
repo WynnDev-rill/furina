@@ -1,91 +1,146 @@
 
 # Rencana Upgrade
 
-## 1. Login Google = sinkronisasi penuh per akun (PRIORITAS UTAMA)
+## 1. Voice Clone — alur lengkap dengan status (HF Space gratis)
 
-**Tujuan:** Saat login Google, *seluruh* data ikut ke akun (chat, persona, setting, voice sample, tema, bahasa, dll). Saat logout → kembali ke mode guest dengan data guest-nya sendiri (terpisah). User baru pertama kali login = bersih. Tidak ada kebocoran antar user.
+**File baru:** `src/components/VoiceCloneDialog.tsx`
 
-### Skema data baru di Cloud
-- Tabel `conversations` & `messages` sudah ada → tetap dipakai (sudah RLS by `user_id`).
-- Tambah kolom `messages.image_url` (cache gambar opsional).
-- Tabel `user_settings` sudah ada (`data jsonb`) → dipakai untuk *semua* setting (persona, name, bg, lang, speed, provider, vvSpeaker, vvTranslate, theme, preGen, cloneSampleName).
-- Voice sample file → upload ke bucket `voice-samples` privat (sudah ada), path `{user_id}/sample.{ext}`. Kolom `user_settings.data.cloneSamplePath` simpan referensi.
+Alur: Upload `.mp3/.wav/.m4a` → auto-convert ke wav mono 22kHz client-side via Web Audio API → validasi durasi (6–30 detik, ideal 15s) + cek RMS volume (tidak senyap) + cek SNR sederhana → tampilkan ✓ status kualitas (durasi, sample rate, volume) → upload ke bucket `voice-samples` di path `{userId}/clone-{timestamp}.wav` → simpan metadata di `user_settings.data.voiceClones[]` (array `{id, name, path, createdAt, durationSec, qualityScore}`) sehingga bisa punya banyak clone, bukan satu.
 
-### Logika sinkronisasi
-- **Mode guest** (belum login): semua tetap di `localStorage` dengan namespace `furina:guest:*`. Tidak menulis ke DB.
-- **Saat login Google:**
-  1. Cek `user_settings` & `conversations` user di DB.
-  2. Jika DB **kosong** dan localStorage punya data guest → tawarkan *one-time migration* (toast: "Pindahkan data guest ke akun?"). Jika ya → upload semua (settings + conversations + messages + voice sample), tandai `furina:migratedTo:{userId}=true`, lalu **hapus localStorage guest**.
-  3. Jika DB **sudah ada** → abaikan localStorage guest, load dari DB.
-  4. Realtime: setiap perubahan setting / kirim pesan / buat conversation → langsung `upsert` ke DB (debounced).
-- **Saat logout:** clear semua state in-memory & semua key `furina:*` di localStorage kecuali namespace guest (yang memang milik browser ini sebelum pernah login). User baru di device sama = state guest kosong.
-- **User baru pertama kali login:** DB kosong, localStorage juga tidak punya guest data milik dia → app mulai bersih. Tidak pernah baca data user lain (RLS + filter `user_id` di setiap query).
+**Server fn `cloneVoiceSpeak`** (`src/lib/furina.functions.ts`):
+- Input: `text`, `sampleSignedUrl`, `language` (id/ja/en).
+- Chain: **Fish-Speech** Space (`fishaudio/fish-speech-1`) → fallback **XTTS** Space (`coqui/xtts`) → fallback **OpenVoice v2**.
+- Pakai Gradio `/api/predict` queue endpoint (`/queue/join` + SSE `/queue/data`) supaya bisa stream progress.
+- Return `{ audioUrl, engineUsed, durationMs, queuePosition? }`.
 
-### Keamanan
-- Semua query pakai client Supabase ber-session (RLS aktif `auth.uid() = user_id`).
-- Server fn yang pakai `supabaseAdmin` (RAG memori) **wajib filter** `user_id` dari context auth — tidak terima `userId` dari body lagi → ubah `chatWithFurina`, `listMemories`, dll. pakai `requireSupabaseAuth` middleware untuk user login. Untuk guest, pakai guestId tapi memori guest disimpan ke `user_id` placeholder yang **unik per browser** (UUID generated, tidak pernah collision dengan user real).
-- Guest memori & data **tidak pernah** ter-query oleh user login (filter ketat by `user_id`).
+**UI:** dialog dengan 3 tab — Upload, Library (list semua clone, set default, hapus), Test (input teks → preview audio). Progress bar real-time saat generate (read `queuePosition` dari SSE). Timeout 90s, retry button.
 
-## 2. Memori percakapan menyeluruh + improvisasi (PRIORITAS 2)
+**Pilih voice di settings:** dropdown TTS provider sekarang punya: `voicevox`, `cloneId-xxx` (list semua clone), `ariaTTS` (default fallback).
 
-- **Recall lebih luas**: RAG saat ini ambil 6 memori. Naikkan ke 10 + tambahkan **ringkasan percakapan lama** sebagai memori turunan.
-- **Auto-summarize**: setiap conversation yang sudah > 20 pesan → trigger background job (server fn dipanggil setelah balasan ke-20, 40, 60) yang minta Gemini bikin ringkasan padat lalu disimpan sebagai memori bertipe `summary` di tabel `memories` (tambah kolom opsional `kind text default 'fact'`).
-- **Cross-conversation context**: saat mulai pesan baru, ambil juga 2 ringkasan paling relevan dari conversation **lain** (via embedding) → diselipkan ke system prompt.
-- **Belajar gaya user**: tiap N pesan, extract preferensi gaya bicara user (panjang reply, formalitas, topik favorit) → disimpan sebagai memori `style`. Furina pakai itu untuk menyesuaikan.
-- **Improvisasi**: tambahkan instruksi di persona: "Variasikan reaksi berdasarkan memori. Jangan ulangi frasa yang sama dari balasan sebelumnya. Boleh refer balik ke topik lama secara natural."
+## 2. Stiker WhatsApp-style + AI Vision
 
-## 3. Voice clone yang benar-benar berfungsi
+**Hapus emoji-as-sticker. Stiker = gambar PNG/WebP transparan.**
 
-Masalah sekarang: HF Inference `coqui/XTTS-v2` sering 404 / butuh GPU berbayar. Ganti strategi:
+- **Pack default**: bundle 30 stiker Furina/anime CC-licensed di `public/stickers/default/*.webp` + `manifest.json` ({id, url, label kosong dulu, defaultPack: true}).
+- **Custom upload**: tombol "+" di sticker picker → user upload PNG/WebP → resize ke 512x512 client-side → upload ke bucket baru `stickers` (private, RLS by user_id) → simpan ke tabel baru `user_stickers (id, user_id, url, pack_name, label, created_at)`.
+- **Sticker picker**: bottom sheet dengan tabs (Default | Pack-ku), grid 4 kolom, long-press untuk delete.
 
-- **Engine baru: `fishaudio/fish-speech` Space gratis di HF** (atau alternatif `tts-arena` Space) → akses via Gradio Client API (gratis, tanpa token, hanya rate-limited).
-- Implementasi pakai endpoint Gradio publik (`https://<space>.hf.space/api/predict`) → kirim text + sample wav (base64), terima audio.
-- Fallback chain: **Fish-Speech** → kalau gagal **XTTS demo space** → kalau gagal kasih pesan "server clone sedang ramai, coba lagi 1 menit".
-- Sample audio diupload ke bucket `voice-samples` (signed URL 1 jam) sehingga server fn bisa fetch ulang tanpa simpan base64 di localStorage (lebih cepat).
-- Tambahkan progress indicator dan timeout 60 detik di UI.
+**AI baca stiker (Vision tiap kirim):**
+- Saat user kirim stiker, frontend fetch URL stiker, kirim ke `chatWithFurina` sebagai multimodal content (sama seperti gambar) dengan instruksi sistem: *"User mengirim sebuah stiker bergambar. Tafsirkan emosi/maksudnya secara natural."*
+- Untuk efisiensi: cache hasil interpretasi vision per `stickerId` (kolom `user_stickers.cached_label`) — pertama kali kirim → Vision; kirim ke-2 dst → pakai cached label di context.
 
-## 4. Sticker pack gratis tanpa API
+**AI kirim stiker:** Furina output token `[[sticker:id]]` di balasannya. Frontend regex parse → render stiker dari pack. AI dikasih list 10 stiker paling relevan (random per balasan) di system prompt: *"Stiker tersedia: capek_gw (untuk lelah), wakatta (untuk paham), ya_ampun (untuk frustasi)... Pakai max 1 stiker tiap beberapa balasan, hanya jika sangat cocok."*
 
-- Pakai **dataset emoji/sticker statis** yang di-bundle (TwemojiAnimated atau Telegram-style PNG pack gratis lisensi CC).
-- Tombol stiker di composer → buka popover berisi grid ±60 stiker, kategori (emosi, reaksi, anime).
-- Kirim stiker = pesan dengan tipe `sticker` (URL ke file static di `/public/stickers/`).
-- Untuk Furina bisa "baca" stiker yang user kirim: tiap stiker punya metadata `label` (ex: "menangis", "tertawa"). Saat dikirim, content message = `[stiker: menangis]` → AI paham konteksnya tanpa perlu vision.
-- Furina juga bisa balas stiker: di response, kalau dia output token spesial `:sticker:nama:`, frontend render sebagai stiker.
+**Migration SQL:**
+```sql
+create table public.user_stickers (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  url text not null,
+  pack_name text default 'custom',
+  label text,
+  cached_label text,
+  created_at timestamptz default now()
+);
+-- + GRANTS, RLS, bucket `stickers`
+```
 
-## 5. Formatting waktu yang natural
+## 3. Memori tanpa batas + auto-compress + importance + waktu
 
-Ubah `humanizeDelta` jadi natural Indonesia:
-- `< 10 detik` → "baru saja"
-- `< 60 detik` → "beberapa detik lalu"
-- `< 2 menit` → "barusan"
-- `< 10 menit` → "beberapa menit lalu"
-- `< 30 menit` → "sekitar X menit lalu" (round ke 5)
-- `< 45 menit` → "setengah jam lalu"
-- `< 90 menit` → "sekitar sejam lalu"
-- `< 6 jam` → "sekitar X jam lalu"
-- hari yg sama → "tadi pagi/siang/sore/malam"
-- kemarin → "kemarin"
-- > 1 hari → "X hari lalu"
+**Skema:** tambah kolom ke `memories`:
+- `importance int default 5` (1–10, AI scoring saat insert)
+- `occurred_at timestamptz` (waktu kejadian yang direferensikan memori, bukan created_at)
+- `last_accessed_at timestamptz` (untuk recency boost)
+- `compressed boolean default false`
+- `source_memory_ids uuid[]` (kalau hasil compress, refer ke memori asal)
 
-Persona instruction diperketat: **jangan pernah sebut menit/jam pasti** kecuali user nanya. Selalu pakai bahasa kira-kira.
+**Retrieval baru** (`retrieveMemories`):
+- Embedding similarity (cosine) ambil top 50.
+- Re-rank: `score = 0.6*similarity + 0.25*(importance/10) + 0.15*recency_decay(last_accessed_at)`.
+- Ambil top 15. Update `last_accessed_at` untuk yang dipakai.
+- Tidak ada batas total di DB.
 
-## Detail teknis
+**Insert dedup:** sebelum insert memori baru, embed dulu → query `match_memories` similarity > 0.92 → kalau ada, AI dipanggil untuk **merge** (gabung jadi 1 memori lebih kaya, hapus yang lama) bukan duplikat. Mencegah pengulangan info saat ringkasan ke-2, ke-3, dst.
 
-**File yang diubah:**
-- `src/lib/furina.functions.ts` — `humanizeDelta` baru, `chatWithFurina` pakai `requireSupabaseAuth` (versi authed) + tetap ada versi guest, RAG diperluas, summary helper, sticker label handling, hapus XTTS code, tambah Fish-Speech caller.
-- `src/routes/index.tsx` — sync layer baru (load/save semua state ke DB saat login), logout clears, sticker picker, voice clone via upload bucket.
-- Migration SQL:
-  - `ALTER TABLE messages ADD COLUMN IF NOT EXISTS image_url text, ADD COLUMN IF NOT EXISTS sticker_id text;`
-  - `ALTER TABLE memories ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'fact';`
-- Asset baru: `public/stickers/*.png` (± 60 file, kategori folder).
+**Ringkasan progressive (no-repeat):**
+- Tiap 20 pesan: ringkas 20 pesan terakhir → cek kalau ada `summary` sebelumnya untuk conversation yang sama → kirim ke AI: *"Ini ringkasan lama: X. Ini 20 pesan baru: Y. Buat ringkasan baru yang MENAMBAH info, jangan ulang yang sudah ada di ringkasan lama."* → upsert sebagai 1 summary aktif, summary lama di-archive (`compressed=true`).
 
-**Secret:** tidak perlu tambahan (Fish-Speech space gratis tanpa token; kalau perlu fallback HF, pakai `HUGGINGFACE_TOKEN` yang sudah ada di plan sebelumnya — opsional).
+**Auto-compress lama:**
+- Server fn `compressOldMemories` (jalan via pg_cron tiap minggu, atau lazy saat user open app & belum jalan 7 hari):
+- Cari memori `kind='fact'` & `created_at < now() - 90 days` & `last_accessed_at < now() - 30 days`.
+- Group by topic via clustering embedding (k-means sederhana di JS, k=10).
+- Tiap cluster → AI ringkas jadi 1 meta-memory `kind='meta_summary'`, simpan `source_memory_ids`. Memori asal di-set `compressed=true` (tidak di-retrieve default tapi bisa restore di panel).
+
+**Waktu di memori:** saat ekstrak fakta, AI diminta output juga `occurred_at` kalau bisa di-infer ("kemarin" → now-1day, "minggu lalu" → now-7day, "tadi pagi" → today 09:00). Disimpan di kolom. Saat retrieval, format ke natural: "Kamu bilang ini sekitar 2 minggu lalu: ..."
+
+## 4. Style Profile per-user (improvisasi gaya bicara)
+
+**Skema:** kolom `user_settings.data.styleProfile`:
+```ts
+{
+  avgMsgLength: number,
+  formality: 'casual'|'mixed'|'formal',
+  emojiRate: number,
+  frequentWords: string[],  // top 20
+  avoidedTopics: string[],
+  slangUsed: string[],
+  lastUpdated: timestamp,
+  sampleCount: number
+}
+```
+
+**Update tiap 10 pesan user:** server fn `updateStyleProfile` baca 30 pesan user terakhir → kirim ke Gemini 3 Flash → parse JSON profile → merge dengan existing (weighted avg).
+
+**Pemakaian:** system prompt Furina ditambah:
+> "Gaya user: panjang rata-rata X kata, formalitas Y, sering pakai kata: [...]. Tirukan ritme & vocab user (tanpa mengubah karakterku). Jangan pakai kata yang TIDAK PERNAH user pakai. Variasikan respons — jangan ulangi struktur balasan sebelumnya."
+
+Anti-repetisi sederhana via instruction (tidak perlu state tambahan, AI patuh dengan recall 5 balasan terakhir yang sudah masuk history).
+
+## 5. Panel Memori (edit/hapus/tambah manual)
+
+**Halaman baru:** `src/routes/_authenticated/memori.tsx` (atau modal di settings).
+
+Fitur:
+- List paginated semua memori user (sort: importance, recency, occurred_at).
+- Filter: kind (fact/summary/style/meta_summary), kategori auto-tag (relasi/preferensi/kejadian/emosi), search teks.
+- Inline edit teks → re-embed otomatis on save.
+- Edit `importance` (slider 1-10) & `occurred_at`.
+- Hapus (soft via `compressed=true` atau hard delete).
+- Tombol "+ Tambah memori manual" → form: content + importance + occurred_at.
+- Restore meta-summary → kembalikan source memories.
+
+## 6. Fix waktu formatting (final touch)
+
+Sudah ada `humanizeDelta` dari turn sebelumnya, tinggal pastikan dipakai konsisten + tambah untuk `occurred_at` di memori ("sekitar 3 hari lalu", "Senin minggu lalu", "tadi pagi").
+
+## 7. Fix security warning: Extension in Public
+
+Migration:
+```sql
+create schema if not exists extensions;
+alter extension vector set schema extensions;
+-- update pg_net juga kalau ada
+grant usage on schema extensions to authenticated, service_role;
+```
+Update `match_memories` & semua referensi `vector` type → pakai `extensions.vector(...)`.
+
+## File yang berubah
+
+- **Baru**: `src/components/VoiceCloneDialog.tsx`, `src/components/StickerPicker.tsx`, `src/components/MemoriPanel.tsx`, `src/routes/_authenticated/memori.tsx`, `public/stickers/default/*` (30 file webp).
+- **Edit**: `src/lib/furina.functions.ts` (cloneVoice, retrieveMemories dgn rerank, dedup, style profile, vision sticker, compress jobs, occurred_at extraction), `src/routes/index.tsx` (sticker picker baru, voice clone dialog wiring, hapus emoji sticker), `src/styles.css` (sticker bubble style).
+- **Migrations**: kolom baru di `memories`, tabel `user_stickers`, bucket `stickers`, move extension `vector` ke schema `extensions`.
 
 ## Urutan eksekusi
-1. Migration DB + bucket policy.
-2. Refactor auth sync (login/logout/migration) — prioritas 1.
-3. Refactor memori (summary, cross-convo recall) — prioritas 2.
-4. Voice clone Fish-Speech.
-5. Sticker pack + UI.
-6. Natural time formatting + persona tweak.
-7. QA: test guest→login→logout flow, dua akun berbeda di device sama (pastikan tidak bocor).
+1. Migration DB (kolom memori + user_stickers + extension schema).
+2. Bucket `stickers` + RLS.
+3. Bundle 30 stiker default (akan aku generate via Lovable Assets / imagegen).
+4. Sticker picker UI + vision integration + AI sticker output parser.
+5. Voice clone dialog + Gradio queue client + library management.
+6. Memori upgrade: rerank, dedup, progressive summary, occurred_at, importance.
+7. Style profile + injection ke prompt.
+8. Panel memori CRUD.
+9. QA: test stiker (kirim+terima), voice clone end-to-end, memori dedup di summary ke-3.
+
+## Pertanyaan saat eksekusi (akan ditanya saat build):
+- Stiker default 30 mau aku generate AI (anime Furina-style) atau cari pack CC dari TwemojiAnime? → akan kutawarkan saat sampai langkah 3.
+- Apakah panel memori jadi route terpisah `/memori` atau modal di tombol settings? Saat ini aku rencanakan **modal/sheet di settings** biar konsisten dengan UI sekarang.

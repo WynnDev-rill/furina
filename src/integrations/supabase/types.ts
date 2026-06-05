@@ -44,29 +44,44 @@ export type Database = {
       memories: {
         Row: {
           character_id: string
+          compressed: boolean
           content: string
           created_at: string
           embedding: string
           id: string
+          importance: number
           kind: string
+          last_accessed_at: string
+          occurred_at: string | null
+          source_memory_ids: string[] | null
           user_id: string
         }
         Insert: {
           character_id?: string
+          compressed?: boolean
           content: string
           created_at?: string
           embedding: string
           id?: string
+          importance?: number
           kind?: string
+          last_accessed_at?: string
+          occurred_at?: string | null
+          source_memory_ids?: string[] | null
           user_id: string
         }
         Update: {
           character_id?: string
+          compressed?: boolean
           content?: string
           created_at?: string
           embedding?: string
           id?: string
+          importance?: number
           kind?: string
+          last_accessed_at?: string
+          occurred_at?: string | null
+          source_memory_ids?: string[] | null
           user_id?: string
         }
         Relationships: []
@@ -139,24 +154,72 @@ export type Database = {
         }
         Relationships: []
       }
+      user_stickers: {
+        Row: {
+          cached_label: string | null
+          created_at: string
+          id: string
+          label: string | null
+          pack_name: string
+          url: string
+          user_id: string
+        }
+        Insert: {
+          cached_label?: string | null
+          created_at?: string
+          id?: string
+          label?: string | null
+          pack_name?: string
+          url: string
+          user_id: string
+        }
+        Update: {
+          cached_label?: string | null
+          created_at?: string
+          id?: string
+          label?: string | null
+          pack_name?: string
+          url?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      match_memories: {
-        Args: {
-          match_character_id: string
-          match_count?: number
-          match_user_id: string
-          query_embedding: string
-        }
-        Returns: {
-          content: string
-          id: string
-          similarity: number
-        }[]
-      }
+      match_memories:
+        | {
+            Args: {
+              match_character_id: string
+              match_count?: number
+              match_user_id: string
+              query_embedding: string
+            }
+            Returns: {
+              content: string
+              id: string
+              similarity: number
+            }[]
+          }
+        | {
+            Args: {
+              include_compressed?: boolean
+              match_character_id: string
+              match_count?: number
+              match_user_id: string
+              query_embedding: string
+            }
+            Returns: {
+              content: string
+              id: string
+              importance: number
+              kind: string
+              occurred_at: string
+              similarity: number
+            }[]
+          }
     }
     Enums: {
       [_ in never]: never
