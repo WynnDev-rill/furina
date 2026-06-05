@@ -628,14 +628,14 @@ function FurinaApp() {
   }
 
   // ===== Send =====
-  async function sendMessage(text: string, retryMsgId?: string, sticker?: { id: string; emoji: string; label: string }) {
+  async function sendMessage(text: string, retryMsgId?: string, sticker?: StickerEntry) {
     const trimmed = text.trim();
     if (!sticker && !trimmed && !pendingImage) return;
     if (sending) return;
 
     const imageDataUrl = pendingImage?.dataUrl;
     const messageContent = sticker
-      ? `[stiker: ${sticker.emoji} ${sticker.label}]`
+      ? `[stiker: ${sticker.label}]`
       : (trimmed || (imageDataUrl ? "(gambar)" : ""));
 
     let userMsgId: string;
