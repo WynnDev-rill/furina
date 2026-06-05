@@ -381,6 +381,34 @@ function FurinaApp() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authReady, authUser]);
 
+  // Load custom stickers for the signed-in user
+  useEffect(() => {
+    if (!authUser) { setCustomStickers([]); return; }
+    let cancelled = false;
+    (async () => {
+      const { data: rows, error } = await supabase
+        .from("user_stickers")
+        .select("id, url, label, cached_label, pack_name")
+        .eq("user_id", authUser.id)
+        .order("created_at", { ascending: false });
+      if (error || !rows || cancelled) return;
+      const signed = await Promise.all(rows.map(async (r) => {
+        const { data: s } = await supabase.storage.from("stickers").createSignedUrl(r.url, 60 * 60 * 24 * 7);
+        return {
+          id: r.id,
+          url: s?.signedUrl ?? "",
+          label: r.label ?? r.cached_label ?? "stiker",
+          isDefault: false,
+          dbId: r.id,
+          storagePath: r.url,
+        } as StickerEntry;
+      }));
+      if (!cancelled) setCustomStickers(signed.filter((s) => s.url));
+    })();
+    return () => { cancelled = true; };
+  }, [authUser]);
+
+
   async function pullFromCloud(uid: string) {
     setSyncing(true);
     try {
