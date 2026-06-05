@@ -215,9 +215,11 @@ function FurinaApp() {
   const listMemFn = useServerFn(listMemories);
   const delMemFn = useServerFn(deleteMemory);
   const addMemFn = useServerFn(addMemory);
+  const updateMemFn = useServerFn(updateMemory);
   const clearMemFn = useServerFn(clearAllMemories);
   const migrateMemFn = useServerFn(migrateGuestMemories);
   const summarizeFn = useServerFn(summarizeConversation);
+  const updateStyleFn = useServerFn(updateStyleProfile);
 
   const [authUser, setAuthUser] = useState<{ id: string; email?: string } | null>(null);
   const [authReady, setAuthReady] = useState(false);
