@@ -245,8 +245,11 @@ function FurinaApp() {
   const [openSettings, setOpenSettings] = useState(false);
   const [openConvos, setOpenConvos] = useState(false);
   const [openStickers, setOpenStickers] = useState(false);
-  const [memories, setMemories] = useState<{ id: string; content: string; kind?: string }[]>([]);
+  const [memories, setMemories] = useState<{ id: string; content: string; kind?: string; importance?: number; occurred_at?: string | null }[]>([]);
   const [newMem, setNewMem] = useState("");
+  const [editingMemId, setEditingMemId] = useState<string | null>(null);
+  const [editingMemContent, setEditingMemContent] = useState("");
+  const [editingMemImportance, setEditingMemImportance] = useState(5);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
