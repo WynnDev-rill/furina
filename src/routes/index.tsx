@@ -628,14 +628,14 @@ function FurinaApp() {
   }
 
   // ===== Send =====
-  async function sendMessage(text: string, retryMsgId?: string, sticker?: { id: string; emoji: string; label: string }) {
+  async function sendMessage(text: string, retryMsgId?: string, sticker?: StickerEntry) {
     const trimmed = text.trim();
     if (!sticker && !trimmed && !pendingImage) return;
     if (sending) return;
 
     const imageDataUrl = pendingImage?.dataUrl;
     const messageContent = sticker
-      ? `[stiker: ${sticker.emoji} ${sticker.label}]`
+      ? `[stiker: ${sticker.label}]`
       : (trimmed || (imageDataUrl ? "(gambar)" : ""));
 
     let userMsgId: string;
@@ -725,9 +725,56 @@ function FurinaApp() {
 
   function retrySend(m: Msg) { sendMessage(m.failedPayload ?? m.content, m.id); }
 
-  function sendSticker(s: { id: string; emoji: string; label: string }) {
+  function sendSticker(s: StickerEntry) {
     setOpenStickers(false);
     sendMessage("", undefined, s);
+  }
+
+  // ===== Custom sticker upload / delete =====
+  async function handleStickerUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !authUser) return;
+    if (file.size > 2 * 1024 * 1024) { toast.error("Stiker maks 2MB"); return; }
+    setUploadingSticker(true);
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "png";
+      const path = `${authUser.id}/${crypto.randomUUID()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from("stickers").upload(path, file, { upsert: false, contentType: file.type });
+      if (upErr) throw upErr;
+      const { data: signed } = await supabase.storage.from("stickers").createSignedUrl(path, 60 * 60 * 24 * 365);
+      const url = signed?.signedUrl ?? "";
+      const label = file.name.replace(/\.[^.]+$/, "").slice(0, 40) || "stiker";
+      const { data: row, error: insErr } = await supabase
+        .from("user_stickers")
+        .insert({ user_id: authUser.id, url: path, pack_name: "custom", label })
+        .select("id")
+        .single();
+      if (insErr) throw insErr;
+      setCustomStickers((prev) => [
+        ...prev,
+        { id: row!.id, url, label, isDefault: false, dbId: row!.id, storagePath: path },
+      ]);
+      toast.success("Stiker ditambahkan");
+    } catch (err) {
+      console.error(err);
+      toast.error("Gagal upload stiker");
+    } finally {
+      setUploadingSticker(false);
+    }
+  }
+
+  async function deleteCustomSticker(s: StickerEntry) {
+    if (s.isDefault || !s.dbId) return;
+    if (!confirm(`Hapus stiker "${s.label}"?`)) return;
+    try {
+      if (s.storagePath) await supabase.storage.from("stickers").remove([s.storagePath]);
+      await supabase.from("user_stickers").delete().eq("id", s.dbId);
+      setCustomStickers((prev) => prev.filter((x) => x.id !== s.id));
+    } catch (err) {
+      console.error(err);
+      toast.error("Gagal hapus stiker");
+    }
   }
 
   // ===== TTS controls =====
