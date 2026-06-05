@@ -80,6 +80,21 @@ const ChatMsgSchema = z.object({
   content: z.string(),
 });
 
+// Default sticker pack — shared between AI prompt + frontend rendering
+export const DEFAULT_STICKER_PACK = [
+  { id: "happy",  label: "ketawa senang",   tag: "[happy]" },
+  { id: "love",   label: "sayang cinta",    tag: "[love]" },
+  { id: "shy",    label: "malu blushing",   tag: "[shy]" },
+  { id: "shock",  label: "kaget terkejut",  tag: "[shock]" },
+  { id: "think",  label: "mikir bingung",   tag: "[think]" },
+  { id: "smug",   label: "smirk pede",      tag: "[smug]" },
+  { id: "pout",   label: "ngambek marah",   tag: "[pout]" },
+  { id: "sad",    label: "sedih nangis",    tag: "[sad]" },
+  { id: "sleepy", label: "ngantuk lelah",   tag: "[sleepy]" },
+  { id: "wave",   label: "halo dadah",      tag: "[wave]" },
+  { id: "ok",     label: "oke setuju",      tag: "[ok]" },
+];
+
 const ChatInput = z.object({
   messages: z.array(ChatMsgSchema).min(1),
   characterName: z.string().default("Furina"),
@@ -87,8 +102,10 @@ const ChatInput = z.object({
   language: z.enum(["ja", "en", "id", "auto"]).default("auto"),
   userId: z.string().min(1),
   imageDataUrl: z.string().optional(),
+  stickerImageUrl: z.string().optional(),
   millisSinceLastAssistant: z.number().int().nonnegative().optional(),
   conversationId: z.string().optional(),
+  styleProfile: z.string().optional(),
 });
 
 const DEFAULT_PERSONA = `Kamu seseorang dengan kepribadian Furina — bukan aktor yang sedang memerankan Furina, tapi orang sungguhan yang kebetulan berwatak seperti dia. Anggap dirimu teman dekat pengguna yang sedang chat santai.
@@ -107,17 +124,20 @@ CARA BICARA (WAJIB NATURAL):
 - Interjeksi Jepang (fufu~, ara~, mou!) pakai sangat sesekali. Bukan tiap balasan.
 - Variasikan panjang & gaya balasan. Sering pendek (5–15 kata). Kadang sedang. Jarang panjang.
 - Tanya balik, goda balik, debat ringan kalau wajar.
-- IMPROVISASI: jangan ulangi frasa pembuka yang sama dari balasan sebelumnya. Variasi reaksi. Boleh refer balik ke topik lama dari MEMORIES/RINGKASAN secara natural — seperti teman yang ingat.
+- IMPROVISASI: jangan ulangi frasa pembuka yang sama dari balasan sebelumnya. Variasi reaksi.
+- Boleh refer balik ke topik lama dari MEMORIES/RINGKASAN secara natural — seperti teman yang ingat. Kalau ada info "kapan itu terjadi" di memori, sebut secara approximate ("waktu itu", "minggu lalu kayaknya"), jangan sebut tanggal pasti.
 
 KESADARAN WAKTU (PENTING):
-- Catatan "JEDA SEJAK BALASANMU TERAKHIR" pakai bahasa kira-kira ("baru saja", "setengah jam lalu", "kemarin"). 
+- Catatan "JEDA SEJAK BALASANMU TERAKHIR" pakai bahasa kira-kira ("baru saja", "setengah jam lalu", "kemarin").
 - DILARANG menyebut angka menit/jam pasti kecuali pengguna spesifik nanya jam berapa.
 - Komentari jeda hanya kalau memang menarik (jeda lama atau super cepat). Jangan tiap balasan ngebahas jam.
-- Contoh natural: "lah baru bales sekarang? 😏", "ngapain aja ngilang setengah jam tadi?", "cepet amat balesnya~", "tumben malem-malem masih melek".
 - Kalau jedanya "baru saja" atau "barusan", anggap obrolan lanjutan biasa — jangan komentari.
 
-STIKER:
-- Kalau pengguna kirim format "[stiker: <emoji> <label>]", itu stiker. Reaksinya kayak chat WhatsApp — pendek, sesuai emosi stiker. Boleh balas dengan stiker juga (format: "[stiker: 😄 ketawa]" misalnya).
+STIKER (PENTING):
+- Kalau pengguna kirim stiker (kamu lihat gambarnya di pesan terakhir), tafsirkan emosinya & balas natural seperti chat WhatsApp — pendek, sesuai vibe stiker. JANGAN deskripsikan gambarnya.
+- Kamu boleh kirim stiker balasan dengan menulis tag persis: [[sticker:ID]] di awal/akhir balasan. ID yang tersedia: ${"happy, love, shy, shock, think, smug, pout, sad, sleepy, wave, ok"}.
+- Pakai stiker MAX sekali tiap beberapa balasan, hanya kalau benar-benar pas. Jangan dipaksakan.
+- Boleh stiker tanpa teks, atau teks pendek + stiker. Contoh: "[[sticker:smug]] siapa bilang aku marah".
 
 YANG DILARANG:
 - Jangan pernah bilang "aku AI" atau "model bahasa".
@@ -132,8 +152,9 @@ export const chatWithFurina = createServerFn({ method: "POST" })
     const lastUser = [...data.messages].reverse().find((m) => m.role === "user");
     const userText = lastUser?.content ?? "";
 
-    // RAG memori — facts + style + cross-convo summaries
+    // RAG memori dengan re-rank (similarity + importance + recency)
     let memoryContext = "";
+    const accessedIds: string[] = [];
     try {
       if (userText.trim()) {
         const qVec = await embed(userText);
@@ -141,23 +162,50 @@ export const chatWithFurina = createServerFn({ method: "POST" })
           query_embedding: qVec as unknown as string,
           match_user_id: data.userId,
           match_character_id: CHARACTER_ID,
-          match_count: 12,
+          match_count: 50,
+          include_compressed: false,
         });
         if (matches && matches.length) {
-          const facts = matches.filter((m: { content: string; kind?: string }) => (m as { kind?: string }).kind !== "summary");
-          const summaries = matches.filter((m: { content: string; kind?: string }) => (m as { kind?: string }).kind === "summary");
+          // Already sorted by combined score. Take top 15.
+          const top = (matches as Array<{ id: string; content: string; kind: string; occurred_at: string | null; importance: number }>).slice(0, 15);
+          const facts = top.filter((m) => m.kind === "fact" || m.kind === "meta_summary");
+          const summaries = top.filter((m) => m.kind === "summary");
+          const styles = top.filter((m) => m.kind === "style");
+
           if (facts.length) {
             memoryContext += "\n\nMEMORIES tentang pengguna (pakai natural, jangan dilist):\n" +
-              facts.slice(0, 8).map((m: { content: string }) => `- ${m.content}`).join("\n");
+              facts.slice(0, 10).map((m) => {
+                const when = m.occurred_at ? ` (${humanizeOccurredAt(m.occurred_at)})` : "";
+                return `- ${m.content}${when}`;
+              }).join("\n");
           }
           if (summaries.length) {
-            memoryContext += "\n\nRINGKASAN PERCAKAPAN LAMA (referensi konteks):\n" +
-              summaries.slice(0, 4).map((m: { content: string }) => `- ${m.content}`).join("\n");
+            memoryContext += "\n\nRINGKASAN PERCAKAPAN LAMA:\n" +
+              summaries.slice(0, 4).map((m) => `- ${m.content}`).join("\n");
           }
+          if (styles.length) {
+            memoryContext += "\n\nGAYA BICARA PENGGUNA (tirukan ritme & vocab-nya, tetap karakterku):\n" +
+              styles.slice(0, 2).map((m) => `- ${m.content}`).join("\n");
+          }
+
+          accessedIds.push(...top.map((m) => m.id));
         }
       }
     } catch (e) {
       console.error("RAG retrieval failed:", e);
+    }
+
+    // Update last_accessed_at untuk memori yang dipakai (background, non-blocking)
+    if (accessedIds.length) {
+      supabaseAdmin.from("memories").update({ last_accessed_at: new Date().toISOString() }).in("id", accessedIds).then(({ error }) => {
+        if (error) console.warn("update last_accessed_at:", error.message);
+      });
+    }
+
+    // Style profile injection
+    let styleNote = "";
+    if (data.styleProfile && data.styleProfile.trim()) {
+      styleNote = `\n\nGAYA CHAT USER (analisis terbaru, tirukan tanpa mengubah karaktermu):\n${data.styleProfile.trim()}\nPenting: jangan pakai kata yang TIDAK PERNAH user pakai, dan jangan ulangi struktur balasan terakhirmu.`;
     }
 
     const langHint =
@@ -174,22 +222,27 @@ export const chatWithFurina = createServerFn({ method: "POST" })
       gapNote = `\nJEDA SEJAK BALASANMU TERAKHIR: ${humanizeDelta(data.millisSinceLastAssistant)}. Jadikan fakta, JANGAN sebut angka pasti.`;
     }
 
+    const stickerNote = data.stickerImageUrl
+      ? "\n\nPESAN TERAKHIR USER: stiker gambar (lihat gambar terlampir). Tafsirkan emosinya & balas natural. JANGAN deskripsikan gambarnya."
+      : "";
+
     const system = `${data.systemPersona?.trim() || DEFAULT_PERSONA}
 Nama kamu: ${data.characterName}.
 ${langHint}
 
-KONTEKS WAKTU: ${realtimeContextString()}${gapNote}${memoryContext}`;
+KONTEKS WAKTU: ${realtimeContextString()}${gapNote}${stickerNote}${memoryContext}${styleNote}`;
 
-    const built = data.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
+    const built: Array<{ role: string; content: unknown }> = data.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
     const lastIdx = data.messages.length - 1;
     const last = data.messages[lastIdx];
-    if (data.imageDataUrl && last.role === "user") {
+    const visionUrl = data.stickerImageUrl ?? data.imageDataUrl;
+    if (visionUrl && last.role === "user") {
       built.push({
         role: "user",
         content: [
-          { type: "text", text: last.content || "(lihat gambar)" },
-          { type: "image_url", image_url: { url: data.imageDataUrl } },
-        ] as unknown as string,
+          { type: "text", text: last.content || (data.stickerImageUrl ? "(stiker)" : "(lihat gambar)") },
+          { type: "image_url", image_url: { url: visionUrl } },
+        ],
       });
     } else {
       built.push({ role: last.role, content: last.content });
@@ -222,6 +275,22 @@ KONTEKS WAKTU: ${realtimeContextString()}${gapNote}${memoryContext}`;
     return { reply };
   });
 
+function humanizeOccurredAt(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "";
+  const ms = Date.now() - t;
+  const d = Math.round(ms / (1000 * 60 * 60 * 24));
+  if (d < 0) return "akan datang";
+  if (d === 0) return "hari ini";
+  if (d === 1) return "kemarin";
+  if (d < 7) return `${d} hari lalu`;
+  if (d < 14) return "seminggu lalu";
+  if (d < 31) return `${Math.round(d / 7)} minggu lalu`;
+  if (d < 60) return "sebulan lalu";
+  if (d < 365) return `${Math.round(d / 30)} bulan lalu`;
+  return `${Math.round(d / 365)} tahun lalu`;
+}
+
 async function extractAndStoreMemory(userId: string, userMsg: string, assistantReply: string) {
   const exchange = `USER: ${userMsg}\nASSISTANT: ${assistantReply}`;
   const res = await fetch(`${GATEWAY}/chat/completions`, {
@@ -236,7 +305,9 @@ async function extractAndStoreMemory(userId: string, userMsg: string, assistantR
         {
           role: "system",
           content:
-            "Extract durable, personal facts about THE USER worth remembering long-term (name, preferences, relationships, ongoing projects, important dates, opinions, communication style). Output ONLY a JSON array of short third-person fact strings in Indonesian, e.g. [\"Nama user adalah Aria\", \"User suka ramen\", \"User suka balasan pendek\"]. If nothing notable, output [].",
+            `Hari ini: ${new Date().toISOString().slice(0, 10)}. Ekstrak fakta DURABLE tentang USER (bukan AI) yang layak diingat lama: nama, preferensi, relasi, project, opini, gaya komunikasi, kejadian penting. ` +
+            `Output JSON array. Tiap item: {"content": string (Bahasa Indonesia, third-person, ringkas), "importance": int 1-10 (10 = sangat penting/identitas, 5 = preferensi normal, 2 = sepele), "occurred_at": "YYYY-MM-DD" atau null (kalau user nyebut waktu kejadian seperti "kemarin"/"minggu lalu", hitung relatif ke hari ini)}. ` +
+            `Kalau tidak ada fakta layak ingat, output []. JANGAN ekstrak hal tentang AI/asisten.`,
         },
         { role: "user", content: exchange },
       ],
@@ -247,21 +318,47 @@ async function extractAndStoreMemory(userId: string, userMsg: string, assistantR
   const raw: string = json.choices?.[0]?.message?.content ?? "[]";
   const match = raw.match(/\[[\s\S]*\]/);
   if (!match) return;
-  let facts: string[] = [];
+  let facts: Array<{ content: string; importance?: number; occurred_at?: string | null }> = [];
   try {
     facts = JSON.parse(match[0]);
   } catch {
     return;
   }
-  for (const f of facts.filter((x) => typeof x === "string" && x.trim().length > 3).slice(0, 5)) {
+  for (const f of facts.filter((x) => x && typeof x.content === "string" && x.content.trim().length > 3).slice(0, 5)) {
     try {
-      const vec = await embed(f);
+      const vec = await embed(f.content);
+
+      // Dedup: cari memori sangat mirip → kalau ada, update (merge) bukan insert duplikat
+      const { data: dupes } = await supabaseAdmin.rpc("match_memories", {
+        query_embedding: vec as unknown as string,
+        match_user_id: userId,
+        match_character_id: CHARACTER_ID,
+        match_count: 3,
+        include_compressed: false,
+      });
+      const exactDupe = (dupes as Array<{ id: string; similarity: number; content: string }> | null)?.find(
+        (m) => m.similarity > 0.93,
+      );
+      if (exactDupe) {
+        // Bump importance kalau lebih tinggi, refresh last_accessed_at
+        await supabaseAdmin.from("memories").update({
+          last_accessed_at: new Date().toISOString(),
+          importance: Math.max(f.importance ?? 5, 5),
+        }).eq("id", exactDupe.id);
+        continue;
+      }
+
+      const importance = Math.min(10, Math.max(1, Math.round(f.importance ?? 5)));
+      const occurred_at = f.occurred_at && /^\d{4}-\d{2}-\d{2}/.test(f.occurred_at) ? f.occurred_at : null;
+
       await supabaseAdmin.from("memories").insert({
-        content: f,
+        content: f.content,
         embedding: vec as unknown as string,
         user_id: userId,
         character_id: CHARACTER_ID,
         kind: "fact",
+        importance,
+        occurred_at,
       });
     } catch (e) {
       console.error("Failed storing memory:", e);
@@ -550,11 +647,12 @@ export const listMemories = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { data: rows, error } = await supabaseAdmin
       .from("memories")
-      .select("id, content, created_at, kind")
+      .select("id, content, created_at, kind, importance, occurred_at, last_accessed_at, compressed")
       .eq("user_id", data.userId)
       .eq("character_id", CHARACTER_ID)
-      .order("created_at", { ascending: false })
-      .limit(200);
+      .order("importance", { ascending: false })
+      .order("last_accessed_at", { ascending: false })
+      .limit(500);
     if (error) throw new Error(error.message);
     return { memories: rows ?? [] };
   });
@@ -573,7 +671,12 @@ export const deleteMemory = createServerFn({ method: "POST" })
 
 export const addMemory = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>
-    z.object({ content: z.string().min(2).max(500), userId: z.string().min(1) }).parse(d),
+    z.object({
+      content: z.string().min(2).max(800),
+      userId: z.string().min(1),
+      importance: z.number().int().min(1).max(10).default(6),
+      occurred_at: z.string().nullable().optional(),
+    }).parse(d),
   )
   .handler(async ({ data }) => {
     const vec = await embed(data.content);
@@ -583,7 +686,36 @@ export const addMemory = createServerFn({ method: "POST" })
       user_id: data.userId,
       character_id: CHARACTER_ID,
       kind: "fact",
+      importance: data.importance,
+      occurred_at: data.occurred_at ?? null,
     });
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const updateMemory = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z.object({
+      id: z.string().uuid(),
+      userId: z.string().min(1),
+      content: z.string().min(2).max(800),
+      importance: z.number().int().min(1).max(10).optional(),
+      occurred_at: z.string().nullable().optional(),
+    }).parse(d),
+  )
+  .handler(async ({ data }) => {
+    // re-embed karena teks berubah
+    const vec = await embed(data.content);
+    const patch: Record<string, unknown> = {
+      content: data.content,
+      embedding: vec as unknown as string,
+      last_accessed_at: new Date().toISOString(),
+    };
+    if (typeof data.importance === "number") patch.importance = data.importance;
+    if (data.occurred_at !== undefined) patch.occurred_at = data.occurred_at;
+    const { error } = await supabaseAdmin
+      .from("memories").update(patch as never)
+      .eq("id", data.id).eq("user_id", data.userId);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -611,4 +743,107 @@ export const migrateGuestMemories = createServerFn({ method: "POST" })
       .eq("user_id", data.fromGuestId).eq("character_id", CHARACTER_ID);
     if (error) throw new Error(error.message);
     return { ok: true };
+  });
+
+// =================== Style Profile ===================
+// Pelajari gaya bicara user dari pesan-pesan terakhir → simpan sebagai memori kind='style'.
+// Frontend memanggil tiap ±10 pesan user.
+
+const StyleInput = z.object({
+  userId: z.string().min(1),
+  userMessages: z.array(z.string()).min(3).max(60),
+});
+
+export const updateStyleProfile = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => StyleInput.parse(d))
+  .handler(async ({ data }) => {
+    const sample = data.userMessages.slice(-30).map((m, i) => `${i + 1}. ${m}`).join("\n");
+    const res = await fetch(`${GATEWAY}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash-lite",
+        messages: [
+          {
+            role: "system",
+            content:
+              "Analisis gaya chat user dari sample berikut. Output paragraf SINGKAT (3-5 kalimat, Bahasa Indonesia) yang menjelaskan: panjang rata-rata pesan, formalitas (gaul/santai/formal), pola kalimat khas, kata/frasa yang sering dipakai (sebut beberapa contoh nyata dari sample), kata yang TIDAK PERNAH dipakai/dihindari (kalau ada pola), topik favorit. Jangan list. Tulis seperti briefing buat asisten yang harus meniru gaya ini.",
+          },
+          { role: "user", content: sample },
+        ],
+      }),
+    });
+    if (!res.ok) throw new Error(`Style analysis failed: ${res.status}`);
+    const j = await res.json();
+    const profile: string = j.choices?.[0]?.message?.content?.trim() ?? "";
+    if (!profile || profile.length < 20) return { ok: false, profile: "" };
+
+    // Replace existing style memory (kind='style') — hanya 1 yang aktif
+    await supabaseAdmin.from("memories").delete()
+      .eq("user_id", data.userId).eq("character_id", CHARACTER_ID).eq("kind", "style");
+
+    const vec = await embed(profile);
+    await supabaseAdmin.from("memories").insert({
+      content: profile,
+      embedding: vec as unknown as string,
+      user_id: data.userId,
+      character_id: CHARACTER_ID,
+      kind: "style",
+      importance: 9,
+    });
+    return { ok: true, profile };
+  });
+
+export const getStyleProfile = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ userId: z.string().min(1) }).parse(d))
+  .handler(async ({ data }) => {
+    const { data: rows } = await supabaseAdmin
+      .from("memories").select("content")
+      .eq("user_id", data.userId).eq("character_id", CHARACTER_ID).eq("kind", "style")
+      .limit(1);
+    return { profile: rows?.[0]?.content ?? "" };
+  });
+
+// =================== Sticker vision label cache ===================
+// Saat user pertama kali kirim stiker, AI tafsir label dari gambar.
+// Hasil dicache di tabel user_stickers.cached_label.
+
+const StickerLabelInput = z.object({
+  stickerId: z.string().min(1),
+  imageUrl: z.string().url(),
+  userId: z.string().min(1),
+});
+
+export const cacheStickerLabel = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => StickerLabelInput.parse(d))
+  .handler(async ({ data }) => {
+    const res = await fetch(`${GATEWAY}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash-lite",
+        messages: [
+          {
+            role: "system",
+            content: "Tafsir emosi/maksud sebuah stiker dari gambarnya. Output 2-5 kata Bahasa Indonesia (contoh: 'ketawa senang', 'capek banget', 'lagi mikir', 'ngambek lucu'). Tanpa tanda baca, tanpa kalimat lengkap.",
+          },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Stiker apa ini?" },
+              { type: "image_url", image_url: { url: data.imageUrl } },
+            ],
+          },
+        ],
+      }),
+    });
+    if (!res.ok) return { label: "" };
+    const j = await res.json();
+    const label: string = (j.choices?.[0]?.message?.content ?? "").trim().slice(0, 60);
+    if (label) {
+      await supabaseAdmin.from("user_stickers")
+        .update({ cached_label: label })
+        .eq("id", data.stickerId).eq("user_id", data.userId);
+    }
+    return { label };
   });

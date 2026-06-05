@@ -127,48 +127,32 @@ const VV_SPEAKERS = [
   { id: 52, label: "雀松朱司 — ノーマル" },
 ];
 
-// ===== Stickers (emoji-based, 100% free, no API) =====
-const STICKERS: { id: string; emoji: string; label: string }[] = [
-  { id: "happy", emoji: "😄", label: "ketawa" },
-  { id: "smile", emoji: "🙂", label: "senyum" },
-  { id: "love", emoji: "🥰", label: "sayang" },
-  { id: "kiss", emoji: "😘", label: "muach" },
-  { id: "wink", emoji: "😉", label: "kedip" },
-  { id: "blush", emoji: "☺️", label: "malu" },
-  { id: "cry", emoji: "😢", label: "sedih" },
-  { id: "sob", emoji: "😭", label: "nangis" },
-  { id: "pout", emoji: "😤", label: "kesel" },
-  { id: "angry", emoji: "😡", label: "marah" },
-  { id: "tired", emoji: "😩", label: "capek" },
-  { id: "sleepy", emoji: "😴", label: "ngantuk" },
-  { id: "shock", emoji: "😱", label: "kaget" },
-  { id: "think", emoji: "🤔", label: "mikir" },
-  { id: "smirk", emoji: "😏", label: "smirk" },
-  { id: "tongue", emoji: "😛", label: "iseng" },
-  { id: "laugh", emoji: "🤣", label: "ngakak" },
-  { id: "cool", emoji: "😎", label: "keren" },
-  { id: "sick", emoji: "🤒", label: "sakit" },
-  { id: "scared", emoji: "😨", label: "takut" },
-  { id: "heart", emoji: "❤️", label: "cinta" },
-  { id: "broken", emoji: "💔", label: "patah hati" },
-  { id: "sparkle", emoji: "✨", label: "sparkle" },
-  { id: "fire", emoji: "🔥", label: "fire" },
-  { id: "ok", emoji: "👍", label: "oke" },
-  { id: "no", emoji: "👎", label: "nope" },
-  { id: "clap", emoji: "👏", label: "tepuk tangan" },
-  { id: "wave", emoji: "👋", label: "halo" },
-  { id: "pray", emoji: "🙏", label: "tolong" },
-  { id: "muscle", emoji: "💪", label: "semangat" },
-  { id: "cake", emoji: "🎂", label: "ulang tahun" },
-  { id: "party", emoji: "🎉", label: "selamat" },
-  { id: "food", emoji: "🍜", label: "lapar" },
-  { id: "coffee", emoji: "☕", label: "kopi" },
-  { id: "rain", emoji: "🌧️", label: "hujan" },
-  { id: "moon", emoji: "🌙", label: "malam" },
+// ===== Default sticker pack (served from public/stickers/default/) =====
+type StickerEntry = {
+  id: string;       // stable id (matches AI tag for defaults; uuid for custom)
+  url: string;      // public URL or signed URL
+  label: string;
+  isDefault: boolean;
+  dbId?: string;    // user_stickers.id for custom ones
+  storagePath?: string;
+};
+
+const DEFAULT_STICKERS: StickerEntry[] = [
+  { id: "happy",  url: "/stickers/default/stk_happy.png",  label: "ketawa senang",  isDefault: true },
+  { id: "love",   url: "/stickers/default/stk_love.png",   label: "sayang cinta",   isDefault: true },
+  { id: "shy",    url: "/stickers/default/stk_shy.png",    label: "malu blushing",  isDefault: true },
+  { id: "shock",  url: "/stickers/default/stk_shock.png",  label: "kaget terkejut", isDefault: true },
+  { id: "think",  url: "/stickers/default/stk_think.png",  label: "mikir bingung",  isDefault: true },
+  { id: "smug",   url: "/stickers/default/stk_smug.png",   label: "smirk pede",     isDefault: true },
+  { id: "pout",   url: "/stickers/default/stk_pout.png",   label: "ngambek marah",  isDefault: true },
+  { id: "sad",    url: "/stickers/default/stk_sad.png",    label: "sedih nangis",   isDefault: true },
+  { id: "sleepy", url: "/stickers/default/stk_sleepy.png", label: "ngantuk lelah",  isDefault: true },
+  { id: "wave",   url: "/stickers/default/stk_wave.png",   label: "halo dadah",     isDefault: true },
+  { id: "ok",     url: "/stickers/default/stk_ok.png",     label: "oke setuju",     isDefault: true },
 ];
 
-function findSticker(id: string) {
-  return STICKERS.find((s) => s.id === id);
+function findSticker(id: string, custom: StickerEntry[] = []): StickerEntry | null {
+  return DEFAULT_STICKERS.find((s) => s.id === id) ?? custom.find((s) => s.id === id) ?? null;
 }
 
 // Natural relative time (display side — matches server humanizeDelta vibe)
@@ -266,15 +250,19 @@ function FurinaApp() {
   const [editingTitleVal, setEditingTitleVal] = useState("");
   const [cloneSampleName, setCloneSampleName] = useState<string>("");
   const [hasCloneSample, setHasCloneSample] = useState(false);
+  const [customStickers, setCustomStickers] = useState<StickerEntry[]>([]);
+  const [uploadingSticker, setUploadingSticker] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const stickerFileRef = useRef<HTMLInputElement | null>(null);
   const lastSyncedAuthIdRef = useRef<string | null>(null);
   const initialLoadDoneRef = useRef(false);
   const settingsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const conversationsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const userMsgCountRef = useRef(0);
 
   const activeConvo = conversations.find((c) => c.id === activeId);
   const messages = useMemo(() => activeConvo?.messages ?? [], [activeConvo]);
@@ -708,12 +696,13 @@ function FurinaApp() {
 
       updateMessageById(userMsgId, { status: "read" });
 
-      // Parse sticker tag from AI reply
-      const stickerMatch = reply.match(/\[stiker:\s*([^\s\]]+)\s*([^\]]+)\]/);
-      const aiSticker = stickerMatch ? STICKERS.find((s) => s.label.toLowerCase() === stickerMatch[2].trim().toLowerCase()) : null;
+      // Parse sticker tag from AI reply: [[sticker:id]]
+      const stickerMatch = reply.match(/\[\[sticker:\s*([a-z0-9_-]+)\s*\]\]/i);
+      const aiSticker = stickerMatch ? DEFAULT_STICKERS.find((s) => s.id === stickerMatch[1].toLowerCase()) : null;
+      const cleanedReply = reply.replace(/\[\[sticker:[^\]]*\]\]/gi, "").trim();
 
       const aiMsg: Msg = {
-        id: crypto.randomUUID(), role: "assistant", content: reply, at: Date.now(),
+        id: crypto.randomUUID(), role: "assistant", content: cleanedReply || (aiSticker ? "" : reply), at: Date.now(),
         stickerId: aiSticker?.id,
       };
       updateActiveMessages((prev) => [...prev, aiMsg]);
@@ -1197,19 +1186,23 @@ function FurinaApp() {
           const isUser = m.role === "user";
           const isPlaying = playingId === m.id;
           const isLoading = loadingId === m.id;
-          const sticker = m.stickerId ? findSticker(m.stickerId) : null;
+          const sticker = m.stickerId ? findSticker(m.stickerId, customStickers) : null;
           return (
             <div key={m.id} className={`flex max-w-[85%] flex-col animate-fade-in ${isUser ? "self-end items-end" : "self-start items-start"}`}>
               {sticker ? (
-                <div className="select-none text-6xl leading-none drop-shadow-lg" title={sticker.label}>
-                  {sticker.emoji}
-                </div>
+                <img
+                  src={sticker.url}
+                  alt={sticker.label}
+                  title={sticker.label}
+                  className="h-32 w-32 select-none object-contain drop-shadow-lg"
+                  loading="lazy"
+                />
               ) : (
                 <div className={`${isUser ? "bubble-user" : "bubble-ai"} rounded-2xl px-4 py-2.5 text-sm shadow-lg`}>
                   {m.imageDataUrl && (
-                    <img src={m.imageDataUrl} alt="lampiran" className="mb-2 max-h-64 w-full rounded-lg object-cover" />
+                    <img src={m.imageDataUrl} alt="lampiran" className="mb-2 max-h-64 w-full rounded-lg object-cover" loading="lazy" />
                   )}
-                  {m.content && <div className="whitespace-pre-wrap break-words">{m.content.replace(/\[stiker:[^\]]*\]/g, "").trim() || (m.imageDataUrl ? "" : m.content)}</div>}
+                  {m.content && <div className="whitespace-pre-wrap break-words">{m.content}</div>}
                 </div>
               )}
 
@@ -1304,17 +1297,40 @@ function FurinaApp() {
                   <Smile className="h-4 w-4" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent side="top" className="w-72 p-2">
-                <p className="mb-2 px-1 text-xs text-muted-foreground">Stiker</p>
-                <div className="grid grid-cols-6 gap-1 max-h-64 overflow-y-auto">
-                  {STICKERS.map((s) => (
-                    <button key={s.id} onClick={() => sendSticker(s)}
-                      title={s.label}
-                      className="flex aspect-square items-center justify-center rounded-md text-3xl transition hover:bg-muted">
-                      {s.emoji}
+              <PopoverContent side="top" className="w-80 p-2">
+                <div className="mb-2 flex items-center justify-between px-1">
+                  <p className="text-xs font-medium">Stiker</p>
+                  <button
+                    onClick={() => stickerFileRef.current?.click()}
+                    className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20"
+                    disabled={!authUser || uploadingSticker}
+                    title={authUser ? "Upload stiker custom" : "Login dulu untuk upload"}
+                  >
+                    {uploadingSticker ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                    Tambah
+                  </button>
+                </div>
+                <input ref={stickerFileRef} type="file" accept="image/png,image/webp,image/jpeg" className="hidden" onChange={handleStickerUpload} />
+                <div className="grid max-h-64 grid-cols-4 gap-1.5 overflow-y-auto">
+                  {[...DEFAULT_STICKERS, ...customStickers].map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => sendSticker(s)}
+                      onContextMenu={(e) => {
+                        if (s.isDefault) return;
+                        e.preventDefault();
+                        deleteCustomSticker(s);
+                      }}
+                      title={s.label + (s.isDefault ? "" : " (klik kanan untuk hapus)")}
+                      className="aspect-square overflow-hidden rounded-md p-1 transition hover:bg-muted"
+                    >
+                      <img src={s.url} alt={s.label} className="h-full w-full object-contain" loading="lazy" />
                     </button>
                   ))}
                 </div>
+                {!authUser && (
+                  <p className="mt-2 px-1 text-[10px] text-muted-foreground">Login untuk upload stiker custom.</p>
+                )}
               </PopoverContent>
             </Popover>
 
