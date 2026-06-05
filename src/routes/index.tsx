@@ -1240,18 +1240,80 @@ function FurinaApp() {
                       } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
                     }}><Plus className="h-4 w-4" /></Button>
                   </div>
-                  <div className="max-h-64 space-y-1 overflow-y-auto rounded-md border p-2 text-sm">
+                  <div className="max-h-72 space-y-1 overflow-y-auto rounded-md border p-2 text-sm">
                     {memories.length === 0 && <p className="text-muted-foreground">Belum ada memori.</p>}
-                    {memories.map((m) => (
-                      <div key={m.id} className="flex items-start gap-2 rounded p-1 hover:bg-muted">
-                        {m.kind === "summary" && <span className="mt-0.5 rounded bg-primary/20 px-1 text-[9px] font-semibold uppercase">ringkasan</span>}
-                        <span className="flex-1">{m.content}</span>
-                        <button onClick={async () => { await delMemFn({ data: { id: m.id, userId } }); refreshMemories(); }} className="text-muted-foreground hover:text-destructive">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ))}
+                    {memories.map((m) => {
+                      const isEditing = editingMemId === m.id;
+                      return (
+                        <div key={m.id} className="rounded p-1.5 hover:bg-muted/60">
+                          {isEditing ? (
+                            <div className="space-y-2">
+                              <Textarea
+                                value={editingMemContent}
+                                onChange={(e) => setEditingMemContent(e.target.value)}
+                                rows={3}
+                                className="text-sm"
+                              />
+                              <div className="flex items-center gap-2">
+                                <Label className="text-[10px] text-muted-foreground">Penting</Label>
+                                <Slider
+                                  value={[editingMemImportance]}
+                                  min={1} max={10} step={1}
+                                  onValueChange={(v) => setEditingMemImportance(v[0] ?? 5)}
+                                  className="flex-1"
+                                />
+                                <span className="w-6 text-right text-[11px] font-medium">{editingMemImportance}</span>
+                              </div>
+                              <div className="flex justify-end gap-2">
+                                <Button size="sm" variant="ghost" onClick={() => setEditingMemId(null)}>Batal</Button>
+                                <Button size="sm" onClick={async () => {
+                                  if (editingMemContent.trim().length < 3) return;
+                                  try {
+                                    await updateMemFn({ data: {
+                                      id: m.id, userId,
+                                      content: editingMemContent.trim(),
+                                      importance: editingMemImportance,
+                                    }});
+                                    setEditingMemId(null);
+                                    refreshMemories();
+                                    toast.success("Memori diperbarui");
+                                  } catch (e) { toast.error(e instanceof Error ? e.message : "Gagal simpan"); }
+                                }}>Simpan</Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-start gap-2">
+                              {m.kind === "summary" && <span className="mt-0.5 rounded bg-primary/20 px-1 text-[9px] font-semibold uppercase">ringkasan</span>}
+                              {m.kind === "style" && <span className="mt-0.5 rounded bg-accent/30 px-1 text-[9px] font-semibold uppercase">gaya</span>}
+                              <span className="flex-1 break-words">{m.content}</span>
+                              <span className="mt-0.5 rounded bg-muted px-1 text-[9px] text-muted-foreground" title="Importance">
+                                {m.importance ?? 5}
+                              </span>
+                              <button
+                                onClick={() => {
+                                  setEditingMemId(m.id);
+                                  setEditingMemContent(m.content);
+                                  setEditingMemImportance(m.importance ?? 5);
+                                }}
+                                className="text-muted-foreground hover:text-primary"
+                                title="Edit"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={async () => { await delMemFn({ data: { id: m.id, userId } }); refreshMemories(); }}
+                                className="text-muted-foreground hover:text-destructive"
+                                title="Hapus"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
+
                 </section>
 
                 <Separator />
