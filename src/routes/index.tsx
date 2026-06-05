@@ -29,9 +29,11 @@ import {
   listMemories,
   deleteMemory,
   addMemory,
+  updateMemory,
   clearAllMemories,
   migrateGuestMemories,
   summarizeConversation,
+  updateStyleProfile,
 } from "@/lib/furina.functions";
 
 export const Route = createFileRoute("/")({
