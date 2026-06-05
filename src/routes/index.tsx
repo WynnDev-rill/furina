@@ -720,6 +720,18 @@ function FurinaApp() {
       // Background: maybe summarize
       const updatedConv = conversations.find((c) => c.id === activeId);
       if (updatedConv) maybeSummarize({ ...updatedConv, messages: [...updatedConv.messages, aiMsg] });
+
+      // Style profile update every 10 user messages
+      userMsgCountRef.current += 1;
+      if (userMsgCountRef.current % 10 === 0) {
+        const recentUserMsgs = (updatedConv?.messages ?? [])
+          .filter((m) => m.role === "user" && m.content && !m.stickerId)
+          .slice(-30)
+          .map((m) => m.content);
+        if (recentUserMsgs.length >= 3) {
+          updateStyleFn({ data: { userId, userMessages: recentUserMsgs } }).catch(() => {});
+        }
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Gagal kirim";
       toast.error(msg);
