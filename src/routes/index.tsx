@@ -1317,7 +1317,7 @@ function FurinaApp() {
 
       {/* Composer */}
       <div className="composer-glass absolute bottom-0 left-0 right-0 z-20 p-3">
-        <div className="mx-auto max-w-2xl">
+        <div className="mx-auto max-w-3xl">
           {pendingImage && (
             <div className="mb-2 flex items-center gap-2 rounded-lg border bg-card/70 p-2">
               <img src={pendingImage.dataUrl} alt="preview" className="h-14 w-14 rounded object-cover" />
@@ -1336,10 +1336,6 @@ function FurinaApp() {
               onClick={() => imageInputRef.current?.click()} aria-label="Kirim gambar" title="Kirim gambar">
               <ImageIcon className="h-4 w-4" />
             </Button>
-
-
-
-
             <Textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
               placeholder="Ketik pesan..." rows={1}
@@ -1351,6 +1347,28 @@ function FurinaApp() {
           </div>
         </div>
       </div>
+
+      {/* Image lightbox */}
+      <Dialog open={!!lightboxUrl} onOpenChange={(o) => { if (!o) setLightboxUrl(null); }}>
+        <DialogContent className="max-w-[96vw] border-0 bg-black/90 p-2 sm:max-w-[90vw]">
+          {lightboxUrl && (
+            <div className="relative flex items-center justify-center">
+              <img
+                src={lightboxUrl}
+                alt="Lampiran ukuran penuh"
+                className="max-h-[85vh] w-auto max-w-full rounded object-contain"
+              />
+              <a
+                href={lightboxUrl}
+                download
+                className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-full bg-white/90 px-3 py-1 text-xs font-medium text-black shadow hover:bg-white"
+              >
+                <Download className="h-3 w-3" /> Unduh
+              </a>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
