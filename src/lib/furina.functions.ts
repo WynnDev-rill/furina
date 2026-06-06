@@ -88,7 +88,7 @@ const ChatInput = z.object({
   language: z.enum(["ja", "en", "id", "auto"]).default("auto"),
   userId: z.string().min(1),
   imageDataUrl: z.string().optional(),
-  stickerImageUrl: z.string().optional(),
+  
   millisSinceLastAssistant: z.number().int().nonnegative().optional(),
   conversationId: z.string().optional(),
   styleProfile: z.string().optional(),
