@@ -1306,7 +1306,7 @@ function FurinaApp() {
 
 
         {sending && (
-          <div className="max-w-[85%] self-start bubble-ai rounded-2xl px-4 py-2.5 text-sm shadow-lg">
+          <div className="w-fit max-w-[min(92%,640px)] self-start bubble-ai rounded-2xl px-4 py-2.5 text-sm shadow-lg">
             <span className="inline-flex gap-1">
               <span className="h-2 w-2 animate-bounce rounded-full bg-foreground/50 [animation-delay:-0.3s]" />
               <span className="h-2 w-2 animate-bounce rounded-full bg-foreground/50 [animation-delay:-0.15s]" />
@@ -1314,7 +1314,9 @@ function FurinaApp() {
             </span>
           </div>
         )}
+        </div>
       </main>
+
 
       {/* Composer */}
       <div className="composer-glass absolute bottom-0 left-0 right-0 z-20 p-3">
