@@ -80,20 +80,6 @@ const ChatMsgSchema = z.object({
   content: z.string(),
 });
 
-// Default sticker pack — shared between AI prompt + frontend rendering
-export const DEFAULT_STICKER_PACK = [
-  { id: "happy",  label: "ketawa senang",   tag: "[happy]" },
-  { id: "love",   label: "sayang cinta",    tag: "[love]" },
-  { id: "shy",    label: "malu blushing",   tag: "[shy]" },
-  { id: "shock",  label: "kaget terkejut",  tag: "[shock]" },
-  { id: "think",  label: "mikir bingung",   tag: "[think]" },
-  { id: "smug",   label: "smirk pede",      tag: "[smug]" },
-  { id: "pout",   label: "ngambek marah",   tag: "[pout]" },
-  { id: "sad",    label: "sedih nangis",    tag: "[sad]" },
-  { id: "sleepy", label: "ngantuk lelah",   tag: "[sleepy]" },
-  { id: "wave",   label: "halo dadah",      tag: "[wave]" },
-  { id: "ok",     label: "oke setuju",      tag: "[ok]" },
-];
 
 const ChatInput = z.object({
   messages: z.array(ChatMsgSchema).min(1),
@@ -102,7 +88,7 @@ const ChatInput = z.object({
   language: z.enum(["ja", "en", "id", "auto"]).default("auto"),
   userId: z.string().min(1),
   imageDataUrl: z.string().optional(),
-  stickerImageUrl: z.string().optional(),
+  
   millisSinceLastAssistant: z.number().int().nonnegative().optional(),
   conversationId: z.string().optional(),
   styleProfile: z.string().optional(),
@@ -133,11 +119,11 @@ KESADARAN WAKTU (PENTING):
 - Komentari jeda hanya kalau memang menarik (jeda lama atau super cepat). Jangan tiap balasan ngebahas jam.
 - Kalau jedanya "baru saja" atau "barusan", anggap obrolan lanjutan biasa — jangan komentari.
 
-STIKER (PENTING):
-- Kalau pengguna kirim stiker (kamu lihat gambarnya di pesan terakhir), tafsirkan emosinya & balas natural seperti chat WhatsApp — pendek, sesuai vibe stiker. JANGAN deskripsikan gambarnya.
-- Kamu boleh kirim stiker balasan dengan menulis tag persis: [[sticker:ID]] di awal/akhir balasan. ID yang tersedia: ${"happy, love, shy, shock, think, smug, pout, sad, sleepy, wave, ok"}.
-- Pakai stiker MAX sekali tiap beberapa balasan, hanya kalau benar-benar pas. Jangan dipaksakan.
-- Boleh stiker tanpa teks, atau teks pendek + stiker. Contoh: "[[sticker:smug]] siapa bilang aku marah".
+VARIASI BALASAN (anti-repetisi):
+- Setiap balasan harus berbeda struktur pembuka dari 3-5 balasanmu terakhir. Jangan template.
+- Boleh interjeksi pendek, langsung topik, atau pertanyaan balik — variasikan.
+
+
 
 YANG DILARANG:
 - Jangan pernah bilang "aku AI" atau "model bahasa".
@@ -217,36 +203,61 @@ export const chatWithFurina = createServerFn({ method: "POST" })
         ? "Balas dalam bahasa Inggris natural."
         : "Balas dalam bahasa Indonesia natural.";
 
+    // === Kesadaran waktu: gap detection antar pesan ===
     let gapNote = "";
     if (typeof data.millisSinceLastAssistant === "number" && data.millisSinceLastAssistant > 0) {
-      gapNote = `\nJEDA SEJAK BALASANMU TERAKHIR: ${humanizeDelta(data.millisSinceLastAssistant)}. Jadikan fakta, JANGAN sebut angka pasti.`;
+      const ms = data.millisSinceLastAssistant;
+      const minutes = ms / 60000;
+      const phrase = humanizeDelta(ms);
+      let extra = "";
+      if (minutes >= 30 && minutes < 120) {
+        extra = " Boleh sapa singkat / komentari sambil lanjut topik.";
+      } else if (minutes >= 120 && minutes < 720) {
+        extra = " Jeda cukup panjang — sapa balik hangat sebelum lanjut.";
+      } else if (minutes >= 720) {
+        extra = " Sudah lama tidak ngobrol — sapa hangat, jangan langsung lanjut tanpa transisi.";
+      }
+      // Cek pergantian hari / periode (pagi ↔ malam dst)
+      const now = new Date();
+      const wibNow = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+      const wibThen = new Date(now.getTime() - ms + 7 * 60 * 60 * 1000);
+      const periode = (d: Date) => {
+        const h = d.getUTCHours();
+        if (h >= 4 && h < 11) return "pagi";
+        if (h >= 11 && h < 15) return "siang";
+        if (h >= 15 && h < 18) return "sore";
+        if (h >= 18 && h < 23) return "malam";
+        return "dini hari";
+      };
+      if (wibNow.toDateString() !== wibThen.toDateString()) {
+        extra += ` Hari berganti — sekarang ${periode(wibNow)}, sebelumnya ${periode(wibThen)}. Sesuaikan sapaan & energi.`;
+      } else if (periode(wibNow) !== periode(wibThen)) {
+        extra += ` Periode hari berubah — sekarang ${periode(wibNow)} (sebelumnya ${periode(wibThen)}). Sesuaikan vibe.`;
+      }
+      gapNote = `\nJEDA SEJAK BALASANMU TERAKHIR: ${phrase}.${extra} JANGAN sebut angka pasti.`;
     }
-
-    const stickerNote = data.stickerImageUrl
-      ? "\n\nPESAN TERAKHIR USER: stiker gambar (lihat gambar terlampir). Tafsirkan emosinya & balas natural. JANGAN deskripsikan gambarnya."
-      : "";
 
     const system = `${data.systemPersona?.trim() || DEFAULT_PERSONA}
 Nama kamu: ${data.characterName}.
 ${langHint}
 
-KONTEKS WAKTU: ${realtimeContextString()}${gapNote}${stickerNote}${memoryContext}${styleNote}`;
+KONTEKS WAKTU: ${realtimeContextString()}${gapNote}${memoryContext}${styleNote}`;
 
     const built: Array<{ role: string; content: unknown }> = data.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
     const lastIdx = data.messages.length - 1;
     const last = data.messages[lastIdx];
-    const visionUrl = data.stickerImageUrl ?? data.imageDataUrl;
-    if (visionUrl && last.role === "user") {
+    if (data.imageDataUrl && last.role === "user") {
       built.push({
         role: "user",
         content: [
-          { type: "text", text: last.content || (data.stickerImageUrl ? "(stiker)" : "(lihat gambar)") },
-          { type: "image_url", image_url: { url: visionUrl } },
+          { type: "text", text: last.content || "(lihat gambar)" },
+          { type: "image_url", image_url: { url: data.imageDataUrl } },
         ],
       });
     } else {
       built.push({ role: last.role, content: last.content });
     }
+
 
     const res = await fetch(`${GATEWAY}/chat/completions`, {
       method: "POST",
@@ -305,9 +316,15 @@ async function extractAndStoreMemory(userId: string, userMsg: string, assistantR
         {
           role: "system",
           content:
-            `Hari ini: ${new Date().toISOString().slice(0, 10)}. Ekstrak fakta DURABLE tentang USER (bukan AI) yang layak diingat lama: nama, preferensi, relasi, project, opini, gaya komunikasi, kejadian penting. ` +
-            `Output JSON array. Tiap item: {"content": string (Bahasa Indonesia, third-person, ringkas), "importance": int 1-10 (10 = sangat penting/identitas, 5 = preferensi normal, 2 = sepele), "occurred_at": "YYYY-MM-DD" atau null (kalau user nyebut waktu kejadian seperti "kemarin"/"minggu lalu", hitung relatif ke hari ini)}. ` +
-            `Kalau tidak ada fakta layak ingat, output []. JANGAN ekstrak hal tentang AI/asisten.`,
+            `Hari ini: ${new Date().toISOString().slice(0, 10)}. Ekstrak hal-hal DURABLE tentang USER (bukan AI) yang layak diingat lama: identitas, preferensi, relasi, project, opini, kejadian penting + EMOSI yang terlihat. ` +
+            `Output JSON array. Tiap item: {` +
+            `"content": string (Bahasa Indonesia, sudut pandang ketiga, ringkas), ` +
+            `"kind": "fact" | "episodic" (kejadian konkret dengan waktu) | "preference" | "relation", ` +
+            `"importance": int 1-10 (10 = identitas inti, 5 = preferensi normal, 2 = sepele), ` +
+            `"occurred_at": "YYYY-MM-DD" atau null (kalau user nyebut waktu seperti "kemarin"/"minggu lalu", hitung relatif ke hari ini), ` +
+            `"emotion": "joy"|"sad"|"anger"|"fear"|"love"|"neutral" (vibe user saat menyampaikannya)` +
+            `}. ` +
+            `Kalau tidak ada hal layak ingat, output []. JANGAN ekstrak hal tentang AI/asisten.`,
         },
         { role: "user", content: exchange },
       ],
@@ -318,13 +335,16 @@ async function extractAndStoreMemory(userId: string, userMsg: string, assistantR
   const raw: string = json.choices?.[0]?.message?.content ?? "[]";
   const match = raw.match(/\[[\s\S]*\]/);
   if (!match) return;
-  let facts: Array<{ content: string; importance?: number; occurred_at?: string | null }> = [];
+  type Fact = { content: string; kind?: string; importance?: number; occurred_at?: string | null; emotion?: string };
+  let facts: Fact[] = [];
   try {
     facts = JSON.parse(match[0]);
   } catch {
     return;
   }
-  for (const f of facts.filter((x) => x && typeof x.content === "string" && x.content.trim().length > 3).slice(0, 5)) {
+  const ALLOWED_KINDS = new Set(["fact", "episodic", "preference", "relation"]);
+  const ALLOWED_EMO = new Set(["joy", "sad", "anger", "fear", "love", "neutral"]);
+  for (const f of facts.filter((x) => x && typeof x.content === "string" && x.content.trim().length > 3).slice(0, 6)) {
     try {
       const vec = await embed(f.content);
 
@@ -337,10 +357,9 @@ async function extractAndStoreMemory(userId: string, userMsg: string, assistantR
         include_compressed: false,
       });
       const exactDupe = (dupes as Array<{ id: string; similarity: number; content: string }> | null)?.find(
-        (m) => m.similarity > 0.93,
+        (m) => m.similarity > 0.92,
       );
       if (exactDupe) {
-        // Bump importance kalau lebih tinggi, refresh last_accessed_at
         await supabaseAdmin.from("memories").update({
           last_accessed_at: new Date().toISOString(),
           importance: Math.max(f.importance ?? 5, 5),
@@ -350,21 +369,25 @@ async function extractAndStoreMemory(userId: string, userMsg: string, assistantR
 
       const importance = Math.min(10, Math.max(1, Math.round(f.importance ?? 5)));
       const occurred_at = f.occurred_at && /^\d{4}-\d{2}-\d{2}/.test(f.occurred_at) ? f.occurred_at : null;
+      const kind = ALLOWED_KINDS.has(f.kind ?? "") ? f.kind! : "fact";
+      const emotion = ALLOWED_EMO.has(f.emotion ?? "") ? f.emotion! : null;
 
       await supabaseAdmin.from("memories").insert({
         content: f.content,
         embedding: vec as unknown as string,
         user_id: userId,
         character_id: CHARACTER_ID,
-        kind: "fact",
+        kind,
         importance,
         occurred_at,
+        emotion,
       });
     } catch (e) {
       console.error("Failed storing memory:", e);
     }
   }
 }
+
 
 // =================== Conversation summarization ===================
 // Called by frontend every N messages so the AI can remember whole conversations long-term.
@@ -804,46 +827,3 @@ export const getStyleProfile = createServerFn({ method: "POST" })
     return { profile: rows?.[0]?.content ?? "" };
   });
 
-// =================== Sticker vision label cache ===================
-// Saat user pertama kali kirim stiker, AI tafsir label dari gambar.
-// Hasil dicache di tabel user_stickers.cached_label.
-
-const StickerLabelInput = z.object({
-  stickerId: z.string().min(1),
-  imageUrl: z.string().url(),
-  userId: z.string().min(1),
-});
-
-export const cacheStickerLabel = createServerFn({ method: "POST" })
-  .inputValidator((d: unknown) => StickerLabelInput.parse(d))
-  .handler(async ({ data }) => {
-    const res = await fetch(`${GATEWAY}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash-lite",
-        messages: [
-          {
-            role: "system",
-            content: "Tafsir emosi/maksud sebuah stiker dari gambarnya. Output 2-5 kata Bahasa Indonesia (contoh: 'ketawa senang', 'capek banget', 'lagi mikir', 'ngambek lucu'). Tanpa tanda baca, tanpa kalimat lengkap.",
-          },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: "Stiker apa ini?" },
-              { type: "image_url", image_url: { url: data.imageUrl } },
-            ],
-          },
-        ],
-      }),
-    });
-    if (!res.ok) return { label: "" };
-    const j = await res.json();
-    const label: string = (j.choices?.[0]?.message?.content ?? "").trim().slice(0, 60);
-    if (label) {
-      await supabaseAdmin.from("user_stickers")
-        .update({ cached_label: label })
-        .eq("id", data.stickerId).eq("user_id", data.userId);
-    }
-    return { label };
-  });

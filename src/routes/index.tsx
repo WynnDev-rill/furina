@@ -5,11 +5,11 @@ import {
   Send, Settings, Trash2, Plus, Volume2, Image as ImageIcon, RotateCcw,
   Play, Pause, Square, Loader2, MessageSquarePlus, MessagesSquare, Check,
   CheckCheck, Pencil, AlertCircle, LogIn, LogOut, Sparkles, Sun, Moon, X,
-  Smile,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetDescription } from "@/components/ui/sheet";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -42,7 +42,7 @@ export const Route = createFileRoute("/")({
       { title: "Furina — AI Companion" },
       { name: "description", content: "Personal AI companion dengan suara Jepang natural, memori lintas-percakapan, dan kepribadian Furina." },
       { property: "og:title", content: "Furina — AI Companion" },
-      { property: "og:description", content: "Personal AI companion with voice, memory, vision, stickers, and Furina personality." },
+      { property: "og:description", content: "Personal AI companion with voice, memory, vision, and Furina personality." },
     ],
   }),
   component: FurinaApp,
@@ -129,33 +129,9 @@ const VV_SPEAKERS = [
   { id: 52, label: "雀松朱司 — ノーマル" },
 ];
 
-// ===== Default sticker pack (served from public/stickers/default/) =====
-type StickerEntry = {
-  id: string;       // stable id (matches AI tag for defaults; uuid for custom)
-  url: string;      // public URL or signed URL
-  label: string;
-  isDefault: boolean;
-  dbId?: string;    // user_stickers.id for custom ones
-  storagePath?: string;
-};
+// (Sticker feature removed.)
 
-const DEFAULT_STICKERS: StickerEntry[] = [
-  { id: "happy",  url: "/stickers/default/stk_happy.png",  label: "ketawa senang",  isDefault: true },
-  { id: "love",   url: "/stickers/default/stk_love.png",   label: "sayang cinta",   isDefault: true },
-  { id: "shy",    url: "/stickers/default/stk_shy.png",    label: "malu blushing",  isDefault: true },
-  { id: "shock",  url: "/stickers/default/stk_shock.png",  label: "kaget terkejut", isDefault: true },
-  { id: "think",  url: "/stickers/default/stk_think.png",  label: "mikir bingung",  isDefault: true },
-  { id: "smug",   url: "/stickers/default/stk_smug.png",   label: "smirk pede",     isDefault: true },
-  { id: "pout",   url: "/stickers/default/stk_pout.png",   label: "ngambek marah",  isDefault: true },
-  { id: "sad",    url: "/stickers/default/stk_sad.png",    label: "sedih nangis",   isDefault: true },
-  { id: "sleepy", url: "/stickers/default/stk_sleepy.png", label: "ngantuk lelah",  isDefault: true },
-  { id: "wave",   url: "/stickers/default/stk_wave.png",   label: "halo dadah",     isDefault: true },
-  { id: "ok",     url: "/stickers/default/stk_ok.png",     label: "oke setuju",     isDefault: true },
-];
 
-function findSticker(id: string, custom: StickerEntry[] = []): StickerEntry | null {
-  return DEFAULT_STICKERS.find((s) => s.id === id) ?? custom.find((s) => s.id === id) ?? null;
-}
 
 // Natural relative time (display side — matches server humanizeDelta vibe)
 function relTime(ts: number, now: number): string {
@@ -244,7 +220,6 @@ function FurinaApp() {
   const [preGenAudio, setPreGenAudio] = useState(true);
   const [openSettings, setOpenSettings] = useState(false);
   const [openConvos, setOpenConvos] = useState(false);
-  const [openStickers, setOpenStickers] = useState(false);
   const [memories, setMemories] = useState<{ id: string; content: string; kind?: string; importance?: number; occurred_at?: string | null }[]>([]);
   const [newMem, setNewMem] = useState("");
   const [editingMemId, setEditingMemId] = useState<string | null>(null);
@@ -257,14 +232,12 @@ function FurinaApp() {
   const [editingTitleVal, setEditingTitleVal] = useState("");
   const [cloneSampleName, setCloneSampleName] = useState<string>("");
   const [hasCloneSample, setHasCloneSample] = useState(false);
-  const [customStickers, setCustomStickers] = useState<StickerEntry[]>([]);
-  const [uploadingSticker, setUploadingSticker] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
-  const stickerFileRef = useRef<HTMLInputElement | null>(null);
   const lastSyncedAuthIdRef = useRef<string | null>(null);
   const initialLoadDoneRef = useRef(false);
   const settingsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -381,32 +354,6 @@ function FurinaApp() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authReady, authUser]);
 
-  // Load custom stickers for the signed-in user
-  useEffect(() => {
-    if (!authUser) { setCustomStickers([]); return; }
-    let cancelled = false;
-    (async () => {
-      const { data: rows, error } = await supabase
-        .from("user_stickers")
-        .select("id, url, label, cached_label, pack_name")
-        .eq("user_id", authUser.id)
-        .order("created_at", { ascending: false });
-      if (error || !rows || cancelled) return;
-      const signed = await Promise.all(rows.map(async (r) => {
-        const { data: s } = await supabase.storage.from("stickers").createSignedUrl(r.url, 60 * 60 * 24 * 7);
-        return {
-          id: r.id,
-          url: s?.signedUrl ?? "",
-          label: r.label ?? r.cached_label ?? "stiker",
-          isDefault: false,
-          dbId: r.id,
-          storagePath: r.url,
-        } as StickerEntry;
-      }));
-      if (!cancelled) setCustomStickers(signed.filter((s) => s.url));
-    })();
-    return () => { cancelled = true; };
-  }, [authUser]);
 
 
   async function pullFromCloud(uid: string) {
@@ -663,15 +610,13 @@ function FurinaApp() {
   }
 
   // ===== Send =====
-  async function sendMessage(text: string, retryMsgId?: string, sticker?: StickerEntry) {
+  async function sendMessage(text: string, retryMsgId?: string) {
     const trimmed = text.trim();
-    if (!sticker && !trimmed && !pendingImage) return;
+    if (!trimmed && !pendingImage) return;
     if (sending) return;
 
     const imageDataUrl = pendingImage?.dataUrl;
-    const messageContent = sticker
-      ? `[stiker: ${sticker.label}]`
-      : (trimmed || (imageDataUrl ? "(gambar)" : ""));
+    const messageContent = trimmed || (imageDataUrl ? "(gambar)" : "");
 
     let userMsgId: string;
     if (retryMsgId) {
@@ -684,11 +629,10 @@ function FurinaApp() {
         content: messageContent,
         at: Date.now(), status: "sending",
         imageDataUrl,
-        stickerId: sticker?.id,
       };
       updateActiveMessages((prev) => [...prev, userMsg]);
       if (activeConvo && (activeConvo.title === "Percakapan baru" || !activeConvo.title)) {
-        const t = (trimmed || sticker?.label || "Gambar baru").slice(0, 40).replace(/\s+/g, " ").trim();
+        const t = (trimmed || "Gambar baru").slice(0, 40).replace(/\s+/g, " ").trim();
         renameConversation(activeConvo.id, t || "Percakapan baru");
       }
       if (authUser && activeConvo) {
@@ -731,14 +675,8 @@ function FurinaApp() {
 
       updateMessageById(userMsgId, { status: "read" });
 
-      // Parse sticker tag from AI reply: [[sticker:id]]
-      const stickerMatch = reply.match(/\[\[sticker:\s*([a-z0-9_-]+)\s*\]\]/i);
-      const aiSticker = stickerMatch ? DEFAULT_STICKERS.find((s) => s.id === stickerMatch[1].toLowerCase()) : null;
-      const cleanedReply = reply.replace(/\[\[sticker:[^\]]*\]\]/gi, "").trim();
-
       const aiMsg: Msg = {
-        id: crypto.randomUUID(), role: "assistant", content: cleanedReply || (aiSticker ? "" : reply), at: Date.now(),
-        stickerId: aiSticker?.id,
+        id: crypto.randomUUID(), role: "assistant", content: reply, at: Date.now(),
       };
       updateActiveMessages((prev) => [...prev, aiMsg]);
       if (authUser && activeConvo) upsertSingleMessage(authUser.id, activeConvo.id, aiMsg);
@@ -753,7 +691,7 @@ function FurinaApp() {
       userMsgCountRef.current += 1;
       if (userMsgCountRef.current % 10 === 0) {
         const recentUserMsgs = (updatedConv?.messages ?? [])
-          .filter((m) => m.role === "user" && m.content && !m.stickerId)
+          .filter((m) => m.role === "user" && m.content)
           .slice(-30)
           .map((m) => m.content);
         if (recentUserMsgs.length >= 3) {
@@ -772,57 +710,7 @@ function FurinaApp() {
 
   function retrySend(m: Msg) { sendMessage(m.failedPayload ?? m.content, m.id); }
 
-  function sendSticker(s: StickerEntry) {
-    setOpenStickers(false);
-    sendMessage("", undefined, s);
-  }
 
-  // ===== Custom sticker upload / delete =====
-  async function handleStickerUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file || !authUser) return;
-    if (file.size > 2 * 1024 * 1024) { toast.error("Stiker maks 2MB"); return; }
-    setUploadingSticker(true);
-    try {
-      const ext = file.name.split(".").pop()?.toLowerCase() || "png";
-      const path = `${authUser.id}/${crypto.randomUUID()}.${ext}`;
-      const { error: upErr } = await supabase.storage.from("stickers").upload(path, file, { upsert: false, contentType: file.type });
-      if (upErr) throw upErr;
-      const { data: signed } = await supabase.storage.from("stickers").createSignedUrl(path, 60 * 60 * 24 * 365);
-      const url = signed?.signedUrl ?? "";
-      const label = file.name.replace(/\.[^.]+$/, "").slice(0, 40) || "stiker";
-      const { data: row, error: insErr } = await supabase
-        .from("user_stickers")
-        .insert({ user_id: authUser.id, url: path, pack_name: "custom", label })
-        .select("id")
-        .single();
-      if (insErr) throw insErr;
-      setCustomStickers((prev) => [
-        ...prev,
-        { id: row!.id, url, label, isDefault: false, dbId: row!.id, storagePath: path },
-      ]);
-      toast.success("Stiker ditambahkan");
-    } catch (err) {
-      console.error(err);
-      toast.error("Gagal upload stiker");
-    } finally {
-      setUploadingSticker(false);
-    }
-  }
-
-  async function deleteCustomSticker(s: StickerEntry) {
-    if (s.isDefault || !s.dbId) return;
-    if (!confirm(`Hapus stiker "${s.label}"?`)) return;
-    try {
-      if (s.storagePath) await supabase.storage.from("stickers").remove([s.storagePath]);
-      await supabase.from("user_stickers").delete().eq("id", s.dbId);
-      setCustomStickers((prev) => prev.filter((x) => x.id !== s.id));
-    } catch (err) {
-      console.error(err);
-      toast.error("Gagal hapus stiker");
-    }
-  }
 
   // ===== TTS controls =====
   function stopTTS() {
@@ -1328,9 +1216,10 @@ function FurinaApp() {
       </header>
 
       {/* Chat messages */}
-      <main ref={scrollRef} className="absolute inset-0 z-10 flex flex-col gap-3 overflow-y-auto px-3 pt-20 pb-36 sm:px-4">
+      <main ref={scrollRef} className="absolute inset-0 z-10 overflow-y-auto px-3 pt-20 pb-36 sm:px-4">
+        <div className="mx-auto flex min-h-full max-w-3xl flex-col gap-3">
         {messages.length === 0 && (
-          <div className="mt-auto mb-4 max-w-[85%] self-start animate-fade-in">
+          <div className="mt-auto mb-4 w-fit max-w-[min(92%,640px)] self-start animate-fade-in">
             <div className="bubble-ai rounded-2xl px-4 py-3 text-sm shadow-lg">
               Halo… akhirnya kamu datang juga~ ✦ Aku {name}. Ceritakan apa saja.
             </div>
@@ -1342,25 +1231,26 @@ function FurinaApp() {
           const isUser = m.role === "user";
           const isPlaying = playingId === m.id;
           const isLoading = loadingId === m.id;
-          const sticker = m.stickerId ? findSticker(m.stickerId, customStickers) : null;
           return (
-            <div key={m.id} className={`flex max-w-[85%] flex-col animate-fade-in ${isUser ? "self-end items-end" : "self-start items-start"}`}>
-              {sticker ? (
-                <img
-                  src={sticker.url}
-                  alt={sticker.label}
-                  title={sticker.label}
-                  className="h-32 w-32 select-none object-contain drop-shadow-lg"
-                  loading="lazy"
-                />
-              ) : (
-                <div className={`${isUser ? "bubble-user" : "bubble-ai"} rounded-2xl px-4 py-2.5 text-sm shadow-lg`}>
-                  {m.imageDataUrl && (
-                    <img src={m.imageDataUrl} alt="lampiran" className="mb-2 max-h-64 w-full rounded-lg object-cover" loading="lazy" />
-                  )}
-                  {m.content && <div className="whitespace-pre-wrap break-words">{m.content}</div>}
-                </div>
-              )}
+            <div key={m.id} className={`flex w-full flex-col animate-fade-in ${isUser ? "items-end" : "items-start"}`}>
+              <div className={`${isUser ? "bubble-user" : "bubble-ai"} w-fit max-w-[min(92%,640px)] rounded-2xl px-4 py-2.5 text-sm shadow-lg`}>
+                {m.imageDataUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setLightboxUrl(m.imageDataUrl!)}
+                    className="mb-2 block w-full overflow-hidden rounded-lg"
+                    aria-label="Buka gambar"
+                  >
+                    <img
+                      src={m.imageDataUrl}
+                      alt="lampiran"
+                      className="max-h-64 w-full cursor-zoom-in rounded-lg object-cover transition hover:opacity-90"
+                      loading="lazy"
+                    />
+                  </button>
+                )}
+                {m.content && <div className="whitespace-pre-wrap break-words leading-relaxed">{m.content}</div>}
+              </div>
 
               <div className="mt-1 flex items-center gap-1.5 px-1">
                 <span className="text-[10px] opacity-70 tabular-nums" title={new Date(m.at).toLocaleString()}>{fmtTime(m.at)}</span>
@@ -1374,7 +1264,7 @@ function FurinaApp() {
                   </button>
                 )}
 
-                {!isUser && !sticker && (
+                {!isUser && (
                   <div className="flex items-center gap-1">
                     {isLoading && (
                       <span className="glass-chip inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px]">
@@ -1414,8 +1304,9 @@ function FurinaApp() {
           );
         })}
 
+
         {sending && (
-          <div className="max-w-[85%] self-start bubble-ai rounded-2xl px-4 py-2.5 text-sm shadow-lg">
+          <div className="w-fit max-w-[min(92%,640px)] self-start bubble-ai rounded-2xl px-4 py-2.5 text-sm shadow-lg">
             <span className="inline-flex gap-1">
               <span className="h-2 w-2 animate-bounce rounded-full bg-foreground/50 [animation-delay:-0.3s]" />
               <span className="h-2 w-2 animate-bounce rounded-full bg-foreground/50 [animation-delay:-0.15s]" />
@@ -1423,11 +1314,13 @@ function FurinaApp() {
             </span>
           </div>
         )}
+        </div>
       </main>
+
 
       {/* Composer */}
       <div className="composer-glass absolute bottom-0 left-0 right-0 z-20 p-3">
-        <div className="mx-auto max-w-2xl">
+        <div className="mx-auto max-w-3xl">
           {pendingImage && (
             <div className="mb-2 flex items-center gap-2 rounded-lg border bg-card/70 p-2">
               <img src={pendingImage.dataUrl} alt="preview" className="h-14 w-14 rounded object-cover" />
@@ -1446,50 +1339,6 @@ function FurinaApp() {
               onClick={() => imageInputRef.current?.click()} aria-label="Kirim gambar" title="Kirim gambar">
               <ImageIcon className="h-4 w-4" />
             </Button>
-
-            <Popover open={openStickers} onOpenChange={setOpenStickers}>
-              <PopoverTrigger asChild>
-                <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full" aria-label="Stiker" title="Stiker">
-                  <Smile className="h-4 w-4" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent side="top" className="w-80 p-2">
-                <div className="mb-2 flex items-center justify-between px-1">
-                  <p className="text-xs font-medium">Stiker</p>
-                  <button
-                    onClick={() => stickerFileRef.current?.click()}
-                    className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20"
-                    disabled={!authUser || uploadingSticker}
-                    title={authUser ? "Upload stiker custom" : "Login dulu untuk upload"}
-                  >
-                    {uploadingSticker ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
-                    Tambah
-                  </button>
-                </div>
-                <input ref={stickerFileRef} type="file" accept="image/png,image/webp,image/jpeg" className="hidden" onChange={handleStickerUpload} />
-                <div className="grid max-h-64 grid-cols-4 gap-1.5 overflow-y-auto">
-                  {[...DEFAULT_STICKERS, ...customStickers].map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => sendSticker(s)}
-                      onContextMenu={(e) => {
-                        if (s.isDefault) return;
-                        e.preventDefault();
-                        deleteCustomSticker(s);
-                      }}
-                      title={s.label + (s.isDefault ? "" : " (klik kanan untuk hapus)")}
-                      className="aspect-square overflow-hidden rounded-md p-1 transition hover:bg-muted"
-                    >
-                      <img src={s.url} alt={s.label} className="h-full w-full object-contain" loading="lazy" />
-                    </button>
-                  ))}
-                </div>
-                {!authUser && (
-                  <p className="mt-2 px-1 text-[10px] text-muted-foreground">Login untuk upload stiker custom.</p>
-                )}
-              </PopoverContent>
-            </Popover>
-
             <Textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
               placeholder="Ketik pesan..." rows={1}
@@ -1501,6 +1350,28 @@ function FurinaApp() {
           </div>
         </div>
       </div>
+
+      {/* Image lightbox */}
+      <Dialog open={!!lightboxUrl} onOpenChange={(o) => { if (!o) setLightboxUrl(null); }}>
+        <DialogContent className="max-w-[96vw] border-0 bg-black/90 p-2 sm:max-w-[90vw]">
+          {lightboxUrl && (
+            <div className="relative flex items-center justify-center">
+              <img
+                src={lightboxUrl}
+                alt="Lampiran ukuran penuh"
+                className="max-h-[85vh] w-auto max-w-full rounded object-contain"
+              />
+              <a
+                href={lightboxUrl}
+                download
+                className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-full bg-white/90 px-3 py-1 text-xs font-medium text-black shadow hover:bg-white"
+              >
+                <Download className="h-3 w-3" /> Unduh
+              </a>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
