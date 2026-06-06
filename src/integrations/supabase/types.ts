@@ -41,6 +41,93 @@ export type Database = {
         }
         Relationships: []
       }
+      entities: {
+        Row: {
+          aliases: string[] | null
+          character_id: string
+          created_at: string
+          id: string
+          last_mentioned_at: string
+          mention_count: number
+          name: string
+          name_normalized: string
+          notes: string | null
+          type: string
+          user_id: string
+        }
+        Insert: {
+          aliases?: string[] | null
+          character_id?: string
+          created_at?: string
+          id?: string
+          last_mentioned_at?: string
+          mention_count?: number
+          name: string
+          name_normalized: string
+          notes?: string | null
+          type?: string
+          user_id: string
+        }
+        Update: {
+          aliases?: string[] | null
+          character_id?: string
+          created_at?: string
+          id?: string
+          last_mentioned_at?: string
+          mention_count?: number
+          name?: string
+          name_normalized?: string
+          notes?: string | null
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      entity_relations: {
+        Row: {
+          created_at: string
+          from_entity: string
+          id: string
+          label: string
+          strength: number
+          to_entity: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          from_entity: string
+          id?: string
+          label: string
+          strength?: number
+          to_entity: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          from_entity?: string
+          id?: string
+          label?: string
+          strength?: number
+          to_entity?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "entity_relations_from_entity_fkey"
+            columns: ["from_entity"]
+            isOneToOne: false
+            referencedRelation: "entities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "entity_relations_to_entity_fkey"
+            columns: ["to_entity"]
+            isOneToOne: false
+            referencedRelation: "entities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       memories: {
         Row: {
           character_id: string
@@ -48,6 +135,7 @@ export type Database = {
           content: string
           created_at: string
           embedding: string
+          emotion: string | null
           id: string
           importance: number
           kind: string
@@ -62,6 +150,7 @@ export type Database = {
           content: string
           created_at?: string
           embedding: string
+          emotion?: string | null
           id?: string
           importance?: number
           kind?: string
@@ -76,6 +165,7 @@ export type Database = {
           content?: string
           created_at?: string
           embedding?: string
+          emotion?: string | null
           id?: string
           importance?: number
           kind?: string
@@ -150,36 +240,6 @@ export type Database = {
         Update: {
           data?: Json
           updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      user_stickers: {
-        Row: {
-          cached_label: string | null
-          created_at: string
-          id: string
-          label: string | null
-          pack_name: string
-          url: string
-          user_id: string
-        }
-        Insert: {
-          cached_label?: string | null
-          created_at?: string
-          id?: string
-          label?: string | null
-          pack_name?: string
-          url: string
-          user_id: string
-        }
-        Update: {
-          cached_label?: string | null
-          created_at?: string
-          id?: string
-          label?: string | null
-          pack_name?: string
-          url?: string
           user_id?: string
         }
         Relationships: []
