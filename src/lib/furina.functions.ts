@@ -203,36 +203,61 @@ export const chatWithFurina = createServerFn({ method: "POST" })
         ? "Balas dalam bahasa Inggris natural."
         : "Balas dalam bahasa Indonesia natural.";
 
+    // === Kesadaran waktu: gap detection antar pesan ===
     let gapNote = "";
     if (typeof data.millisSinceLastAssistant === "number" && data.millisSinceLastAssistant > 0) {
-      gapNote = `\nJEDA SEJAK BALASANMU TERAKHIR: ${humanizeDelta(data.millisSinceLastAssistant)}. Jadikan fakta, JANGAN sebut angka pasti.`;
+      const ms = data.millisSinceLastAssistant;
+      const minutes = ms / 60000;
+      const phrase = humanizeDelta(ms);
+      let extra = "";
+      if (minutes >= 30 && minutes < 120) {
+        extra = " Boleh sapa singkat / komentari sambil lanjut topik.";
+      } else if (minutes >= 120 && minutes < 720) {
+        extra = " Jeda cukup panjang — sapa balik hangat sebelum lanjut.";
+      } else if (minutes >= 720) {
+        extra = " Sudah lama tidak ngobrol — sapa hangat, jangan langsung lanjut tanpa transisi.";
+      }
+      // Cek pergantian hari / periode (pagi ↔ malam dst)
+      const now = new Date();
+      const wibNow = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+      const wibThen = new Date(now.getTime() - ms + 7 * 60 * 60 * 1000);
+      const periode = (d: Date) => {
+        const h = d.getUTCHours();
+        if (h >= 4 && h < 11) return "pagi";
+        if (h >= 11 && h < 15) return "siang";
+        if (h >= 15 && h < 18) return "sore";
+        if (h >= 18 && h < 23) return "malam";
+        return "dini hari";
+      };
+      if (wibNow.toDateString() !== wibThen.toDateString()) {
+        extra += ` Hari berganti — sekarang ${periode(wibNow)}, sebelumnya ${periode(wibThen)}. Sesuaikan sapaan & energi.`;
+      } else if (periode(wibNow) !== periode(wibThen)) {
+        extra += ` Periode hari berubah — sekarang ${periode(wibNow)} (sebelumnya ${periode(wibThen)}). Sesuaikan vibe.`;
+      }
+      gapNote = `\nJEDA SEJAK BALASANMU TERAKHIR: ${phrase}.${extra} JANGAN sebut angka pasti.`;
     }
-
-    const stickerNote = data.stickerImageUrl
-      ? "\n\nPESAN TERAKHIR USER: stiker gambar (lihat gambar terlampir). Tafsirkan emosinya & balas natural. JANGAN deskripsikan gambarnya."
-      : "";
 
     const system = `${data.systemPersona?.trim() || DEFAULT_PERSONA}
 Nama kamu: ${data.characterName}.
 ${langHint}
 
-KONTEKS WAKTU: ${realtimeContextString()}${gapNote}${stickerNote}${memoryContext}${styleNote}`;
+KONTEKS WAKTU: ${realtimeContextString()}${gapNote}${memoryContext}${styleNote}`;
 
     const built: Array<{ role: string; content: unknown }> = data.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
     const lastIdx = data.messages.length - 1;
     const last = data.messages[lastIdx];
-    const visionUrl = data.stickerImageUrl ?? data.imageDataUrl;
-    if (visionUrl && last.role === "user") {
+    if (data.imageDataUrl && last.role === "user") {
       built.push({
         role: "user",
         content: [
-          { type: "text", text: last.content || (data.stickerImageUrl ? "(stiker)" : "(lihat gambar)") },
-          { type: "image_url", image_url: { url: visionUrl } },
+          { type: "text", text: last.content || "(lihat gambar)" },
+          { type: "image_url", image_url: { url: data.imageDataUrl } },
         ],
       });
     } else {
       built.push({ role: last.role, content: last.content });
     }
+
 
     const res = await fetch(`${GATEWAY}/chat/completions`, {
       method: "POST",
