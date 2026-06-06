@@ -610,15 +610,13 @@ function FurinaApp() {
   }
 
   // ===== Send =====
-  async function sendMessage(text: string, retryMsgId?: string, sticker?: StickerEntry) {
+  async function sendMessage(text: string, retryMsgId?: string) {
     const trimmed = text.trim();
-    if (!sticker && !trimmed && !pendingImage) return;
+    if (!trimmed && !pendingImage) return;
     if (sending) return;
 
     const imageDataUrl = pendingImage?.dataUrl;
-    const messageContent = sticker
-      ? `[stiker: ${sticker.label}]`
-      : (trimmed || (imageDataUrl ? "(gambar)" : ""));
+    const messageContent = trimmed || (imageDataUrl ? "(gambar)" : "");
 
     let userMsgId: string;
     if (retryMsgId) {
@@ -631,11 +629,10 @@ function FurinaApp() {
         content: messageContent,
         at: Date.now(), status: "sending",
         imageDataUrl,
-        stickerId: sticker?.id,
       };
       updateActiveMessages((prev) => [...prev, userMsg]);
       if (activeConvo && (activeConvo.title === "Percakapan baru" || !activeConvo.title)) {
-        const t = (trimmed || sticker?.label || "Gambar baru").slice(0, 40).replace(/\s+/g, " ").trim();
+        const t = (trimmed || "Gambar baru").slice(0, 40).replace(/\s+/g, " ").trim();
         renameConversation(activeConvo.id, t || "Percakapan baru");
       }
       if (authUser && activeConvo) {
@@ -678,14 +675,8 @@ function FurinaApp() {
 
       updateMessageById(userMsgId, { status: "read" });
 
-      // Parse sticker tag from AI reply: [[sticker:id]]
-      const stickerMatch = reply.match(/\[\[sticker:\s*([a-z0-9_-]+)\s*\]\]/i);
-      const aiSticker = stickerMatch ? DEFAULT_STICKERS.find((s) => s.id === stickerMatch[1].toLowerCase()) : null;
-      const cleanedReply = reply.replace(/\[\[sticker:[^\]]*\]\]/gi, "").trim();
-
       const aiMsg: Msg = {
-        id: crypto.randomUUID(), role: "assistant", content: cleanedReply || (aiSticker ? "" : reply), at: Date.now(),
-        stickerId: aiSticker?.id,
+        id: crypto.randomUUID(), role: "assistant", content: reply, at: Date.now(),
       };
       updateActiveMessages((prev) => [...prev, aiMsg]);
       if (authUser && activeConvo) upsertSingleMessage(authUser.id, activeConvo.id, aiMsg);
@@ -700,7 +691,7 @@ function FurinaApp() {
       userMsgCountRef.current += 1;
       if (userMsgCountRef.current % 10 === 0) {
         const recentUserMsgs = (updatedConv?.messages ?? [])
-          .filter((m) => m.role === "user" && m.content && !m.stickerId)
+          .filter((m) => m.role === "user" && m.content)
           .slice(-30)
           .map((m) => m.content);
         if (recentUserMsgs.length >= 3) {
@@ -719,57 +710,7 @@ function FurinaApp() {
 
   function retrySend(m: Msg) { sendMessage(m.failedPayload ?? m.content, m.id); }
 
-  function sendSticker(s: StickerEntry) {
-    setOpenStickers(false);
-    sendMessage("", undefined, s);
-  }
 
-  // ===== Custom sticker upload / delete =====
-  async function handleStickerUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file || !authUser) return;
-    if (file.size > 2 * 1024 * 1024) { toast.error("Stiker maks 2MB"); return; }
-    setUploadingSticker(true);
-    try {
-      const ext = file.name.split(".").pop()?.toLowerCase() || "png";
-      const path = `${authUser.id}/${crypto.randomUUID()}.${ext}`;
-      const { error: upErr } = await supabase.storage.from("stickers").upload(path, file, { upsert: false, contentType: file.type });
-      if (upErr) throw upErr;
-      const { data: signed } = await supabase.storage.from("stickers").createSignedUrl(path, 60 * 60 * 24 * 365);
-      const url = signed?.signedUrl ?? "";
-      const label = file.name.replace(/\.[^.]+$/, "").slice(0, 40) || "stiker";
-      const { data: row, error: insErr } = await supabase
-        .from("user_stickers")
-        .insert({ user_id: authUser.id, url: path, pack_name: "custom", label })
-        .select("id")
-        .single();
-      if (insErr) throw insErr;
-      setCustomStickers((prev) => [
-        ...prev,
-        { id: row!.id, url, label, isDefault: false, dbId: row!.id, storagePath: path },
-      ]);
-      toast.success("Stiker ditambahkan");
-    } catch (err) {
-      console.error(err);
-      toast.error("Gagal upload stiker");
-    } finally {
-      setUploadingSticker(false);
-    }
-  }
-
-  async function deleteCustomSticker(s: StickerEntry) {
-    if (s.isDefault || !s.dbId) return;
-    if (!confirm(`Hapus stiker "${s.label}"?`)) return;
-    try {
-      if (s.storagePath) await supabase.storage.from("stickers").remove([s.storagePath]);
-      await supabase.from("user_stickers").delete().eq("id", s.dbId);
-      setCustomStickers((prev) => prev.filter((x) => x.id !== s.id));
-    } catch (err) {
-      console.error(err);
-      toast.error("Gagal hapus stiker");
-    }
-  }
 
   // ===== TTS controls =====
   function stopTTS() {
