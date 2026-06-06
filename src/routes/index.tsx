@@ -5,11 +5,11 @@ import {
   Send, Settings, Trash2, Plus, Volume2, Image as ImageIcon, RotateCcw,
   Play, Pause, Square, Loader2, MessageSquarePlus, MessagesSquare, Check,
   CheckCheck, Pencil, AlertCircle, LogIn, LogOut, Sparkles, Sun, Moon, X,
-  Smile,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetDescription } from "@/components/ui/sheet";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
