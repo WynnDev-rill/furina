@@ -1230,25 +1230,26 @@ function FurinaApp() {
           const isUser = m.role === "user";
           const isPlaying = playingId === m.id;
           const isLoading = loadingId === m.id;
-          const sticker = m.stickerId ? findSticker(m.stickerId, customStickers) : null;
           return (
-            <div key={m.id} className={`flex max-w-[85%] flex-col animate-fade-in ${isUser ? "self-end items-end" : "self-start items-start"}`}>
-              {sticker ? (
-                <img
-                  src={sticker.url}
-                  alt={sticker.label}
-                  title={sticker.label}
-                  className="h-32 w-32 select-none object-contain drop-shadow-lg"
-                  loading="lazy"
-                />
-              ) : (
-                <div className={`${isUser ? "bubble-user" : "bubble-ai"} rounded-2xl px-4 py-2.5 text-sm shadow-lg`}>
-                  {m.imageDataUrl && (
-                    <img src={m.imageDataUrl} alt="lampiran" className="mb-2 max-h-64 w-full rounded-lg object-cover" loading="lazy" />
-                  )}
-                  {m.content && <div className="whitespace-pre-wrap break-words">{m.content}</div>}
-                </div>
-              )}
+            <div key={m.id} className={`flex w-full flex-col animate-fade-in ${isUser ? "items-end" : "items-start"}`}>
+              <div className={`${isUser ? "bubble-user" : "bubble-ai"} w-fit max-w-[min(92%,640px)] rounded-2xl px-4 py-2.5 text-sm shadow-lg`}>
+                {m.imageDataUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setLightboxUrl(m.imageDataUrl!)}
+                    className="mb-2 block w-full overflow-hidden rounded-lg"
+                    aria-label="Buka gambar"
+                  >
+                    <img
+                      src={m.imageDataUrl}
+                      alt="lampiran"
+                      className="max-h-64 w-full cursor-zoom-in rounded-lg object-cover transition hover:opacity-90"
+                      loading="lazy"
+                    />
+                  </button>
+                )}
+                {m.content && <div className="whitespace-pre-wrap break-words leading-relaxed">{m.content}</div>}
+              </div>
 
               <div className="mt-1 flex items-center gap-1.5 px-1">
                 <span className="text-[10px] opacity-70 tabular-nums" title={new Date(m.at).toLocaleString()}>{fmtTime(m.at)}</span>
@@ -1262,7 +1263,7 @@ function FurinaApp() {
                   </button>
                 )}
 
-                {!isUser && !sticker && (
+                {!isUser && (
                   <div className="flex items-center gap-1">
                     {isLoading && (
                       <span className="glass-chip inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px]">
@@ -1301,6 +1302,7 @@ function FurinaApp() {
             </div>
           );
         })}
+
 
         {sending && (
           <div className="max-w-[85%] self-start bubble-ai rounded-2xl px-4 py-2.5 text-sm shadow-lg">
