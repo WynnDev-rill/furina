@@ -80,20 +80,6 @@ const ChatMsgSchema = z.object({
   content: z.string(),
 });
 
-// Default sticker pack — shared between AI prompt + frontend rendering
-export const DEFAULT_STICKER_PACK = [
-  { id: "happy",  label: "ketawa senang",   tag: "[happy]" },
-  { id: "love",   label: "sayang cinta",    tag: "[love]" },
-  { id: "shy",    label: "malu blushing",   tag: "[shy]" },
-  { id: "shock",  label: "kaget terkejut",  tag: "[shock]" },
-  { id: "think",  label: "mikir bingung",   tag: "[think]" },
-  { id: "smug",   label: "smirk pede",      tag: "[smug]" },
-  { id: "pout",   label: "ngambek marah",   tag: "[pout]" },
-  { id: "sad",    label: "sedih nangis",    tag: "[sad]" },
-  { id: "sleepy", label: "ngantuk lelah",   tag: "[sleepy]" },
-  { id: "wave",   label: "halo dadah",      tag: "[wave]" },
-  { id: "ok",     label: "oke setuju",      tag: "[ok]" },
-];
 
 const ChatInput = z.object({
   messages: z.array(ChatMsgSchema).min(1),
