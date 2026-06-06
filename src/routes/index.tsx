@@ -129,33 +129,9 @@ const VV_SPEAKERS = [
   { id: 52, label: "雀松朱司 — ノーマル" },
 ];
 
-// ===== Default sticker pack (served from public/stickers/default/) =====
-type StickerEntry = {
-  id: string;       // stable id (matches AI tag for defaults; uuid for custom)
-  url: string;      // public URL or signed URL
-  label: string;
-  isDefault: boolean;
-  dbId?: string;    // user_stickers.id for custom ones
-  storagePath?: string;
-};
+// (Sticker feature removed.)
 
-const DEFAULT_STICKERS: StickerEntry[] = [
-  { id: "happy",  url: "/stickers/default/stk_happy.png",  label: "ketawa senang",  isDefault: true },
-  { id: "love",   url: "/stickers/default/stk_love.png",   label: "sayang cinta",   isDefault: true },
-  { id: "shy",    url: "/stickers/default/stk_shy.png",    label: "malu blushing",  isDefault: true },
-  { id: "shock",  url: "/stickers/default/stk_shock.png",  label: "kaget terkejut", isDefault: true },
-  { id: "think",  url: "/stickers/default/stk_think.png",  label: "mikir bingung",  isDefault: true },
-  { id: "smug",   url: "/stickers/default/stk_smug.png",   label: "smirk pede",     isDefault: true },
-  { id: "pout",   url: "/stickers/default/stk_pout.png",   label: "ngambek marah",  isDefault: true },
-  { id: "sad",    url: "/stickers/default/stk_sad.png",    label: "sedih nangis",   isDefault: true },
-  { id: "sleepy", url: "/stickers/default/stk_sleepy.png", label: "ngantuk lelah",  isDefault: true },
-  { id: "wave",   url: "/stickers/default/stk_wave.png",   label: "halo dadah",     isDefault: true },
-  { id: "ok",     url: "/stickers/default/stk_ok.png",     label: "oke setuju",     isDefault: true },
-];
 
-function findSticker(id: string, custom: StickerEntry[] = []): StickerEntry | null {
-  return DEFAULT_STICKERS.find((s) => s.id === id) ?? custom.find((s) => s.id === id) ?? null;
-}
 
 // Natural relative time (display side — matches server humanizeDelta vibe)
 function relTime(ts: number, now: number): string {
