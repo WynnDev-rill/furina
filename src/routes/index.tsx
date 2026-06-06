@@ -42,7 +42,7 @@ export const Route = createFileRoute("/")({
       { title: "Furina — AI Companion" },
       { name: "description", content: "Personal AI companion dengan suara Jepang natural, memori lintas-percakapan, dan kepribadian Furina." },
       { property: "og:title", content: "Furina — AI Companion" },
-      { property: "og:description", content: "Personal AI companion with voice, memory, vision, stickers, and Furina personality." },
+      { property: "og:description", content: "Personal AI companion with voice, memory, vision, and Furina personality." },
     ],
   }),
   component: FurinaApp,
