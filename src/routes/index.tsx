@@ -1216,9 +1216,10 @@ function FurinaApp() {
       </header>
 
       {/* Chat messages */}
-      <main ref={scrollRef} className="absolute inset-0 z-10 flex flex-col gap-3 overflow-y-auto px-3 pt-20 pb-36 sm:px-4">
+      <main ref={scrollRef} className="absolute inset-0 z-10 overflow-y-auto px-3 pt-20 pb-36 sm:px-4">
+        <div className="mx-auto flex min-h-full max-w-3xl flex-col gap-3">
         {messages.length === 0 && (
-          <div className="mt-auto mb-4 max-w-[85%] self-start animate-fade-in">
+          <div className="mt-auto mb-4 w-fit max-w-[min(92%,640px)] self-start animate-fade-in">
             <div className="bubble-ai rounded-2xl px-4 py-3 text-sm shadow-lg">
               Halo… akhirnya kamu datang juga~ ✦ Aku {name}. Ceritakan apa saja.
             </div>
