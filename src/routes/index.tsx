@@ -1423,48 +1423,8 @@ function FurinaApp() {
               <ImageIcon className="h-4 w-4" />
             </Button>
 
-            <Popover open={openStickers} onOpenChange={setOpenStickers}>
-              <PopoverTrigger asChild>
-                <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full" aria-label="Stiker" title="Stiker">
-                  <Smile className="h-4 w-4" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent side="top" className="w-80 p-2">
-                <div className="mb-2 flex items-center justify-between px-1">
-                  <p className="text-xs font-medium">Stiker</p>
-                  <button
-                    onClick={() => stickerFileRef.current?.click()}
-                    className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20"
-                    disabled={!authUser || uploadingSticker}
-                    title={authUser ? "Upload stiker custom" : "Login dulu untuk upload"}
-                  >
-                    {uploadingSticker ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
-                    Tambah
-                  </button>
-                </div>
-                <input ref={stickerFileRef} type="file" accept="image/png,image/webp,image/jpeg" className="hidden" onChange={handleStickerUpload} />
-                <div className="grid max-h-64 grid-cols-4 gap-1.5 overflow-y-auto">
-                  {[...DEFAULT_STICKERS, ...customStickers].map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => sendSticker(s)}
-                      onContextMenu={(e) => {
-                        if (s.isDefault) return;
-                        e.preventDefault();
-                        deleteCustomSticker(s);
-                      }}
-                      title={s.label + (s.isDefault ? "" : " (klik kanan untuk hapus)")}
-                      className="aspect-square overflow-hidden rounded-md p-1 transition hover:bg-muted"
-                    >
-                      <img src={s.url} alt={s.label} className="h-full w-full object-contain" loading="lazy" />
-                    </button>
-                  ))}
-                </div>
-                {!authUser && (
-                  <p className="mt-2 px-1 text-[10px] text-muted-foreground">Login untuk upload stiker custom.</p>
-                )}
-              </PopoverContent>
-            </Popover>
+
+
 
             <Textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
