@@ -316,9 +316,15 @@ async function extractAndStoreMemory(userId: string, userMsg: string, assistantR
         {
           role: "system",
           content:
-            `Hari ini: ${new Date().toISOString().slice(0, 10)}. Ekstrak fakta DURABLE tentang USER (bukan AI) yang layak diingat lama: nama, preferensi, relasi, project, opini, gaya komunikasi, kejadian penting. ` +
-            `Output JSON array. Tiap item: {"content": string (Bahasa Indonesia, third-person, ringkas), "importance": int 1-10 (10 = sangat penting/identitas, 5 = preferensi normal, 2 = sepele), "occurred_at": "YYYY-MM-DD" atau null (kalau user nyebut waktu kejadian seperti "kemarin"/"minggu lalu", hitung relatif ke hari ini)}. ` +
-            `Kalau tidak ada fakta layak ingat, output []. JANGAN ekstrak hal tentang AI/asisten.`,
+            `Hari ini: ${new Date().toISOString().slice(0, 10)}. Ekstrak hal-hal DURABLE tentang USER (bukan AI) yang layak diingat lama: identitas, preferensi, relasi, project, opini, kejadian penting + EMOSI yang terlihat. ` +
+            `Output JSON array. Tiap item: {` +
+            `"content": string (Bahasa Indonesia, sudut pandang ketiga, ringkas), ` +
+            `"kind": "fact" | "episodic" (kejadian konkret dengan waktu) | "preference" | "relation", ` +
+            `"importance": int 1-10 (10 = identitas inti, 5 = preferensi normal, 2 = sepele), ` +
+            `"occurred_at": "YYYY-MM-DD" atau null (kalau user nyebut waktu seperti "kemarin"/"minggu lalu", hitung relatif ke hari ini), ` +
+            `"emotion": "joy"|"sad"|"anger"|"fear"|"love"|"neutral" (vibe user saat menyampaikannya)` +
+            `}. ` +
+            `Kalau tidak ada hal layak ingat, output []. JANGAN ekstrak hal tentang AI/asisten.`,
         },
         { role: "user", content: exchange },
       ],
@@ -329,13 +335,16 @@ async function extractAndStoreMemory(userId: string, userMsg: string, assistantR
   const raw: string = json.choices?.[0]?.message?.content ?? "[]";
   const match = raw.match(/\[[\s\S]*\]/);
   if (!match) return;
-  let facts: Array<{ content: string; importance?: number; occurred_at?: string | null }> = [];
+  type Fact = { content: string; kind?: string; importance?: number; occurred_at?: string | null; emotion?: string };
+  let facts: Fact[] = [];
   try {
     facts = JSON.parse(match[0]);
   } catch {
     return;
   }
-  for (const f of facts.filter((x) => x && typeof x.content === "string" && x.content.trim().length > 3).slice(0, 5)) {
+  const ALLOWED_KINDS = new Set(["fact", "episodic", "preference", "relation"]);
+  const ALLOWED_EMO = new Set(["joy", "sad", "anger", "fear", "love", "neutral"]);
+  for (const f of facts.filter((x) => x && typeof x.content === "string" && x.content.trim().length > 3).slice(0, 6)) {
     try {
       const vec = await embed(f.content);
 
@@ -348,10 +357,9 @@ async function extractAndStoreMemory(userId: string, userMsg: string, assistantR
         include_compressed: false,
       });
       const exactDupe = (dupes as Array<{ id: string; similarity: number; content: string }> | null)?.find(
-        (m) => m.similarity > 0.93,
+        (m) => m.similarity > 0.92,
       );
       if (exactDupe) {
-        // Bump importance kalau lebih tinggi, refresh last_accessed_at
         await supabaseAdmin.from("memories").update({
           last_accessed_at: new Date().toISOString(),
           importance: Math.max(f.importance ?? 5, 5),
@@ -361,21 +369,25 @@ async function extractAndStoreMemory(userId: string, userMsg: string, assistantR
 
       const importance = Math.min(10, Math.max(1, Math.round(f.importance ?? 5)));
       const occurred_at = f.occurred_at && /^\d{4}-\d{2}-\d{2}/.test(f.occurred_at) ? f.occurred_at : null;
+      const kind = ALLOWED_KINDS.has(f.kind ?? "") ? f.kind! : "fact";
+      const emotion = ALLOWED_EMO.has(f.emotion ?? "") ? f.emotion! : null;
 
       await supabaseAdmin.from("memories").insert({
         content: f.content,
         embedding: vec as unknown as string,
         user_id: userId,
         character_id: CHARACTER_ID,
-        kind: "fact",
+        kind,
         importance,
         occurred_at,
+        emotion,
       });
     } catch (e) {
       console.error("Failed storing memory:", e);
     }
   }
 }
+
 
 // =================== Conversation summarization ===================
 // Called by frontend every N messages so the AI can remember whole conversations long-term.
