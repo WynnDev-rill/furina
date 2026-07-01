@@ -159,20 +159,31 @@ export const chatWithFurina = createServerFn({ method: "POST" })
           query_embedding: qVec as unknown as string,
           match_user_id: data.userId,
           match_character_id: CHARACTER_ID,
-          match_count: 50,
+          match_count: 30,
           include_compressed: false,
         });
         if (matches && matches.length) {
-          // Already sorted by combined score. Take top 15.
-          const top = (matches as Array<{ id: string; content: string; kind: string; occurred_at: string | null; importance: number }>).slice(0, 15);
-          const facts = top.filter((m) => m.kind === "fact" || m.kind === "meta_summary");
+          type Row = { id: string; content: string; kind: string; occurred_at: string | null; importance: number };
+          const top = (matches as Row[]).slice(0, 20);
+          // FIX: sertakan semua jenis memori (fact/episodic/preference/relation/meta_summary)
+          const facts = top.filter((m) =>
+            ["fact", "preference", "relation", "meta_summary"].includes(m.kind),
+          );
+          const episodic = top.filter((m) => m.kind === "episodic");
           const summaries = top.filter((m) => m.kind === "summary");
           const styles = top.filter((m) => m.kind === "style");
 
           if (facts.length) {
             memoryContext += "\n\nMEMORIES tentang pengguna (pakai natural, jangan dilist):\n" +
-              facts.slice(0, 10).map((m) => {
+              facts.slice(0, 12).map((m) => {
                 const when = m.occurred_at ? ` (${humanizeOccurredAt(m.occurred_at)})` : "";
+                return `- ${m.content}${when}`;
+              }).join("\n");
+          }
+          if (episodic.length) {
+            memoryContext += "\n\nKEJADIAN YANG PERNAH USER CERITAKAN (recall dengan empati kalau relevan):\n" +
+              episodic.slice(0, 6).map((m) => {
+                const when = m.occurred_at ? ` — ${humanizeOccurredAt(m.occurred_at)}` : "";
                 return `- ${m.content}${when}`;
               }).join("\n");
           }
@@ -182,14 +193,36 @@ export const chatWithFurina = createServerFn({ method: "POST" })
           }
           if (styles.length) {
             memoryContext += "\n\nGAYA BICARA PENGGUNA (tirukan ritme & vocab-nya, tetap karakterku):\n" +
-              styles.slice(0, 2).map((m) => `- ${m.content}`).join("\n");
+              styles.slice(0, 1).map((m) => `- ${m.content}`).join("\n");
           }
 
           accessedIds.push(...top.map((m) => m.id));
+          console.log(`[furina] retrieved ${top.length} memories (facts=${facts.length}, episodic=${episodic.length}, summaries=${summaries.length})`);
         }
       }
     } catch (e) {
       console.error("RAG retrieval failed:", e);
+    }
+
+    // Entity graph injection — orang/hal yang user kenal
+    let entityContext = "";
+    try {
+      const { data: ents } = await supabaseAdmin
+        .from("entities")
+        .select("name, type, notes, mention_count")
+        .eq("user_id", data.userId)
+        .eq("character_id", CHARACTER_ID)
+        .order("mention_count", { ascending: false })
+        .limit(15);
+      if (ents && ents.length) {
+        entityContext = "\n\nORANG/HAL YANG USER KENAL (referensi natural, jangan dilist):\n" +
+          ents.map((e) => {
+            const note = e.notes ? ` — ${e.notes}` : "";
+            return `- ${e.name} (${e.type})${note}`;
+          }).join("\n");
+      }
+    } catch (e) {
+      console.error("Entity fetch failed:", e);
     }
 
     // Update last_accessed_at untuk memori yang dipakai (background, non-blocking)
@@ -198,6 +231,7 @@ export const chatWithFurina = createServerFn({ method: "POST" })
         if (error) console.warn("update last_accessed_at:", error.message);
       });
     }
+
 
     // Style profile injection
     let styleNote = "";
