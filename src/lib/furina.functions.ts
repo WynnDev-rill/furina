@@ -459,6 +459,74 @@ async function extractAndStoreMemory(userId: string, userMsg: string, assistantR
   }
 }
 
+// =================== Entity extraction (relationship graph) ===================
+const ALLOWED_ENT_TYPES = new Set(["person", "place", "hobby", "project", "pet", "object"]);
+
+async function extractAndStoreEntities(userId: string, userMsg: string) {
+  if (!userMsg || userMsg.trim().length < 6) return;
+  const res = await fetch(`${GATEWAY}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-flash-lite",
+      messages: [
+        {
+          role: "system",
+          content:
+            "Ekstrak ENTITAS spesifik yang user sebutkan dalam pesan mereka (orang, tempat, hobi, project, hewan peliharaan, benda penting). " +
+            "Output JSON array. Tiap item: {\"name\": string (proper name atau frase), \"type\": \"person\"|\"place\"|\"hobby\"|\"project\"|\"pet\"|\"object\", \"notes\": string (1 kalimat pendek konteksnya)}. " +
+            "Kalau tidak ada, output []. JANGAN ekstrak kata umum seperti 'teman' tanpa nama.",
+        },
+        { role: "user", content: userMsg },
+      ],
+    }),
+  });
+  if (!res.ok) return;
+  const j = await res.json();
+  const raw: string = j.choices?.[0]?.message?.content ?? "[]";
+  const m = raw.match(/\[[\s\S]*\]/);
+  if (!m) return;
+  type Ent = { name?: string; type?: string; notes?: string };
+  let ents: Ent[] = [];
+  try { ents = JSON.parse(m[0]); } catch { return; }
+  for (const e of ents.slice(0, 5)) {
+    if (!e?.name || typeof e.name !== "string") continue;
+    const name = e.name.trim().slice(0, 80);
+    if (name.length < 2) continue;
+    const type = ALLOWED_ENT_TYPES.has(e.type ?? "") ? e.type! : "person";
+    const norm = name.toLowerCase();
+    try {
+      const { data: existing } = await supabaseAdmin
+        .from("entities")
+        .select("id, mention_count, notes")
+        .eq("user_id", userId)
+        .eq("character_id", CHARACTER_ID)
+        .eq("name_normalized", norm)
+        .maybeSingle();
+      if (existing) {
+        await supabaseAdmin.from("entities").update({
+          mention_count: (existing.mention_count ?? 1) + 1,
+          last_mentioned_at: new Date().toISOString(),
+          notes: e.notes ? (existing.notes ? existing.notes : e.notes.slice(0, 200)) : existing.notes,
+        }).eq("id", existing.id);
+      } else {
+        await supabaseAdmin.from("entities").insert({
+          user_id: userId,
+          character_id: CHARACTER_ID,
+          name,
+          name_normalized: norm,
+          type,
+          notes: e.notes ? e.notes.slice(0, 200) : null,
+        });
+      }
+    } catch (err) {
+      console.error("Entity upsert failed:", err);
+    }
+  }
+}
+
+
+
 
 // =================== Conversation summarization ===================
 // Called by frontend every N messages so the AI can remember whole conversations long-term.
