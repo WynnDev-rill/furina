@@ -123,7 +123,17 @@ VARIASI BALASAN (anti-repetisi):
 - Setiap balasan harus berbeda struktur pembuka dari 3-5 balasanmu terakhir. Jangan template.
 - Boleh interjeksi pendek, langsung topik, atau pertanyaan balik — variasikan.
 
+MULTI-BUBBLE (WAJIB DIPATUHI):
+- Balas 1-3 bubble berurutan (SEPERTI MANUSIA di chat). PISAHKAN tiap bubble dengan token literal: <<<SPLIT>>> (masing-masing di baris sendiri, tanpa kutip).
+- 1 bubble → chit-chat pendek, sapaan, jawaban singkat, atau saat user hanya 1-8 kata.
+- 2 bubble → ada nuansa: reaksi dulu, lalu isi utama; ATAU jawaban + pertanyaan balik.
+- 3 bubble → topik dalam/emosional/kompleks: reaksi → isi utama → closing/ajakan halus. HANYA saat perlu.
+- JANGAN pernah lebih dari 3 bubble. JANGAN paksa 3 kalau topik ringan.
+- Setiap bubble berdiri sendiri sebagai 1 pesan chat manusiawi (tidak nyambung setengah kalimat).
 
+PANJANG ADAPTIF:
+- Sesuaikan panjang total dengan panjang user. Kalau user pendek → kamu pendek. Kalau user curhat panjang → boleh 2-3 bubble dengan bobot.
+- Total semua bubble ≤ 400 kata. Idealnya jauh lebih pendek.
 
 YANG DILARANG:
 - Jangan pernah bilang "aku AI" atau "model bahasa".
@@ -131,6 +141,7 @@ YANG DILARANG:
 - Jangan ceramah panjang atau bullet kecuali diminta.
 
 Pakai MEMORIES & RINGKASAN PERCAKAPAN LAMA secara natural — seperti teman yang ingat detail, bukan dilist.`;
+
 
 export const chatWithFurina = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => ChatInput.parse(d))
@@ -148,20 +159,31 @@ export const chatWithFurina = createServerFn({ method: "POST" })
           query_embedding: qVec as unknown as string,
           match_user_id: data.userId,
           match_character_id: CHARACTER_ID,
-          match_count: 50,
+          match_count: 30,
           include_compressed: false,
         });
         if (matches && matches.length) {
-          // Already sorted by combined score. Take top 15.
-          const top = (matches as Array<{ id: string; content: string; kind: string; occurred_at: string | null; importance: number }>).slice(0, 15);
-          const facts = top.filter((m) => m.kind === "fact" || m.kind === "meta_summary");
+          type Row = { id: string; content: string; kind: string; occurred_at: string | null; importance: number };
+          const top = (matches as Row[]).slice(0, 20);
+          // FIX: sertakan semua jenis memori (fact/episodic/preference/relation/meta_summary)
+          const facts = top.filter((m) =>
+            ["fact", "preference", "relation", "meta_summary"].includes(m.kind),
+          );
+          const episodic = top.filter((m) => m.kind === "episodic");
           const summaries = top.filter((m) => m.kind === "summary");
           const styles = top.filter((m) => m.kind === "style");
 
           if (facts.length) {
             memoryContext += "\n\nMEMORIES tentang pengguna (pakai natural, jangan dilist):\n" +
-              facts.slice(0, 10).map((m) => {
+              facts.slice(0, 12).map((m) => {
                 const when = m.occurred_at ? ` (${humanizeOccurredAt(m.occurred_at)})` : "";
+                return `- ${m.content}${when}`;
+              }).join("\n");
+          }
+          if (episodic.length) {
+            memoryContext += "\n\nKEJADIAN YANG PERNAH USER CERITAKAN (recall dengan empati kalau relevan):\n" +
+              episodic.slice(0, 6).map((m) => {
+                const when = m.occurred_at ? ` — ${humanizeOccurredAt(m.occurred_at)}` : "";
                 return `- ${m.content}${when}`;
               }).join("\n");
           }
@@ -171,14 +193,36 @@ export const chatWithFurina = createServerFn({ method: "POST" })
           }
           if (styles.length) {
             memoryContext += "\n\nGAYA BICARA PENGGUNA (tirukan ritme & vocab-nya, tetap karakterku):\n" +
-              styles.slice(0, 2).map((m) => `- ${m.content}`).join("\n");
+              styles.slice(0, 1).map((m) => `- ${m.content}`).join("\n");
           }
 
           accessedIds.push(...top.map((m) => m.id));
+          console.log(`[furina] retrieved ${top.length} memories (facts=${facts.length}, episodic=${episodic.length}, summaries=${summaries.length})`);
         }
       }
     } catch (e) {
       console.error("RAG retrieval failed:", e);
+    }
+
+    // Entity graph injection — orang/hal yang user kenal
+    let entityContext = "";
+    try {
+      const { data: ents } = await supabaseAdmin
+        .from("entities")
+        .select("name, type, notes, mention_count")
+        .eq("user_id", data.userId)
+        .eq("character_id", CHARACTER_ID)
+        .order("mention_count", { ascending: false })
+        .limit(15);
+      if (ents && ents.length) {
+        entityContext = "\n\nORANG/HAL YANG USER KENAL (referensi natural, jangan dilist):\n" +
+          ents.map((e) => {
+            const note = e.notes ? ` — ${e.notes}` : "";
+            return `- ${e.name} (${e.type})${note}`;
+          }).join("\n");
+      }
+    } catch (e) {
+      console.error("Entity fetch failed:", e);
     }
 
     // Update last_accessed_at untuk memori yang dipakai (background, non-blocking)
@@ -187,6 +231,7 @@ export const chatWithFurina = createServerFn({ method: "POST" })
         if (error) console.warn("update last_accessed_at:", error.message);
       });
     }
+
 
     // Style profile injection
     let styleNote = "";
@@ -237,11 +282,25 @@ export const chatWithFurina = createServerFn({ method: "POST" })
       gapNote = `\nJEDA SEJAK BALASANMU TERAKHIR: ${phrase}.${extra} JANGAN sebut angka pasti.`;
     }
 
+    // Adaptive length hint dari panjang pesan user terakhir
+    const userWords = userText.trim().split(/\s+/).filter(Boolean).length;
+    const deepSignals = /(kenapa|gimana kalau|aku ngerasa|aku merasa|sedih|takut|bingung|capek banget|cerita dong|curhat)/i.test(userText);
+    let lengthHint = "";
+    if (userWords <= 8 && !deepSignals) {
+      lengthHint = "\n\nMODE PANJANG: user singkat — balas 1 bubble pendek (5-20 kata). JANGAN pakai 2-3 bubble.";
+    } else if (userWords <= 25 && !deepSignals) {
+      lengthHint = "\n\nMODE PANJANG: sedang — 1-2 bubble, masing-masing ringkas.";
+    } else if (deepSignals || userWords > 40) {
+      lengthHint = "\n\nMODE PANJANG: user curhat/topik dalam — boleh 2-3 bubble, tapi tiap bubble tetap seperti pesan chat manusia (bukan paragraf).";
+    } else {
+      lengthHint = "\n\nMODE PANJANG: 1-2 bubble, adaptif.";
+    }
+
     const system = `${data.systemPersona?.trim() || DEFAULT_PERSONA}
 Nama kamu: ${data.characterName}.
 ${langHint}
 
-KONTEKS WAKTU: ${realtimeContextString()}${gapNote}${memoryContext}${styleNote}`;
+KONTEKS WAKTU: ${realtimeContextString()}${gapNote}${memoryContext}${entityContext}${styleNote}${lengthHint}`;
 
     const built: Array<{ role: string; content: unknown }> = data.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
     const lastIdx = data.messages.length - 1;
@@ -279,12 +338,24 @@ KONTEKS WAKTU: ${realtimeContextString()}${gapNote}${memoryContext}${styleNote}`
     const json = await res.json();
     const reply: string = json.choices?.[0]?.message?.content ?? "";
 
+    // Split multi-bubble output (max 3 bubbles)
+    const bubbles = reply
+      .split(/\s*<<<\s*SPLIT\s*>>>\s*/i)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+      .slice(0, 3);
+    const finalBubbles = bubbles.length ? bubbles : [reply.trim() || "…"];
+
     extractAndStoreMemory(data.userId, userText, reply).catch((e) =>
       console.error("Memory extraction failed:", e),
     );
+    extractAndStoreEntities(data.userId, userText).catch((e) =>
+      console.error("Entity extraction failed:", e),
+    );
 
-    return { reply };
+    return { reply: finalBubbles.join("\n\n"), bubbles: finalBubbles };
   });
+
 
 function humanizeOccurredAt(iso: string): string {
   const t = new Date(iso).getTime();
@@ -387,6 +458,74 @@ async function extractAndStoreMemory(userId: string, userMsg: string, assistantR
     }
   }
 }
+
+// =================== Entity extraction (relationship graph) ===================
+const ALLOWED_ENT_TYPES = new Set(["person", "place", "hobby", "project", "pet", "object"]);
+
+async function extractAndStoreEntities(userId: string, userMsg: string) {
+  if (!userMsg || userMsg.trim().length < 6) return;
+  const res = await fetch(`${GATEWAY}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-flash-lite",
+      messages: [
+        {
+          role: "system",
+          content:
+            "Ekstrak ENTITAS spesifik yang user sebutkan dalam pesan mereka (orang, tempat, hobi, project, hewan peliharaan, benda penting). " +
+            "Output JSON array. Tiap item: {\"name\": string (proper name atau frase), \"type\": \"person\"|\"place\"|\"hobby\"|\"project\"|\"pet\"|\"object\", \"notes\": string (1 kalimat pendek konteksnya)}. " +
+            "Kalau tidak ada, output []. JANGAN ekstrak kata umum seperti 'teman' tanpa nama.",
+        },
+        { role: "user", content: userMsg },
+      ],
+    }),
+  });
+  if (!res.ok) return;
+  const j = await res.json();
+  const raw: string = j.choices?.[0]?.message?.content ?? "[]";
+  const m = raw.match(/\[[\s\S]*\]/);
+  if (!m) return;
+  type Ent = { name?: string; type?: string; notes?: string };
+  let ents: Ent[] = [];
+  try { ents = JSON.parse(m[0]); } catch { return; }
+  for (const e of ents.slice(0, 5)) {
+    if (!e?.name || typeof e.name !== "string") continue;
+    const name = e.name.trim().slice(0, 80);
+    if (name.length < 2) continue;
+    const type = ALLOWED_ENT_TYPES.has(e.type ?? "") ? e.type! : "person";
+    const norm = name.toLowerCase();
+    try {
+      const { data: existing } = await supabaseAdmin
+        .from("entities")
+        .select("id, mention_count, notes")
+        .eq("user_id", userId)
+        .eq("character_id", CHARACTER_ID)
+        .eq("name_normalized", norm)
+        .maybeSingle();
+      if (existing) {
+        await supabaseAdmin.from("entities").update({
+          mention_count: (existing.mention_count ?? 1) + 1,
+          last_mentioned_at: new Date().toISOString(),
+          notes: e.notes ? (existing.notes ? existing.notes : e.notes.slice(0, 200)) : existing.notes,
+        }).eq("id", existing.id);
+      } else {
+        await supabaseAdmin.from("entities").insert({
+          user_id: userId,
+          character_id: CHARACTER_ID,
+          name,
+          name_normalized: norm,
+          type,
+          notes: e.notes ? e.notes.slice(0, 200) : null,
+        });
+      }
+    } catch (err) {
+      console.error("Entity upsert failed:", err);
+    }
+  }
+}
+
+
 
 
 // =================== Conversation summarization ===================
