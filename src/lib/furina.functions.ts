@@ -282,11 +282,25 @@ export const chatWithFurina = createServerFn({ method: "POST" })
       gapNote = `\nJEDA SEJAK BALASANMU TERAKHIR: ${phrase}.${extra} JANGAN sebut angka pasti.`;
     }
 
+    // Adaptive length hint dari panjang pesan user terakhir
+    const userWords = userText.trim().split(/\s+/).filter(Boolean).length;
+    const deepSignals = /(kenapa|gimana kalau|aku ngerasa|aku merasa|sedih|takut|bingung|capek banget|cerita dong|curhat)/i.test(userText);
+    let lengthHint = "";
+    if (userWords <= 8 && !deepSignals) {
+      lengthHint = "\n\nMODE PANJANG: user singkat — balas 1 bubble pendek (5-20 kata). JANGAN pakai 2-3 bubble.";
+    } else if (userWords <= 25 && !deepSignals) {
+      lengthHint = "\n\nMODE PANJANG: sedang — 1-2 bubble, masing-masing ringkas.";
+    } else if (deepSignals || userWords > 40) {
+      lengthHint = "\n\nMODE PANJANG: user curhat/topik dalam — boleh 2-3 bubble, tapi tiap bubble tetap seperti pesan chat manusia (bukan paragraf).";
+    } else {
+      lengthHint = "\n\nMODE PANJANG: 1-2 bubble, adaptif.";
+    }
+
     const system = `${data.systemPersona?.trim() || DEFAULT_PERSONA}
 Nama kamu: ${data.characterName}.
 ${langHint}
 
-KONTEKS WAKTU: ${realtimeContextString()}${gapNote}${memoryContext}${styleNote}`;
+KONTEKS WAKTU: ${realtimeContextString()}${gapNote}${memoryContext}${entityContext}${styleNote}${lengthHint}`;
 
     const built: Array<{ role: string; content: unknown }> = data.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
     const lastIdx = data.messages.length - 1;
@@ -324,12 +338,24 @@ KONTEKS WAKTU: ${realtimeContextString()}${gapNote}${memoryContext}${styleNote}`
     const json = await res.json();
     const reply: string = json.choices?.[0]?.message?.content ?? "";
 
+    // Split multi-bubble output (max 3 bubbles)
+    const bubbles = reply
+      .split(/\s*<<<\s*SPLIT\s*>>>\s*/i)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+      .slice(0, 3);
+    const finalBubbles = bubbles.length ? bubbles : [reply.trim() || "…"];
+
     extractAndStoreMemory(data.userId, userText, reply).catch((e) =>
       console.error("Memory extraction failed:", e),
     );
+    extractAndStoreEntities(data.userId, userText).catch((e) =>
+      console.error("Entity extraction failed:", e),
+    );
 
-    return { reply };
+    return { reply: finalBubbles.join("\n\n"), bubbles: finalBubbles };
   });
+
 
 function humanizeOccurredAt(iso: string): string {
   const t = new Date(iso).getTime();
