@@ -660,7 +660,7 @@ function FurinaApp() {
       const lastAssistant = [...currentMsgs].reverse().find((m) => m.role === "assistant");
       const millisSinceLastAssistant = lastAssistant ? Math.max(0, Date.now() - lastAssistant.at) : undefined;
 
-      const { reply } = await chat({
+      const chatResult = await chat({
         data: {
           messages: ctxMsgs,
           characterName: name,
@@ -672,20 +672,36 @@ function FurinaApp() {
           conversationId: activeId,
         },
       });
+      const bubbles: string[] = (chatResult as { bubbles?: string[]; reply: string }).bubbles?.length
+        ? (chatResult as { bubbles: string[] }).bubbles
+        : [chatResult.reply];
 
       updateMessageById(userMsgId, { status: "read" });
 
-      const aiMsg: Msg = {
-        id: crypto.randomUUID(), role: "assistant", content: reply, at: Date.now(),
-      };
-      updateActiveMessages((prev) => [...prev, aiMsg]);
-      if (authUser && activeConvo) upsertSingleMessage(authUser.id, activeConvo.id, aiMsg);
+      // Render bubbles one-by-one with typing delay based on length
+      let lastAiMsg: Msg | null = null;
+      for (let i = 0; i < bubbles.length; i++) {
+        const text = bubbles[i];
+        if (i > 0) {
+          const words = text.split(/\s+/).length;
+          const delayMs = Math.min(1600, 350 + words * 55);
+          await new Promise((r) => setTimeout(r, delayMs));
+        }
+        const aiMsg: Msg = {
+          id: crypto.randomUUID(), role: "assistant", content: text, at: Date.now(),
+        };
+        lastAiMsg = aiMsg;
+        updateActiveMessages((prev) => [...prev, aiMsg]);
+        if (authUser && activeConvo) upsertSingleMessage(authUser.id, activeConvo.id, aiMsg);
+      }
 
-      preGenerateAudio(aiMsg);
+      // Audio hanya di bubble terakhir
+      if (lastAiMsg) preGenerateAudio(lastAiMsg);
 
       // Background: maybe summarize
       const updatedConv = conversations.find((c) => c.id === activeId);
-      if (updatedConv) maybeSummarize({ ...updatedConv, messages: [...updatedConv.messages, aiMsg] });
+      if (updatedConv && lastAiMsg) maybeSummarize({ ...updatedConv, messages: [...updatedConv.messages, lastAiMsg] });
+
 
       // Style profile update every 10 user messages
       userMsgCountRef.current += 1;
