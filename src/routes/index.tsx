@@ -526,7 +526,7 @@ function FurinaApp() {
     }, 800);
   }, [authUser, buildSettings]);
 
-  useEffect(() => { inputRef.current?.focus(); }, []);
+  // Auto-focus dihapus agar keyboard tidak muncul otomatis di mobile
 
   function toggleTheme() {
     const next: ThemeMode = theme === "dark" ? "light" : "dark";
@@ -724,7 +724,6 @@ function FurinaApp() {
       updateMessageById(userMsgId, { status: "failed", failedPayload: trimmed });
     } finally {
       setSending(false);
-      setTimeout(() => inputRef.current?.focus(), 0);
     }
   }
 
