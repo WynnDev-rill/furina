@@ -526,7 +526,7 @@ function FurinaApp() {
     }, 800);
   }, [authUser, buildSettings]);
 
-  useEffect(() => { inputRef.current?.focus(); }, []);
+  // Auto-focus dihapus agar keyboard tidak muncul otomatis di mobile
 
   function toggleTheme() {
     const next: ThemeMode = theme === "dark" ? "light" : "dark";
