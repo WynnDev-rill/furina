@@ -813,7 +813,7 @@ export const listMemories = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { data: rows, error } = await supabaseAdmin
       .from("memories")
-      .select("id, content, created_at, kind, importance, occurred_at, last_accessed_at, compressed")
+      .select("id, content, created_at, kind, importance, occurred_at, last_accessed_at, compressed, emotion")
       .eq("user_id", data.userId)
       .eq("character_id", CHARACTER_ID)
       .order("importance", { ascending: false })
