@@ -724,7 +724,6 @@ function FurinaApp() {
       updateMessageById(userMsgId, { status: "failed", failedPayload: trimmed });
     } finally {
       setSending(false);
-      setTimeout(() => inputRef.current?.focus(), 0);
     }
   }
 
