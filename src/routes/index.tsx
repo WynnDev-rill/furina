@@ -1148,81 +1148,150 @@ function FurinaApp() {
                       } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
                     }}><Plus className="h-4 w-4" /></Button>
                   </div>
-                  <div className="max-h-72 space-y-1 overflow-y-auto rounded-md border p-2 text-sm">
-                    {memories.length === 0 && <p className="text-muted-foreground">Belum ada memori.</p>}
-                    {memories.map((m) => {
-                      const isEditing = editingMemId === m.id;
-                      return (
-                        <div key={m.id} className="rounded p-1.5 hover:bg-muted/60">
-                          {isEditing ? (
-                            <div className="space-y-2">
-                              <Textarea
-                                value={editingMemContent}
-                                onChange={(e) => setEditingMemContent(e.target.value)}
-                                rows={3}
-                                className="text-sm"
-                              />
-                              <div className="flex items-center gap-2">
-                                <Label className="text-[10px] text-muted-foreground">Penting</Label>
-                                <Slider
-                                  value={[editingMemImportance]}
-                                  min={1} max={10} step={1}
-                                  onValueChange={(v) => setEditingMemImportance(v[0] ?? 5)}
-                                  className="flex-1"
-                                />
-                                <span className="w-6 text-right text-[11px] font-medium">{editingMemImportance}</span>
-                              </div>
-                              <div className="flex justify-end gap-2">
-                                <Button size="sm" variant="ghost" onClick={() => setEditingMemId(null)}>Batal</Button>
-                                <Button size="sm" onClick={async () => {
-                                  if (editingMemContent.trim().length < 3) return;
-                                  try {
-                                    await updateMemFn({ data: {
-                                      id: m.id, userId,
-                                      content: editingMemContent.trim(),
-                                      importance: editingMemImportance,
-                                    }});
-                                    setEditingMemId(null);
-                                    refreshMemories();
-                                    toast.success("Memori diperbarui");
-                                  } catch (e) { toast.error(e instanceof Error ? e.message : "Gagal simpan"); }
-                                }}>Simpan</Button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="flex items-start gap-2">
-                              {m.kind === "summary" && <span className="mt-0.5 rounded bg-primary/20 px-1 text-[9px] font-semibold uppercase">ringkasan</span>}
-                              {m.kind === "style" && <span className="mt-0.5 rounded bg-accent/30 px-1 text-[9px] font-semibold uppercase">gaya</span>}
-                              <span className="flex-1 break-words">{m.content}</span>
-                              <span className="mt-0.5 rounded bg-muted px-1 text-[9px] text-muted-foreground" title="Importance">
-                                {m.importance ?? 5}
-                              </span>
-                              <button
-                                onClick={() => {
-                                  setEditingMemId(m.id);
-                                  setEditingMemContent(m.content);
-                                  setEditingMemImportance(m.importance ?? 5);
-                                }}
-                                className="text-muted-foreground hover:text-primary"
-                                title="Edit"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                onClick={async () => { await delMemFn({ data: { id: m.id, userId } }); refreshMemories(); }}
-                                className="text-muted-foreground hover:text-destructive"
-                                title="Hapus"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+
+                  {/* Filter chips */}
+                  <div className="flex flex-wrap gap-1">
+                    {[
+                      { id: "all", label: "Semua" },
+                      { id: "fact", label: "Fakta" },
+                      { id: "episodic", label: "Kejadian" },
+                      { id: "preference", label: "Preferensi" },
+                      { id: "relation", label: "Relasi" },
+                      { id: "style", label: "Gaya" },
+                      { id: "summary", label: "Ringkasan" },
+                    ].map((f) => (
+                      <button
+                        key={f.id}
+                        onClick={() => setMemFilter(f.id)}
+                        className={`rounded-full border px-2 py-0.5 text-[10px] transition ${
+                          memFilter === f.id ? "border-primary bg-primary/15 text-primary" : "border-border text-muted-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
                   </div>
+                  <Input placeholder="Cari memori…" value={memSearch} onChange={(e) => setMemSearch(e.target.value)} className="h-8 text-xs" />
+
+                  <div className="max-h-80 space-y-1 overflow-y-auto rounded-md border p-2 text-sm">
+                    {(() => {
+                      const q = memSearch.trim().toLowerCase();
+                      const filtered = memories.filter((m) => {
+                        if (memFilter !== "all" && (m.kind ?? "fact") !== memFilter) return false;
+                        if (q && !m.content.toLowerCase().includes(q)) return false;
+                        return true;
+                      });
+                      if (filtered.length === 0) return <p className="text-muted-foreground">Tidak ada memori cocok.</p>;
+                      const kindColor: Record<string, string> = {
+                        fact: "bg-muted",
+                        episodic: "bg-blue-500/20 text-blue-600 dark:text-blue-300",
+                        preference: "bg-emerald-500/20 text-emerald-600 dark:text-emerald-300",
+                        relation: "bg-purple-500/20 text-purple-600 dark:text-purple-300",
+                        style: "bg-accent/40",
+                        summary: "bg-primary/20",
+                        meta_summary: "bg-primary/20",
+                      };
+                      return filtered.map((m) => {
+                        const isEditing = editingMemId === m.id;
+                        const kind = m.kind ?? "fact";
+                        return (
+                          <div key={m.id} className="rounded p-1.5 hover:bg-muted/60">
+                            {isEditing ? (
+                              <div className="space-y-2">
+                                <Textarea
+                                  value={editingMemContent}
+                                  onChange={(e) => setEditingMemContent(e.target.value)}
+                                  rows={3}
+                                  className="text-sm"
+                                />
+                                <div className="flex items-center gap-2">
+                                  <Label className="text-[10px] text-muted-foreground">Penting</Label>
+                                  <Slider
+                                    value={[editingMemImportance]}
+                                    min={1} max={10} step={1}
+                                    onValueChange={(v) => setEditingMemImportance(v[0] ?? 5)}
+                                    className="flex-1"
+                                  />
+                                  <span className="w-6 text-right text-[11px] font-medium">{editingMemImportance}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Label className="text-[10px] text-muted-foreground">Tanggal</Label>
+                                  <Input
+                                    type="date"
+                                    value={editingMemOccurred}
+                                    onChange={(e) => setEditingMemOccurred(e.target.value)}
+                                    className="h-7 flex-1 text-xs"
+                                  />
+                                  {editingMemOccurred && (
+                                    <button onClick={() => setEditingMemOccurred("")} className="text-[10px] text-muted-foreground hover:text-destructive">×</button>
+                                  )}
+                                </div>
+                                <div className="flex justify-end gap-2">
+                                  <Button size="sm" variant="ghost" onClick={() => setEditingMemId(null)}>Batal</Button>
+                                  <Button size="sm" onClick={async () => {
+                                    if (editingMemContent.trim().length < 3) return;
+                                    try {
+                                      await updateMemFn({ data: {
+                                        id: m.id, userId,
+                                        content: editingMemContent.trim(),
+                                        importance: editingMemImportance,
+                                        occurred_at: editingMemOccurred || null,
+                                      }});
+                                      setEditingMemId(null);
+                                      refreshMemories();
+                                      toast.success("Memori diperbarui");
+                                    } catch (e) { toast.error(e instanceof Error ? e.message : "Gagal simpan"); }
+                                  }}>Simpan</Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-start gap-2">
+                                <span className={`mt-0.5 shrink-0 rounded px-1 text-[9px] font-semibold uppercase ${kindColor[kind] ?? "bg-muted"}`}>
+                                  {kind}
+                                </span>
+                                <div className="flex-1 min-w-0">
+                                  <p className="break-words">{m.content}</p>
+                                  {(m.occurred_at || m.emotion) && (
+                                    <p className="mt-0.5 text-[10px] text-muted-foreground">
+                                      {m.occurred_at && <>📅 {new Date(m.occurred_at).toLocaleDateString("id-ID")}</>}
+                                      {m.occurred_at && m.emotion && " · "}
+                                      {m.emotion && <>💭 {m.emotion}</>}
+                                    </p>
+                                  )}
+                                </div>
+                                <span className="mt-0.5 rounded bg-muted px-1 text-[9px] text-muted-foreground" title="Importance">
+                                  {m.importance ?? 5}
+                                </span>
+                                <button
+                                  onClick={() => {
+                                    setEditingMemId(m.id);
+                                    setEditingMemContent(m.content);
+                                    setEditingMemImportance(m.importance ?? 5);
+                                    setEditingMemOccurred(m.occurred_at ? m.occurred_at.slice(0, 10) : "");
+                                  }}
+                                  className="text-muted-foreground hover:text-primary"
+                                  title="Edit"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  onClick={async () => { await delMemFn({ data: { id: m.id, userId } }); refreshMemories(); }}
+                                  className="text-muted-foreground hover:text-destructive"
+                                  title="Hapus"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">{memories.length} memori tersimpan.</p>
 
                 </section>
+
 
                 <Separator />
 
