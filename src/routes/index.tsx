@@ -537,6 +537,9 @@ function FurinaApp() {
   // ===== Auto-persist settings to cloud (debounced) =====
   useEffect(() => {
     if (!authUser || !initialLoadDoneRef.current) return;
+    // WAJIB: tunggu sampai pullFromCloud selesai supaya push tidak menimpa
+    // data cloud dengan state kosong hasil mount awal.
+    if (!cloudHydratedRef.current) return;
     if (settingsDebounceRef.current) clearTimeout(settingsDebounceRef.current);
     settingsDebounceRef.current = setTimeout(() => {
       pushSettingsTo(authUser.id, buildSettings()).catch(() => {});
