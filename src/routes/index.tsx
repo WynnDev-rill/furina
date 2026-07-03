@@ -281,7 +281,9 @@ function FurinaApp() {
   const applySettings = useCallback((s: SettingsSnapshot) => {
     if (s.bg) setBg(s.bg);
     if (s.name) setName(s.name);
-    if (typeof s.persona === "string") setPersona(s.persona);
+    // Persona: hanya overwrite kalau cloud punya isi non-kosong.
+    // String kosong dari cloud dianggap "belum diset" biar tidak menimpa persona lokal.
+    if (typeof s.persona === "string" && s.persona.trim().length > 0) setPersona(s.persona);
     if (s.lang) setLanguage(s.lang as typeof language);
     if (typeof s.speed === "number") setSpeed(s.speed);
     if (s.provider === "voicevox" || s.provider === "clone") setProvider(s.provider);
