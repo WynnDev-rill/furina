@@ -351,12 +351,13 @@ function FurinaApp() {
   useEffect(() => {
     if (!authReady) return;
     if (!authUser) {
-      // Logged out — already handled by logout(); nothing to pull
       lastSyncedAuthIdRef.current = null;
+      cloudHydratedRef.current = false;
       return;
     }
     if (lastSyncedAuthIdRef.current === authUser.id) return;
     lastSyncedAuthIdRef.current = authUser.id;
+    cloudHydratedRef.current = false;
     pullFromCloud(authUser.id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authReady, authUser]);
