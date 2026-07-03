@@ -385,6 +385,7 @@ function FurinaApp() {
           await pushAllConversationsTo(uid, conversations);
           localStorage.setItem(STORAGE.migratedFlag, uid);
           toast.success("Data guest dipindahkan ke akunmu.");
+          cloudHydratedRef.current = true;
           setSyncing(false);
           return;
         }
