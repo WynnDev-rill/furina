@@ -433,6 +433,7 @@ function FurinaApp() {
       console.error("pullFromCloud:", e);
       toast.error("Gagal sinkronisasi data dari akun.");
     } finally {
+      cloudHydratedRef.current = true;
       setSyncing(false);
     }
   }
