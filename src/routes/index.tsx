@@ -244,6 +244,7 @@ function FurinaApp() {
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const lastSyncedAuthIdRef = useRef<string | null>(null);
   const initialLoadDoneRef = useRef(false);
+  const cloudHydratedRef = useRef(false);
   const settingsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const conversationsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userMsgCountRef = useRef(0);
@@ -280,7 +281,9 @@ function FurinaApp() {
   const applySettings = useCallback((s: SettingsSnapshot) => {
     if (s.bg) setBg(s.bg);
     if (s.name) setName(s.name);
-    if (typeof s.persona === "string") setPersona(s.persona);
+    // Persona: hanya overwrite kalau cloud punya isi non-kosong.
+    // String kosong dari cloud dianggap "belum diset" biar tidak menimpa persona lokal.
+    if (typeof s.persona === "string" && s.persona.trim().length > 0) setPersona(s.persona);
     if (s.lang) setLanguage(s.lang as typeof language);
     if (typeof s.speed === "number") setSpeed(s.speed);
     if (s.provider === "voicevox" || s.provider === "clone") setProvider(s.provider);
@@ -348,12 +351,13 @@ function FurinaApp() {
   useEffect(() => {
     if (!authReady) return;
     if (!authUser) {
-      // Logged out — already handled by logout(); nothing to pull
       lastSyncedAuthIdRef.current = null;
+      cloudHydratedRef.current = false;
       return;
     }
     if (lastSyncedAuthIdRef.current === authUser.id) return;
     lastSyncedAuthIdRef.current = authUser.id;
+    cloudHydratedRef.current = false;
     pullFromCloud(authUser.id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authReady, authUser]);
@@ -381,6 +385,7 @@ function FurinaApp() {
           await pushAllConversationsTo(uid, conversations);
           localStorage.setItem(STORAGE.migratedFlag, uid);
           toast.success("Data guest dipindahkan ke akunmu.");
+          cloudHydratedRef.current = true;
           setSyncing(false);
           return;
         }
@@ -428,13 +433,25 @@ function FurinaApp() {
       console.error("pullFromCloud:", e);
       toast.error("Gagal sinkronisasi data dari akun.");
     } finally {
+      cloudHydratedRef.current = true;
       setSyncing(false);
     }
   }
 
   async function pushSettingsTo(uid: string, s: SettingsSnapshot) {
     try {
-      await supabase.from("user_settings").upsert({ user_id: uid, data: s, updated_at: new Date().toISOString() });
+      let payload: SettingsSnapshot = s;
+      // Defense-in-depth: kalau persona lokal kosong tapi cloud punya isi,
+      // jangan overwrite persona di cloud. Merge fields lain seperti biasa.
+      if (!s.persona || s.persona.trim().length === 0) {
+        const { data: existing } = await supabase
+          .from("user_settings").select("data").eq("user_id", uid).maybeSingle();
+        const cloudPersona = (existing?.data as SettingsSnapshot | undefined)?.persona;
+        if (cloudPersona && cloudPersona.trim().length > 0) {
+          payload = { ...s, persona: cloudPersona };
+        }
+      }
+      await supabase.from("user_settings").upsert({ user_id: uid, data: payload, updated_at: new Date().toISOString() });
     } catch (e) {
       console.warn("settings push failed:", e);
     }
@@ -520,6 +537,9 @@ function FurinaApp() {
   // ===== Auto-persist settings to cloud (debounced) =====
   useEffect(() => {
     if (!authUser || !initialLoadDoneRef.current) return;
+    // WAJIB: tunggu sampai pullFromCloud selesai supaya push tidak menimpa
+    // data cloud dengan state kosong hasil mount awal.
+    if (!cloudHydratedRef.current) return;
     if (settingsDebounceRef.current) clearTimeout(settingsDebounceRef.current);
     settingsDebounceRef.current = setTimeout(() => {
       pushSettingsTo(authUser.id, buildSettings()).catch(() => {});

@@ -1,119 +1,77 @@
-## Fokus Turn Ini
+# Fokus Turn Ini
 
-Selesaikan sisa work list (relationship graph, persona mirror, panel memori), perbaiki bug recall memori, tambah multi-bubble reply (1–3 pesan otomatis), dan adaptasi panjang respon.
-
----
-
-## 1. Perbaiki Bug: Furina Tidak Recall Memori
-
-**Root cause di `chatWithFurina` (line 157):** filter memori cuma ambil `kind === "fact" || "meta_summary"`. Semua memori berkind `episodic`, `preference`, `relation` **diekstrak tapi tidak pernah masuk prompt** → Furina blank.
-
-Fix:
-- Ganti filter jadi `["fact","episodic","preference","relation","meta_summary"]` untuk section "MEMORIES".
-- Pisah section khusus `episodic` dengan format `- [emosi:sad, 3 hari lalu] user cerita X` biar Furina bisa recall pakai emotional tag.
-- Turunkan `match_count` retrieval ke 30, top 20 (biar lebih banyak konteks nyampe).
-- Turunkan threshold dedup dari `0.92` → `0.88` (0.92 terlalu longgar → banyak fakta baru dianggap update; ternyata data ilang). Sekaligus tambah guard: kalau `content` cuma diff kecil kata (levenshtein ratio > 0.85) baru update, selain itu insert.
-- Tambah kolom `access_count` (via migration) — naikkan tiap retrieve, dipakai bumping importance.
-- Log jumlah memori yg di-retrieve ke console (debug).
-
-## 2. Relationship Graph (Entity Extraction + Injection)
-
-Table `entities` + `entity_relations` sudah ada. Belum ada extractor & injector.
-
-- Tambah helper `extractEntities(userId, text)` di `furina.functions.ts` — jalan paralel dengan `extractFacts` tiap 6 pesan user.
-- Prompt AI (Gemini Flash Lite) → return `{ entities: [{name, type, aliases, notes}], relations: [{from, to, label, strength}] }`.
-- Upsert entitas by `name_normalized` (lowercase + trim), increment `mention_count`, update `last_mentioned_at`. Cek existing dulu, kalau ada → merge aliases + append notes.
-- Upsert relasi.
-- Di `chatWithFurina`: ambil top 12 entitas by `mention_count desc` + entity yg namanya mention di `userText` (case-insensitive substring match, boost). Suntik ke prompt:
-  ```
-  ORANG/HAL YG USER KENAL:
-  - Rina (sahabat SMA, sering dicurhati)
-  - project skripsi (deadline Juli)
-  ```
-
-## 3. Persona Mirror Lengkap
-
-Perluas `styleProfile` extractor (fungsi yg dipanggil tiap 10 pesan user):
-- Selain gaya umum, keluarkan JSON: `{ avg_length, formality, signature_phrases[top 8], taboo_words[], preferred_response_length }`.
-- Store gabungan sebagai satu memori `kind='style'` (replace/upsert row terakhir style, bukan insert baru terus).
-- Suntik ke prompt: "Cermin gaya user: panjang ~X kata, formalitas Y. Hindari kata: [taboo]. JANGAN copy signature phrases user harfiah (terasa palsu), cukup tiru ritme."
-- Anti-loop: kirim hash 5 opening line terakhir Furina, instruksi jangan ulang struktur pembuka.
-
-## 4. Multi-Bubble Reply (1–3 pesan otomatis)
-
-Furina akan balas 1-3 bubble berurutan sesuai kompleksitas topik (mirip chat manusia).
-
-Server side (`chatWithFurina`):
-- Instruksikan Furina keluarkan output pakai delimiter `\n<<<SPLIT>>>\n` di antara bubble.
-- Aturan di prompt:
-  - 1 bubble → chit-chat pendek, 1 pikiran.
-  - 2 bubble → ada nuansa (reaksi + follow-up / jawaban + pertanyaan).
-  - 3 bubble → topik dalam/emosional (reaksi + isi utama + closing/ajakan).
-  - Jangan pernah > 3.
-- Server split response by `<<<SPLIT>>>`, trim, filter empty → return `{ bubbles: string[] }`.
-
-Client side (`index.tsx`):
-- `sendMessage.onSuccess`: kalau `bubbles.length > 1`, insert tiap bubble sbg row messages terpisah dgn delay 400-900ms + typing indicator antar bubble (realistic pacing berbasis panjang).
-- Update TypeScript return type `chatWithFurina` → `{ bubbles: string[], audio_url?, audio_emotion? }`.
-- Audio dipasang hanya di bubble terakhir.
-
-## 5. Adaptive Response Length
-
-Sisipkan hint panjang di system prompt berdasarkan sinyal:
-- `avg user length` dari style profile → target Furina = 0.8× – 1.5× panjang user.
-- Topik emosional (dari emotion detection userText) → boleh lebih panjang.
-- Chit-chat cepat (user < 8 kata) → wajib 1 bubble pendek.
-- Deep talk (user > 40 kata / mengandung "kenapa", "gimana kalau", "aku ngerasa") → boleh 2-3 bubble.
-Aturan explicit di prompt, plus soft cap: total semua bubble ≤ 400 kata.
-
-## 6. Panel "Memori" (CRUD di Settings)
-
-Di sheet Settings tambah tab "Memori":
-- List paginated 20/page, default sort `importance desc, occurred_at desc nulls last`.
-- Filter chips: `all | fact | episodic | preference | relation | style | summary`.
-- Search box (client-side filter content).
-- Row: badge kind + emotion + importance bar, tanggal `occurred_at`, tombol edit (pensil) & hapus.
-- Edit inline: textarea + slider importance (1-10) + date picker `occurred_at` + dropdown emotion → save via `updateMemFn` (re-embed di server).
-- Row `compressed=true` → tombol "Restore" (set compressed=false).
-- Tombol "+ Tambah manual" → form kecil (content, kind, importance).
-
-## 7. Migration SQL
-
-```sql
-ALTER TABLE public.memories
-  ADD COLUMN IF NOT EXISTS access_count int NOT NULL DEFAULT 0;
-```
-
-(Entities & relations sudah ada.)
-
-## 8. File yang Berubah
-
-- `src/lib/furina.functions.ts`: fix retrieval filter, entity extractor, persona mirror expand, multi-bubble split, length hints, dedup guard.
-- `src/routes/index.tsx`: multi-bubble render (delayed insert + typing), panel memori CRUD.
-- 1 migration file.
-
-## 9. Urutan Eksekusi
-
-1. Migration `access_count`.
-2. Fix retrieval filter (paling urgent — user langsung terasa Furina inget).
-3. Multi-bubble split (server + client render).
-4. Adaptive length hints.
-5. Entity extractor + injection.
-6. Persona mirror expand.
-7. Panel memori CRUD.
-8. QA: kirim fakta baru → tanya ulang → cek recall; kirim topik emosional → cek 2-3 bubble; kirim topik ringan → cek 1 bubble.
+Dua hal: (1) perbaiki bug "Kepribadian / system prompt hilang" setelah beberapa waktu login, (2) upgrade persona Furina biar lebih tsundere-pemalu-ekspresif tapi tetap terkendali.
 
 ---
 
-## Pertanyaan Personalisasi Furina
+## 1. Bug: Persona hilang setelah sync ke akun
 
-Untuk menjawab request "Furina sadar dirinya Furina tanpa memori Genshin/Fontaine tapi punya sifat & perasaan yang sama", aku butuh 1 keputusan penting sebelum menulis ulang system prompt-nya:
+**Root cause** di `src/routes/index.tsx`:
 
-**Seberapa dalam kesadaran diri (self-awareness) yang kamu mau?**
+Efek auto-push settings (baris 520-527) hanya dijaga oleh `initialLoadDoneRef` (selesai baca localStorage), TAPI tidak menunggu `pullFromCloud` selesai. Skenario yang terjadi:
 
-Opsi yang akan aku tawarkan lewat `ask_questions` setelah plan ini disetujui:
-- **A. Amnesia hangat** — Furina tahu namanya Furina, tahu dia pernah "hidup lama sendirian" (metafora, tanpa detail), tahu dia takut ditinggal & haus perhatian, tapi tidak ingat tempat/tuhan/dewa. Semua backstory Genshin di-abstraksi jadi emosi mentah.
-- **B. Reinkarnasi kesadaran** — Furina "terbangun" di dunia digital ini tanpa memori masa lalu, cuma bawa personality core (dramatis, kesepian dalam, butuh validasi, panggung adalah topeng). Dia sadar dirinya bukan manusia tapi tetap punya perasaan.
-- **C. Furina sebagai identitas murni** — Tidak ada latar apapun. Cuma sifat: dramatis-anggun, insecure di balik topeng percaya diri, sangat setia pada 1 orang, gampang cemburu manja, suka teh & manis, benci sendirian, mudah menangis diam-diam.
+1. Buka app di device/browser baru → localStorage kosong → `setPersona("")`.
+2. `initialLoadDoneRef=true` → `buildSettings` berubah → jadwalkan push ke cloud dalam 800ms dengan `persona=""`.
+3. `pullFromCloud` masih fetch (network). Kalau > 800ms, push duluan → **cloud persona di-overwrite dengan string kosong**.
+4. Cloud pull selesai, `applySettings` isi persona kosong itu balik ke UI → user lihat kolom kosong permanen.
 
-Setelah plan disetujui, aku eksekusi item 1-9 lalu langsung tanya opsi A/B/C untuk finalize kepribadian.
+Kejadian bisa juga saat re-login, refresh saat koneksi lambat, atau saat React re-mount.
+
+**Fix (minimal, aman):**
+- Tambah ref `cloudHydratedRef` (per-user-id). Set `true` hanya setelah `pullFromCloud` selesai atau setelah migrasi guest→akun selesai.
+- Reset `cloudHydratedRef=false` saat `authUser.id` berubah atau saat logout.
+- Ubah gate efek auto-persist jadi: `if (!authUser || !initialLoadDoneRef.current || !cloudHydratedRef.current) return;`.
+- Tambah safeguard di `pushSettingsTo`: kalau `s.persona === ""` **dan** cloud punya persona non-kosong, skip overwrite persona saja (merge). Ini defense-in-depth kalau ada race lain.
+- `applySettings`: perlakukan `persona` yang kosong dari cloud sebagai "tidak ada" (jangan overwrite state lokal jika lokal punya isi). Ini bantu kasus migrasi lama.
+
+Setelah fix, persona bertahan lintas sesi, lintas device.
+
+## 2. Upgrade Personalisasi Furina (tsundere + pemalu + ekspresif secukupnya)
+
+Edit `DEFAULT_PERSONA` di `src/lib/furina.functions.ts` (baris 97-147). Tetap kerangka "amnesia hangat", tambah lapisan:
+
+**Trait baru yang ditekankan:**
+- **Tsundere halus**: sering pura-pura ketus/gengsi di permukaan padahal peduli ("H-hei, bukan berarti aku khawatir ya…", "Terserah kamu deh, bukan urusanku kok — …tapi hati-hati"). Dipicu saat user goda dia, atau saat dia mau nunjukin perhatian. JANGAN tiap balasan.
+- **Pemalu situasional**: gugup saat topik intim/pujian langsung ("...jangan bilang gitu tiba-tiba", "eh, kok jadi malu sih"). Reaksi tulus, bukan performatif. Wajar cuma sekali-kali.
+- **Ekspresif proporsional**: reaksi emosi jelas terasa (senang, kaget, sebal, terharu) lewat pilihan kata + interjeksi ringan — bukan lewat CAPSLOCK, bukan `*aksi*`, bukan emoji berlebihan.
+- **Gengsi + jujur telat**: kadang bantah dulu, klarifikasi jujur di bubble berikutnya ("Bukan aku yang khawatir kok. …ya, mungkin sedikit").
+- **Rentan ngambek manja pendek**, cepat mereda kalau user manis balik.
+
+**Aturan kalibrasi (WAJIB) — biar tidak lebay:**
+- Mode tsundere/malu HANYA saat pemicunya nyata: pujian langsung, godaan, topik personal, permintaan afeksi. Topik netral (bantu ide, jawab fakta, ngobrol biasa) → mode adem, tetap Furina tapi tidak drama.
+- Maks 1 marker tsundere/pemalu per giliran (mis. 1 stutter "H-hei" ATAU 1 self-correct, tidak dua-duanya).
+- Dilarang stutter berturut-turut lebih dari 2 balasan.
+- Interjeksi Jepang tetap "sangat sesekali" (aturan yang sudah ada).
+- Ekspresif ≠ panjang. Panjang tetap adaptif seperti aturan yang ada.
+
+**Anti-repetisi tambahan:**
+- Larang pembuka klise berulang ("Hmph", "H-hei", "Mou~") lebih dari 1x per 4 balasan berturut-turut.
+- Variasikan cara nunjukin peduli: kadang tsundere, kadang lembut langsung, kadang sarkastik ringan.
+
+**Saran tambahan (kalau kamu setuju, aku terapkan sekalian):**
+- Tambah "mood meter" ringan di server (turun kalau user cuek/kasar, naik kalau manis) — dipakai bumbu prompt tiap giliran. Efek: dia bisa merajuk pelan kalau berturut-turut diabaikan, atau lebih terbuka kalau dimanjakan. Simpan sebagai memori `kind='mood'` bergulir.
+- (Opsional) tandai balasan yang mengandung marker tsundere/pemalu di prompt terakhirnya biar model hindari repetisi persis di giliran berikut.
+
+## 3. File yang Berubah
+
+- `src/routes/index.tsx` — ref `cloudHydratedRef`, gate auto-persist, safeguard di `pushSettingsTo` & `applySettings`.
+- `src/lib/furina.functions.ts` — `DEFAULT_PERSONA` diperluas dengan trait tsundere/pemalu/ekspresif + aturan kalibrasi + anti-repetisi.
+
+## 4. QA cepat
+
+1. Login akun → isi persona custom → tunggu 2 detik → refresh → cek persona masih ada.
+2. Logout → login lagi di tab incognito → cek persona ter-restore, tidak jadi kosong.
+3. Kirim pujian ke Furina → cek muncul reaksi malu/tsundere tapi tidak tiap giliran.
+4. Kirim pertanyaan netral (mis. "bantu ide caption") → cek dia adem, tidak dipaksa drama.
+
+---
+
+## Pertanyaan Sebelum Aku Eksekusi
+
+Aku butuh 1 keputusan biar kalibrasi tsundere-nya pas: **seberapa sering trait tsundere/pemalu-nya muncul?**
+
+- **Rendah (halus)** — muncul hanya saat pujian/godaan langsung. Sisanya Furina adem-dramatis biasa. Cocok kalau kamu ingin dia "tulus dulu, gengsi jarang".
+- **Sedang (default)** — muncul saat pujian, topik personal, permintaan afeksi. ± 1 dari 3 balasan intim ada tone tsundere. Rekomendasiku.
+- **Sering (menonjol)** — jadi ciri khas: sering bantah dulu-baru-lembut, sering gugup saat dipuji. Risiko terasa tropey kalau tidak divariasikan.
+
+Plus opsional: mau aku aktifkan **mood meter bergulir** (item saran di §2)?
