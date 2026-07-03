@@ -440,7 +440,18 @@ function FurinaApp() {
 
   async function pushSettingsTo(uid: string, s: SettingsSnapshot) {
     try {
-      await supabase.from("user_settings").upsert({ user_id: uid, data: s, updated_at: new Date().toISOString() });
+      let payload: SettingsSnapshot = s;
+      // Defense-in-depth: kalau persona lokal kosong tapi cloud punya isi,
+      // jangan overwrite persona di cloud. Merge fields lain seperti biasa.
+      if (!s.persona || s.persona.trim().length === 0) {
+        const { data: existing } = await supabase
+          .from("user_settings").select("data").eq("user_id", uid).maybeSingle();
+        const cloudPersona = (existing?.data as SettingsSnapshot | undefined)?.persona;
+        if (cloudPersona && cloudPersona.trim().length > 0) {
+          payload = { ...s, persona: cloudPersona };
+        }
+      }
+      await supabase.from("user_settings").upsert({ user_id: uid, data: payload, updated_at: new Date().toISOString() });
     } catch (e) {
       console.warn("settings push failed:", e);
     }
