@@ -983,6 +983,15 @@ function FurinaApp() {
           <div className="glass-chip rounded-full px-3 py-1.5 text-sm font-medium max-w-[55vw] truncate flex items-center gap-2">
             <span className={`h-2 w-2 rounded-full ${syncing ? "bg-amber-400 animate-pulse" : "bg-emerald-400"} shadow-[0_0_8px_rgba(52,211,153,0.8)]`} />
             <span className="truncate">{name}</span>
+            <span
+              title={`Mood: ${mood.label} (${mood.score})`}
+              className={`h-1.5 w-1.5 rounded-full ${
+                mood.score >= 60 ? "bg-pink-400" :
+                mood.score >= 25 ? "bg-yellow-300" :
+                mood.score > -20 ? "bg-sky-300" :
+                mood.score > -55 ? "bg-orange-400" : "bg-red-400"
+              }`}
+            />
             {activeConvo && <span className="text-xs opacity-60 truncate">· {activeConvo.title}</span>}
           </div>
         </div>
