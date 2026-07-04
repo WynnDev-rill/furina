@@ -754,6 +754,9 @@ function FurinaApp() {
           updateStyleFn({ data: { userId, userMessages: recentUserMsgs } }).catch(() => {});
         }
       }
+
+      // Background: compact old memories (rate-limited server-side)
+      compactMemFn({ data: { userId, threshold: 60, batch: 15, force: false } }).catch(() => {});
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Gagal kirim";
       toast.error(msg);
