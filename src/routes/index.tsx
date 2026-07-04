@@ -244,6 +244,11 @@ function FurinaApp() {
   const [cloneSampleName, setCloneSampleName] = useState<string>("");
   const [hasCloneSample, setHasCloneSample] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [mood, setMood] = useState<{ score: number; label: string }>({ score: 0, label: "adem" });
+  const [proactiveEnabled, setProactiveEnabled] = useState(true);
+  const [proactiveIdleHours, setProactiveIdleHours] = useState(6);
+  const proactiveFiredRef = useRef(false);
+  const lastActivityKey = "furina:lastActivityAt";
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
