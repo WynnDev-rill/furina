@@ -455,7 +455,11 @@ KONTEKS WAKTU: ${realtimeContextString()}${gapNote}${moodNote}${memoryContext}${
       console.error("Entity extraction failed:", e),
     );
 
-    return { reply: finalBubbles.join("\n\n"), bubbles: finalBubbles };
+    // Persist mood
+    writeMood(data.userId, { score: newScore, updatedAt: new Date().toISOString(), streak: (prevMood.streak ?? 0) + (delta >= 0 ? 1 : 0) })
+      .catch((e) => console.warn("writeMood:", e));
+
+    return { reply: finalBubbles.join("\n\n"), bubbles: finalBubbles, mood: { score: newScore, label: moodInfo.label } };
   });
 
 
