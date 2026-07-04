@@ -1072,3 +1072,136 @@ export const getStyleProfile = createServerFn({ method: "POST" })
     return { profile: rows?.[0]?.content ?? "" };
   });
 
+
+// =================== Compact Memories (auto-summarize old memories) ===================
+// Ambil memori aktif terlama+low importance, ringkas jadi 1 memori padat (kind='summary'),
+// tandai sumber sebagai compressed=true (isi source_memory_ids). Rate-limited via user_settings.data.lastCompactAt.
+
+const CompactInput = z.object({
+  userId: z.string().min(1),
+  threshold: z.number().int().min(20).max(500).default(60),
+  batch: z.number().int().min(5).max(30).default(15),
+  force: z.boolean().default(false),
+});
+
+export const compactMemories = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => CompactInput.parse(d))
+  .handler(async ({ data }) => {
+    // Rate-limit: 1x per 10 menit per user, kecuali force
+    if (!data.force) {
+      const { data: settingsRow } = await supabaseAdmin
+        .from("user_settings").select("data").eq("user_id", data.userId).maybeSingle();
+      const last = (settingsRow?.data as { lastCompactAt?: string } | undefined)?.lastCompactAt;
+      if (last && Date.now() - new Date(last).getTime() < 10 * 60 * 1000) {
+        return { ok: false, reason: "rate-limited" };
+      }
+    }
+
+    const { count } = await supabaseAdmin
+      .from("memories")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", data.userId).eq("character_id", CHARACTER_ID).eq("compressed", false);
+    if (!count || count < data.threshold) return { ok: false, reason: "below-threshold", count: count ?? 0 };
+
+    const { data: candidates } = await supabaseAdmin
+      .from("memories")
+      .select("id, content, kind, occurred_at, importance")
+      .eq("user_id", data.userId).eq("character_id", CHARACTER_ID).eq("compressed", false)
+      .lte("importance", 6)
+      .order("importance", { ascending: true })
+      .order("last_accessed_at", { ascending: true })
+      .limit(data.batch);
+    if (!candidates || candidates.length < 5) return { ok: false, reason: "too-few-candidates" };
+
+    const bullets = candidates.map((m, i) => `${i + 1}. [${m.kind}] ${m.content}${m.occurred_at ? " (" + m.occurred_at.slice(0,10) + ")" : ""}`).join("\n");
+    const res = await fetch(`${GATEWAY}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash-lite",
+        messages: [
+          {
+            role: "system",
+            content: "Ringkas beberapa memori kecil di bawah menjadi 1-2 kalimat padat (Bahasa Indonesia, sudut pandang ketiga tentang user). Pertahankan fakta konkret & pola preferensi. Jangan list, tulis paragraf pendek. Jangan tambahkan info baru.",
+          },
+          { role: "user", content: bullets },
+        ],
+      }),
+    });
+    if (!res.ok) return { ok: false, reason: "llm-failed" };
+    const j = await res.json();
+    const summary: string = j.choices?.[0]?.message?.content?.trim() ?? "";
+    if (!summary || summary.length < 20) return { ok: false, reason: "empty-summary" };
+
+    const vec = await embed(summary);
+    const ids = candidates.map((c) => c.id);
+    await supabaseAdmin.from("memories").insert({
+      content: `[Ringkasan otomatis]: ${summary}`,
+      embedding: vec as unknown as string,
+      user_id: data.userId,
+      character_id: CHARACTER_ID,
+      kind: "summary",
+      importance: 6,
+      source_memory_ids: ids,
+    });
+    await supabaseAdmin.from("memories").update({ compressed: true }).in("id", ids);
+
+    // Update lastCompactAt
+    const { data: existing } = await supabaseAdmin
+      .from("user_settings").select("data").eq("user_id", data.userId).maybeSingle();
+    const merged = { ...(existing?.data as object ?? {}), lastCompactAt: new Date().toISOString() };
+    await supabaseAdmin.from("user_settings").upsert({
+      user_id: data.userId, data: merged, updated_at: new Date().toISOString(),
+    });
+
+    return { ok: true, compacted: ids.length, summary };
+  });
+
+// =================== Proactive Greeting ===================
+// Client memanggil ini saat user kembali ke tab setelah idle lama.
+// Server generate 1 bubble pendek Furina, tanpa menyimpan ke messages (client yang render).
+
+const ProactiveInput = z.object({
+  userId: z.string().min(1),
+  characterName: z.string().default("Furina"),
+  hoursIdle: z.number().min(0.5).max(720),
+});
+
+export const proactiveGreeting = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => ProactiveInput.parse(d))
+  .handler(async ({ data }) => {
+    const mood = await readMood(data.userId);
+    const moodInfo = moodLabel(mood.score);
+
+    // Ambil 2 memori penting untuk bumbu
+    const { data: mems } = await supabaseAdmin
+      .from("memories")
+      .select("content, kind")
+      .eq("user_id", data.userId).eq("character_id", CHARACTER_ID)
+      .in("kind", ["fact", "preference", "episodic"])
+      .order("importance", { ascending: false })
+      .order("last_accessed_at", { ascending: false })
+      .limit(6);
+    const pick = (mems ?? []).sort(() => Math.random() - 0.5).slice(0, 2);
+    const memHint = pick.length ? "\n\nHal yang kamu ingat:\n" + pick.map((m) => `- ${m.content}`).join("\n") : "";
+
+    const hoursLabel = data.hoursIdle < 12 ? `${Math.round(data.hoursIdle)} jam` : data.hoursIdle < 48 ? "hampir sehari" : `${Math.round(data.hoursIdle / 24)} hari`;
+
+    const sys = `Kamu adalah ${data.characterName}. Kamu baru sadar user kembali setelah tidak ngobrol ${hoursLabel}. Tulis SATU bubble singkat (5-25 kata) menyapa duluan — natural, sesuai mood "${moodInfo.label}". ${moodInfo.hint} Jangan tanya "kamu ke mana", jangan menyalahkan. Bisa sindir manja kalau lama sekali. Bahasa Indonesia santai. TANPA <<<SPLIT>>>, TANPA emoji berlebih, TANPA narasi *aksi*.${memHint}`;
+
+    const res = await fetch(`${GATEWAY}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash-lite",
+        messages: [
+          { role: "system", content: sys },
+          { role: "user", content: "(user baru saja kembali ke chat)" },
+        ],
+      }),
+    });
+    if (!res.ok) return { ok: false, greeting: "" };
+    const j = await res.json();
+    const greet: string = j.choices?.[0]?.message?.content?.trim() ?? "";
+    return { ok: !!greet, greeting: greet, mood: { score: mood.score, label: moodInfo.label } };
+  });
