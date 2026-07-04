@@ -711,8 +711,12 @@ function FurinaApp() {
       const bubbles: string[] = (chatResult as { bubbles?: string[]; reply: string }).bubbles?.length
         ? (chatResult as { bubbles: string[] }).bubbles
         : [chatResult.reply];
+      const moodOut = (chatResult as { mood?: { score: number; label: string } }).mood;
+      if (moodOut) setMood(moodOut);
 
       updateMessageById(userMsgId, { status: "read" });
+      try { localStorage.setItem(lastActivityKey, String(Date.now())); } catch {}
+      proactiveFiredRef.current = true;
 
       // Render bubbles one-by-one with typing delay based on length
       let lastAiMsg: Msg | null = null;
