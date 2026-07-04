@@ -35,6 +35,9 @@ import {
   migrateGuestMemories,
   summarizeConversation,
   updateStyleProfile,
+  compactMemories,
+  proactiveGreeting,
+  getMood,
 } from "@/lib/furina.functions";
 
 export const Route = createFileRoute("/")({
