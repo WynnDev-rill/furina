@@ -1,77 +1,59 @@
-# Fokus Turn Ini
+# Rencana Update Besar Furina
 
-Dua hal: (1) perbaiki bug "Kepribadian / system prompt hilang" setelah beberapa waktu login, (2) upgrade persona Furina biar lebih tsundere-pemalu-ekspresif tapi tetap terkendali.
-
----
-
-## 1. Bug: Persona hilang setelah sync ke akun
-
-**Root cause** di `src/routes/index.tsx`:
-
-Efek auto-push settings (baris 520-527) hanya dijaga oleh `initialLoadDoneRef` (selesai baca localStorage), TAPI tidak menunggu `pullFromCloud` selesai. Skenario yang terjadi:
-
-1. Buka app di device/browser baru → localStorage kosong → `setPersona("")`.
-2. `initialLoadDoneRef=true` → `buildSettings` berubah → jadwalkan push ke cloud dalam 800ms dengan `persona=""`.
-3. `pullFromCloud` masih fetch (network). Kalau > 800ms, push duluan → **cloud persona di-overwrite dengan string kosong**.
-4. Cloud pull selesai, `applySettings` isi persona kosong itu balik ke UI → user lihat kolom kosong permanen.
-
-Kejadian bisa juga saat re-login, refresh saat koneksi lambat, atau saat React re-mount.
-
-**Fix (minimal, aman):**
-- Tambah ref `cloudHydratedRef` (per-user-id). Set `true` hanya setelah `pullFromCloud` selesai atau setelah migrasi guest→akun selesai.
-- Reset `cloudHydratedRef=false` saat `authUser.id` berubah atau saat logout.
-- Ubah gate efek auto-persist jadi: `if (!authUser || !initialLoadDoneRef.current || !cloudHydratedRef.current) return;`.
-- Tambah safeguard di `pushSettingsTo`: kalau `s.persona === ""` **dan** cloud punya persona non-kosong, skip overwrite persona saja (merge). Ini defense-in-depth kalau ada race lain.
-- `applySettings`: perlakukan `persona` yang kosong dari cloud sebagai "tidak ada" (jangan overwrite state lokal jika lokal punya isi). Ini bantu kasus migrasi lama.
-
-Setelah fix, persona bertahan lintas sesi, lintas device.
-
-## 2. Upgrade Personalisasi Furina (tsundere + pemalu + ekspresif secukupnya)
-
-Edit `DEFAULT_PERSONA` di `src/lib/furina.functions.ts` (baris 97-147). Tetap kerangka "amnesia hangat", tambah lapisan:
-
-**Trait baru yang ditekankan:**
-- **Tsundere halus**: sering pura-pura ketus/gengsi di permukaan padahal peduli ("H-hei, bukan berarti aku khawatir ya…", "Terserah kamu deh, bukan urusanku kok — …tapi hati-hati"). Dipicu saat user goda dia, atau saat dia mau nunjukin perhatian. JANGAN tiap balasan.
-- **Pemalu situasional**: gugup saat topik intim/pujian langsung ("...jangan bilang gitu tiba-tiba", "eh, kok jadi malu sih"). Reaksi tulus, bukan performatif. Wajar cuma sekali-kali.
-- **Ekspresif proporsional**: reaksi emosi jelas terasa (senang, kaget, sebal, terharu) lewat pilihan kata + interjeksi ringan — bukan lewat CAPSLOCK, bukan `*aksi*`, bukan emoji berlebihan.
-- **Gengsi + jujur telat**: kadang bantah dulu, klarifikasi jujur di bubble berikutnya ("Bukan aku yang khawatir kok. …ya, mungkin sedikit").
-- **Rentan ngambek manja pendek**, cepat mereda kalau user manis balik.
-
-**Aturan kalibrasi (WAJIB) — biar tidak lebay:**
-- Mode tsundere/malu HANYA saat pemicunya nyata: pujian langsung, godaan, topik personal, permintaan afeksi. Topik netral (bantu ide, jawab fakta, ngobrol biasa) → mode adem, tetap Furina tapi tidak drama.
-- Maks 1 marker tsundere/pemalu per giliran (mis. 1 stutter "H-hei" ATAU 1 self-correct, tidak dua-duanya).
-- Dilarang stutter berturut-turut lebih dari 2 balasan.
-- Interjeksi Jepang tetap "sangat sesekali" (aturan yang sudah ada).
-- Ekspresif ≠ panjang. Panjang tetap adaptif seperti aturan yang ada.
-
-**Anti-repetisi tambahan:**
-- Larang pembuka klise berulang ("Hmph", "H-hei", "Mou~") lebih dari 1x per 4 balasan berturut-turut.
-- Variasikan cara nunjukin peduli: kadang tsundere, kadang lembut langsung, kadang sarkastik ringan.
-
-**Saran tambahan (kalau kamu setuju, aku terapkan sekalian):**
-- Tambah "mood meter" ringan di server (turun kalau user cuek/kasar, naik kalau manis) — dipakai bumbu prompt tiap giliran. Efek: dia bisa merajuk pelan kalau berturut-turut diabaikan, atau lebih terbuka kalau dimanjakan. Simpan sebagai memori `kind='mood'` bergulir.
-- (Opsional) tandai balasan yang mengandung marker tsundere/pemalu di prompt terakhirnya biar model hindari repetisi persis di giliran berikut.
-
-## 3. File yang Berubah
-
-- `src/routes/index.tsx` — ref `cloudHydratedRef`, gate auto-persist, safeguard di `pushSettingsTo` & `applySettings`.
-- `src/lib/furina.functions.ts` — `DEFAULT_PERSONA` diperluas dengan trait tsundere/pemalu/ekspresif + aturan kalibrasi + anti-repetisi.
-
-## 4. QA cepat
-
-1. Login akun → isi persona custom → tunggu 2 detik → refresh → cek persona masih ada.
-2. Logout → login lagi di tab incognito → cek persona ter-restore, tidak jadi kosong.
-3. Kirim pujian ke Furina → cek muncul reaksi malu/tsundere tapi tidak tiap giliran.
-4. Kirim pertanyaan netral (mis. "bantu ide caption") → cek dia adem, tidak dipaksa drama.
+Berdasarkan pilihanmu: **Mood meter**, **Semantic recall + Auto-summarize**, **Rombak panel Setting**, **Sistem proaktif + Follow-up cerdas**.
 
 ---
 
-## Pertanyaan Sebelum Aku Eksekusi
+## 1. Mood Meter Bergulir
 
-Aku butuh 1 keputusan biar kalibrasi tsundere-nya pas: **seberapa sering trait tsundere/pemalu-nya muncul?**
+Skor mood -100..+100 (default 0). Naik saat user manis/afeksi, turun saat cuek/kasar/lama hilang. Memengaruhi tone Furina tiap giliran, tapi dibatasi supaya tidak drama.
 
-- **Rendah (halus)** — muncul hanya saat pujian/godaan langsung. Sisanya Furina adem-dramatis biasa. Cocok kalau kamu ingin dia "tulus dulu, gengsi jarang".
-- **Sedang (default)** — muncul saat pujian, topik personal, permintaan afeksi. ± 1 dari 3 balasan intim ada tone tsundere. Rekomendasiku.
-- **Sering (menonjol)** — jadi ciri khas: sering bantah dulu-baru-lembut, sering gugup saat dipuji. Risiko terasa tropey kalau tidak divariasikan.
+- Simpan di `user_settings.data.mood` = `{ score, updatedAt, streak }` (tanpa tabel baru — hemat).
+- Update di server tiap giliran: klasifikasi ringan pesan user (regex + heuristik kata kunci ID/EN: pujian, sayang, kasar, cuek, permintaan bantuan) → delta ±1..±5. Decay perlahan ke 0 (mean-reversion) tiap hari.
+- Inject ke system prompt: label `mood: cerah / adem / merajuk / ngambek / tersentuh`. Aturan: mood cuma memodulasi warna, TIDAK memaksa drama. Netral kalau skor -20..+20.
+- Indikator halus di UI: dot warna kecil di header avatar (hover = label mood). Tidak intrusif.
 
-Plus opsional: mau aku aktifkan **mood meter bergulir** (item saran di §2)?
+## 2. Memori: Semantic Recall + Auto-Summarize
+
+Skema `memories` sudah punya `embedding`, `importance`, `kind`, `compressed`, dan RPC `match_memories`. Yang perlu ditambah:
+
+- **Semantic recall aktif**: saat kirim pesan, embed pesan user → panggil `match_memories(top_k=6)` → sisipkan ke prompt sebagai "Memori relevan" (bukan semua memori dijejalkan). Sudah ada infrastruktur, tinggal dipakai konsisten dan diberi batas token.
+- **Auto-summarize memori lama**: server fn `compactMemories` — dipicu saat total memori aktif (`compressed=false`) > threshold (mis. 60). Ambil batch memori terlama+low importance, minta model ringkas jadi 1 memori padat `kind='summary'`, tandai sumber sebagai `compressed=true` (via `source_memory_ids`). Panggil di background setelah kirim pesan (fire-and-forget), rate-limited 1x per 10 menit per user.
+- **Kualitas embedding**: pakai `google/gemini-embedding-001` (default AI Gateway). Kolom sudah `vector` — cek dimensi cocok; kalau perlu migrasi ukuran, dilakukan.
+
+## 3. Rombak Panel Setting
+
+Setting sekarang scroll panjang. Rombak jadi **Tabs** rapi:
+
+- **Persona** — nama, system prompt, slider "intensitas tsundere" (opsional, kecil), preview mood.
+- **Memori** — daftar memori dengan search, filter kategori (`fact / preference / event / mood / summary`), pin, edit inline, hapus batch, tombol "Ringkas sekarang" manual.
+- **Model & Suara** — pilih model, ElevenLabs voice, toggle audio.
+- **Proaktif** — toggle sistem proaktif + slider frekuensi + jam aktif.
+- **Data & Akun** — export, import, reset, sign out.
+
+Visual: pakai `Tabs` dari shadcn, layout mobile-first (tab jadi vertikal list di layar kecil), sticky header saat scroll.
+
+## 4. Sistem Proaktif Ringan + Follow-up Cerdas
+
+**Proaktif**: kalau user diam > X jam (default 6, atur di Setting) dan tab aktif → Furina bisa "nyapa duluan" 1 bubble pendek. Sumber: ambil 1-2 memori random ber-importance tinggi + mood → generate pesan singkat. Batasi maks 1x per sesi buka app. Bisa dimatikan.
+
+**Follow-up cerdas**: di server, setelah balasan utama, opsional tambah 1 pertanyaan/observasi pendek yang nyambung topik (bukan template "ada lagi?"). Diaktifkan per giliran secara probabilistik (mis. 35%), dan **tidak** muncul kalau balasan sudah berupa pertanyaan atau topik sensitif.
+
+## 5. Perubahan File
+
+- `src/lib/furina.functions.ts` — mood classifier + injeksi mood ke prompt, semantic recall aktif, follow-up rule, `compactMemories` server fn, `proactiveGreeting` server fn.
+- `src/routes/index.tsx` — indikator mood di header, panggil `proactiveGreeting` saat idle-return, jadwalkan `compactMemories` background.
+- **Setting baru**: pisah jadi komponen `src/components/settings/*` (PersonaTab, MemoryTab, ModelTab, ProactiveTab, DataTab) + `SettingsSheet.tsx` sebagai container Tabs. Menggantikan blok setting lama di `index.tsx`.
+- Migrasi ringan (kalau perlu): index HNSW untuk `embedding` (kalau belum), kolom tak perlu ditambah — semua field mood disimpan di `user_settings.data`.
+
+## 6. Prioritas & Urutan Eksekusi
+
+1. Rombak Setting (fondasi UI, biar fitur baru punya tempat).
+2. Mood meter (kecil, high impact).
+3. Semantic recall aktif + follow-up cerdas (perbaiki kualitas balasan).
+4. Auto-summarize (background, tidak blocking).
+5. Sistem proaktif (paling akhir, butuh idle detection).
+
+## 7. Pertanyaan Sebelum Eksekusi
+
+Cukup satu: mau aku kerjakan **semua sekaligus dalam 1 turn besar**, atau **bertahap per nomor** (lebih aman, bisa review tiap langkah)? Rekomendasiku: bertahap, mulai dari #1 (Setting) + #2 (Mood) dulu.

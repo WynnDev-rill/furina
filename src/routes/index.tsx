@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
 
 import furinaDefault from "@/assets/furina.jpg";
@@ -34,6 +35,9 @@ import {
   migrateGuestMemories,
   summarizeConversation,
   updateStyleProfile,
+  compactMemories,
+  proactiveGreeting,
+  getMood,
 } from "@/lib/furina.functions";
 
 export const Route = createFileRoute("/")({
@@ -196,6 +200,9 @@ function FurinaApp() {
   const migrateMemFn = useServerFn(migrateGuestMemories);
   const summarizeFn = useServerFn(summarizeConversation);
   const updateStyleFn = useServerFn(updateStyleProfile);
+  const compactMemFn = useServerFn(compactMemories);
+  const proactiveFn = useServerFn(proactiveGreeting);
+  const getMoodFn = useServerFn(getMood);
 
   const [authUser, setAuthUser] = useState<{ id: string; email?: string } | null>(null);
   const [authReady, setAuthReady] = useState(false);
@@ -237,6 +244,11 @@ function FurinaApp() {
   const [cloneSampleName, setCloneSampleName] = useState<string>("");
   const [hasCloneSample, setHasCloneSample] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [mood, setMood] = useState<{ score: number; label: string }>({ score: 0, label: "adem" });
+  const [proactiveEnabled, setProactiveEnabled] = useState(true);
+  const [proactiveIdleHours, setProactiveIdleHours] = useState(6);
+  const proactiveFiredRef = useRef(false);
+  const lastActivityKey = "furina:lastActivityAt";
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -270,7 +282,55 @@ function FurinaApp() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  // ===== Build settings snapshot =====
+  // ===== Fetch mood on user change =====
+  useEffect(() => {
+    if (!userId) return;
+    getMoodFn({ data: { userId } }).then((r) => {
+      if (r?.mood) setMood({ score: r.mood.score, label: r.label });
+    }).catch(() => {});
+  }, [userId, getMoodFn]);
+
+  // ===== Proactive greeting on idle-return =====
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!proactiveEnabled) return;
+
+    const tryGreet = async () => {
+      if (proactiveFiredRef.current) return;
+      if (document.visibilityState !== "visible") return;
+      const last = parseInt(localStorage.getItem(lastActivityKey) ?? "0", 10);
+      if (!last) { proactiveFiredRef.current = true; return; }
+      const hoursIdle = (Date.now() - last) / (1000 * 60 * 60);
+      if (hoursIdle < proactiveIdleHours) return;
+      proactiveFiredRef.current = true;
+      try {
+        const r = await proactiveFn({ data: { userId, characterName: name, hoursIdle: Math.min(720, hoursIdle) } });
+        if (r?.ok && r.greeting) {
+          const aiMsg: Msg = { id: crypto.randomUUID(), role: "assistant", content: r.greeting, at: Date.now() };
+          setConversations((convos) => convos.map((c) => c.id === activeId
+            ? { ...c, messages: [...c.messages, aiMsg], updatedAt: Date.now() }
+            : c));
+          if (authUser && activeId) upsertSingleMessage(authUser.id, activeId, aiMsg);
+          if (r.mood) setMood(r.mood);
+        }
+      } catch {}
+    };
+
+    const onVis = () => tryGreet();
+    document.addEventListener("visibilitychange", onVis);
+    // Coba juga langsung saat mount
+    const t = setTimeout(tryGreet, 1500);
+    return () => { document.removeEventListener("visibilitychange", onVis); clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proactiveEnabled, proactiveIdleHours, userId, activeId, name, authUser]);
+
+  // Touch lastActivity setiap kali user interaksi kirim
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const touch = () => { try { localStorage.setItem(lastActivityKey, String(Date.now())); } catch {} };
+    window.addEventListener("focus", touch);
+    return () => window.removeEventListener("focus", touch);
+  }, []);
   const buildSettings = useCallback((): SettingsSnapshot => ({
     bg, name, persona, lang: language, speed, provider, vvSpeaker, vvTranslate, preGen: preGenAudio, theme,
     cloneSampleName,
@@ -699,8 +759,12 @@ function FurinaApp() {
       const bubbles: string[] = (chatResult as { bubbles?: string[]; reply: string }).bubbles?.length
         ? (chatResult as { bubbles: string[] }).bubbles
         : [chatResult.reply];
+      const moodOut = (chatResult as { mood?: { score: number; label: string } }).mood;
+      if (moodOut) setMood(moodOut);
 
       updateMessageById(userMsgId, { status: "read" });
+      try { localStorage.setItem(lastActivityKey, String(Date.now())); } catch {}
+      proactiveFiredRef.current = true;
 
       // Render bubbles one-by-one with typing delay based on length
       let lastAiMsg: Msg | null = null;
@@ -738,6 +802,9 @@ function FurinaApp() {
           updateStyleFn({ data: { userId, userMessages: recentUserMsgs } }).catch(() => {});
         }
       }
+
+      // Background: compact old memories (rate-limited server-side)
+      compactMemFn({ data: { userId, threshold: 60, batch: 15, force: false } }).catch(() => {});
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Gagal kirim";
       toast.error(msg);
@@ -916,6 +983,15 @@ function FurinaApp() {
           <div className="glass-chip rounded-full px-3 py-1.5 text-sm font-medium max-w-[55vw] truncate flex items-center gap-2">
             <span className={`h-2 w-2 rounded-full ${syncing ? "bg-amber-400 animate-pulse" : "bg-emerald-400"} shadow-[0_0_8px_rgba(52,211,153,0.8)]`} />
             <span className="truncate">{name}</span>
+            <span
+              title={`Mood: ${mood.label} (${mood.score})`}
+              className={`h-1.5 w-1.5 rounded-full ${
+                mood.score >= 60 ? "bg-pink-400" :
+                mood.score >= 25 ? "bg-yellow-300" :
+                mood.score > -20 ? "bg-sky-300" :
+                mood.score > -55 ? "bg-orange-400" : "bg-red-400"
+              }`}
+            />
             {activeConvo && <span className="text-xs opacity-60 truncate">· {activeConvo.title}</span>}
           </div>
         </div>
@@ -1006,156 +1082,103 @@ function FurinaApp() {
                 <SheetDescription>Personalisasi karakter, suara, akun, dan memori.</SheetDescription>
               </SheetHeader>
 
-              <div className="mt-6 space-y-6">
-                <section className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                  <Label className="text-xs font-semibold uppercase tracking-wider">Tampilan</Label>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">Tema</span>
-                    <Button size="sm" variant="outline" onClick={toggleTheme}>
-                      {theme === "dark" ? <><Sun className="mr-2 h-4 w-4" />Terang</> : <><Moon className="mr-2 h-4 w-4" />Gelap</>}
-                    </Button>
-                  </div>
-                </section>
+              <Tabs defaultValue="persona" className="mt-4 w-full">
+                <TabsList className="grid w-full grid-cols-5 h-9">
+                  <TabsTrigger value="persona" className="text-[11px] px-1">Persona</TabsTrigger>
+                  <TabsTrigger value="memori" className="text-[11px] px-1">Memori</TabsTrigger>
+                  <TabsTrigger value="suara" className="text-[11px] px-1">Suara</TabsTrigger>
+                  <TabsTrigger value="proaktif" className="text-[11px] px-1">Proaktif</TabsTrigger>
+                  <TabsTrigger value="akun" className="text-[11px] px-1">Akun</TabsTrigger>
+                </TabsList>
 
-                <section className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                  <Label className="text-xs font-semibold uppercase tracking-wider">Akun</Label>
-                  {authUser ? (
-                    <div className="space-y-2">
-                      <p className="text-sm">Login sebagai <span className="font-medium">{authUser.email ?? authUser.id}</span></p>
-                      <p className="text-[11px] text-muted-foreground">
-                        ✓ Semua chat, kepribadian, dan pengaturan tersimpan otomatis ke akunmu.
-                      </p>
-                      <Button variant="outline" size="sm" className="w-full" onClick={logout}>
-                        <LogOut className="mr-2 h-4 w-4" /> Logout (kembali ke guest kosong)
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <p className="text-xs text-muted-foreground">
-                        Mode guest. Login pertama kali → data guest dipindahkan otomatis ke akun. Login berikutnya → memuat data akunmu.
-                      </p>
-                      <Button size="sm" className="w-full" onClick={loginGoogle}>
-                        <LogIn className="mr-2 h-4 w-4" /> Masuk dengan Google
-                      </Button>
-                    </div>
-                  )}
-                </section>
-
-                <section className="space-y-2">
-                  <Label>Nama karakter</Label>
-                  <Input value={name} onChange={(e) => { setName(e.target.value); savePref(STORAGE.name, e.target.value); }} />
-                </section>
-
-                <section className="space-y-2">
-                  <Label>Kepribadian / system prompt (opsional)</Label>
-                  <Textarea rows={5} placeholder="Kosongkan untuk kepribadian Furina default…"
-                    value={persona}
-                    onChange={(e) => { setPersona(e.target.value); savePref(STORAGE.persona, e.target.value); }} />
-                </section>
-
-                <section className="space-y-3">
-                  <Label>Mesin suara (TTS)</Label>
-                  <Select value={provider} onValueChange={(v) => { setProvider(v as TTSProvider); savePref(STORAGE.provider, v); }}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="voicevox">VOICEVOX — anime Jepang (gratis, stabil)</SelectItem>
-                      <SelectItem value="clone">Voice Clone — suara karakter custom (XTTS Space)</SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  {provider === "voicevox" ? (
-                    <div className="space-y-2">
-                      <Label className="text-xs text-muted-foreground">Karakter VOICEVOX</Label>
-                      <Select value={String(vvSpeaker)}
-                        onValueChange={(v) => { setVvSpeaker(parseInt(v, 10)); savePref(STORAGE.vvSpeaker, v); }}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {VV_SPEAKERS.map((s) => <SelectItem key={s.id} value={String(s.id)}>{s.label}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                      <div className="flex items-center justify-between pt-1">
-                        <Label className="text-xs">Auto-terjemah ke Jepang</Label>
-                        <Switch checked={vvTranslate}
-                          onCheckedChange={(c) => { setVvTranslate(c); savePref(STORAGE.vvTranslate, c ? "1" : "0"); }} />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <Label className="text-xs">Pre-generate audio (instant play)</Label>
-                        <Switch checked={preGenAudio}
-                          onCheckedChange={(c) => { setPreGenAudio(c); savePref(STORAGE.preGen, c ? "1" : "0"); }} />
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                      <Label className="text-xs font-semibold flex items-center gap-1">
-                        <Sparkles className="h-3 w-3" /> Sampel suara karakter
-                      </Label>
-                      <p className="text-[10px] leading-relaxed text-muted-foreground">
-                        Upload 1 file audio (mp3/wav, 6–15 detik, jernih, satu suara, tanpa musik). Clone via Coqui XTTS HF Space — gratis tanpa API key, kadang antri ~30 detik.
-                      </p>
-                      <input type="file" accept="audio/*" onChange={handleSampleUpload} className="block w-full text-xs" />
-                      {hasCloneSample && (
-                        <div className="flex items-center justify-between rounded bg-background/60 px-2 py-1 text-xs">
-                          <span className="truncate">✓ {cloneSampleName || "Sampel tersimpan"}</span>
-                          <button onClick={clearSample} className="text-muted-foreground hover:text-destructive">
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <p className="pt-2 text-[11px] leading-relaxed text-muted-foreground">
-                    <Volume2 className="mr-1 inline h-3 w-3" />
-                    Tombol ▶ di tiap balon AI untuk memutar suara.
-                  </p>
-
-                  <div className="pt-2 space-y-2">
+                {/* PERSONA TAB */}
+                <TabsContent value="persona" className="mt-4 space-y-4">
+                  <section className="rounded-lg border bg-muted/30 p-3 space-y-2">
                     <div className="flex items-center justify-between">
-                      <Label>Kecepatan bicara</Label>
-                      <span className="text-xs text-muted-foreground tabular-nums">{speed.toFixed(2)}x</span>
+                      <Label className="text-xs font-semibold uppercase tracking-wider">Mood saat ini</Label>
+                      <span className="inline-flex items-center gap-1.5 text-xs">
+                        <span className={`h-2 w-2 rounded-full ${
+                          mood.score >= 60 ? "bg-pink-400" :
+                          mood.score >= 25 ? "bg-yellow-300" :
+                          mood.score > -20 ? "bg-sky-300" :
+                          mood.score > -55 ? "bg-orange-400" : "bg-red-400"
+                        }`} />
+                        <span className="font-medium capitalize">{mood.label}</span>
+                        <span className="tabular-nums text-muted-foreground">({mood.score > 0 ? "+" : ""}{mood.score})</span>
+                      </span>
                     </div>
-                    <Slider min={0.7} max={1.5} step={0.05} value={[speed]}
-                      onValueChange={(v) => { const s = v[0] ?? 1; setSpeed(s); savePref(STORAGE.speed, String(s)); }} />
-                  </div>
-                </section>
+                    <p className="text-[10px] text-muted-foreground leading-relaxed">
+                      Berubah otomatis dari cara kamu ngobrol. Manis → naik, kasar/cuek → turun, netral → luruh sendiri.
+                    </p>
+                  </section>
 
-                <section className="space-y-2">
-                  <Label>Bahasa balasan</Label>
-                  <Select value={language} onValueChange={(v) => { setLanguage(v as typeof language); savePref(STORAGE.lang, v); }}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="auto">Auto (mengikuti kamu)</SelectItem>
-                      <SelectItem value="ja">日本語</SelectItem>
-                      <SelectItem value="en">English</SelectItem>
-                      <SelectItem value="id">Indonesia</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </section>
+                  <section className="space-y-2">
+                    <Label>Nama karakter</Label>
+                    <Input value={name} onChange={(e) => { setName(e.target.value); savePref(STORAGE.name, e.target.value); }} />
+                  </section>
 
-                <Separator />
+                  <section className="space-y-2">
+                    <Label>Kepribadian / system prompt (opsional)</Label>
+                    <Textarea rows={6} placeholder="Kosongkan untuk kepribadian Furina default…"
+                      value={persona}
+                      onChange={(e) => { setPersona(e.target.value); savePref(STORAGE.persona, e.target.value); }} />
+                    <p className="text-[10px] text-muted-foreground">Kalau kosong, Furina pakai kepribadian default (dramatis, tsundere halus, ekspresif terkendali).</p>
+                  </section>
 
-                <section className="space-y-2">
-                  <Label className="flex items-center gap-2"><ImageIcon className="h-4 w-4" /> Background karakter</Label>
-                  <input type="file" accept="image/*" onChange={handleBgUpload} className="block w-full text-sm" />
-                  <Button variant="outline" size="sm" onClick={() => { setBg(furinaDefault); localStorage.removeItem(STORAGE.bg); }}>
-                    <RotateCcw className="mr-2 h-4 w-4" /> Kembalikan Furina default
-                  </Button>
-                </section>
+                  <section className="space-y-2">
+                    <Label>Bahasa balasan</Label>
+                    <Select value={language} onValueChange={(v) => { setLanguage(v as typeof language); savePref(STORAGE.lang, v); }}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">Auto (mengikuti kamu)</SelectItem>
+                        <SelectItem value="ja">日本語</SelectItem>
+                        <SelectItem value="en">English</SelectItem>
+                        <SelectItem value="id">Indonesia</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </section>
 
-                <Separator />
+                  <Separator />
 
-                <section className="space-y-2">
+                  <section className="space-y-2">
+                    <Label className="flex items-center gap-2"><ImageIcon className="h-4 w-4" /> Background karakter</Label>
+                    <input type="file" accept="image/*" onChange={handleBgUpload} className="block w-full text-sm" />
+                    <Button variant="outline" size="sm" onClick={() => { setBg(furinaDefault); localStorage.removeItem(STORAGE.bg); }}>
+                      <RotateCcw className="mr-2 h-4 w-4" /> Kembalikan Furina default
+                    </Button>
+                  </section>
+
+                  <section className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                    <Label className="text-xs font-semibold uppercase tracking-wider">Tema</Label>
+                    <Button size="sm" variant="outline" onClick={toggleTheme} className="w-full">
+                      {theme === "dark" ? <><Sun className="mr-2 h-4 w-4" />Ganti ke Terang</> : <><Moon className="mr-2 h-4 w-4" />Ganti ke Gelap</>}
+                    </Button>
+                  </section>
+                </TabsContent>
+
+                {/* MEMORI TAB */}
+                <TabsContent value="memori" className="mt-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <Label>Memori (lintas-percakapan)</Label>
-                    <Button variant="ghost" size="sm" onClick={async () => {
-                      if (!confirm("Hapus semua memori?")) return;
-                      await clearMemFn({ data: { userId } });
-                      refreshMemories();
-                      toast.success("Memori dibersihkan");
-                    }}>Hapus semua</Button>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="sm" onClick={async () => {
+                        toast.info("Meringkas memori lama…");
+                        try {
+                          const r = await compactMemFn({ data: { userId, threshold: 20, batch: 15, force: true } }) as { ok: boolean; reason?: string; compacted?: number };
+                          if (r.ok) { toast.success(`${r.compacted} memori diringkas.`); refreshMemories(); }
+                          else toast.info(r.reason === "below-threshold" ? "Belum banyak memori untuk diringkas." : "Tidak ada yang diringkas.");
+                        } catch (e) { toast.error(e instanceof Error ? e.message : "Gagal"); }
+                      }}>Ringkas</Button>
+                      <Button variant="ghost" size="sm" onClick={async () => {
+                        if (!confirm("Hapus semua memori?")) return;
+                        await clearMemFn({ data: { userId } });
+                        refreshMemories();
+                        toast.success("Memori dibersihkan");
+                      }}>Hapus semua</Button>
+                    </div>
                   </div>
                   <p className="text-[11px] text-muted-foreground">
-                    Fakta tentang kamu (otomatis dipelajari) + ringkasan percakapan lama. AI pakai ini supaya konsisten lintas chat.
+                    Fakta tentang kamu (otomatis dipelajari) + ringkasan percakapan lama. Memori lama otomatis diringkas biar hemat.
                   </p>
                   <div className="flex gap-2">
                     <Input placeholder="Tambah fakta tentang dirimu…" value={newMem} onChange={(e) => setNewMem(e.target.value)} />
@@ -1168,7 +1191,6 @@ function FurinaApp() {
                     }}><Plus className="h-4 w-4" /></Button>
                   </div>
 
-                  {/* Filter chips */}
                   <div className="flex flex-wrap gap-1">
                     {[
                       { id: "all", label: "Semua" },
@@ -1192,7 +1214,7 @@ function FurinaApp() {
                   </div>
                   <Input placeholder="Cari memori…" value={memSearch} onChange={(e) => setMemSearch(e.target.value)} className="h-8 text-xs" />
 
-                  <div className="max-h-80 space-y-1 overflow-y-auto rounded-md border p-2 text-sm">
+                  <div className="max-h-[50vh] space-y-1 overflow-y-auto rounded-md border p-2 text-sm">
                     {(() => {
                       const q = memSearch.trim().toLowerCase();
                       const filtered = memories.filter((m) => {
@@ -1308,16 +1330,133 @@ function FurinaApp() {
                     })()}
                   </div>
                   <p className="text-[10px] text-muted-foreground">{memories.length} memori tersimpan.</p>
+                </TabsContent>
 
-                </section>
+                {/* SUARA TAB */}
+                <TabsContent value="suara" className="mt-4 space-y-3">
+                  <Label>Mesin suara (TTS)</Label>
+                  <Select value={provider} onValueChange={(v) => { setProvider(v as TTSProvider); savePref(STORAGE.provider, v); }}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="voicevox">VOICEVOX — anime Jepang (gratis, stabil)</SelectItem>
+                      <SelectItem value="clone">Voice Clone — suara karakter custom (XTTS Space)</SelectItem>
+                    </SelectContent>
+                  </Select>
 
+                  {provider === "voicevox" ? (
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">Karakter VOICEVOX</Label>
+                      <Select value={String(vvSpeaker)}
+                        onValueChange={(v) => { setVvSpeaker(parseInt(v, 10)); savePref(STORAGE.vvSpeaker, v); }}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {VV_SPEAKERS.map((s) => <SelectItem key={s.id} value={String(s.id)}>{s.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <div className="flex items-center justify-between pt-1">
+                        <Label className="text-xs">Auto-terjemah ke Jepang</Label>
+                        <Switch checked={vvTranslate}
+                          onCheckedChange={(c) => { setVvTranslate(c); savePref(STORAGE.vvTranslate, c ? "1" : "0"); }} />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs">Pre-generate audio (instant play)</Label>
+                        <Switch checked={preGenAudio}
+                          onCheckedChange={(c) => { setPreGenAudio(c); savePref(STORAGE.preGen, c ? "1" : "0"); }} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                      <Label className="text-xs font-semibold flex items-center gap-1">
+                        <Sparkles className="h-3 w-3" /> Sampel suara karakter
+                      </Label>
+                      <p className="text-[10px] leading-relaxed text-muted-foreground">
+                        Upload 1 file audio (mp3/wav, 6–15 detik, jernih, satu suara, tanpa musik). Clone via Coqui XTTS HF Space — gratis tanpa API key, kadang antri ~30 detik.
+                      </p>
+                      <input type="file" accept="audio/*" onChange={handleSampleUpload} className="block w-full text-xs" />
+                      {hasCloneSample && (
+                        <div className="flex items-center justify-between rounded bg-background/60 px-2 py-1 text-xs">
+                          <span className="truncate">✓ {cloneSampleName || "Sampel tersimpan"}</span>
+                          <button onClick={clearSample} className="text-muted-foreground hover:text-destructive">
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-                <Separator />
+                  <p className="pt-2 text-[11px] leading-relaxed text-muted-foreground">
+                    <Volume2 className="mr-1 inline h-3 w-3" />
+                    Tombol ▶ di tiap balon AI untuk memutar suara.
+                  </p>
 
-                <Button variant="outline" className="w-full" onClick={clearChat}>
-                  <Trash2 className="mr-2 h-4 w-4" /> Bersihkan percakapan ini
-                </Button>
-              </div>
+                  <div className="pt-2 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Kecepatan bicara</Label>
+                      <span className="text-xs text-muted-foreground tabular-nums">{speed.toFixed(2)}x</span>
+                    </div>
+                    <Slider min={0.7} max={1.5} step={0.05} value={[speed]}
+                      onValueChange={(v) => { const s = v[0] ?? 1; setSpeed(s); savePref(STORAGE.speed, String(s)); }} />
+                  </div>
+                </TabsContent>
+
+                {/* PROAKTIF TAB */}
+                <TabsContent value="proaktif" className="mt-4 space-y-4">
+                  <section className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Sapa duluan saat kamu balik</Label>
+                      <Switch checked={proactiveEnabled} onCheckedChange={setProactiveEnabled} />
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Kalau kamu lama tidak buka chat, Furina bisa nyapa duluan 1 kali saat kamu kembali. Maks sekali per sesi.
+                    </p>
+                  </section>
+
+                  <section className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Ambang idle (jam)</Label>
+                      <span className="text-xs text-muted-foreground tabular-nums">{proactiveIdleHours} jam</span>
+                    </div>
+                    <Slider min={1} max={48} step={1} value={[proactiveIdleHours]}
+                      onValueChange={(v) => setProactiveIdleHours(v[0] ?? 6)} disabled={!proactiveEnabled} />
+                    <p className="text-[10px] text-muted-foreground">
+                      Furina nyapa duluan kalau kamu tidak chat lebih dari {proactiveIdleHours} jam.
+                    </p>
+                  </section>
+                </TabsContent>
+
+                {/* AKUN TAB */}
+                <TabsContent value="akun" className="mt-4 space-y-4">
+                  <section className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                    <Label className="text-xs font-semibold uppercase tracking-wider">Akun</Label>
+                    {authUser ? (
+                      <div className="space-y-2">
+                        <p className="text-sm">Login sebagai <span className="font-medium">{authUser.email ?? authUser.id}</span></p>
+                        <p className="text-[11px] text-muted-foreground">
+                          ✓ Semua chat, kepribadian, dan pengaturan tersimpan otomatis ke akunmu.
+                        </p>
+                        <Button variant="outline" size="sm" className="w-full" onClick={logout}>
+                          <LogOut className="mr-2 h-4 w-4" /> Logout (kembali ke guest kosong)
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground">
+                          Mode guest. Login pertama kali → data guest dipindahkan otomatis ke akun. Login berikutnya → memuat data akunmu.
+                        </p>
+                        <Button size="sm" className="w-full" onClick={loginGoogle}>
+                          <LogIn className="mr-2 h-4 w-4" /> Masuk dengan Google
+                        </Button>
+                      </div>
+                    )}
+                  </section>
+
+                  <Separator />
+
+                  <Button variant="outline" className="w-full" onClick={clearChat}>
+                    <Trash2 className="mr-2 h-4 w-4" /> Bersihkan percakapan ini
+                  </Button>
+                </TabsContent>
+              </Tabs>
             </SheetContent>
           </Sheet>
         </div>
