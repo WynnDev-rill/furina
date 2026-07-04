@@ -200,6 +200,9 @@ function FurinaApp() {
   const migrateMemFn = useServerFn(migrateGuestMemories);
   const summarizeFn = useServerFn(summarizeConversation);
   const updateStyleFn = useServerFn(updateStyleProfile);
+  const compactMemFn = useServerFn(compactMemories);
+  const proactiveFn = useServerFn(proactiveGreeting);
+  const getMoodFn = useServerFn(getMood);
 
   const [authUser, setAuthUser] = useState<{ id: string; email?: string } | null>(null);
   const [authReady, setAuthReady] = useState(false);
