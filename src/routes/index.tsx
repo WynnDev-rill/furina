@@ -282,7 +282,55 @@ function FurinaApp() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  // ===== Build settings snapshot =====
+  // ===== Fetch mood on user change =====
+  useEffect(() => {
+    if (!userId) return;
+    getMoodFn({ data: { userId } }).then((r) => {
+      if (r?.mood) setMood({ score: r.mood.score, label: r.label });
+    }).catch(() => {});
+  }, [userId, getMoodFn]);
+
+  // ===== Proactive greeting on idle-return =====
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!proactiveEnabled) return;
+
+    const tryGreet = async () => {
+      if (proactiveFiredRef.current) return;
+      if (document.visibilityState !== "visible") return;
+      const last = parseInt(localStorage.getItem(lastActivityKey) ?? "0", 10);
+      if (!last) { proactiveFiredRef.current = true; return; }
+      const hoursIdle = (Date.now() - last) / (1000 * 60 * 60);
+      if (hoursIdle < proactiveIdleHours) return;
+      proactiveFiredRef.current = true;
+      try {
+        const r = await proactiveFn({ data: { userId, characterName: name, hoursIdle: Math.min(720, hoursIdle) } });
+        if (r?.ok && r.greeting) {
+          const aiMsg: Msg = { id: crypto.randomUUID(), role: "assistant", content: r.greeting, at: Date.now() };
+          setConversations((convos) => convos.map((c) => c.id === activeId
+            ? { ...c, messages: [...c.messages, aiMsg], updatedAt: Date.now() }
+            : c));
+          if (authUser && activeId) upsertSingleMessage(authUser.id, activeId, aiMsg);
+          if (r.mood) setMood(r.mood);
+        }
+      } catch {}
+    };
+
+    const onVis = () => tryGreet();
+    document.addEventListener("visibilitychange", onVis);
+    // Coba juga langsung saat mount
+    const t = setTimeout(tryGreet, 1500);
+    return () => { document.removeEventListener("visibilitychange", onVis); clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proactiveEnabled, proactiveIdleHours, userId, activeId, name, authUser]);
+
+  // Touch lastActivity setiap kali user interaksi kirim
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const touch = () => { try { localStorage.setItem(lastActivityKey, String(Date.now())); } catch {} };
+    window.addEventListener("focus", touch);
+    return () => window.removeEventListener("focus", touch);
+  }, []);
   const buildSettings = useCallback((): SettingsSnapshot => ({
     bg, name, persona, lang: language, speed, provider, vvSpeaker, vvTranslate, preGen: preGenAudio, theme,
     cloneSampleName,
