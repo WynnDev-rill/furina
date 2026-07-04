@@ -391,11 +391,18 @@ export const chatWithFurina = createServerFn({ method: "POST" })
       lengthHint = "\n\nMODE PANJANG: 1-2 bubble, adaptif.";
     }
 
+    // Mood state
+    const prevMood = await readMood(data.userId);
+    const delta = classifyMoodDelta(userText);
+    const newScore = Math.max(-100, Math.min(100, prevMood.score + delta));
+    const moodInfo = moodLabel(newScore);
+    const moodNote = `\n\nMOOD KAMU SAAT INI: ${moodInfo.label} (skor internal ${newScore}). ${moodInfo.hint} JANGAN sebut kata "mood" atau angka ini secara harfiah.`;
+
     const system = `${data.systemPersona?.trim() || DEFAULT_PERSONA}
 Nama kamu: ${data.characterName}.
 ${langHint}
 
-KONTEKS WAKTU: ${realtimeContextString()}${gapNote}${memoryContext}${entityContext}${styleNote}${lengthHint}`;
+KONTEKS WAKTU: ${realtimeContextString()}${gapNote}${moodNote}${memoryContext}${entityContext}${styleNote}${lengthHint}`;
 
     const built: Array<{ role: string; content: unknown }> = data.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
     const lastIdx = data.messages.length - 1;
