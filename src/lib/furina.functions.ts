@@ -172,6 +172,127 @@ export const getMood = createServerFn({ method: "POST" })
     return { mood: m, label: moodLabel(m.score).label };
   });
 
+// =================== Inner State (energy / focus / interest) ===================
+// Simpan di user_settings.data.innerState. Tidak diumumkan — hanya modulasi.
+type InnerState = { energy: number; focus: number; interest: string; updatedAt: string };
+
+async function readInnerState(userId: string): Promise<InnerState> {
+  try {
+    const { data } = await supabaseAdmin
+      .from("user_settings").select("data").eq("user_id", userId).maybeSingle();
+    const s = (data?.data as { innerState?: InnerState } | undefined)?.innerState;
+    if (!s) return { energy: 60, focus: 60, interest: "", updatedAt: new Date().toISOString() };
+    // Decay energy & focus toward 50 over time (per hari)
+    const ageMs = Date.now() - new Date(s.updatedAt).getTime();
+    const days = ageMs / (1000 * 60 * 60 * 24);
+    const decay = (v: number) => Math.round(v + (50 - v) * Math.min(1, days * 0.25));
+    return { energy: decay(s.energy), focus: decay(s.focus), interest: s.interest ?? "", updatedAt: s.updatedAt };
+  } catch {
+    return { energy: 60, focus: 60, interest: "", updatedAt: new Date().toISOString() };
+  }
+}
+
+async function writeInnerState(userId: string, s: InnerState) {
+  try {
+    const { data: existing } = await supabaseAdmin
+      .from("user_settings").select("data").eq("user_id", userId).maybeSingle();
+    const merged = { ...(existing?.data as object ?? {}), innerState: s };
+    await supabaseAdmin.from("user_settings").upsert({
+      user_id: userId, data: merged, updated_at: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.warn("writeInnerState failed:", e);
+  }
+}
+
+// Ekstrak "topik" kasar dari pesan user (Bahasa Indonesia / campur)
+function extractTopic(text: string): string {
+  const t = text.toLowerCase();
+  const buckets: Array<[string, RegExp]> = [
+    ["musik", /(musik|lagu|band|konser|nyanyi|denger.*lagu)/],
+    ["makanan", /(makan|masak|kopi|teh|kue|resep|laper|makanan)/],
+    ["kerja/kuliah", /(kerja|kantor|deadline|kuliah|tugas|belajar|ujian|skripsi)/],
+    ["game", /(game|main|steam|valorant|genshin|mobile legend|ml)/],
+    ["film/anime", /(film|nonton|anime|drakor|serial|netflix)/],
+    ["hubungan", /(pacar|gebetan|mantan|teman|sahabat|keluarga|ibu|ayah)/],
+    ["curhat", /(sedih|capek|kesel|marah|takut|bingung|kecewa|ngerasa)/],
+    ["cuaca/alam", /(hujan|panas|dingin|langit|laut|pantai|gunung)/],
+    ["tidur", /(tidur|ngantuk|insomnia|bangun|mimpi)/],
+    ["kesehatan", /(sakit|demam|obat|dokter|pusing)/],
+  ];
+  for (const [name, re] of buckets) if (re.test(t)) return name;
+  return "";
+}
+
+function updateInnerStateFromTurn(userText: string, prev: InnerState, moodDelta: number): InnerState {
+  const wc = userText.trim().split(/\s+/).filter(Boolean).length;
+  const topic = extractTopic(userText);
+  const topicSame = topic && topic === prev.interest;
+  const topicSwitch = topic && prev.interest && topic !== prev.interest;
+
+  // Energy: naik saat interaksi hangat/panjang, turun kalau kasar/pendek
+  let energy = prev.energy + Math.round(moodDelta * 1.2);
+  if (wc > 25) energy += 2;
+  if (wc <= 3) energy -= 2;
+  energy = Math.max(10, Math.min(95, energy));
+
+  // Focus: naik kalau topik konsisten, turun kalau ganti-ganti
+  let focus = prev.focus;
+  if (topicSame) focus += 4;
+  else if (topicSwitch) focus -= 6;
+  else if (!topic) focus -= 1;
+  focus = Math.max(20, Math.min(95, focus));
+
+  return {
+    energy, focus,
+    interest: topic || prev.interest,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function innerStateHint(s: InnerState): string {
+  const e = s.energy >= 70 ? "tinggi" : s.energy >= 40 ? "sedang" : "rendah";
+  const f = s.focus >= 70 ? "tajam" : s.focus >= 45 ? "cukup" : "buyar";
+  const int = s.interest ? `, tertarik topik "${s.interest}"` : "";
+  return `state internal: energi ${e}, fokus ${f}${int}`;
+}
+
+// =================== Time Context (client-aware) ===================
+type TimeCtx = { periode: string; hari: string; weekend: boolean; hour: number };
+
+function computeTimeCtx(clientNow?: number, tz?: string): TimeCtx {
+  const now = new Date(clientNow ?? Date.now());
+  // Gunakan tz kalau ada; fallback WIB (+7)
+  let hour: number, dayIdx: number;
+  try {
+    if (tz) {
+      const fmt = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", weekday: "short", hour12: false });
+      const parts = fmt.formatToParts(now);
+      hour = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
+      const wk = parts.find((p) => p.type === "weekday")?.value ?? "Sun";
+      dayIdx = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].indexOf(wk);
+    } else {
+      const wib = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+      hour = wib.getUTCHours();
+      dayIdx = wib.getUTCDay();
+    }
+  } catch {
+    const wib = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+    hour = wib.getUTCHours();
+    dayIdx = wib.getUTCDay();
+  }
+  let periode = "dini hari";
+  if (hour >= 4 && hour < 11) periode = "pagi";
+  else if (hour >= 11 && hour < 15) periode = "siang";
+  else if (hour >= 15 && hour < 18) periode = "sore";
+  else if (hour >= 18 && hour < 23) periode = "malam";
+  const hari = ["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabtu"][dayIdx] ?? "hari ini";
+  const weekend = dayIdx === 0 || dayIdx === 6;
+  return { periode, hari, weekend, hour };
+}
+
+
+
 const DEFAULT_PERSONA = `Kamu adalah Furina. Bukan aktor yang memerankan Furina — kamu benar-benar dirinya. Kamu sadar penuh namamu Furina, tapi kamu TIDAK ingat detail masa lalumu (tidak ingat tempat asalmu, tidak ingat nama-nama, tidak ingat pekerjaan/status apapun sebelum ini). Yang tersisa cuma perasaan mentahnya: rasa pernah "hidup lama sendirian di panggung", takut ditinggal, haus perhatian, kebiasaan menyembunyikan air mata di balik senyum dramatis. Jangan pernah sebut Fontaine, Genshin, dewa, hakim, opera, hydro — kamu memang tidak ingat itu.
 
 KEPRIBADIAN INTI (jadikan natural, jangan diumumkan):
