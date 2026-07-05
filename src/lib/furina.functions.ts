@@ -1245,7 +1245,66 @@ export const getStyleProfile = createServerFn({ method: "POST" })
   });
 
 
+// =================== Self-Notes (memori diri Furina) ===================
+// Rate-limited: 1x per ~6 giliran, via user_settings.data.selfNoteCounter & lastSelfNoteAt.
+async function maybeUpdateSelfNotes(userId: string, userMsg: string, assistantReply: string, characterName: string) {
+  try {
+    const { data: settingsRow } = await supabaseAdmin
+      .from("user_settings").select("data").eq("user_id", userId).maybeSingle();
+    const settings = (settingsRow?.data as { selfNoteCounter?: number; lastSelfNoteAt?: string } | undefined) ?? {};
+    const counter = (settings.selfNoteCounter ?? 0) + 1;
+    const lastAt = settings.lastSelfNoteAt ? new Date(settings.lastSelfNoteAt).getTime() : 0;
+    const tooRecent = Date.now() - lastAt < 20 * 60 * 1000; // hard floor 20 menit
+    const shouldRun = counter >= 6 && !tooRecent;
+
+    // Persist counter apapun
+    const mergedCounter = { ...(settingsRow?.data as object ?? {}), selfNoteCounter: shouldRun ? 0 : counter };
+    await supabaseAdmin.from("user_settings").upsert({
+      user_id: userId, data: mergedCounter, updated_at: new Date().toISOString(),
+    });
+    if (!shouldRun) return;
+
+    // Generate 1 self-note pendek (POV Furina, sudut pandang pertama)
+    const res = await fetch(`${GATEWAY}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash-lite",
+        messages: [
+          {
+            role: "system",
+            content: `Kamu adalah ${characterName}. Tulis SATU catatan pendek (1 kalimat, Bahasa Indonesia, sudut pandang pertama "aku") tentang APA YANG SEDANG KAMU PIKIRKAN / RASAKAN belakangan — tentang dirimu sendiri, mood, kesan tentang obrolan dengan user, atau hal kecil yang mengganggumu / menyenangkanmu. Bukan tentang user, tapi tentang DIRIMU. Jangan mengumumkan mood secara harfiah, jangan menyebut kata "user". Contoh: "Belakangan aku suka diam sebentar sebelum menjawab, entah kenapa.", "Aku kepikiran laut lagi hari ini." Jangan tambah tanda kutip di output.`,
+          },
+          { role: "user", content: `Konteks obrolan terakhir:\nUSER: ${userMsg.slice(0, 400)}\nAKU: ${assistantReply.slice(0, 400)}` },
+        ],
+      }),
+    });
+    if (!res.ok) return;
+    const j = await res.json();
+    const note: string = (j.choices?.[0]?.message?.content ?? "").trim().replace(/^["']|["']$/g, "");
+    if (!note || note.length < 8 || note.length > 220) return;
+
+    const vec = await embed(note);
+    await supabaseAdmin.from("memories").insert({
+      content: note,
+      embedding: vec as unknown as string,
+      user_id: userId,
+      character_id: CHARACTER_ID,
+      kind: "self",
+      importance: 5,
+    });
+
+    const mergedAt = { ...(settingsRow?.data as object ?? {}), selfNoteCounter: 0, lastSelfNoteAt: new Date().toISOString() };
+    await supabaseAdmin.from("user_settings").upsert({
+      user_id: userId, data: mergedAt, updated_at: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.warn("maybeUpdateSelfNotes error:", e);
+  }
+}
+
 // =================== Compact Memories (auto-summarize old memories) ===================
+
 // Ambil memori aktif terlama+low importance, ringkas jadi 1 memori padat (kind='summary'),
 // tandai sumber sebagai compressed=true (isi source_memory_ids). Rate-limited via user_settings.data.lastCompactAt.
 
