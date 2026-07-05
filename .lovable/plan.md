@@ -1,59 +1,78 @@
-# Rencana Update Besar Furina
+# Perbaikan Bug + Furina Lebih Hidup & Punya Pendirian
 
-Berdasarkan pilihanmu: **Mood meter**, **Semantic recall + Auto-summarize**, **Rombak panel Setting**, **Sistem proaktif + Follow-up cerdas**.
+## A. Bug fixes
 
----
+### 1. Chat terbaru kadang menghilang
+- Setelah `sendMessage`, refetch bisa me-*replace* array sebelum row assistant tersimpan → pesan hilang sekejap.
+- Perbaikan:
+  - Realtime subscribe ke `messages` per `conversation_id` (INSERT/UPDATE), merge **by id**, bukan replace.
+  - Optimistic message dipertahankan sampai row dengan id sama muncul dari server.
+  - Setelah server fn balas, update state langsung dari hasilnya (tanpa full reload).
 
-## 1. Mood Meter Bergulir
+### 2. Waktu riwayat sama semua
+- Pastikan `conversations.updated_at` di-*touch* setiap kirim pesan di server fn.
+- Sidebar pakai util `formatRelative(date)`: "baru saja", "5 mnt lalu", "2 jam lalu", "kemarin", "3 hari lalu", "12 Nov".
 
-Skor mood -100..+100 (default 0). Naik saat user manis/afeksi, turun saat cuek/kasar/lama hilang. Memengaruhi tone Furina tiap giliran, tapi dibatasi supaya tidak drama.
+### 3. Grouping riwayat
+- Bucket: **Hari ini / Kemarin / 7 hari terakhir / 30 hari terakhir / Lebih lama**, header kecil, urut desc dalam bucket.
 
-- Simpan di `user_settings.data.mood` = `{ score, updatedAt, streak }` (tanpa tabel baru — hemat).
-- Update di server tiap giliran: klasifikasi ringan pesan user (regex + heuristik kata kunci ID/EN: pujian, sayang, kasar, cuek, permintaan bantuan) → delta ±1..±5. Decay perlahan ke 0 (mean-reversion) tiap hari.
-- Inject ke system prompt: label `mood: cerah / adem / merajuk / ngambek / tersentuh`. Aturan: mood cuma memodulasi warna, TIDAK memaksa drama. Netral kalau skor -20..+20.
-- Indikator halus di UI: dot warna kecil di header avatar (hover = label mood). Tidak intrusif.
+## B. Kesadaran & ekspresi
 
-## 2. Memori: Semantic Recall + Auto-Summarize
+### 4. Inner state ringan (di luar mood)
+- Simpan di `user_settings.data.innerState`: `energy` (0..100, decay harian), `focus` (0..100), `interest` (topik singkat dari kata kunci pesan).
+- Prompt menerima 1 baris hint (`state: energy tinggi, fokus rendah, tertarik "musik"`). Furina memodulasi panjang/antusiasme; **tidak boleh mengumumkan state**.
 
-Skema `memories` sudah punya `embedding`, `importance`, `kind`, `compressed`, dan RPC `match_memories`. Yang perlu ditambah:
+### 5. Kesadaran waktu & sesi
+- Client kirim `clientNow` + `tz`. Server hitung: waktu lokal (pagi/siang/sore/malam/dini hari), jarak sejak pesan terakhir, hari & weekend.
+- Sisipkan sebagai konteks di prompt. Furina boleh menyinggung natural.
 
-- **Semantic recall aktif**: saat kirim pesan, embed pesan user → panggil `match_memories(top_k=6)` → sisipkan ke prompt sebagai "Memori relevan" (bukan semua memori dijejalkan). Sudah ada infrastruktur, tinggal dipakai konsisten dan diberi batas token.
-- **Auto-summarize memori lama**: server fn `compactMemories` — dipicu saat total memori aktif (`compressed=false`) > threshold (mis. 60). Ambil batch memori terlama+low importance, minta model ringkas jadi 1 memori padat `kind='summary'`, tandai sumber sebagai `compressed=true` (via `source_memory_ids`). Panggil di background setelah kirim pesan (fire-and-forget), rate-limited 1x per 10 menit per user.
-- **Kualitas embedding**: pakai `google/gemini-embedding-001` (default AI Gateway). Kolom sudah `vector` — cek dimensi cocok; kalau perlu migrasi ukuran, dilakukan.
+### 6. Memori diri (self-notes)
+- Pakai `memories.kind='self'` (konvensi, tanpa migrasi).
+- Server fn `updateSelfNotes` (rate-limited ~1x per 6 giliran) bikin 1 catatan pendek tentang Furina sendiri.
+- Semantic recall mengambil top 1–2 self-memory selain memori user-facing.
 
-## 3. Rombak Panel Setting
+## C. Sifat egois & menentang (level: sedang)
 
-Setting sekarang scroll panjang. Rombak jadi **Tabs** rapi:
+### 7. Opini & bantah dalam karakter
+- Update `DEFAULT_PERSONA` + system-prompt builder:
+  - 8–12 preferensi konkret Furina + 4–6 pet peeves (panggung, drama, air/laut, wine, dsb).
+  - Boleh **tidak setuju**, koreksi user, jawab dari sudut pandangnya. Tidak wajib validate.
+  - Boleh kesombongan halus, merajuk, merasa lebih tahu.
+  - **Bukan penolakan moral untuk konten dewasa/vulgar**; hanya menolak/menawar kalau secara karakter sedang tidak mood. Kalau moodnya cocok, ia bisa antusias.
+  - Larangan tetap: tidak khotbah moral, tidak jadi asisten netral, tidak selalu setuju.
+- ~20% giliran mulai dengan "counter" (koreksi/opini) sebelum bantu — tetap membantu.
 
-- **Persona** — nama, system prompt, slider "intensitas tsundere" (opsional, kecil), preview mood.
-- **Memori** — daftar memori dengan search, filter kategori (`fact / preference / event / mood / summary`), pin, edit inline, hapus batch, tombol "Ringkas sekarang" manual.
-- **Model & Suara** — pilih model, ElevenLabs voice, toggle audio.
-- **Proaktif** — toggle sistem proaktif + slider frekuensi + jam aktif.
-- **Data & Akun** — export, import, reset, sign out.
+## D. Proaktif dalam obrolan
 
-Visual: pakai `Tabs` dari shadcn, layout mobile-first (tab jadi vertikal list di layar kecil), sticky header saat scroll.
+### 8. Inisiatif dalam obrolan
+- ~30% giliran, tambah **giliran mini** setelah balasan utama: lempar topik baru dari inner state, cerita hal kecil tentang dirinya, atau opini spontan.
+- Tidak muncul kalau: user baru bertanya spesifik yang belum tuntas, topik sensitif, atau balasan sudah panjang.
 
-## 4. Sistem Proaktif Ringan + Follow-up Cerdas
+### 9. Callback memori spontan
+- ~15% per giliran, ambil 1 memori lama (importance ≥ 6, `last_accessed_at` > 3 hari) yang **cocok embedding** dengan konteks. Sisipkan hint prompt.
+- Update `last_accessed_at` + `access_count` supaya tidak berulang.
 
-**Proaktif**: kalau user diam > X jam (default 6, atur di Setting) dan tab aktif → Furina bisa "nyapa duluan" 1 bubble pendek. Sumber: ambil 1-2 memori random ber-importance tinggi + mood → generate pesan singkat. Batasi maks 1x per sesi buka app. Bisa dimatikan.
+## E. File yang disentuh
 
-**Follow-up cerdas**: di server, setelah balasan utama, opsional tambah 1 pertanyaan/observasi pendek yang nyambung topik (bukan template "ada lagi?"). Diaktifkan per giliran secara probabilistik (mis. 35%), dan **tidak** muncul kalau balasan sudah berupa pertanyaan atau topik sensitif.
+```
+src/lib/utils.ts               + formatRelative()
+src/lib/furina.functions.ts    inner state, time awareness, self-notes,
+                               opinion/counter rules, initiative + callback,
+                               touch conversations.updated_at, terima clientNow + tz
+src/routes/index.tsx           realtime subscribe messages, merge-by-id,
+                               kirim clientNow + tz,
+                               sidebar: formatRelative + grouping bucket
+```
 
-## 5. Perubahan File
+Tanpa tabel baru. `memories.kind='self'` cukup pakai kolom yang ada. `user_settings.data.innerState` menyatu di JSON.
 
-- `src/lib/furina.functions.ts` — mood classifier + injeksi mood ke prompt, semantic recall aktif, follow-up rule, `compactMemories` server fn, `proactiveGreeting` server fn.
-- `src/routes/index.tsx` — indikator mood di header, panggil `proactiveGreeting` saat idle-return, jadwalkan `compactMemories` background.
-- **Setting baru**: pisah jadi komponen `src/components/settings/*` (PersonaTab, MemoryTab, ModelTab, ProactiveTab, DataTab) + `SettingsSheet.tsx` sebagai container Tabs. Menggantikan blok setting lama di `index.tsx`.
-- Migrasi ringan (kalau perlu): index HNSW untuk `embedding` (kalau belum), kolom tak perlu ditambah — semua field mood disimpan di `user_settings.data`.
+## F. Urutan eksekusi
 
-## 6. Prioritas & Urutan Eksekusi
+1. Bug: realtime + dedupe pesan.
+2. Bug: `updated_at` conversation + formatRelative + grouping sidebar.
+3. Persona rework (opini/bantah + preferensi konkret).
+4. Inner state + kesadaran waktu.
+5. Self-notes + callback memori spontan.
+6. Inisiatif giliran mini.
 
-1. Rombak Setting (fondasi UI, biar fitur baru punya tempat).
-2. Mood meter (kecil, high impact).
-3. Semantic recall aktif + follow-up cerdas (perbaiki kualitas balasan).
-4. Auto-summarize (background, tidak blocking).
-5. Sistem proaktif (paling akhir, butuh idle detection).
-
-## 7. Pertanyaan Sebelum Eksekusi
-
-Cukup satu: mau aku kerjakan **semua sekaligus dalam 1 turn besar**, atau **bertahap per nomor** (lebih aman, bisa review tiap langkah)? Rekomendasiku: bertahap, mulai dari #1 (Setting) + #2 (Mood) dulu.
+Mau **semua sekaligus 1 turn** atau **bertahap A→F**? Rekomendasi: bertahap, mulai **A (bug)** dulu.
