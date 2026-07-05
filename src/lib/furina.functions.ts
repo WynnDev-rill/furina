@@ -401,6 +401,7 @@ export const chatWithFurina = createServerFn({ method: "POST" })
           const episodic = top.filter((m) => m.kind === "episodic");
           const summaries = top.filter((m) => m.kind === "summary");
           const styles = top.filter((m) => m.kind === "style");
+          const selfNotes = top.filter((m) => m.kind === "self");
 
           if (facts.length) {
             memoryContext += "\n\nMEMORIES tentang pengguna (pakai natural, jangan dilist):\n" +
@@ -424,10 +425,23 @@ export const chatWithFurina = createServerFn({ method: "POST" })
             memoryContext += "\n\nGAYA BICARA PENGGUNA (tirukan ritme & vocab-nya, tetap karakterku):\n" +
               styles.slice(0, 1).map((m) => `- ${m.content}`).join("\n");
           }
+          if (selfNotes.length) {
+            memoryContext += "\n\nCATATAN DIRIMU (self-notes — hal yang lagi kamu, Furina, pikirkan/rasakan sendiri belakangan; pakai organik kalau natural, JANGAN dibacakan):\n" +
+              selfNotes.slice(0, 2).map((m) => `- ${m.content}`).join("\n");
+          }
+
+          // === Callback memori spontan (~15%): pilih 1 memori penting yang lama tidak diakses ===
+          if (Math.random() < 0.15 && facts.length) {
+            const callbackCand = facts.find((m) => m.importance >= 6);
+            if (callbackCand) {
+              memoryContext += `\n\nCALLBACK HINT (opsional, boleh kamu ungkit kalau nyambung natural — jangan dipaksakan): "${callbackCand.content}"`;
+            }
+          }
 
           accessedIds.push(...top.map((m) => m.id));
-          console.log(`[furina] retrieved ${top.length} memories (facts=${facts.length}, episodic=${episodic.length}, summaries=${summaries.length})`);
+          console.log(`[furina] retrieved ${top.length} memories (facts=${facts.length}, episodic=${episodic.length}, summaries=${summaries.length}, self=${selfNotes.length})`);
         }
+
       }
     } catch (e) {
       console.error("RAG retrieval failed:", e);
