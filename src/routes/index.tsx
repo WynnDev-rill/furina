@@ -761,8 +761,11 @@ function FurinaApp() {
           imageDataUrl,
           millisSinceLastAssistant,
           conversationId: activeId,
+          clientNow: Date.now(),
+          tz: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return undefined; } })(),
         },
       });
+
       const bubbles: string[] = (chatResult as { bubbles?: string[]; reply: string }).bubbles?.length
         ? (chatResult as { bubbles: string[] }).bubbles
         : [chatResult.reply];
