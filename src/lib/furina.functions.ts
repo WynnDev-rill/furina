@@ -623,6 +623,14 @@ KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${moodNote}${inner
     writeMood(data.userId, { score: newScore, updatedAt: new Date().toISOString(), streak: (prevMood.streak ?? 0) + (delta >= 0 ? 1 : 0) })
       .catch((e) => console.warn("writeMood:", e));
 
+    // Persist inner state
+    writeInnerState(data.userId, nextInner).catch((e) => console.warn("writeInnerState:", e));
+
+    // Self-notes: rate-limited ~1x per 6 giliran (fire-and-forget)
+    maybeUpdateSelfNotes(data.userId, userText, reply, data.characterName).catch((e) => console.warn("selfNotes:", e));
+
+
+
     return { reply: finalBubbles.join("\n\n"), bubbles: finalBubbles, mood: { score: newScore, label: moodInfo.label } };
   });
 
