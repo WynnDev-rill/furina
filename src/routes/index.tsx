@@ -569,6 +569,10 @@ function FurinaApp() {
   }
 
   // ===== Auto-persist conversations to localStorage + cloud (debounced) =====
+  // NOTE: Hanya push conversation row untuk convo AKTIF, tidak semua.
+  // Mass-push sebelumnya membuat semua conversations.updated_at jadi sama (bug: waktu riwayat seragam)
+  // dan berpotensi race dengan per-message upsert (bug: pesan terbaru sesekali "hilang").
+  // Message rows tetap ditulis per-bubble via upsertSingleMessage().
   useEffect(() => {
     if (!conversations.length) return;
     try {
@@ -582,13 +586,16 @@ function FurinaApp() {
     } catch {}
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
 
-    if (authUser && initialLoadDoneRef.current) {
+    if (authUser && initialLoadDoneRef.current && activeId) {
+      const active = conversations.find((c) => c.id === activeId);
+      if (!active) return;
       if (conversationsDebounceRef.current) clearTimeout(conversationsDebounceRef.current);
       conversationsDebounceRef.current = setTimeout(() => {
-        pushAllConversationsTo(authUser.id, conversations).catch(() => {});
+        upsertSingleConversation(authUser.id, active).catch(() => {});
       }, 1200);
     }
-  }, [conversations, authUser]);
+  }, [conversations, authUser, activeId]);
+
 
   useEffect(() => {
     if (activeId) try { localStorage.setItem(STORAGE.activeId, activeId); } catch {}
