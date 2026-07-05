@@ -92,7 +92,11 @@ const ChatInput = z.object({
   millisSinceLastAssistant: z.number().int().nonnegative().optional(),
   conversationId: z.string().optional(),
   styleProfile: z.string().optional(),
+  // Kesadaran waktu klien
+  clientNow: z.number().int().positive().optional(),
+  tz: z.string().optional(),
 });
+
 
 // =================== Mood meter ===================
 // Skor -100..+100. Netral kalau |score| < 20. Simpan di user_settings.data.mood.
