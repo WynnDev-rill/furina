@@ -569,6 +569,10 @@ function FurinaApp() {
   }
 
   // ===== Auto-persist conversations to localStorage + cloud (debounced) =====
+  // NOTE: Hanya push conversation row untuk convo AKTIF, tidak semua.
+  // Mass-push sebelumnya membuat semua conversations.updated_at jadi sama (bug: waktu riwayat seragam)
+  // dan berpotensi race dengan per-message upsert (bug: pesan terbaru sesekali "hilang").
+  // Message rows tetap ditulis per-bubble via upsertSingleMessage().
   useEffect(() => {
     if (!conversations.length) return;
     try {
@@ -582,13 +586,16 @@ function FurinaApp() {
     } catch {}
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
 
-    if (authUser && initialLoadDoneRef.current) {
+    if (authUser && initialLoadDoneRef.current && activeId) {
+      const active = conversations.find((c) => c.id === activeId);
+      if (!active) return;
       if (conversationsDebounceRef.current) clearTimeout(conversationsDebounceRef.current);
       conversationsDebounceRef.current = setTimeout(() => {
-        pushAllConversationsTo(authUser.id, conversations).catch(() => {});
+        upsertSingleConversation(authUser.id, active).catch(() => {});
       }, 1200);
     }
-  }, [conversations, authUser]);
+  }, [conversations, authUser, activeId]);
+
 
   useEffect(() => {
     if (activeId) try { localStorage.setItem(STORAGE.activeId, activeId); } catch {}
@@ -1021,50 +1028,83 @@ function FurinaApp() {
                 <Button onClick={startNewConversation} className="w-full">
                   <Plus className="mr-2 h-4 w-4" /> Percakapan baru
                 </Button>
-                <div className="mt-3 space-y-1">
-                  {[...conversations].sort((a, b) => b.updatedAt - a.updatedAt).map((c) => {
-                    const isActive = c.id === activeId;
-                    const preview = c.messages[c.messages.length - 1]?.content?.slice(0, 60) ?? "Belum ada pesan";
-                    return (
-                      <div key={c.id}
-                        className={`group rounded-lg border p-2 transition ${isActive ? "border-primary bg-accent" : "hover:bg-muted"}`}>
-                        {editingTitleId === c.id ? (
-                          <div className="flex items-center gap-1">
-                            <Input autoFocus value={editingTitleVal}
-                              onChange={(e) => setEditingTitleVal(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") { renameConversation(c.id, editingTitleVal); setEditingTitleId(null); }
-                                if (e.key === "Escape") setEditingTitleId(null);
-                              }}
-                              className="h-7 text-sm" />
-                            <Button size="icon" variant="ghost" className="h-7 w-7"
-                              onClick={() => { renameConversation(c.id, editingTitleVal); setEditingTitleId(null); }}>
-                              <Check className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ) : (
-                          <button onClick={() => selectConversation(c.id)} className="flex w-full flex-col text-left">
-                            <span className="truncate text-sm font-medium">{c.title}</span>
-                            <span className="truncate text-xs text-muted-foreground">{preview}</span>
-                            <span className="text-[10px] text-muted-foreground">{relTime(c.updatedAt, Date.now())}</span>
-                          </button>
-                        )}
-                        {editingTitleId !== c.id && (
-                          <div className="mt-1 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
-                            <Button size="icon" variant="ghost" className="h-6 w-6"
-                              onClick={() => { setEditingTitleId(c.id); setEditingTitleVal(c.title); }}>
-                              <Pencil className="h-3 w-3" />
-                            </Button>
-                            <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive"
-                              onClick={() => { if (confirm("Hapus percakapan ini?")) deleteConversation(c.id); }}>
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        )}
+                <div className="mt-3 space-y-3">
+                  {(() => {
+                    const now = Date.now();
+                    const startOfDay = new Date(); startOfDay.setHours(0,0,0,0);
+                    const todayStart = startOfDay.getTime();
+                    const yesterdayStart = todayStart - 86400000;
+                    const weekStart = todayStart - 6 * 86400000;
+                    const monthStart = todayStart - 29 * 86400000;
+                    const sorted = [...conversations].sort((a, b) => b.updatedAt - a.updatedAt);
+                    const buckets: { label: string; items: Conversation[] }[] = [
+                      { label: "Hari ini", items: [] },
+                      { label: "Kemarin", items: [] },
+                      { label: "7 hari terakhir", items: [] },
+                      { label: "30 hari terakhir", items: [] },
+                      { label: "Lebih lama", items: [] },
+                    ];
+                    for (const c of sorted) {
+                      if (c.updatedAt >= todayStart) buckets[0].items.push(c);
+                      else if (c.updatedAt >= yesterdayStart) buckets[1].items.push(c);
+                      else if (c.updatedAt >= weekStart) buckets[2].items.push(c);
+                      else if (c.updatedAt >= monthStart) buckets[3].items.push(c);
+                      else buckets[4].items.push(c);
+                    }
+                    return buckets.filter((b) => b.items.length).map((bucket) => (
+                      <div key={bucket.label}>
+                        <div className="mb-1 px-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                          {bucket.label}
+                        </div>
+                        <div className="space-y-1">
+                          {bucket.items.map((c) => {
+                            const isActive = c.id === activeId;
+                            const preview = c.messages[c.messages.length - 1]?.content?.slice(0, 60) ?? "Belum ada pesan";
+                            return (
+                              <div key={c.id}
+                                className={`group rounded-lg border p-2 transition ${isActive ? "border-primary bg-accent" : "hover:bg-muted"}`}>
+                                {editingTitleId === c.id ? (
+                                  <div className="flex items-center gap-1">
+                                    <Input autoFocus value={editingTitleVal}
+                                      onChange={(e) => setEditingTitleVal(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") { renameConversation(c.id, editingTitleVal); setEditingTitleId(null); }
+                                        if (e.key === "Escape") setEditingTitleId(null);
+                                      }}
+                                      className="h-7 text-sm" />
+                                    <Button size="icon" variant="ghost" className="h-7 w-7"
+                                      onClick={() => { renameConversation(c.id, editingTitleVal); setEditingTitleId(null); }}>
+                                      <Check className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <button onClick={() => selectConversation(c.id)} className="flex w-full flex-col text-left">
+                                    <span className="truncate text-sm font-medium">{c.title}</span>
+                                    <span className="truncate text-xs text-muted-foreground">{preview}</span>
+                                    <span className="text-[10px] text-muted-foreground">{relTime(c.updatedAt, now)}</span>
+                                  </button>
+                                )}
+                                {editingTitleId !== c.id && (
+                                  <div className="mt-1 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
+                                    <Button size="icon" variant="ghost" className="h-6 w-6"
+                                      onClick={() => { setEditingTitleId(c.id); setEditingTitleVal(c.title); }}>
+                                      <Pencil className="h-3 w-3" />
+                                    </Button>
+                                    <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive"
+                                      onClick={() => { if (confirm("Hapus percakapan ini?")) deleteConversation(c.id); }}>
+                                      <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                    );
-                  })}
+                    ));
+                  })()}
                 </div>
+
               </div>
             </SheetContent>
           </Sheet>
