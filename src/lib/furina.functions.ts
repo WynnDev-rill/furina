@@ -546,11 +546,27 @@ export const chatWithFurina = createServerFn({ method: "POST" })
     const moodInfo = moodLabel(newScore);
     const moodNote = `\n\nMOOD KAMU SAAT INI: ${moodInfo.label} (skor internal ${newScore}). ${moodInfo.hint} JANGAN sebut kata "mood" atau angka ini secara harfiah.`;
 
+    // Inner state
+    const prevInner = await readInnerState(data.userId);
+    const nextInner = updateInnerStateFromTurn(userText, prevInner, delta);
+    const innerNote = `\n\nSTATE INTERNAL KAMU (jangan diumumkan, hanya modulasi cara balas): ${innerStateHint(nextInner)}. Kalau energi rendah, balasan lebih singkat & lebih tenang. Kalau fokus buyar, boleh sedikit melantur natural. Kalau tertarik topik tertentu, tunjukkan minat lewat pertanyaan/observasi — bukan deklarasi.`;
+
+    // Time context (client-aware)
+    const tctx = computeTimeCtx(data.clientNow, data.tz);
+    const timeNote = `\n\nWAKTU LOKAL USER: ${tctx.hari} ${tctx.periode} (jam sekitar ${tctx.hour}${tctx.weekend ? ", weekend" : ""}). Kamu boleh menyinggung ini natural (mis. "udah malam ya di sana", "weekend nih") — jangan tiap balasan, jangan sebut angka pasti kecuali user tanya.`;
+
+    // Inisiatif giliran mini (~30%): dorong Furina untuk lempar topik/observasi baru di bubble terakhir
+    let initiativeNote = "";
+    if (Math.random() < 0.3 && !/\?\s*$/.test(userText) && !/(sedih|takut|curhat|capek banget)/i.test(userText)) {
+      initiativeNote = `\n\nINISIATIF (opsional untuk giliran ini): setelah membalas topik utama, boleh tambahkan 1 bubble PENDEK yang lempar topik baru dari state internalmu, cerita kecil tentang dirimu sendiri, atau opini spontan. JANGAN kalau user baru tanya sesuatu yang spesifik & belum tuntas. JANGAN template "ada lagi?".`;
+    }
+
     const system = `${data.systemPersona?.trim() || DEFAULT_PERSONA}
 Nama kamu: ${data.characterName}.
 ${langHint}
 
-KONTEKS WAKTU: ${realtimeContextString()}${gapNote}${moodNote}${memoryContext}${entityContext}${styleNote}${lengthHint}`;
+KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${moodNote}${innerNote}${initiativeNote}${memoryContext}${entityContext}${styleNote}${lengthHint}`;
+
 
     const built: Array<{ role: string; content: unknown }> = data.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
     const lastIdx = data.messages.length - 1;
