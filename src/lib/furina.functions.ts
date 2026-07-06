@@ -460,7 +460,7 @@ export const chatWithFurina = createServerFn({ method: "POST" })
     }
 
 
-    // Entity graph injection — orang/hal yang user kenal
+    // Entity graph injection — orang/hal yang user kenal (dibatasi 8 entri teratas by mention)
     let entityContext = "";
     try {
       const { data: ents } = await supabaseAdmin
@@ -469,11 +469,11 @@ export const chatWithFurina = createServerFn({ method: "POST" })
         .eq("user_id", data.userId)
         .eq("character_id", CHARACTER_ID)
         .order("mention_count", { ascending: false })
-        .limit(15);
+        .limit(8);
       if (ents && ents.length) {
         entityContext = "\n\nORANG/HAL YANG USER KENAL (referensi natural, jangan dilist):\n" +
           ents.map((e) => {
-            const note = e.notes ? ` — ${e.notes}` : "";
+            const note = e.notes ? ` — ${CLIP(e.notes, 80)}` : "";
             return `- ${e.name} (${e.type})${note}`;
           }).join("\n");
       }
@@ -481,12 +481,13 @@ export const chatWithFurina = createServerFn({ method: "POST" })
       console.error("Entity fetch failed:", e);
     }
 
-    // Update last_accessed_at untuk memori yang dipakai (background, non-blocking)
+    // Update last_accessed_at hanya untuk memori yang benar-benar dipakai (background)
     if (accessedIds.length) {
       supabaseAdmin.from("memories").update({ last_accessed_at: new Date().toISOString() }).in("id", accessedIds).then(({ error }) => {
         if (error) console.warn("update last_accessed_at:", error.message);
       });
     }
+
 
 
     // Style profile injection
