@@ -1299,19 +1299,46 @@ async function maybeUpdateSelfNotes(userId: string, userMsg: string, assistantRe
     if (!note || note.length < 8 || note.length > 220) return;
 
     const vec = await embed(note);
-    await supabaseAdmin.from("memories").insert({
-      content: note,
-      embedding: vec as unknown as string,
-      user_id: userId,
-      character_id: CHARACTER_ID,
-      kind: "self",
-      importance: 5,
+
+    // Dedup: kalau self-note ini terlalu mirip note self lama, skip (hemat baris & token)
+    const { data: dupes } = await supabaseAdmin.rpc("match_memories", {
+      query_embedding: vec as unknown as string,
+      match_user_id: userId,
+      match_character_id: CHARACTER_ID,
+      match_count: 3,
+      include_compressed: false,
     });
+    const nearDupe = (dupes as Array<{ id: string; similarity: number }> | null)?.find((m) => m.similarity > 0.86);
+    if (!nearDupe) {
+      await supabaseAdmin.from("memories").insert({
+        content: note,
+        embedding: vec as unknown as string,
+        user_id: userId,
+        character_id: CHARACTER_ID,
+        kind: "self",
+        importance: 5,
+      });
+    } else {
+      // Refresh access time saja
+      await supabaseAdmin.from("memories").update({ last_accessed_at: new Date().toISOString() }).eq("id", nearDupe.id);
+    }
+
+    // TTL: bersihkan self-note lama importance ≤ 5 usia > 21 hari (biar tidak menumpuk)
+    const ttlCutoff = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString();
+    await supabaseAdmin
+      .from("memories")
+      .delete()
+      .eq("user_id", userId)
+      .eq("character_id", CHARACTER_ID)
+      .eq("kind", "self")
+      .lte("importance", 5)
+      .lt("last_accessed_at", ttlCutoff);
 
     const mergedAt = { ...(settingsRow?.data as object ?? {}), selfNoteCounter: 0, lastSelfNoteAt: new Date().toISOString() };
     await supabaseAdmin.from("user_settings").upsert({
       user_id: userId, data: mergedAt, updated_at: new Date().toISOString(),
     });
+
   } catch (e) {
     console.warn("maybeUpdateSelfNotes error:", e);
   }
