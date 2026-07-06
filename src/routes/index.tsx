@@ -478,7 +478,18 @@ function FurinaApp() {
         }));
         if (!convList.length) convList.push(newConversation());
         setConversations(convList);
-        setActiveId(convList[0].id);
+        // Preserve last active convo kalau masih ada di list; kalau tidak, pilih terbaru.
+        const savedActive = typeof window !== "undefined" ? localStorage.getItem(STORAGE.activeId) : null;
+        const preserved = savedActive && convList.some((c) => c.id === savedActive) ? savedActive : convList[0].id;
+        setActiveId(preserved);
+      } else if (hasLocalData) {
+        // Cloud kosong tapi local punya data → push local ke cloud (bukan reset).
+        // Ini fallback aman kalau flag migrasi sebelumnya sudah diset tapi cloud entah kenapa hilang.
+        try {
+          await pushAllConversationsTo(uid, conversations);
+          await pushSettingsTo(uid, buildSettings());
+          toast.info("Menyimpan ulang data lokal ke akun.");
+        } catch (e) { console.warn("re-sync local→cloud:", e); }
       } else {
         // Brand new account, no local data either → fresh start
         const fresh = [newConversation()];
@@ -489,6 +500,7 @@ function FurinaApp() {
         setSpeed(1.0); setProvider("voicevox"); setVvSpeaker(VV_SPEAKERS[0].id);
         setVvTranslate(true); setPreGenAudio(true);
       }
+
     } catch (e) {
       console.error("pullFromCloud:", e);
       toast.error("Gagal sinkronisasi data dari akun.");
@@ -586,15 +598,19 @@ function FurinaApp() {
     } catch {}
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
 
-    if (authUser && initialLoadDoneRef.current && activeId) {
+    if (authUser && initialLoadDoneRef.current && cloudHydratedRef.current && activeId) {
       const active = conversations.find((c) => c.id === activeId);
       if (!active) return;
+      // Skip blank shells (no messages, default title) — mencegah insert row kosong ke cloud
+      // saat kondisi race antara initial local-load & pullFromCloud.
+      if (active.messages.length === 0 && (active.title === "Percakapan baru" || !active.title)) return;
       if (conversationsDebounceRef.current) clearTimeout(conversationsDebounceRef.current);
       conversationsDebounceRef.current = setTimeout(() => {
         upsertSingleConversation(authUser.id, active).catch(() => {});
       }, 1200);
     }
   }, [conversations, authUser, activeId]);
+
 
 
   useEffect(() => {

@@ -379,22 +379,26 @@ export const chatWithFurina = createServerFn({ method: "POST" })
     const userText = lastUser?.content ?? "";
 
     // RAG memori dengan re-rank (similarity + importance + recency)
+    // Efisiensi: skip retrieval untuk pesan super pendek, batasi match_count & konteks.
     let memoryContext = "";
     const accessedIds: string[] = [];
+    const CLIP = (s: string, n = 140) => (s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s);
     try {
-      if (userText.trim()) {
-        const qVec = await embed(userText);
+      const trimmedUser = userText.trim();
+      const wordCount = trimmedUser.split(/\s+/).filter(Boolean).length;
+      const shouldRetrieve = trimmedUser.length >= 6 && wordCount >= 2;
+      if (shouldRetrieve) {
+        const qVec = await embed(trimmedUser.slice(0, 500));
         const { data: matches } = await supabaseAdmin.rpc("match_memories", {
           query_embedding: qVec as unknown as string,
           match_user_id: data.userId,
           match_character_id: CHARACTER_ID,
-          match_count: 30,
+          match_count: 12,
           include_compressed: false,
         });
         if (matches && matches.length) {
           type Row = { id: string; content: string; kind: string; occurred_at: string | null; importance: number };
-          const top = (matches as Row[]).slice(0, 20);
-          // FIX: sertakan semua jenis memori (fact/episodic/preference/relation/meta_summary)
+          const top = matches as Row[];
           const facts = top.filter((m) =>
             ["fact", "preference", "relation", "meta_summary"].includes(m.kind),
           );
@@ -403,51 +407,60 @@ export const chatWithFurina = createServerFn({ method: "POST" })
           const styles = top.filter((m) => m.kind === "style");
           const selfNotes = top.filter((m) => m.kind === "self");
 
+          // Caps ketat untuk hemat token: 6 fact + 3 episodic + 2 summary + 1 self + 1 style
           if (facts.length) {
             memoryContext += "\n\nMEMORIES tentang pengguna (pakai natural, jangan dilist):\n" +
-              facts.slice(0, 12).map((m) => {
+              facts.slice(0, 6).map((m) => {
                 const when = m.occurred_at ? ` (${humanizeOccurredAt(m.occurred_at)})` : "";
-                return `- ${m.content}${when}`;
+                return `- ${CLIP(m.content)}${when}`;
               }).join("\n");
           }
           if (episodic.length) {
             memoryContext += "\n\nKEJADIAN YANG PERNAH USER CERITAKAN (recall dengan empati kalau relevan):\n" +
-              episodic.slice(0, 6).map((m) => {
+              episodic.slice(0, 3).map((m) => {
                 const when = m.occurred_at ? ` — ${humanizeOccurredAt(m.occurred_at)}` : "";
-                return `- ${m.content}${when}`;
+                return `- ${CLIP(m.content)}${when}`;
               }).join("\n");
           }
           if (summaries.length) {
             memoryContext += "\n\nRINGKASAN PERCAKAPAN LAMA:\n" +
-              summaries.slice(0, 4).map((m) => `- ${m.content}`).join("\n");
+              summaries.slice(0, 2).map((m) => `- ${CLIP(m.content, 220)}`).join("\n");
           }
           if (styles.length) {
             memoryContext += "\n\nGAYA BICARA PENGGUNA (tirukan ritme & vocab-nya, tetap karakterku):\n" +
-              styles.slice(0, 1).map((m) => `- ${m.content}`).join("\n");
+              `- ${CLIP(styles[0].content, 260)}`;
           }
           if (selfNotes.length) {
-            memoryContext += "\n\nCATATAN DIRIMU (self-notes — hal yang lagi kamu, Furina, pikirkan/rasakan sendiri belakangan; pakai organik kalau natural, JANGAN dibacakan):\n" +
-              selfNotes.slice(0, 2).map((m) => `- ${m.content}`).join("\n");
+            memoryContext += "\n\nCATATAN DIRIMU (self-notes; pakai organik kalau natural, JANGAN dibacakan):\n" +
+              `- ${CLIP(selfNotes[0].content)}`;
           }
 
-          // === Callback memori spontan (~15%): pilih 1 memori penting yang lama tidak diakses ===
+          // Callback memori spontan (~15%): pilih 1 fact importance tinggi
           if (Math.random() < 0.15 && facts.length) {
             const callbackCand = facts.find((m) => m.importance >= 6);
             if (callbackCand) {
-              memoryContext += `\n\nCALLBACK HINT (opsional, boleh kamu ungkit kalau nyambung natural — jangan dipaksakan): "${callbackCand.content}"`;
+              memoryContext += `\n\nCALLBACK HINT (opsional, boleh kamu ungkit kalau nyambung natural): "${CLIP(callbackCand.content)}"`;
             }
           }
 
-          accessedIds.push(...top.map((m) => m.id));
-          console.log(`[furina] retrieved ${top.length} memories (facts=${facts.length}, episodic=${episodic.length}, summaries=${summaries.length}, self=${selfNotes.length})`);
+          // Track hanya yang benar-benar dipakai di prompt (bukan seluruh top-K)
+          const usedIds = [
+            ...facts.slice(0, 6),
+            ...episodic.slice(0, 3),
+            ...summaries.slice(0, 2),
+            ...styles.slice(0, 1),
+            ...selfNotes.slice(0, 1),
+          ].map((m) => m.id);
+          accessedIds.push(...usedIds);
+          console.log(`[furina] RAG: used=${usedIds.length}/${top.length} (fact=${facts.length}, ep=${episodic.length}, sum=${summaries.length}, self=${selfNotes.length})`);
         }
-
       }
     } catch (e) {
       console.error("RAG retrieval failed:", e);
     }
 
-    // Entity graph injection — orang/hal yang user kenal
+
+    // Entity graph injection — orang/hal yang user kenal (dibatasi 8 entri teratas by mention)
     let entityContext = "";
     try {
       const { data: ents } = await supabaseAdmin
@@ -456,11 +469,11 @@ export const chatWithFurina = createServerFn({ method: "POST" })
         .eq("user_id", data.userId)
         .eq("character_id", CHARACTER_ID)
         .order("mention_count", { ascending: false })
-        .limit(15);
+        .limit(8);
       if (ents && ents.length) {
         entityContext = "\n\nORANG/HAL YANG USER KENAL (referensi natural, jangan dilist):\n" +
           ents.map((e) => {
-            const note = e.notes ? ` — ${e.notes}` : "";
+            const note = e.notes ? ` — ${CLIP(e.notes, 80)}` : "";
             return `- ${e.name} (${e.type})${note}`;
           }).join("\n");
       }
@@ -468,12 +481,13 @@ export const chatWithFurina = createServerFn({ method: "POST" })
       console.error("Entity fetch failed:", e);
     }
 
-    // Update last_accessed_at untuk memori yang dipakai (background, non-blocking)
+    // Update last_accessed_at hanya untuk memori yang benar-benar dipakai (background)
     if (accessedIds.length) {
       supabaseAdmin.from("memories").update({ last_accessed_at: new Date().toISOString() }).in("id", accessedIds).then(({ error }) => {
         if (error) console.warn("update last_accessed_at:", error.message);
       });
     }
+
 
 
     // Style profile injection
@@ -1285,19 +1299,46 @@ async function maybeUpdateSelfNotes(userId: string, userMsg: string, assistantRe
     if (!note || note.length < 8 || note.length > 220) return;
 
     const vec = await embed(note);
-    await supabaseAdmin.from("memories").insert({
-      content: note,
-      embedding: vec as unknown as string,
-      user_id: userId,
-      character_id: CHARACTER_ID,
-      kind: "self",
-      importance: 5,
+
+    // Dedup: kalau self-note ini terlalu mirip note self lama, skip (hemat baris & token)
+    const { data: dupes } = await supabaseAdmin.rpc("match_memories", {
+      query_embedding: vec as unknown as string,
+      match_user_id: userId,
+      match_character_id: CHARACTER_ID,
+      match_count: 3,
+      include_compressed: false,
     });
+    const nearDupe = (dupes as Array<{ id: string; similarity: number }> | null)?.find((m) => m.similarity > 0.86);
+    if (!nearDupe) {
+      await supabaseAdmin.from("memories").insert({
+        content: note,
+        embedding: vec as unknown as string,
+        user_id: userId,
+        character_id: CHARACTER_ID,
+        kind: "self",
+        importance: 5,
+      });
+    } else {
+      // Refresh access time saja
+      await supabaseAdmin.from("memories").update({ last_accessed_at: new Date().toISOString() }).eq("id", nearDupe.id);
+    }
+
+    // TTL: bersihkan self-note lama importance ≤ 5 usia > 21 hari (biar tidak menumpuk)
+    const ttlCutoff = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString();
+    await supabaseAdmin
+      .from("memories")
+      .delete()
+      .eq("user_id", userId)
+      .eq("character_id", CHARACTER_ID)
+      .eq("kind", "self")
+      .lte("importance", 5)
+      .lt("last_accessed_at", ttlCutoff);
 
     const mergedAt = { ...(settingsRow?.data as object ?? {}), selfNoteCounter: 0, lastSelfNoteAt: new Date().toISOString() };
     await supabaseAdmin.from("user_settings").upsert({
       user_id: userId, data: mergedAt, updated_at: new Date().toISOString(),
     });
+
   } catch (e) {
     console.warn("maybeUpdateSelfNotes error:", e);
   }
