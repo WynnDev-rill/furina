@@ -598,15 +598,19 @@ function FurinaApp() {
     } catch {}
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
 
-    if (authUser && initialLoadDoneRef.current && activeId) {
+    if (authUser && initialLoadDoneRef.current && cloudHydratedRef.current && activeId) {
       const active = conversations.find((c) => c.id === activeId);
       if (!active) return;
+      // Skip blank shells (no messages, default title) — mencegah insert row kosong ke cloud
+      // saat kondisi race antara initial local-load & pullFromCloud.
+      if (active.messages.length === 0 && (active.title === "Percakapan baru" || !active.title)) return;
       if (conversationsDebounceRef.current) clearTimeout(conversationsDebounceRef.current);
       conversationsDebounceRef.current = setTimeout(() => {
         upsertSingleConversation(authUser.id, active).catch(() => {});
       }, 1200);
     }
   }, [conversations, authUser, activeId]);
+
 
 
   useEffect(() => {
