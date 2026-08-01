@@ -106,6 +106,22 @@ function clearAllFurinaLocal() {
   }
 }
 
+function readLocalConversations(): Conversation[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(STORAGE.convos);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (c): c is Conversation =>
+        !!c && typeof c.id === "string" && Array.isArray(c.messages),
+    );
+  } catch {
+    return [];
+  }
+}
+
 function newConversation(): Conversation {
   return { id: crypto.randomUUID(), title: "Percakapan baru", messages: [], updatedAt: Date.now() };
 }
