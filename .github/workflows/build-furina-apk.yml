@@ -18,7 +18,7 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -35,8 +35,13 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android API 35 tools
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Install Android native build tools
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1" "ninja;1.12.1"
+
+      - name: Fetch llama.cpp source
+        run: |
+          rm -rf android-wrapper/app/src/main/cpp/llama.cpp
+          git clone --depth 1 https://github.com/ggml-org/llama.cpp.git android-wrapper/app/src/main/cpp/llama.cpp
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
