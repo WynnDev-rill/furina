@@ -405,6 +405,9 @@ function FurinaApp() {
       if (vs) setVvSpeaker(parseInt(vs, 10) || VV_SPEAKERS[0].id);
       const vt = localStorage.getItem(STORAGE.vvTranslate); if (vt) setVvTranslate(vt === "1");
       const pg = localStorage.getItem(STORAGE.preGen); if (pg) setPreGenAudio(pg === "1");
+      const rm = localStorage.getItem(STORAGE.relMode);
+      if (rm === "teman" || rm === "dekat" || rm === "pasangan") setRelationshipMode(rm);
+      if (pr === "clone") setShowCloneVoice(true);
 
       const cs = localStorage.getItem(STORAGE.cloneSample);
       const csn = localStorage.getItem(STORAGE.cloneSampleName);
