@@ -1456,14 +1456,24 @@ function FurinaApp() {
 
                 {/* SUARA TAB */}
                 <TabsContent value="suara" className="mt-4 space-y-3">
-                  <Label>Mesin suara (TTS)</Label>
+                  <div className="flex items-center justify-between">
+                    <Label>Mesin suara (TTS)</Label>
+                    <button type="button"
+                      onClick={() => { const n = !showCloneVoice; setShowCloneVoice(n); if (!n && provider === "clone") { setProvider("voicevox"); savePref(STORAGE.provider, "voicevox"); } savePref(STORAGE.showClone, n ? "1" : "0"); }}
+                      className="text-[10px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
+                      {showCloneVoice ? "Sembunyikan eksperimen" : "Tampilkan opsi eksperimental"}
+                    </button>
+                  </div>
                   <Select value={provider} onValueChange={(v) => { setProvider(v as TTSProvider); savePref(STORAGE.provider, v); }}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="voicevox">VOICEVOX — anime Jepang (gratis, stabil)</SelectItem>
-                      <SelectItem value="clone">Voice Clone — suara karakter custom (XTTS Space)</SelectItem>
+                      {showCloneVoice && (
+                        <SelectItem value="clone">Voice Clone — eksperimental (XTTS Space, sering antri)</SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
+
 
                   {provider === "voicevox" ? (
                     <div className="space-y-2">
