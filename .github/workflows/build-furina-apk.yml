@@ -9,7 +9,7 @@ on:
       - '.github/workflows/build-furina-apk.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   release:
@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -58,10 +60,38 @@ jobs:
       - name: Rename APK
         run: cp android-wrapper/app/build/outputs/apk/release/app-release.apk Furina.apk
 
-      - name: Upload installable APK
+      - name: Upload installable APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: Furina-Release-${{ github.run_number }}
           path: Furina.apk
           if-no-files-found: error
           retention-days: 90
+
+      - name: Publish native updater files
+        run: |
+          mkdir -p public
+          cp Furina.apk public/Furina.apk
+          APK_SHA=$(sha256sum Furina.apk | awk '{print $1}')
+          cat > public/update.json <<EOF
+          {
+            "latestVersionCode": ${{ github.run_number }},
+            "minimumSupportedVersionCode": ${{ github.run_number }},
+            "versionName": "1.0.${{ github.run_number }}",
+            "apkUrl": "https://furina-pi.vercel.app/Furina.apk",
+            "sha256": "$APK_SHA",
+            "notes": "Pembaruan native Android wajib untuk kompatibilitas, keamanan, dan perbaikan aplikasi."
+          }
+          EOF
+
+      - name: Commit updater files for Vercel
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/Furina.apk public/update.json
+          if git diff --cached --quiet; then
+            echo "Updater files unchanged"
+          else
+            git commit -m "Publish Furina native update ${{ github.run_number }} [skip ci]"
+            git push origin main
+          fi
