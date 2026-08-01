@@ -631,7 +631,7 @@ export const chatWithFurina = createServerFn({ method: "POST" })
 Nama kamu: ${data.characterName}.
 ${langHint}
 
-KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${moodNote}${innerNote}${initiativeNote}${memoryContext}${entityContext}${styleNote}${lengthHint}`;
+KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${relationshipNote(data.relationshipMode)}${gapNote}${moodNote}${innerNote}${initiativeNote}${memoryContext}${entityContext}${styleNote}${lengthHint}`;
 
 
     const built: Array<{ role: string; content: unknown }> = data.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
