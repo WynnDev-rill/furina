@@ -1,0 +1,74 @@
+{
+  "models": [
+    {
+      "id": "qwen35-4b",
+      "name": "Qwen3.5-4B",
+      "subtitle": "Offline • teks + gambar",
+      "description": "Pilihan multimodal. Gunakan model ini bila ingin mengirim gambar dan tetap menjalankan percakapan tanpa internet.",
+      "sizeBytes": 2900000000,
+      "minimumRamGb": 8,
+      "recommendedRamGb": 12,
+      "recommendedDevice": "Snapdragon 8 Gen 1/8s Gen 3, Dimensity 8200, atau lebih tinggi",
+      "supportsImage": true,
+      "experimental": true,
+      "downloadUrl": "",
+      "sha256": ""
+    },
+    {
+      "id": "josie-1-1-4b",
+      "name": "JOSIE 1.1 4B Instruct",
+      "subtitle": "Offline • percakapan natural",
+      "description": "Difokuskan pada dialog yang lebih ekspresif dan terasa manusiawi. Hanya mendukung teks.",
+      "sizeBytes": 2500000000,
+      "minimumRamGb": 8,
+      "recommendedRamGb": 12,
+      "recommendedDevice": "Snapdragon 870/7+ Gen 2, Dimensity 8100, atau lebih tinggi",
+      "supportsImage": false,
+      "experimental": true,
+      "downloadUrl": "",
+      "sha256": ""
+    },
+    {
+      "id": "basically-human-4b",
+      "name": "Basically-Human-4B",
+      "subtitle": "Offline • emosional dan roleplay",
+      "description": "Eksperimen percakapan emosional dan konsistensi karakter. Hanya untuk pengujian terbatas dan hanya mendukung teks.",
+      "sizeBytes": 2500000000,
+      "minimumRamGb": 8,
+      "recommendedRamGb": 12,
+      "recommendedDevice": "Snapdragon 870/7+ Gen 2, Dimensity 8100, atau lebih tinggi",
+      "supportsImage": false,
+      "experimental": true,
+      "downloadUrl": "",
+      "sha256": ""
+    },
+    {
+      "id": "arityflow-qwen3-4b-roleplay",
+      "name": "ArityFlow Qwen3 4B RolePlay",
+      "subtitle": "Offline • roleplay mendalam",
+      "description": "Ditujukan untuk konsistensi karakter dan dialog roleplay lebih panjang. Hanya mendukung teks.",
+      "sizeBytes": 2500000000,
+      "minimumRamGb": 8,
+      "recommendedRamGb": 12,
+      "recommendedDevice": "Snapdragon 870/7+ Gen 2, Dimensity 8100, atau lebih tinggi",
+      "supportsImage": false,
+      "experimental": true,
+      "downloadUrl": "",
+      "sha256": ""
+    },
+    {
+      "id": "qwen3-4b-instruct-2507",
+      "name": "Qwen3-4B-Instruct-2507",
+      "subtitle": "Offline • stabil dan seimbang",
+      "description": "Model teks resmi yang paling aman sebagai baseline awal. Stabil, multilingual, tetapi tidak dapat membaca gambar.",
+      "sizeBytes": 2500000000,
+      "minimumRamGb": 8,
+      "recommendedRamGb": 12,
+      "recommendedDevice": "Snapdragon 870/7+ Gen 2, Dimensity 8100, atau lebih tinggi",
+      "supportsImage": false,
+      "experimental": false,
+      "downloadUrl": "",
+      "sha256": ""
+    }
+  ]
+}
