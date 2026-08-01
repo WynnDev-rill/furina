@@ -46,11 +46,15 @@ jobs:
         run: |
           test -s android-wrapper/app/src/main/assets/offline/index.html
           test -s android-wrapper/app/src/main/assets/offline/app.css
+          test -s android-wrapper/app/src/main/assets/offline/preflight.js
           test -s android-wrapper/app/src/main/assets/offline/app.js
           test -s android-wrapper/app/src/main/assets/offline/furina-background.jpg
+          node --check android-wrapper/app/src/main/assets/offline/preflight.js
           node --check android-wrapper/app/src/main/assets/offline/app.js
           grep -q 'app.css' android-wrapper/app/src/main/assets/offline/index.html
+          grep -q 'preflight.js' android-wrapper/app/src/main/assets/offline/index.html
           grep -q 'app.js' android-wrapper/app/src/main/assets/offline/index.html
+          grep -q 'Content-Security-Policy' android-wrapper/app/src/main/assets/offline/index.html
 
       - name: Fetch llama.cpp source
         run: |
