@@ -11,6 +11,7 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Build;
@@ -31,6 +32,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.ProgressBar;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.OnBackPressedCallback;
@@ -105,18 +107,12 @@ public class MainActivity extends AppCompatActivity {
         @Override public void onReceive(Context context, Intent intent) {
             long completedId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L);
             if (completedId != downloadId) return;
-
             DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-            DownloadManager.Query query = new DownloadManager.Query().setFilterById(downloadId);
-            try (Cursor cursor = manager.query(query)) {
+            try (Cursor cursor = manager.query(new DownloadManager.Query().setFilterById(downloadId))) {
                 if (cursor != null && cursor.moveToFirst()) {
                     int status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
-                    if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                        Uri apkUri = manager.getUriForDownloadedFile(downloadId);
-                        openInstaller(apkUri);
-                    } else {
-                        showDownloadFailedDialog();
-                    }
+                    if (status == DownloadManager.STATUS_SUCCESSFUL) openInstaller(manager.getUriForDownloadedFile(downloadId));
+                    else showDownloadFailedDialog();
                 }
             }
         }
@@ -124,11 +120,9 @@ public class MainActivity extends AppCompatActivity {
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
         WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
         getWindow().setStatusBarColor(BG_COLOR);
         getWindow().setNavigationBarColor(BG_COLOR);
-
         showNativeLoadingScreen();
         registerDownloadReceiver();
         configureBackHandling();
@@ -139,10 +133,7 @@ public class MainActivity extends AppCompatActivity {
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(BG_COLOR);
         ProgressBar progress = new ProgressBar(this);
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        );
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         params.gravity = Gravity.CENTER;
         root.addView(progress, params);
         setContentView(root);
@@ -156,27 +147,21 @@ public class MainActivity extends AppCompatActivity {
                 connection.setReadTimeout(7000);
                 connection.setUseCaches(false);
                 connection.setRequestProperty("Cache-Control", "no-cache");
-
                 int responseCode = connection.getResponseCode();
                 if (responseCode < 200 || responseCode >= 300) throw new IllegalStateException("HTTP " + responseCode);
-
-                String jsonText = readAll(connection.getInputStream());
-                JSONObject json = new JSONObject(jsonText);
+                JSONObject json = new JSONObject(readAll(connection.getInputStream()));
                 int minimumVersion = json.optInt("minimumSupportedVersionCode", 0);
                 int latestVersion = json.optInt("latestVersionCode", minimumVersion);
                 String apkUrl = json.optString("apkUrl", HOME_URL + "Furina.apk");
                 String versionName = json.optString("versionName", String.valueOf(latestVersion));
                 String notes = json.optString("notes", "Pembaruan native Android diperlukan.");
                 int currentVersion = getCurrentVersionCode();
-
                 runOnUiThread(() -> {
                     if (currentVersion < minimumVersion || currentVersion < latestVersion) {
                         updateRequired = true;
                         pendingApkUrl = apkUrl;
                         showRequiredUpdateDialog(versionName, notes);
-                    } else {
-                        initializeWebApp();
-                    }
+                    } else initializeWebApp();
                 });
             } catch (Exception ignored) {
                 runOnUiThread(this::initializeWebApp);
@@ -185,9 +170,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private int getCurrentVersionCode() throws PackageManager.NameNotFoundException {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            return (int) getPackageManager().getPackageInfo(getPackageName(), 0).getLongVersionCode();
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) return (int) getPackageManager().getPackageInfo(getPackageName(), 0).getLongVersionCode();
         return getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
     }
 
@@ -218,13 +201,8 @@ public class MainActivity extends AppCompatActivity {
             finishAndRemoveTask();
             return;
         }
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !getPackageManager().canRequestPackageInstalls()) {
-            Intent settingsIntent = new Intent(
-                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                Uri.parse("package:" + getPackageName())
-            );
-            installPermissionLauncher.launch(settingsIntent);
+            installPermissionLauncher.launch(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName())));
             return;
         }
         startApkDownload();
@@ -232,7 +210,6 @@ public class MainActivity extends AppCompatActivity {
 
     private void startApkDownload() {
         try {
-            DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
             DownloadManager.Request request = new DownloadManager.Request(Uri.parse(pendingApkUrl));
             request.setTitle("Memperbarui Furina");
             request.setDescription("Mengunduh pembaruan wajib");
@@ -241,7 +218,7 @@ public class MainActivity extends AppCompatActivity {
             request.setAllowedOverMetered(true);
             request.setAllowedOverRoaming(false);
             request.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, "Furina-update.apk");
-            downloadId = manager.enqueue(request);
+            downloadId = ((DownloadManager) getSystemService(DOWNLOAD_SERVICE)).enqueue(request);
             Toast.makeText(this, "Pembaruan sedang diunduh", Toast.LENGTH_LONG).show();
         } catch (Exception e) {
             showDownloadFailedDialog();
@@ -275,25 +252,38 @@ public class MainActivity extends AppCompatActivity {
 
     private void initializeWebApp() {
         updateRequired = false;
-        refresh = new SwipeRefreshLayout(this);
-        refresh.setLayoutParams(new ViewGroup.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT
-        ));
-        refresh.setBackgroundColor(BG_COLOR);
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(BG_COLOR);
 
+        refresh = new SwipeRefreshLayout(this);
+        refresh.setBackgroundColor(BG_COLOR);
         webView = new WebView(this);
-        webView.setLayoutParams(new SwipeRefreshLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT
-        ));
         webView.setBackgroundColor(BG_COLOR);
         webView.setOverScrollMode(WebView.OVER_SCROLL_NEVER);
+        refresh.addView(webView, new SwipeRefreshLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        root.addView(refresh, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        refresh.addView(webView);
-        setContentView(refresh);
+        TextView modelButton = new TextView(this);
+        modelButton.setText("Model AI");
+        modelButton.setTextColor(Color.rgb(238, 248, 255));
+        modelButton.setTextSize(13);
+        modelButton.setGravity(Gravity.CENTER);
+        modelButton.setPadding(dp(15), dp(10), dp(15), dp(10));
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(Color.rgb(12, 30, 50));
+        background.setCornerRadius(dp(16));
+        background.setStroke(dp(1), Color.argb(80, 160, 220, 255));
+        modelButton.setBackground(background);
+        modelButton.setElevation(dp(8));
+        modelButton.setContentDescription("Buka pengelola model AI offline");
+        modelButton.setOnClickListener(v -> startActivity(new Intent(this, ModelManagerActivity.class)));
+        FrameLayout.LayoutParams buttonParams = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        buttonParams.gravity = Gravity.END | Gravity.BOTTOM;
+        buttonParams.setMargins(dp(16), dp(16), dp(16), dp(82));
+        root.addView(modelButton, buttonParams);
+
+        setContentView(root);
         refresh.setOnRefreshListener(() -> webView.reload());
-
         configureWebView();
         webView.loadUrl(HOME_URL);
     }
@@ -313,7 +303,7 @@ public class MainActivity extends AppCompatActivity {
         s.setBuiltInZoomControls(false);
         s.setDisplayZoomControls(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
-        s.setUserAgentString(s.getUserAgentString() + " FurinaAndroid/3.0");
+        s.setUserAgentString(s.getUserAgentString() + " FurinaAndroid/3.1");
 
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
@@ -335,7 +325,7 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onPageFinished(WebView view, String url) {
                 refresh.setRefreshing(false);
                 CookieManager.getInstance().flush();
-                injectNativeModelSettingsEntry(view);
+                injectSettingsEntry(view);
             }
 
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
@@ -355,9 +345,8 @@ public class MainActivity extends AppCompatActivity {
             @Override public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 if (fileCallback != null) fileCallback.onReceiveValue(null);
                 fileCallback = callback;
-                try {
-                    filePicker.launch(params.createIntent());
-                } catch (Exception e) {
+                try { filePicker.launch(params.createIntent()); }
+                catch (Exception e) {
                     fileCallback.onReceiveValue(null);
                     fileCallback = null;
                 }
@@ -370,68 +359,50 @@ public class MainActivity extends AppCompatActivity {
                     if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
                         request.grant(request.getResources());
                         pendingPermissionRequest = null;
-                    } else {
-                        audioPermission.launch(Manifest.permission.RECORD_AUDIO);
-                    }
+                    } else audioPermission.launch(Manifest.permission.RECORD_AUDIO);
                 });
             }
         });
     }
 
-    private void injectNativeModelSettingsEntry(WebView view) {
-        String script = "(function(){" +
-            "if(window.__furinaNativeSettingsHook)return;window.__furinaNativeSettingsHook=true;" +
-            "function add(){" +
-            "if(!window.FurinaNative||document.getElementById('furina-native-model-settings'))return;" +
-            "var bodyText=(document.body&&document.body.innerText||'').toLowerCase();" +
-            "if(bodyText.indexOf('pengaturan')<0&&bodyText.indexOf('settings')<0)return;" +
-            "var b=document.createElement('button');b.id='furina-native-model-settings';b.type='button';" +
-            "b.textContent='Model AI Offline';b.setAttribute('aria-label','Buka pengelola model AI offline');" +
-            "b.style.cssText='position:fixed;right:16px;bottom:92px;z-index:2147483646;border:1px solid rgba(255,255,255,.18);border-radius:16px;padding:12px 16px;background:rgba(10,25,44,.96);color:#eef8ff;font:600 14px sans-serif;box-shadow:0 10px 28px rgba(0,0,0,.28);backdrop-filter:blur(12px)';" +
-            "b.onclick=function(){window.FurinaNative.openModelManager();};document.body.appendChild(b);" +
-            "}" +
-            "add();new MutationObserver(add).observe(document.documentElement,{subtree:true,childList:true,characterData:true});" +
-            "})();";
+    private void injectSettingsEntry(WebView view) {
+        String script = "(function(){if(window.__furinaModelHook)return;window.__furinaModelHook=true;" +
+            "function mount(){if(!window.FurinaNative||!document.body)return;var id='furina-native-model-settings';if(document.getElementById(id))return;" +
+            "var text=(document.body.innerText||'').toLowerCase();var route=(location.pathname+location.hash).toLowerCase();" +
+            "var settings=text.indexOf('pengaturan')>=0||text.indexOf('settings')>=0||route.indexOf('setting')>=0||route.indexOf('pengaturan')>=0;if(!settings)return;" +
+            "var b=document.createElement('button');b.id=id;b.type='button';b.textContent='Model AI Offline';" +
+            "b.style.cssText='width:calc(100% - 32px);margin:12px 16px;padding:14px;border:1px solid rgba(138,216,255,.35);border-radius:16px;background:rgba(12,30,50,.96);color:#eef8ff;font:600 14px sans-serif';" +
+            "b.onclick=function(){window.FurinaNative.openModelManager()};document.body.appendChild(b)}" +
+            "mount();setInterval(mount,1000);new MutationObserver(mount).observe(document.documentElement,{subtree:true,childList:true,characterData:true});})();";
         view.evaluateJavascript(script, null);
     }
 
     private void configureBackHandling() {
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
-                if (updateRequired) {
-                    finishAndRemoveTask();
-                } else if (webView != null && webView.canGoBack()) {
-                    webView.goBack();
-                } else {
-                    finish();
-                }
+                if (updateRequired) finishAndRemoveTask();
+                else if (webView != null && webView.canGoBack()) webView.goBack();
+                else finish();
             }
         });
     }
 
     private void showLoadError(String reason) {
-        String safeReason = reason
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("\"", "&quot;");
-
+        String safeReason = reason.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
         String html = "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>" +
-            "<style>body{margin:0;background:#08111f;color:#eef6ff;font-family:sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center}" +
-            ".box{padding:28px;max-width:420px}h2{margin:0 0 12px}p{opacity:.78;line-height:1.5}button{margin-top:14px;padding:12px 22px;border:0;border-radius:12px;background:#8ad8ff;color:#07111e;font-weight:700}</style></head>" +
-            "<body><div class='box'><h2>Furina tidak dapat dimuat</h2><p>" + safeReason + "</p>" +
-            "<button onclick=\"location.href='" + HOME_URL + "'\">Coba lagi</button></div></body></html>";
-
+            "<style>body{margin:0;background:#08111f;color:#eef6ff;font-family:sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center}.box{padding:28px;max-width:420px}h2{margin:0 0 12px}p{opacity:.78;line-height:1.5}button{margin-top:14px;padding:12px 22px;border:0;border-radius:12px;background:#8ad8ff;color:#07111e;font-weight:700}</style></head>" +
+            "<body><div class='box'><h2>Furina tidak dapat dimuat</h2><p>" + safeReason + "</p><button onclick=\"location.href='" + HOME_URL + "'\">Coba lagi</button></div></body></html>";
         webView.loadDataWithBaseURL(HOME_URL, html, "text/html", "UTF-8", null);
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     private void registerDownloadReceiver() {
         IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(downloadReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(downloadReceiver, filter);
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) registerReceiver(downloadReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(downloadReceiver, filter);
         receiverRegistered = true;
     }
 
