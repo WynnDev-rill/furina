@@ -1,0 +1,1 @@
+Temporary note: this branch includes Android WebView safe-area and system-bar inset fixes for the Furina wrapper app.
