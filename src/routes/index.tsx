@@ -486,6 +486,19 @@ function FurinaApp() {
           messages: byConv[c.id] ?? [],
           updatedAt: new Date(c.updated_at).getTime(),
         }));
+        // Merge percakapan lokal yang punya isi tapi belum pernah sampai ke cloud
+        // (mis. koneksi putus saat upsert). Jangan sampai hilang saat relog.
+        const cloudIds = new Set(convList.map((c) => c.id));
+        const localUnsynced = readLocalConversations().filter(
+          (c) => c.messages.length > 0 && !cloudIds.has(c.id),
+        );
+        if (localUnsynced.length) {
+          convList.push(...localUnsynced);
+          pushAllConversationsTo(uid, localUnsynced).catch((e) =>
+            console.error("re-push unsynced conversations:", e),
+          );
+        }
+        convList.sort((a, b) => b.updatedAt - a.updatedAt);
         if (!convList.length) convList.push(newConversation());
         setConversations(convList);
         // Preserve last active convo kalau masih ada di list; kalau tidak, pilih terbaru.
