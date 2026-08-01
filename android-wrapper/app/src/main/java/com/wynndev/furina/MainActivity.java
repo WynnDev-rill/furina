@@ -6,30 +6,35 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
+import android.net.http.SslError;
 import android.os.Bundle;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.PermissionRequest;
 import android.webkit.SslErrorHandler;
-import android.net.http.SslError;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
-import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+
 import androidx.activity.OnBackPressedCallback;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 public class MainActivity extends AppCompatActivity {
-    private static final String HOME_URL = "https://furina-pi.vercel.app/";
+    private static final String HOME_URL = "https://furina-pi.vercel.app";
+    private static final int BG_COLOR = Color.parseColor("#08111F");
+
     private WebView webView;
-    private SwipeRefreshLayout refresh;
     private ValueCallback<Uri[]> fileCallback;
     private PermissionRequest pendingPermissionRequest;
 
@@ -59,76 +64,67 @@ public class MainActivity extends AppCompatActivity {
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        refresh = new SwipeRefreshLayout(this);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        getWindow().setStatusBarColor(BG_COLOR);
+        getWindow().setNavigationBarColor(BG_COLOR);
+
+        SwipeRefreshLayout refresh = new SwipeRefreshLayout(this);
         refresh.setLayoutParams(new ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         ));
+        refresh.setBackgroundColor(BG_COLOR);
 
         webView = new WebView(this);
-        webView.setLayoutParams(new SwipeRefreshLayout.LayoutParams(
+        webView.setLayoutParams(new ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         ));
-        webView.setBackgroundColor(Color.rgb(8, 17, 31));
+        webView.setBackgroundColor(BG_COLOR);
         refresh.addView(webView);
         setContentView(refresh);
+
+        ViewCompat.setOnApplyWindowInsetsListener(refresh, (view, windowInsets) -> {
+            Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+            view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            return windowInsets;
+        });
+
         refresh.setOnRefreshListener(() -> webView.reload());
 
-        configureWebView();
-        configureNavigation();
+        CookieManager cookieManager = CookieManager.getInstance();
+        cookieManager.setAcceptCookie(true);
+        cookieManager.setAcceptThirdPartyCookies(webView, true);
 
-        // Selalu muat URL utama. restoreState dapat memulihkan halaman kosong setelah proses Android dihentikan.
-        webView.loadUrl(HOME_URL);
-    }
-
-    private void configureWebView() {
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
-        s.setCacheMode(WebSettings.LOAD_DEFAULT);
+        s.setLoadWithOverviewMode(true);
+        s.setUseWideViewPort(true);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setAllowFileAccess(false);
         s.setAllowContentAccess(true);
-        s.setLoadWithOverviewMode(true);
-        s.setUseWideViewPort(true);
-        s.setSupportZoom(false);
-        s.setBuiltInZoomControls(false);
-        s.setDisplayZoomControls(false);
+        s.setCacheMode(WebSettings.LOAD_DEFAULT);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
-        s.setUserAgentString(s.getUserAgentString() + " FurinaAndroid/1.1");
-
-        CookieManager cookies = CookieManager.getInstance();
-        cookies.setAcceptCookie(true);
-        cookies.setAcceptThirdPartyCookies(webView, true);
-
+        s.setUserAgentString(s.getUserAgentString() + " FurinaAndroid/1.0");
         WebView.setWebContentsDebuggingEnabled(false);
 
         webView.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 String scheme = uri.getScheme();
-                if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) return false;
+                if ("http".equals(scheme) || "https".equals(scheme)) return false;
                 try { startActivity(new Intent(Intent.ACTION_VIEW, uri)); } catch (Exception ignored) {}
                 return true;
             }
 
             @Override public void onPageFinished(WebView view, String url) {
                 refresh.setRefreshing(false);
-                CookieManager.getInstance().flush();
-            }
-
-            @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                if (request.isForMainFrame()) {
-                    refresh.setRefreshing(false);
-                    showLoadError(error != null ? error.getDescription().toString() : "Tidak dapat memuat aplikasi");
-                }
             }
 
             @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
                 handler.cancel();
-                showLoadError("Koneksi aman ke server gagal");
             }
         });
 
@@ -136,8 +132,12 @@ public class MainActivity extends AppCompatActivity {
             @Override public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 if (fileCallback != null) fileCallback.onReceiveValue(null);
                 fileCallback = callback;
-                try { filePicker.launch(params.createIntent()); }
-                catch (Exception e) { fileCallback.onReceiveValue(null); fileCallback = null; }
+                try {
+                    filePicker.launch(params.createIntent());
+                } catch (Exception e) {
+                    fileCallback.onReceiveValue(null);
+                    fileCallback = null;
+                }
                 return true;
             }
 
@@ -153,35 +153,25 @@ public class MainActivity extends AppCompatActivity {
                 });
             }
         });
-    }
 
-    private void configureNavigation() {
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
-                if (webView.canGoBack()) webView.goBack(); else finish();
+                if (webView.canGoBack()) webView.goBack();
+                else finish();
             }
         });
+
+        webView.loadUrl(HOME_URL);
     }
 
-    private void showLoadError(String reason) {
-        String safeReason = reason
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("\"", "&quot;");
-        String html = "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>" +
-            "<style>body{margin:0;background:#08111f;color:#eef6ff;font-family:sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center}" +
-            ".box{padding:28px;max-width:420px}h2{margin:0 0 12px}p{opacity:.78;line-height:1.5}button{margin-top:14px;padding:12px 22px;border:0;border-radius:12px;background:#8ad8ff;color:#07111e;font-weight:700}</style></head>" +
-            "<body><div class='box'><h2>Furina tidak dapat dimuat</h2><p>" + safeReason + "</p>" +
-            "<button onclick=\"location.href='" + HOME_URL + "'\">Coba lagi</button></div></body></html>";
-        webView.loadDataWithBaseURL(HOME_URL, html, "text/html", "UTF-8", null);
+    @Override protected void onSaveInstanceState(Bundle outState) {
+        webView.saveState(outState);
+        super.onSaveInstanceState(outState);
     }
 
     @Override protected void onDestroy() {
         if (webView != null) {
             webView.stopLoading();
-            webView.setWebChromeClient(null);
-            webView.setWebViewClient(null);
             webView.destroy();
         }
         super.onDestroy();
