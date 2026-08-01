@@ -88,6 +88,7 @@ const STORAGE = {
   cloneSampleName: "furina:cloneSampleName",
   migratedFlag: "furina:migratedTo",
   theme: "furina:theme",
+  relMode: "furina:relationshipMode",
   preGen: "furina:preGenAudio",
 };
 
@@ -95,7 +96,7 @@ const ALL_FURINA_KEYS = [
   STORAGE.convos, STORAGE.activeId, STORAGE.bg, STORAGE.name, STORAGE.persona,
   STORAGE.lang, STORAGE.speed, STORAGE.provider, STORAGE.vvSpeaker, STORAGE.vvTranslate,
   STORAGE.cloneSample, STORAGE.cloneSampleMime, STORAGE.cloneSampleName,
-  STORAGE.theme, STORAGE.preGen,
+  STORAGE.theme, STORAGE.preGen, STORAGE.relMode,
   // guestId and migratedFlag are NOT cleared on logout — they belong to the browser identity
 ];
 
@@ -249,6 +250,8 @@ function FurinaApp() {
   const [mood, setMood] = useState<{ score: number; label: string }>({ score: 0, label: "adem" });
   const [proactiveEnabled, setProactiveEnabled] = useState(true);
   const [proactiveIdleHours, setProactiveIdleHours] = useState(6);
+  const [relationshipMode, setRelationshipMode] = useState<RelationshipMode>("teman");
+  const [showCloneVoice, setShowCloneVoice] = useState(false);
   const proactiveFiredRef = useRef(false);
   const lastActivityKey = "furina:lastActivityAt";
 
@@ -335,10 +338,11 @@ function FurinaApp() {
   }, []);
   const buildSettings = useCallback((): SettingsSnapshot => ({
     bg, name, persona, lang: language, speed, provider, vvSpeaker, vvTranslate, preGen: preGenAudio, theme,
+    relationshipMode,
     cloneSampleName,
     cloneSampleMime: typeof window !== "undefined" ? localStorage.getItem(STORAGE.cloneSampleMime) ?? undefined : undefined,
     cloneSampleB64: typeof window !== "undefined" ? localStorage.getItem(STORAGE.cloneSample) ?? undefined : undefined,
-  }), [bg, name, persona, language, speed, provider, vvSpeaker, vvTranslate, preGenAudio, theme, cloneSampleName]);
+  }), [bg, name, persona, language, speed, provider, vvSpeaker, vvTranslate, preGenAudio, theme, relationshipMode, cloneSampleName]);
 
   const applySettings = useCallback((s: SettingsSnapshot) => {
     if (s.bg) setBg(s.bg);
@@ -353,6 +357,7 @@ function FurinaApp() {
     if (typeof s.vvTranslate === "boolean") setVvTranslate(s.vvTranslate);
     if (typeof s.preGen === "boolean") setPreGenAudio(s.preGen);
     if (s.theme === "dark" || s.theme === "light") setTheme(s.theme);
+    if (s.relationshipMode === "teman" || s.relationshipMode === "dekat" || s.relationshipMode === "pasangan") setRelationshipMode(s.relationshipMode);
     if (s.cloneSampleName) setCloneSampleName(s.cloneSampleName);
     if (s.cloneSampleB64 && s.cloneSampleMime) {
       try {
