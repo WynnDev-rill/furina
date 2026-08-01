@@ -445,7 +445,7 @@ export const chatWithFurina = createServerFn({ method: "POST" })
           query_embedding: qVec as unknown as string,
           match_user_id: data.userId,
           match_character_id: CHARACTER_ID,
-          match_count: 12,
+          match_count: 10,
           include_compressed: false,
         });
         if (matches && matches.length) {
