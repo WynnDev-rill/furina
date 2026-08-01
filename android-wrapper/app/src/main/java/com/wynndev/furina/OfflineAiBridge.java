@@ -22,14 +22,23 @@ public final class OfflineAiBridge {
     public String getStatus() {
         try {
             String modelId = engine.activeModelId();
+            boolean installed = !modelId.isEmpty() && engine.isInstalled(modelId);
+            boolean imageModelSelected = "qwen35-4b".equals(modelId);
+
             JSONObject result = new JSONObject();
             result.put("activeModelId", modelId);
-            result.put("installed", !modelId.isEmpty() && engine.isInstalled(modelId));
+            result.put("installed", installed);
             result.put("busy", engine.isBusy());
-            result.put("supportsImage", false);
+            result.put("supportsImage", imageModelSelected);
+            result.put("multimodalReady", false);
+            if (imageModelSelected) {
+                result.put("imageDisabledReason", "Runtime gambar Qwen3.5 masih dalam tahap validasi Android.");
+            } else {
+                result.put("imageDisabledReason", "Model aktif hanya mendukung teks.");
+            }
             return result.toString();
         } catch (Exception e) {
-            return "{\"installed\":false,\"busy\":false}";
+            return "{\"installed\":false,\"busy\":false,\"supportsImage\":false,\"multimodalReady\":false}";
         }
     }
 
