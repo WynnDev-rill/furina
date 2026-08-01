@@ -41,7 +41,7 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install Android native build tools
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1" "ninja;1.12.1"
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
 
       - name: Fetch llama.cpp source
         run: |
