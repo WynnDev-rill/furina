@@ -1183,6 +1183,22 @@ function FurinaApp() {
                   </section>
 
                   <section className="space-y-2">
+                    <Label>Mode hubungan</Label>
+                    <Select value={relationshipMode}
+                      onValueChange={(v) => { setRelationshipMode(v as RelationshipMode); savePref(STORAGE.relMode, v); }}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="teman">Teman — akrab, santai, tanpa romansa</SelectItem>
+                        <SelectItem value="dekat">Dekat — ada rasa yang belum diakui</SelectItem>
+                        <SelectItem value="pasangan">Pasangan — kekasih, manja & terbuka</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[10px] text-muted-foreground leading-relaxed">
+                      Menentukan seberapa dekat Furina memperlakukanmu dan seberapa terbuka dia untuk topik personal.
+                    </p>
+                  </section>
+
+                  <section className="space-y-2">
                     <Label>Nama karakter</Label>
                     <Input value={name} onChange={(e) => { setName(e.target.value); savePref(STORAGE.name, e.target.value); }} />
                   </section>
