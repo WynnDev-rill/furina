@@ -18,7 +18,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.Settings;
-import android.view.Gravity;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.PermissionRequest;
@@ -31,7 +30,6 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
-import android.widget.ProgressBar;
 import android.widget.Toast;
 
 import androidx.activity.OnBackPressedCallback;
@@ -58,6 +56,7 @@ import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity {
     private static final String HOME_URL = "https://furina-pi.vercel.app/";
+    private static final String HOME_HOST = "furina-pi.vercel.app";
     private static final String LOCAL_URL = "file:///android_asset/offline/index.html";
     private static final String UPDATE_URL = HOME_URL + "update.json";
     private static final int BG_COLOR = Color.rgb(8, 17, 31);
@@ -69,6 +68,7 @@ public class MainActivity extends AppCompatActivity {
     private OfflineAiBridge offlineAiBridge;
     private ValueCallback<Uri[]> fileCallback;
     private PermissionRequest pendingPermissionRequest;
+    private boolean bridgeAttached;
     private boolean updateRequired;
     private String pendingApkUrl = "";
     private String expectedApkSha256 = "";
@@ -81,8 +81,14 @@ public class MainActivity extends AppCompatActivity {
             if (fileCallback == null) return;
             Uri[] uris = null;
             if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
-                Uri data = result.getData().getData();
-                if (data != null) uris = new Uri[]{data};
+                Intent dataIntent = result.getData();
+                if (dataIntent.getClipData() != null) {
+                    int count = dataIntent.getClipData().getItemCount();
+                    uris = new Uri[count];
+                    for (int i = 0; i < count; i++) uris[i] = dataIntent.getClipData().getItemAt(i).getUri();
+                } else if (dataIntent.getData() != null) {
+                    uris = new Uri[]{dataIntent.getData()};
+                }
             }
             fileCallback.onReceiveValue(uris);
             fileCallback = null;
@@ -126,8 +132,7 @@ public class MainActivity extends AppCompatActivity {
                     showDownloadFailedDialog("Android tidak dapat menyelesaikan unduhan.");
                     return;
                 }
-                Uri apkUri = manager.getUriForDownloadedFile(downloadId);
-                verifyAndInstall(apkUri);
+                verifyAndInstall(manager.getUriForDownloadedFile(downloadId));
             } catch (Exception error) {
                 showDownloadFailedDialog(error.getMessage());
             }
@@ -139,23 +144,11 @@ public class MainActivity extends AppCompatActivity {
         WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
         getWindow().setStatusBarColor(BG_COLOR);
         getWindow().setNavigationBarColor(BG_COLOR);
-        showNativeLoadingScreen();
         registerDownloadReceiver();
         configureBackHandling();
+        initializeLocalApp();
+        if (savedInstanceState != null && webView != null) webView.restoreState(savedInstanceState);
         checkNativeUpdate();
-    }
-
-    private void showNativeLoadingScreen() {
-        FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(BG_COLOR);
-        ProgressBar progress = new ProgressBar(this);
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        );
-        params.gravity = Gravity.CENTER;
-        root.addView(progress, params);
-        setContentView(root);
     }
 
     private void checkNativeUpdate() {
@@ -163,15 +156,13 @@ public class MainActivity extends AppCompatActivity {
             HttpURLConnection connection = null;
             try {
                 connection = (HttpURLConnection) new URL(UPDATE_URL + "?t=" + System.currentTimeMillis()).openConnection();
-                connection.setConnectTimeout(7_000);
-                connection.setReadTimeout(7_000);
+                connection.setConnectTimeout(5_000);
+                connection.setReadTimeout(5_000);
                 connection.setUseCaches(false);
                 connection.setRequestProperty("Cache-Control", "no-cache");
                 connection.setRequestProperty("User-Agent", "Furina-Android/4.0");
                 int responseCode = connection.getResponseCode();
-                if (responseCode < 200 || responseCode >= 300) {
-                    throw new IllegalStateException("HTTP " + responseCode);
-                }
+                if (responseCode < 200 || responseCode >= 300) throw new IllegalStateException("HTTP " + responseCode);
 
                 JSONObject json = new JSONObject(readAll(connection.getInputStream()));
                 int minimumVersion = json.optInt("minimumSupportedVersionCode", 1);
@@ -183,6 +174,7 @@ public class MainActivity extends AppCompatActivity {
                 int currentVersion = getCurrentVersionCode();
 
                 runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
                     pendingApkUrl = apkUrl;
                     expectedApkSha256 = sha256;
                     if (currentVersion < minimumVersion) {
@@ -191,12 +183,10 @@ public class MainActivity extends AppCompatActivity {
                     } else if (currentVersion < latestVersion) {
                         updateRequired = false;
                         showOptionalUpdateDialog(versionName, notes);
-                    } else {
-                        initializeLocalApp();
                     }
                 });
             } catch (Exception ignored) {
-                runOnUiThread(this::initializeLocalApp);
+                // Local UI remains usable when the update endpoint or network is unavailable.
             } finally {
                 if (connection != null) connection.disconnect();
             }
@@ -223,10 +213,10 @@ public class MainActivity extends AppCompatActivity {
         AlertDialog dialog = new AlertDialog.Builder(this)
             .setTitle("Pembaruan Furina diperlukan")
             .setMessage("Versi " + versionName + " harus dipasang agar aplikasi tetap kompatibel.\n\n" + notes)
-            .setPositiveButton("Perbarui sekarang", (d, which) -> beginUpdate())
-            .setNeutralButton("Unduh lewat browser", (d, which) -> openBrowserDownload())
-            .setNegativeButton("Keluar", (d, which) -> finishAndRemoveTask())
-            .setOnCancelListener(d -> finishAndRemoveTask())
+            .setPositiveButton("Perbarui sekarang", (dialogInterface, which) -> beginUpdate())
+            .setNeutralButton("Unduh lewat browser", (dialogInterface, which) -> openBrowserDownload())
+            .setNegativeButton("Keluar", (dialogInterface, which) -> finishAndRemoveTask())
+            .setOnCancelListener(dialogInterface -> finishAndRemoveTask())
             .create();
         dialog.setCancelable(false);
         dialog.setCanceledOnTouchOutside(false);
@@ -237,9 +227,8 @@ public class MainActivity extends AppCompatActivity {
         new AlertDialog.Builder(this)
             .setTitle("Pembaruan Furina tersedia")
             .setMessage("Versi " + versionName + " tersedia. Model dan riwayat tidak dihapus saat APK diperbarui.\n\n" + notes)
-            .setPositiveButton("Perbarui", (d, which) -> beginUpdate())
-            .setNegativeButton("Nanti", (d, which) -> initializeLocalApp())
-            .setOnCancelListener(d -> initializeLocalApp())
+            .setPositiveButton("Perbarui", (dialog, which) -> beginUpdate())
+            .setNegativeButton("Nanti", null)
             .show();
     }
 
@@ -259,8 +248,10 @@ public class MainActivity extends AppCompatActivity {
 
     private void startApkDownload() {
         try {
-            File stale = new File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), UPDATE_FILE);
-            if (stale.exists()) stale.delete();
+            File downloads = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+            if (downloads == null) throw new IllegalStateException("Folder unduhan aplikasi tidak tersedia.");
+            File stale = new File(downloads, UPDATE_FILE);
+            if (stale.exists() && !stale.delete()) throw new IllegalStateException("File pembaruan lama tidak dapat diganti.");
 
             DownloadManager.Request request = new DownloadManager.Request(Uri.parse(pendingApkUrl));
             request.setTitle("Memperbarui Furina");
@@ -323,6 +314,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void openBrowserDownload() {
+        if (pendingApkUrl.isEmpty()) {
+            showDownloadFailedDialog("Alamat unduhan belum tersedia.");
+            return;
+        }
         try {
             startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(pendingApkUrl)));
         } catch (Exception error) {
@@ -331,16 +326,17 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showDownloadFailedDialog(String reason) {
+        if (isFinishing() || isDestroyed()) return;
         String details = reason == null || reason.trim().isEmpty() ? "Unduhan tidak dapat diselesaikan." : reason;
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
             .setTitle("Pembaruan gagal")
             .setMessage(details + "\n\nModel offline dan riwayat tetap tersimpan di perangkat.")
-            .setPositiveButton("Coba lagi", (d, which) -> beginUpdate())
-            .setNeutralButton("Unduh lewat browser", (d, which) -> openBrowserDownload());
+            .setPositiveButton("Coba lagi", (dialog, which) -> beginUpdate())
+            .setNeutralButton("Unduh lewat browser", (dialog, which) -> openBrowserDownload());
         if (updateRequired) {
-            builder.setNegativeButton("Keluar", (d, which) -> finishAndRemoveTask()).setCancelable(false);
+            builder.setNegativeButton("Keluar", (dialog, which) -> finishAndRemoveTask()).setCancelable(false);
         } else {
-            builder.setNegativeButton("Gunakan aplikasi", (d, which) -> initializeLocalApp());
+            builder.setNegativeButton("Gunakan aplikasi", null);
         }
         builder.show();
     }
@@ -350,7 +346,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void initializeWebApp(String initialUrl) {
-        updateRequired = false;
+        if (webView != null) {
+            attachBridgeForUrl(initialUrl);
+            webView.loadUrl(initialUrl);
+            return;
+        }
+
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(BG_COLOR);
 
@@ -377,6 +378,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(root);
         refresh.setOnRefreshListener(() -> webView.reload());
         configureWebView();
+        attachBridgeForUrl(initialUrl);
         webView.loadUrl(initialUrl);
     }
 
@@ -404,25 +406,31 @@ public class MainActivity extends AppCompatActivity {
         WebView.setWebContentsDebuggingEnabled(false);
 
         offlineAiBridge = new OfflineAiBridge(this, webView);
-        webView.addJavascriptInterface(offlineAiBridge, "FurinaNative");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 String scheme = uri.getScheme();
                 if ("file".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
+                    attachBridgeForUrl(uri.toString());
                     return false;
                 }
+                detachBridge();
                 try {
                     startActivity(new Intent(Intent.ACTION_VIEW, uri));
                 } catch (Exception ignored) {}
                 return true;
             }
 
+            @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                attachBridgeForUrl(url);
+            }
+
             @Override public void onPageFinished(WebView view, String url) {
                 refresh.setRefreshing(false);
                 CookieManager.getInstance().flush();
                 refresh.setEnabled(url != null && url.startsWith(HOME_URL));
+                attachBridgeForUrl(url);
                 if (url != null && url.startsWith(HOME_URL)) injectSettingsEntry(view);
             }
 
@@ -432,6 +440,7 @@ public class MainActivity extends AppCompatActivity {
                 String failedUrl = request.getUrl() == null ? "" : request.getUrl().toString();
                 if (failedUrl.startsWith("http")) {
                     Toast.makeText(MainActivity.this, "Mode online tidak tersedia. Kembali ke Furina lokal.", Toast.LENGTH_LONG).show();
+                    attachBridgeForUrl(LOCAL_URL);
                     view.loadUrl(LOCAL_URL);
                 } else {
                     showLoadError(error == null ? "Antarmuka lokal tidak dapat dimuat." : String.valueOf(error.getDescription()));
@@ -440,8 +449,10 @@ public class MainActivity extends AppCompatActivity {
 
             @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
                 handler.cancel();
-                if (view.getUrl() != null && view.getUrl().startsWith("http")) {
+                String failedUrl = error == null ? "" : error.getUrl();
+                if (failedUrl.startsWith("http")) {
                     Toast.makeText(MainActivity.this, "Koneksi online tidak aman. Kembali ke mode lokal.", Toast.LENGTH_LONG).show();
+                    attachBridgeForUrl(LOCAL_URL);
                     view.loadUrl(LOCAL_URL);
                 }
             }
@@ -481,6 +492,37 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private boolean isTrustedBridgeUrl(String url) {
+        if (url == null) return false;
+        if (url.startsWith(LOCAL_URL) || url.startsWith("file:///android_asset/offline/")) return true;
+        try {
+            Uri uri = Uri.parse(url);
+            return ("https".equalsIgnoreCase(uri.getScheme()) || "http".equalsIgnoreCase(uri.getScheme())) &&
+                HOME_HOST.equalsIgnoreCase(uri.getHost());
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private void attachBridgeForUrl(String url) {
+        if (webView == null || offlineAiBridge == null) return;
+        if (!isTrustedBridgeUrl(url)) {
+            detachBridge();
+            return;
+        }
+        if (!bridgeAttached) {
+            webView.addJavascriptInterface(offlineAiBridge, "FurinaNative");
+            bridgeAttached = true;
+        }
+    }
+
+    private void detachBridge() {
+        if (webView != null && bridgeAttached) {
+            webView.removeJavascriptInterface("FurinaNative");
+            bridgeAttached = false;
+        }
+    }
+
     private void injectSettingsEntry(WebView view) {
         String script = "(function(){" +
             "if(!window.FurinaNative||document.getElementById('furina-native-model-settings'))return;" +
@@ -496,12 +538,16 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showLoadError(String message) {
+        if (isFinishing() || isDestroyed()) return;
         new AlertDialog.Builder(this)
             .setTitle("Furina tidak dapat dibuka")
             .setMessage(message)
-            .setPositiveButton("Muat ulang", (d, which) -> webView.loadUrl(LOCAL_URL))
-            .setNeutralButton("Buka versi online", (d, which) -> webView.loadUrl(HOME_URL))
-            .setNegativeButton("Keluar", (d, which) -> finish())
+            .setPositiveButton("Muat ulang", (dialog, which) -> {
+                attachBridgeForUrl(LOCAL_URL);
+                webView.loadUrl(LOCAL_URL);
+            })
+            .setNeutralButton("Buka versi online", (dialog, which) -> webView.loadUrl(HOME_URL))
+            .setNegativeButton("Keluar", (dialog, which) -> finish())
             .show();
     }
 
@@ -519,6 +565,7 @@ public class MainActivity extends AppCompatActivity {
                         return;
                     }
                     if (current.startsWith("http")) {
+                        attachBridgeForUrl(LOCAL_URL);
                         webView.loadUrl(LOCAL_URL);
                         return;
                     }
@@ -538,6 +585,11 @@ public class MainActivity extends AppCompatActivity {
         receiverRegistered = true;
     }
 
+    @Override protected void onSaveInstanceState(Bundle outState) {
+        if (webView != null) webView.saveState(outState);
+        super.onSaveInstanceState(outState);
+    }
+
     @Override protected void onDestroy() {
         if (receiverRegistered) {
             try {
@@ -545,10 +597,15 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception ignored) {}
             receiverRegistered = false;
         }
+        if (pendingPermissionRequest != null) {
+            pendingPermissionRequest.deny();
+            pendingPermissionRequest = null;
+        }
+        detachBridge();
         if (offlineAiBridge != null) offlineAiBridge.destroy();
         if (webView != null) {
-            webView.removeJavascriptInterface("FurinaNative");
             webView.stopLoading();
+            webView.clearHistory();
             webView.destroy();
         }
         executor.shutdownNow();
