@@ -4,14 +4,17 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
-import android.provider.Settings;
+import android.view.ViewGroup;
+import android.webkit.CookieManager;
 import android.webkit.PermissionRequest;
 import android.webkit.SslErrorHandler;
 import android.net.http.SslError;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -24,8 +27,9 @@ import androidx.core.content.ContextCompat;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 public class MainActivity extends AppCompatActivity {
-    private static final String HOME_URL = "https://furina-pi.vercel.app";
+    private static final String HOME_URL = "https://furina-pi.vercel.app/";
     private WebView webView;
+    private SwipeRefreshLayout refresh;
     private ValueCallback<Uri[]> fileCallback;
     private PermissionRequest pendingPermissionRequest;
 
@@ -54,33 +58,78 @@ public class MainActivity extends AppCompatActivity {
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        SwipeRefreshLayout refresh = new SwipeRefreshLayout(this);
+
+        refresh = new SwipeRefreshLayout(this);
+        refresh.setLayoutParams(new ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        ));
+
         webView = new WebView(this);
+        webView.setLayoutParams(new SwipeRefreshLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        ));
+        webView.setBackgroundColor(Color.rgb(8, 17, 31));
         refresh.addView(webView);
         setContentView(refresh);
         refresh.setOnRefreshListener(() -> webView.reload());
 
+        configureWebView();
+        configureNavigation();
+
+        // Selalu muat URL utama. restoreState dapat memulihkan halaman kosong setelah proses Android dihentikan.
+        webView.loadUrl(HOME_URL);
+    }
+
+    private void configureWebView() {
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
+        s.setCacheMode(WebSettings.LOAD_DEFAULT);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setAllowFileAccess(false);
         s.setAllowContentAccess(true);
-        s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        s.setUserAgentString(s.getUserAgentString() + " FurinaAndroid/1.0");
+        s.setLoadWithOverviewMode(true);
+        s.setUseWideViewPort(true);
+        s.setSupportZoom(false);
+        s.setBuiltInZoomControls(false);
+        s.setDisplayZoomControls(false);
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+        s.setUserAgentString(s.getUserAgentString() + " FurinaAndroid/1.1");
+
+        CookieManager cookies = CookieManager.getInstance();
+        cookies.setAcceptCookie(true);
+        cookies.setAcceptThirdPartyCookies(webView, true);
+
         WebView.setWebContentsDebuggingEnabled(false);
 
         webView.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 String scheme = uri.getScheme();
-                if ("http".equals(scheme) || "https".equals(scheme)) return false;
+                if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) return false;
                 try { startActivity(new Intent(Intent.ACTION_VIEW, uri)); } catch (Exception ignored) {}
                 return true;
             }
-            @Override public void onPageFinished(WebView view, String url) { refresh.setRefreshing(false); }
-            @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) { handler.cancel(); }
+
+            @Override public void onPageFinished(WebView view, String url) {
+                refresh.setRefreshing(false);
+                CookieManager.getInstance().flush();
+            }
+
+            @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                if (request.isForMainFrame()) {
+                    refresh.setRefreshing(false);
+                    showLoadError(error != null ? error.getDescription().toString() : "Tidak dapat memuat aplikasi");
+                }
+            }
+
+            @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                handler.cancel();
+                showLoadError("Koneksi aman ke server gagal");
+            }
         });
 
         webView.setWebChromeClient(new WebChromeClient() {
@@ -91,33 +140,50 @@ public class MainActivity extends AppCompatActivity {
                 catch (Exception e) { fileCallback.onReceiveValue(null); fileCallback = null; }
                 return true;
             }
+
             @Override public void onPermissionRequest(PermissionRequest request) {
                 runOnUiThread(() -> {
                     pendingPermissionRequest = request;
                     if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
                         request.grant(request.getResources());
                         pendingPermissionRequest = null;
-                    } else audioPermission.launch(Manifest.permission.RECORD_AUDIO);
+                    } else {
+                        audioPermission.launch(Manifest.permission.RECORD_AUDIO);
+                    }
                 });
             }
         });
+    }
 
+    private void configureNavigation() {
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
                 if (webView.canGoBack()) webView.goBack(); else finish();
             }
         });
-
-        if (savedInstanceState == null) webView.loadUrl(HOME_URL); else webView.restoreState(savedInstanceState);
     }
 
-    @Override protected void onSaveInstanceState(Bundle outState) {
-        webView.saveState(outState);
-        super.onSaveInstanceState(outState);
+    private void showLoadError(String reason) {
+        String safeReason = reason
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;");
+        String html = "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>" +
+            "<style>body{margin:0;background:#08111f;color:#eef6ff;font-family:sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center}" +
+            ".box{padding:28px;max-width:420px}h2{margin:0 0 12px}p{opacity:.78;line-height:1.5}button{margin-top:14px;padding:12px 22px;border:0;border-radius:12px;background:#8ad8ff;color:#07111e;font-weight:700}</style></head>" +
+            "<body><div class='box'><h2>Furina tidak dapat dimuat</h2><p>" + safeReason + "</p>" +
+            "<button onclick=\"location.href='" + HOME_URL + "'\">Coba lagi</button></div></body></html>";
+        webView.loadDataWithBaseURL(HOME_URL, html, "text/html", "UTF-8", null);
     }
 
     @Override protected void onDestroy() {
-        if (webView != null) { webView.stopLoading(); webView.destroy(); }
+        if (webView != null) {
+            webView.stopLoading();
+            webView.setWebChromeClient(null);
+            webView.setWebViewClient(null);
+            webView.destroy();
+        }
         super.onDestroy();
     }
 }
