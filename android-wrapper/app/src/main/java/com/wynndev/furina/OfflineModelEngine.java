@@ -10,6 +10,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -55,7 +58,8 @@ public final class OfflineModelEngine {
     }
 
     private File modelDirectory() {
-        File root = new File(appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "models");
+        File external = appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+        File root = new File(external != null ? external : appContext.getFilesDir(), "models");
         if (!root.exists()) root.mkdirs();
         return root;
     }
@@ -104,12 +108,12 @@ public final class OfflineModelEngine {
                     loadedModelId = modelId;
                 }
 
-                String prompt = buildPrompt(request);
                 int maxTokens = Math.max(32, Math.min(768, request.optInt("maxTokens", 320)));
                 int contextSize = Math.max(2048, Math.min(8192, request.optInt("contextSize", 4096)));
+                String prompt = buildPrompt(request, contextSize, maxTokens);
                 float temperature = (float) Math.max(0.2, Math.min(1.4, request.optDouble("temperature", 0.82)));
                 int available = Runtime.getRuntime().availableProcessors();
-                int threads = Math.max(2, Math.min(8, available - 1));
+                int threads = Math.max(2, Math.min(8, Math.max(2, available - 1)));
                 String imagePath = request.optString("imagePath", "");
 
                 NativeListener listener = new NativeListener() {
@@ -148,34 +152,71 @@ public final class OfflineModelEngine {
                 } else {
                     nativeGenerate(prompt, maxTokens, temperature, contextSize, threads, listener);
                 }
-            } catch (Exception e) {
+            } catch (Exception error) {
                 busy.set(false);
-                String message = e.getMessage() == null ? "Inferensi offline gagal." : e.getMessage();
+                String message = error.getMessage() == null ? "Inferensi offline gagal." : error.getMessage();
                 mainHandler.post(() -> callback.onError(message));
             }
         });
     }
 
-    private String buildPrompt(JSONObject request) {
-        StringBuilder prompt = new StringBuilder();
-        prompt.append("<|im_start|>system\n").append(SYSTEM_PROMPT).append("<|im_end|>\n");
+    private String buildPrompt(JSONObject request, int contextSize, int maxTokens) {
+        String requestedPrompt = request.optString("systemPrompt", "").trim();
+        String systemPrompt = requestedPrompt.isEmpty() ? SYSTEM_PROMPT : requestedPrompt;
+        int maximumSystemChars = Math.max(600, (contextSize - maxTokens - 500) * 3);
+        if (systemPrompt.length() > maximumSystemChars) {
+            systemPrompt = systemPrompt.substring(0, maximumSystemChars);
+        }
+        if (systemPrompt.length() > 6_000) systemPrompt = systemPrompt.substring(0, 6_000);
 
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("<|im_start|>system\n").append(systemPrompt).append("<|im_end|>\n");
+
+        int availableMessageChars = Math.max(
+            384,
+            (contextSize - maxTokens - 160) * 3 - systemPrompt.length()
+        );
         JSONArray messages = request.optJSONArray("messages");
-        if (messages != null) {
-            int start = Math.max(0, messages.length() - 20);
-            for (int i = start; i < messages.length(); i++) {
+        if (messages != null && messages.length() > 0) {
+            List<String> blocks = new ArrayList<>();
+            int usedChars = 0;
+            int oldestAllowed = Math.max(0, messages.length() - 20);
+            for (int i = messages.length() - 1; i >= oldestAllowed; i--) {
                 JSONObject message = messages.optJSONObject(i);
                 if (message == null) continue;
                 String role = message.optString("role", "user");
                 if (!role.equals("assistant") && !role.equals("user")) continue;
                 String content = message.optString("content", "").trim();
                 if (content.isEmpty()) continue;
-                prompt.append("<|im_start|>").append(role).append("\n")
-                    .append(content).append("<|im_end|>\n");
+
+                String prefix = "<|im_start|>" + role + "\n";
+                String suffix = "<|im_end|>\n";
+                int remaining = availableMessageChars - usedChars;
+                int contentLimit = remaining - prefix.length() - suffix.length();
+                if (contentLimit < 96) break;
+
+                if (content.length() > contentLimit) {
+                    if (!blocks.isEmpty()) continue;
+                    int side = Math.max(32, (contentLimit - 7) / 2);
+                    if (side * 2 + 7 > content.length()) {
+                        content = content.substring(0, Math.min(content.length(), contentLimit));
+                    } else {
+                        content = content.substring(0, side) + "\n…\n" + content.substring(content.length() - side);
+                    }
+                }
+
+                String block = prefix + content + suffix;
+                if (block.length() > remaining) continue;
+                blocks.add(block);
+                usedChars += block.length();
             }
+            Collections.reverse(blocks);
+            for (String block : blocks) prompt.append(block);
         } else {
             String text = request.optString("text", "").trim();
             if (text.isEmpty()) text = "Jelaskan isi gambar ini secara jelas.";
+            int textLimit = Math.max(96, availableMessageChars - 40);
+            if (text.length() > textLimit) text = text.substring(0, textLimit);
             prompt.append("<|im_start|>user\n").append(text).append("<|im_end|>\n");
         }
 
@@ -192,6 +233,7 @@ public final class OfflineModelEngine {
         worker.shutdownNow();
         nativeUnload();
         loadedModelId = "";
+        busy.set(false);
     }
 
     private static native boolean nativeLoad(String path);

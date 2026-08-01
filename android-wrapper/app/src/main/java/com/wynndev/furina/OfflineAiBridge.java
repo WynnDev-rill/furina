@@ -2,6 +2,7 @@ package com.wynndev.furina;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.util.Base64;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
@@ -12,6 +13,13 @@ import java.io.File;
 import java.io.FileOutputStream;
 
 public final class OfflineAiBridge {
+    private static final String MODEL_PREFS = "furina_model_manager";
+    private static final String ACTIVE_MODEL = "active_model";
+    private static final String MODE_PREFS = "furina_ai_mode";
+    private static final String ACTIVE_MODE = "active_mode";
+    private static final String MODE_ONLINE = "online";
+    private static final String MODE_OFFLINE = "offline";
+
     private final Activity activity;
     private final WebView webView;
     private final OfflineModelEngine engine;
@@ -29,13 +37,18 @@ public final class OfflineAiBridge {
             boolean installed = !modelId.isEmpty() && engine.isInstalled(modelId);
             boolean imageModelSelected = "qwen35-4b".equals(modelId);
             boolean multimodalReady = imageModelSelected && engine.isVisionReady(modelId);
+            String mode = modePrefs().getString(ACTIVE_MODE, installed ? MODE_OFFLINE : MODE_ONLINE);
+            if (MODE_OFFLINE.equals(mode) && !installed) mode = MODE_ONLINE;
 
             JSONObject result = new JSONObject();
+            result.put("mode", mode);
+            result.put("source", MODE_OFFLINE.equals(mode) ? "offline" : "lovable");
             result.put("activeModelId", modelId);
             result.put("installed", installed);
             result.put("busy", engine.isBusy());
             result.put("supportsImage", imageModelSelected);
             result.put("multimodalReady", multimodalReady);
+            result.put("canUseOffline", installed);
             if (!imageModelSelected) {
                 result.put("imageDisabledReason", "Model aktif hanya mendukung teks.");
             } else if (!multimodalReady) {
@@ -43,8 +56,33 @@ public final class OfflineAiBridge {
             }
             return result.toString();
         } catch (Exception e) {
-            return "{\"installed\":false,\"busy\":false,\"supportsImage\":false,\"multimodalReady\":false}";
+            return "{\"mode\":\"online\",\"source\":\"lovable\",\"installed\":false,\"busy\":false,\"supportsImage\":false,\"multimodalReady\":false,\"canUseOffline\":false}";
         }
+    }
+
+    @JavascriptInterface
+    public boolean useOnlineAi() {
+        modePrefs().edit().putString(ACTIVE_MODE, MODE_ONLINE).apply();
+        dispatchModeChanged();
+        return true;
+    }
+
+    @JavascriptInterface
+    public boolean useOfflineAi() {
+        String modelId = engine.activeModelId();
+        if (modelId.isEmpty() || !engine.isInstalled(modelId)) return false;
+        modePrefs().edit().putString(ACTIVE_MODE, MODE_OFFLINE).apply();
+        dispatchModeChanged();
+        return true;
+    }
+
+    @JavascriptInterface
+    public boolean deactivateOfflineModel() {
+        if (engine.isBusy()) engine.cancel();
+        activity.getSharedPreferences(MODEL_PREFS, Activity.MODE_PRIVATE).edit().remove(ACTIVE_MODEL).apply();
+        modePrefs().edit().putString(ACTIVE_MODE, MODE_ONLINE).apply();
+        dispatchModeChanged();
+        return true;
     }
 
     @JavascriptInterface
@@ -59,12 +97,20 @@ public final class OfflineAiBridge {
 
     @JavascriptInterface
     public void generate(String requestJson) {
+        if (!MODE_OFFLINE.equals(currentMode())) {
+            dispatchError(requestId(requestJson), "Mode offline belum diaktifkan.");
+            return;
+        }
         runGeneration(requestJson);
     }
 
     @JavascriptInterface
     public void generateWithImage(String requestJson, String imageDataUrl) {
         try {
+            if (!MODE_OFFLINE.equals(currentMode())) {
+                dispatchError(requestId(requestJson), "Mode offline belum diaktifkan.");
+                return;
+            }
             if (!"qwen35-4b".equals(engine.activeModelId())) {
                 dispatchError(requestId(requestJson), "Pilih Qwen3.5-4B untuk membaca gambar.");
                 return;
@@ -76,6 +122,21 @@ public final class OfflineAiBridge {
         } catch (Exception e) {
             dispatchError(requestId(requestJson), "Gambar tidak dapat dipersiapkan untuk model offline.");
         }
+    }
+
+    private String currentMode() {
+        return modePrefs().getString(ACTIVE_MODE, engine.activeModelId().isEmpty() ? MODE_ONLINE : MODE_OFFLINE);
+    }
+
+    private SharedPreferences modePrefs() {
+        return activity.getSharedPreferences(MODE_PREFS, Activity.MODE_PRIVATE);
+    }
+
+    private void dispatchModeChanged() {
+        activity.runOnUiThread(() -> {
+            String script = "window.dispatchEvent(new CustomEvent('furina-ai-mode-changed',{detail:" + getStatus() + "}));";
+            webView.evaluateJavascript(script, null);
+        });
     }
 
     private File decodeImage(String dataUrl) throws Exception {

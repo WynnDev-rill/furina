@@ -3,7 +3,6 @@ name: Build Furina APK
 on:
   workflow_dispatch:
   pull_request:
-    branches: [main]
     paths:
       - 'android-wrapper/**'
       - '.github/workflows/build-furina-apk.yml'
@@ -42,6 +41,20 @@ jobs:
 
       - name: Install Android native build tools
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+
+      - name: Validate bundled offline UI
+        run: |
+          test -s android-wrapper/app/src/main/assets/offline/index.html
+          test -s android-wrapper/app/src/main/assets/offline/app.css
+          test -s android-wrapper/app/src/main/assets/offline/preflight.js
+          test -s android-wrapper/app/src/main/assets/offline/app.js
+          test -s android-wrapper/app/src/main/assets/offline/furina-background.jpg
+          node --check android-wrapper/app/src/main/assets/offline/preflight.js
+          node --check android-wrapper/app/src/main/assets/offline/app.js
+          grep -q 'app.css' android-wrapper/app/src/main/assets/offline/index.html
+          grep -q 'preflight.js' android-wrapper/app/src/main/assets/offline/index.html
+          grep -q 'app.js' android-wrapper/app/src/main/assets/offline/index.html
+          grep -q 'Content-Security-Policy' android-wrapper/app/src/main/assets/offline/index.html
 
       - name: Fetch llama.cpp source
         run: |

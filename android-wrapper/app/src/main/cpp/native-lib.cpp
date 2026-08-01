@@ -2,6 +2,7 @@
 #include <android/log.h>
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -35,8 +36,105 @@ void unload_locked() {
     g_model_path.clear();
 }
 
+std::u16string decode_utf8(const std::string & value) {
+    std::u16string result;
+    result.reserve(value.size());
+    size_t index = 0;
+    while (index < value.size()) {
+        const uint8_t first = static_cast<uint8_t>(value[index]);
+        uint32_t codepoint = 0;
+        size_t length = 0;
+        if (first < 0x80) {
+            codepoint = first;
+            length = 1;
+        } else if ((first & 0xE0) == 0xC0) {
+            codepoint = first & 0x1F;
+            length = 2;
+        } else if ((first & 0xF0) == 0xE0) {
+            codepoint = first & 0x0F;
+            length = 3;
+        } else if ((first & 0xF8) == 0xF0) {
+            codepoint = first & 0x07;
+            length = 4;
+        } else {
+            result.push_back(static_cast<char16_t>(0xFFFD));
+            ++index;
+            continue;
+        }
+
+        if (index + length > value.size()) {
+            result.push_back(static_cast<char16_t>(0xFFFD));
+            break;
+        }
+
+        bool valid = true;
+        for (size_t offset = 1; offset < length; ++offset) {
+            const uint8_t continuation = static_cast<uint8_t>(value[index + offset]);
+            if ((continuation & 0xC0) != 0x80) {
+                valid = false;
+                break;
+            }
+            codepoint = (codepoint << 6) | (continuation & 0x3F);
+        }
+
+        const bool overlong =
+            (length == 2 && codepoint < 0x80) ||
+            (length == 3 && codepoint < 0x800) ||
+            (length == 4 && codepoint < 0x10000);
+        if (!valid || overlong || codepoint > 0x10FFFF || (codepoint >= 0xD800 && codepoint <= 0xDFFF)) {
+            result.push_back(static_cast<char16_t>(0xFFFD));
+            ++index;
+            continue;
+        }
+
+        if (codepoint <= 0xFFFF) {
+            result.push_back(static_cast<char16_t>(codepoint));
+        } else {
+            codepoint -= 0x10000;
+            result.push_back(static_cast<char16_t>(0xD800 + (codepoint >> 10)));
+            result.push_back(static_cast<char16_t>(0xDC00 + (codepoint & 0x3FF)));
+        }
+        index += length;
+    }
+    return result;
+}
+
+size_t complete_utf8_prefix(const std::string & value) {
+    size_t index = 0;
+    size_t complete = 0;
+    while (index < value.size()) {
+        const uint8_t first = static_cast<uint8_t>(value[index]);
+        size_t length = 1;
+        if (first < 0x80) length = 1;
+        else if ((first & 0xE0) == 0xC0) length = 2;
+        else if ((first & 0xF0) == 0xE0) length = 3;
+        else if ((first & 0xF8) == 0xF0) length = 4;
+        else {
+            ++index;
+            complete = index;
+            continue;
+        }
+        if (index + length > value.size()) break;
+        bool valid = true;
+        for (size_t offset = 1; offset < length; ++offset) {
+            if ((static_cast<uint8_t>(value[index + offset]) & 0xC0) != 0x80) {
+                valid = false;
+                break;
+            }
+        }
+        index += valid ? length : 1;
+        complete = index;
+    }
+    return complete;
+}
+
 void call_string(JNIEnv * env, jobject listener, jmethodID method, const std::string & value) {
-    jstring text = env->NewStringUTF(value.c_str());
+    const std::u16string decoded = decode_utf8(value);
+    jstring text = env->NewString(
+        reinterpret_cast<const jchar *>(decoded.data()),
+        static_cast<jsize>(decoded.size())
+    );
+    if (text == nullptr) return;
     env->CallVoidMethod(listener, method, text);
     env->DeleteLocalRef(text);
 }
@@ -92,14 +190,19 @@ bool stream_generation(
         float temperature) {
     const llama_vocab * vocab = llama_model_get_vocab(g_model);
     llama_sampler * sampler = create_sampler(temperature);
+    std::string pending_utf8;
 
     for (int generated = 0; generated < max_tokens && !g_cancelled.load(); ++generated) {
         llama_token token = llama_sampler_sample(sampler, context, -1);
         if (llama_vocab_is_eog(vocab, token)) break;
 
         llama_sampler_accept(sampler, token);
-        std::string piece = token_piece(vocab, token);
-        if (!piece.empty()) call_string(env, listener, on_token, piece);
+        pending_utf8 += token_piece(vocab, token);
+        const size_t ready = complete_utf8_prefix(pending_utf8);
+        if (ready > 0) {
+            call_string(env, listener, on_token, pending_utf8.substr(0, ready));
+            pending_utf8.erase(0, ready);
+        }
 
         llama_token next_token = token;
         llama_batch next_batch = llama_batch_get_one(&next_token, 1);
@@ -110,6 +213,7 @@ bool stream_generation(
         }
     }
 
+    if (!pending_utf8.empty()) call_string(env, listener, on_token, pending_utf8);
     llama_sampler_free(sampler);
     return true;
 }
@@ -177,6 +281,7 @@ Java_com_wynndev_furina_OfflineModelEngine_nativeGenerate(
     std::lock_guard<std::mutex> lock(g_mutex);
     if (g_model == nullptr) {
         call_string(env, listener, on_error, "Model belum dimuat.");
+        env->DeleteLocalRef(listener_class);
         return;
     }
 
@@ -185,6 +290,7 @@ Java_com_wynndev_furina_OfflineModelEngine_nativeGenerate(
     int32_t token_count = llama_tokenize(vocab, prompt_text.c_str(), static_cast<int32_t>(prompt_text.size()), nullptr, 0, true, true);
     if (token_count >= 0) {
         call_string(env, listener, on_error, "Tokenizer gagal menghitung token prompt.");
+        env->DeleteLocalRef(listener_class);
         return;
     }
 
@@ -192,6 +298,7 @@ Java_com_wynndev_furina_OfflineModelEngine_nativeGenerate(
     token_count = llama_tokenize(vocab, prompt_text.c_str(), static_cast<int32_t>(prompt_text.size()), prompt_tokens.data(), static_cast<int32_t>(prompt_tokens.size()), true, true);
     if (token_count <= 0) {
         call_string(env, listener, on_error, "Prompt tidak dapat diproses.");
+        env->DeleteLocalRef(listener_class);
         return;
     }
     prompt_tokens.resize(static_cast<size_t>(token_count));
@@ -199,12 +306,14 @@ Java_com_wynndev_furina_OfflineModelEngine_nativeGenerate(
     int32_t n_ctx = std::max<int32_t>(2048, context_size);
     if (static_cast<int32_t>(prompt_tokens.size()) + max_tokens + 32 > n_ctx) {
         call_string(env, listener, on_error, "Percakapan terlalu panjang untuk konteks model saat ini.");
+        env->DeleteLocalRef(listener_class);
         return;
     }
 
     llama_context * context = create_context(n_ctx, thread_count);
     if (context == nullptr) {
         call_string(env, listener, on_error, "RAM perangkat tidak cukup untuk membuat konteks model.");
+        env->DeleteLocalRef(listener_class);
         return;
     }
 
@@ -212,16 +321,19 @@ Java_com_wynndev_furina_OfflineModelEngine_nativeGenerate(
     if (llama_decode(context, batch) != 0) {
         llama_free(context);
         call_string(env, listener, on_error, "Model gagal membaca prompt.");
+        env->DeleteLocalRef(listener_class);
         return;
     }
 
     if (!stream_generation(env, listener, on_token, on_error, context, max_tokens, temperature)) {
         llama_free(context);
+        env->DeleteLocalRef(listener_class);
         return;
     }
 
     llama_free(context);
     env->CallVoidMethod(listener, on_complete);
+    env->DeleteLocalRef(listener_class);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -248,6 +360,7 @@ Java_com_wynndev_furina_OfflineModelEngine_nativeGenerateVision(
     std::lock_guard<std::mutex> lock(g_mutex);
     if (g_model == nullptr) {
         call_string(env, listener, on_error, "Model Qwen3.5 belum dimuat.");
+        env->DeleteLocalRef(listener_class);
         return;
     }
 
@@ -255,6 +368,7 @@ Java_com_wynndev_furina_OfflineModelEngine_nativeGenerateVision(
     llama_context * context = create_context(std::max<int32_t>(4096, context_size), thread_count);
     if (context == nullptr) {
         call_string(env, listener, on_error, "RAM tidak cukup untuk konteks gambar Qwen3.5.");
+        env->DeleteLocalRef(listener_class);
         return;
     }
 
@@ -270,6 +384,7 @@ Java_com_wynndev_furina_OfflineModelEngine_nativeGenerateVision(
         if (vision) mtmd_free(vision);
         llama_free(context);
         call_string(env, listener, on_error, "Projector gambar Qwen3.5 tidak kompatibel atau rusak.");
+        env->DeleteLocalRef(listener_class);
         return;
     }
 
@@ -278,6 +393,7 @@ Java_com_wynndev_furina_OfflineModelEngine_nativeGenerateVision(
         mtmd_free(vision);
         llama_free(context);
         call_string(env, listener, on_error, "Gambar tidak dapat dibaca. Gunakan JPG, PNG, BMP, atau WebP.");
+        env->DeleteLocalRef(listener_class);
         return;
     }
 
@@ -301,6 +417,7 @@ Java_com_wynndev_furina_OfflineModelEngine_nativeGenerateVision(
         mtmd_free(vision);
         llama_free(context);
         call_string(env, listener, on_error, "Qwen3.5 gagal memproses gambar.");
+        env->DeleteLocalRef(listener_class);
         return;
     }
 
@@ -314,16 +431,19 @@ Java_com_wynndev_furina_OfflineModelEngine_nativeGenerateVision(
         mtmd_free(vision);
         llama_free(context);
         call_string(env, listener, on_error, "Gambar gagal dimasukkan ke konteks model.");
+        env->DeleteLocalRef(listener_class);
         return;
     }
 
     if (!stream_generation(env, listener, on_token, on_error, context, max_tokens, temperature)) {
         mtmd_free(vision);
         llama_free(context);
+        env->DeleteLocalRef(listener_class);
         return;
     }
 
     mtmd_free(vision);
     llama_free(context);
     env->CallVoidMethod(listener, on_complete);
+    env->DeleteLocalRef(listener_class);
 }
