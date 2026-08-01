@@ -24,6 +24,10 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 public class MainActivity extends AppCompatActivity {
@@ -58,12 +62,15 @@ public class MainActivity extends AppCompatActivity {
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
 
         refresh = new SwipeRefreshLayout(this);
         refresh.setLayoutParams(new ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         ));
+        refresh.setBackgroundColor(Color.rgb(8, 17, 31));
+        refresh.setClipToPadding(false);
 
         webView = new WebView(this);
         webView.setLayoutParams(new SwipeRefreshLayout.LayoutParams(
@@ -71,15 +78,26 @@ public class MainActivity extends AppCompatActivity {
             ViewGroup.LayoutParams.MATCH_PARENT
         ));
         webView.setBackgroundColor(Color.rgb(8, 17, 31));
+        webView.setOverScrollMode(WebView.OVER_SCROLL_NEVER);
         refresh.addView(webView);
         setContentView(refresh);
+        applySystemBarInsets();
         refresh.setOnRefreshListener(() -> webView.reload());
 
         configureWebView();
         configureNavigation();
 
-        // Selalu muat URL utama. restoreState dapat memulihkan halaman kosong setelah proses Android dihentikan.
         webView.loadUrl(HOME_URL);
+    }
+
+    private void applySystemBarInsets() {
+        ViewCompat.setOnApplyWindowInsetsListener(refresh, (view, windowInsets) -> {
+            Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+            view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            refresh.setProgressViewOffset(false, bars.top + 24, bars.top + 144);
+            return windowInsets;
+        });
+        ViewCompat.requestApplyInsets(refresh);
     }
 
     private void configureWebView() {
