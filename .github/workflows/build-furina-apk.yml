@@ -2,6 +2,11 @@ name: Build Furina APK
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'android-wrapper/**'
+      - '.github/workflows/build-furina-apk.yml'
   push:
     branches: [main]
     paths:
@@ -12,7 +17,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: furina-native-release
+  group: furina-native-release-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -81,6 +86,7 @@ jobs:
           retention-days: 90
 
       - name: Publish native updater files
+        if: github.event_name != 'pull_request'
         run: |
           mkdir -p public
           cp Furina.apk public/Furina.apk
@@ -97,6 +103,7 @@ jobs:
           EOF
 
       - name: Commit updater files for Vercel
+        if: github.event_name != 'pull_request'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
