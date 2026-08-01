@@ -1,5 +1,6 @@
 package com.wynndev.furina;
 
+import android.Manifest;
 import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.app.DownloadManager;
@@ -8,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.net.Uri;
@@ -27,7 +29,10 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 import androidx.core.view.WindowCompat;
 
 import org.json.JSONArray;
@@ -62,6 +67,20 @@ public class ModelManagerActivity extends AppCompatActivity {
     private final Map<String, JSONObject> models = new HashMap<>();
     private LinearLayout list;
     private boolean receiverRegistered;
+    private JSONObject pendingDownloadModel;
+
+    private final ActivityResultLauncher<String> notificationPermission = registerForActivityResult(
+        new ActivityResultContracts.RequestPermission(), granted -> {
+            JSONObject pending = pendingDownloadModel;
+            pendingDownloadModel = null;
+            if (pending != null) {
+                if (!granted) {
+                    Toast.makeText(this, "Unduhan tetap berjalan, tetapi progres mungkin tidak terlihat di notifikasi.", Toast.LENGTH_LONG).show();
+                }
+                startDownloadInternal(pending);
+            }
+        }
+    );
 
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -96,11 +115,13 @@ public class ModelManagerActivity extends AppCompatActivity {
         list.setPadding(dp(18), dp(20), dp(18), dp(32));
         scroll.addView(list, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        TextView title = text("Model AI Furina", 25, TEXT, true);
-        list.addView(title);
-        TextView intro = text("Unduh, pilih, dan hapus model offline. Model yang sedang tidak dipakai tetap tersimpan tetapi tidak dimuat ke RAM.", 14, MUTED, false);
-        intro.setPadding(0, dp(7), 0, dp(14));
+        list.addView(text("Model AI Furina", 25, TEXT, true));
+        TextView intro = text("Unduh, pilih, dan hapus model offline. Unduhan memakai sistem Android sehingga tetap berjalan saat aplikasi ditutup.", 14, MUTED, false);
+        intro.setPadding(0, dp(7), 0, dp(8));
         list.addView(intro);
+        TextView downloadInfo = text("Progres tampil di halaman ini dan di notifikasi Android. Jika sistem menjeda unduhan, Android akan melanjutkannya otomatis saat jaringan tersedia.", 13, MUTED, false);
+        downloadInfo.setPadding(0, 0, 0, dp(14));
+        list.addView(downloadInfo);
 
         ActivityManager.MemoryInfo memory = new ActivityManager.MemoryInfo();
         ((ActivityManager) getSystemService(ACTIVITY_SERVICE)).getMemoryInfo(memory);
@@ -186,7 +207,7 @@ public class ModelManagerActivity extends AppCompatActivity {
         String id = model.optString("id");
         if (id.equals(activeModel()) && modelFile(id).exists()) return "Aktif dan siap dipakai";
         if (modelFile(id).exists()) return "Terpasang";
-        if (model.optString("downloadUrl").isEmpty()) return "Paket model akan dihubungkan pada tahap integrasi";
+        if (model.optString("downloadUrl").isEmpty()) return "Paket model belum tersedia";
         return "Belum diunduh";
     }
 
@@ -203,15 +224,37 @@ public class ModelManagerActivity extends AppCompatActivity {
             recreate();
             return;
         }
-        String url = model.optString("downloadUrl");
-        if (url.isEmpty()) {
-            Toast.makeText(this, "Runtime dan file model akan dihubungkan pada tahap berikutnya.", Toast.LENGTH_LONG).show();
+        if (model.optString("downloadUrl").isEmpty()) {
+            Toast.makeText(this, "Paket model belum tersedia.", Toast.LENGTH_LONG).show();
             return;
         }
         startDownload(model);
     }
 
     private void startDownload(JSONObject model) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            pendingDownloadModel = model;
+            if (shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)) {
+                new AlertDialog.Builder(this)
+                    .setTitle("Izinkan notifikasi unduhan")
+                    .setMessage("Notifikasi diperlukan agar progres model tetap dapat dipantau setelah kamu keluar dari aplikasi.")
+                    .setPositiveButton("Izinkan", (d, w) -> notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS))
+                    .setNegativeButton("Lanjut tanpa notifikasi", (d, w) -> {
+                        JSONObject pending = pendingDownloadModel;
+                        pendingDownloadModel = null;
+                        if (pending != null) startDownloadInternal(pending);
+                    })
+                    .show();
+            } else {
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS);
+            }
+            return;
+        }
+        startDownloadInternal(model);
+    }
+
+    private void startDownloadInternal(JSONObject model) {
         try {
             String id = model.getString("id");
             long size = model.getLong("sizeBytes");
@@ -227,7 +270,7 @@ public class ModelManagerActivity extends AppCompatActivity {
             if (target.exists()) target.delete();
             DownloadManager.Request request = new DownloadManager.Request(Uri.parse(model.getString("downloadUrl")));
             request.setTitle("Mengunduh " + model.getString("name"));
-            request.setDescription("Unduhan model AI Furina berjalan di latar belakang");
+            request.setDescription("Model AI Furina • unduhan latar belakang");
             request.setAllowedOverRoaming(false);
             request.setAllowedOverMetered(true);
             request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
@@ -257,7 +300,7 @@ public class ModelManagerActivity extends AppCompatActivity {
         if (model == null) return;
         String expected = model.optString("sha256");
         if (expected.isEmpty()) {
-            setStatus(id, "Terunduh • menunggu verifikasi paket integrasi");
+            setStatus(id, "Terunduh");
             recreate();
             return;
         }
@@ -304,7 +347,8 @@ public class ModelManagerActivity extends AppCompatActivity {
                         if (bar != null && (status == DownloadManager.STATUS_RUNNING || status == DownloadManager.STATUS_PENDING || status == DownloadManager.STATUS_PAUSED)) {
                             bar.setVisibility(View.VISIBLE);
                             if (total > 0) bar.setProgress((int) Math.min(100, done * 100 / total));
-                            setStatus(entry.getKey(), status == DownloadManager.STATUS_PAUSED ? "Unduhan dijeda sistem; akan dilanjutkan otomatis" : "Mengunduh " + (total > 0 ? (done * 100 / total) + "%" : "…"));
+                            String amount = total > 0 ? formatMb(done) + " / " + formatMb(total) + " (" + (done * 100 / total) + "%)" : formatMb(done);
+                            setStatus(entry.getKey(), status == DownloadManager.STATUS_PAUSED ? "Unduhan dijeda sistem • " + amount : "Mengunduh • " + amount);
                         }
                     }
                 } catch (Exception ignored) {}
@@ -370,13 +414,17 @@ public class ModelManagerActivity extends AppCompatActivity {
     private Button button(String label) {
         Button button = new Button(this);
         button.setText(label);
-        button.setTextAllCaps(false);
+        button.setAllCaps(false);
         button.setMinHeight(dp(44));
         return button;
     }
 
     private String formatGb(long bytes) {
         return String.format(Locale.US, "%.1f GB", bytes / 1_000_000_000.0);
+    }
+
+    private String formatMb(long bytes) {
+        return String.format(Locale.US, "%.1f MB", bytes / 1_000_000.0);
     }
 
     private int dp(int value) {
