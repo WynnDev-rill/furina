@@ -1,8 +1,8 @@
 {
-  "latestVersionCode": 21,
-  "minimumSupportedVersionCode": 21,
-  "versionName": "1.0.21",
+  "latestVersionCode": 28,
+  "minimumSupportedVersionCode": 28,
+  "versionName": "1.0.28",
   "apkUrl": "https://furina-pi.vercel.app/Furina.apk",
-  "sha256": "304b92964a60b9cb25253b1b977a983fe638e7be75e55a28fb2f7fbca95a788e",
+  "sha256": "ae96f9a2c77255e59df8d258da2c82dee800a68f1230c2ed288112f5dad070dd",
   "notes": "Pembaruan native Android wajib untuk kompatibilitas, keamanan, dan perbaikan aplikasi."
 }
