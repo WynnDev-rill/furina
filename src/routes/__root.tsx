@@ -80,17 +80,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
       { name: "apple-mobile-web-app-title", content: "Furina" },
       { property: "og:title", content: "Furina — AI Companion" },
-      { property: "og:description", content: "Personal anime AI companion with natural Japanese voice, memory, and a customizable Furina character." },
+      { property: "og:description", content: "Personal anime AI companion with voice, memory, vision, and optional local models." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:title", content: "Furina — AI Companion" },
-      { name: "twitter:description", content: "Personal anime AI companion with natural Japanese voice, memory, and a customizable Furina character." },
+      { name: "twitter:description", content: "Personal anime AI companion with optional online and offline AI." },
       { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/49ce6084-a883-4c34-9fba-0823e4e9ec7d/id-preview-8df6d7cb--1a1621d2-7cae-4972-8cdc-269778779da2.lovable.app-1780708379945.png" },
       { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/49ce6084-a883-4c34-9fba-0823e4e9ec7d/id-preview-8df6d7cb--1a1621d2-7cae-4972-8cdc-269778779da2.lovable.app-1780708379945.png" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
       { rel: "stylesheet", href: "/stage2-ui.css" },
+      { rel: "stylesheet", href: "/stage3-ai.css" },
       { rel: "manifest", href: "/manifest.webmanifest" },
       { rel: "icon", type: "image/png", sizes: "192x192", href: "/icon-192.png" },
       { rel: "icon", type: "image/png", sizes: "512x512", href: "/icon-512.png" },
@@ -113,6 +114,7 @@ function RootShell({ children }: { children: React.ReactNode }) {
       <body>
         {children}
         <script src="/stage2-ui.js" defer />
+        <script src="/stage3-ai.js" defer />
         <Scripts />
       </body>
     </html>
