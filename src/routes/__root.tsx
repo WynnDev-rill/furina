@@ -126,6 +126,8 @@ function RootShell({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         {children}
+        <script src="/furina-sw-register.js" defer />
+        <script src="/furina-voice.js" defer />
         <Scripts />
       </body>
     </html>
