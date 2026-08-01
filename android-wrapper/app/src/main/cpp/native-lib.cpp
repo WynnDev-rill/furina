@@ -69,8 +69,6 @@ Java_com_wynndev_furina_OfflineModelEngine_nativeLoad(
 
     llama_model_params params = llama_model_default_params();
     params.n_gpu_layers = 0;
-    params.use_mmap = true;
-    params.use_mlock = false;
 
     g_model = llama_model_load_from_file(requested.c_str(), params);
     if (g_model == nullptr) {
