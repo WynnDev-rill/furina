@@ -14,6 +14,14 @@ import android.webkit.WebView;
 
 import androidx.activity.OnBackPressedCallback;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
 /**
@@ -23,8 +31,12 @@ import java.util.Locale;
  */
 public final class UnifiedMainActivity extends MainActivity {
     private static final String HOME_URL = "https://furina-pi.vercel.app/";
+    private static final String LOCAL_URL = "file:///android_asset/offline/index.html";
     private static final String LOCAL_PREFIX = "file:///android_asset/offline/";
+    private static final String LEGACY_FILE = "furina-legacy-conversations.json";
+    private static final int MAX_LEGACY_BYTES = 24 * 1024 * 1024;
 
+    private final Object migrationLock = new Object();
     private WebView unifiedWebView;
     private TextToSpeech japaneseVoice;
     private volatile boolean japaneseVoiceReady;
@@ -38,20 +50,18 @@ public final class UnifiedMainActivity extends MainActivity {
 
         initializeJapaneseVoice();
         unifiedWebView.addJavascriptInterface(new JapaneseVoiceBridge(), "FurinaVoice");
+        unifiedWebView.addJavascriptInterface(new LegacyMigrationBridge(), "FurinaMigration");
         unifiedWebView.getSettings().setCacheMode(
             hasUsableNetwork() ? WebSettings.LOAD_DEFAULT : WebSettings.LOAD_CACHE_ELSE_NETWORK
         );
 
-        // MainActivity creates the secure native bridge first. We then load the
-        // unified hosted shell, which can call both the online and offline engines.
-        unifiedWebView.post(() -> unifiedWebView.loadUrl(HOME_URL));
-        unifiedWebView.postDelayed(() -> {
-            String current = unifiedWebView.getUrl();
-            if (current != null && current.startsWith(HOME_URL)) unifiedWebView.clearHistory();
-        }, 3_500L);
+        // Load the old local origin invisibly once so its Web Storage can be staged
+        // into native storage before the hosted Smart Dashboard becomes primary.
+        unifiedWebView.setAlpha(0f);
+        unifiedWebView.loadUrl(LOCAL_URL);
+        unifiedWebView.postDelayed(() -> waitForLegacyStage(0), 120L);
 
-        // Prevent Android Back from exposing the old local shell that was loaded
-        // briefly while MainActivity initialized its secure bridge.
+        // Prevent Android Back from exposing the staging shell.
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
                 if (unifiedWebView == null) {
@@ -67,6 +77,34 @@ public final class UnifiedMainActivity extends MainActivity {
                 else finish();
             }
         });
+    }
+
+    private void waitForLegacyStage(int attempt) {
+        if (unifiedWebView == null || isFinishing() || isDestroyed()) return;
+        unifiedWebView.evaluateJavascript(
+            "Boolean(window.FurinaLegacyStageReady===true)",
+            result -> {
+                boolean ready = "true".equalsIgnoreCase(String.valueOf(result));
+                if (ready || attempt >= 30) {
+                    openUnifiedInterface();
+                } else {
+                    unifiedWebView.postDelayed(() -> waitForLegacyStage(attempt + 1), 80L);
+                }
+            }
+        );
+    }
+
+    private void openUnifiedInterface() {
+        if (unifiedWebView == null || isFinishing() || isDestroyed()) return;
+        unifiedWebView.loadUrl(HOME_URL);
+        unifiedWebView.postDelayed(() -> {
+            if (unifiedWebView != null) unifiedWebView.animate().alpha(1f).setDuration(180L).start();
+        }, 700L);
+        unifiedWebView.postDelayed(() -> {
+            if (unifiedWebView == null) return;
+            String current = unifiedWebView.getUrl();
+            if (current != null && current.startsWith(HOME_URL)) unifiedWebView.clearHistory();
+        }, 3_500L);
     }
 
     private WebView findWebView(View view) {
@@ -95,6 +133,10 @@ public final class UnifiedMainActivity extends MainActivity {
         }
     }
 
+    private File legacyFile() {
+        return new File(getFilesDir(), LEGACY_FILE);
+    }
+
     private void initializeJapaneseVoice() {
         japaneseVoice = new TextToSpeech(this, status -> {
             if (status != TextToSpeech.SUCCESS || japaneseVoice == null) {
@@ -107,6 +149,68 @@ public final class UnifiedMainActivity extends MainActivity {
             japaneseVoiceReady = result != TextToSpeech.LANG_MISSING_DATA &&
                 result != TextToSpeech.LANG_NOT_SUPPORTED;
         });
+    }
+
+    private final class LegacyMigrationBridge {
+        @JavascriptInterface public boolean stageLegacyConversations(String payload) {
+            if (payload == null) return false;
+            byte[] bytes = payload.getBytes(StandardCharsets.UTF_8);
+            if (bytes.length > MAX_LEGACY_BYTES) return false;
+            try {
+                JSONObject root = new JSONObject(payload);
+                JSONArray conversations = root.optJSONArray("conversations");
+                if (conversations == null || conversations.length() > 120) return false;
+                String activeId = root.optString("activeId", "");
+                if (activeId.length() > 120) return false;
+
+                synchronized (migrationLock) {
+                    File target = legacyFile();
+                    File temporary = new File(getFilesDir(), LEGACY_FILE + ".tmp");
+                    try (FileOutputStream output = new FileOutputStream(temporary, false)) {
+                        output.write(bytes);
+                        output.flush();
+                    }
+                    if (target.exists() && !target.delete()) return false;
+                    if (!temporary.renameTo(target)) {
+                        try (FileOutputStream output = new FileOutputStream(target, false)) {
+                            output.write(bytes);
+                        }
+                        temporary.delete();
+                    }
+                }
+                return true;
+            } catch (Exception ignored) {
+                return false;
+            }
+        }
+
+        @JavascriptInterface public String getLegacyConversations() {
+            synchronized (migrationLock) {
+                File source = legacyFile();
+                if (!source.isFile() || source.length() <= 0 || source.length() > MAX_LEGACY_BYTES) return "";
+                try (FileInputStream input = new FileInputStream(source);
+                     ByteArrayOutputStream output = new ByteArrayOutputStream((int) source.length())) {
+                    byte[] buffer = new byte[16 * 1024];
+                    int read;
+                    int total = 0;
+                    while ((read = input.read(buffer)) >= 0) {
+                        total += read;
+                        if (total > MAX_LEGACY_BYTES) return "";
+                        output.write(buffer, 0, read);
+                    }
+                    return output.toString(StandardCharsets.UTF_8.name());
+                } catch (Exception ignored) {
+                    return "";
+                }
+            }
+        }
+
+        @JavascriptInterface public boolean consumeLegacyConversations() {
+            synchronized (migrationLock) {
+                File source = legacyFile();
+                return !source.exists() || source.delete();
+            }
+        }
     }
 
     private final class JapaneseVoiceBridge {
@@ -137,7 +241,10 @@ public final class UnifiedMainActivity extends MainActivity {
     }
 
     @Override protected void onDestroy() {
-        if (unifiedWebView != null) unifiedWebView.removeJavascriptInterface("FurinaVoice");
+        if (unifiedWebView != null) {
+            unifiedWebView.removeJavascriptInterface("FurinaVoice");
+            unifiedWebView.removeJavascriptInterface("FurinaMigration");
+        }
         if (japaneseVoice != null) {
             japaneseVoice.stop();
             japaneseVoice.shutdown();
