@@ -62,7 +62,7 @@
   }
 
   function latestAssistantText() {
-    const hosted = [...document.querySelectorAll("main p.whitespace-pre-wrap")]
+    const hosted = [...document.querySelectorAll("main div.flex.flex-col.items-start p.whitespace-pre-wrap")]
       .map((node) => cleanText(node.textContent))
       .filter(Boolean);
     if (hosted.length) return hosted[hosted.length - 1];
