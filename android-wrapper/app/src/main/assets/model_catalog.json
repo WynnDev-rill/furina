@@ -3,8 +3,8 @@
     {
       "id": "qwen35-4b",
       "name": "Qwen3.5-4B",
-      "subtitle": "Offline • teks + gambar",
-      "description": "Pilihan multimodal. Gunakan model ini bila ingin mengirim gambar dan tetap menjalankan percakapan tanpa internet.",
+      "subtitle": "Offline • teks + gambar • tahap 3",
+      "description": "Pilihan multimodal. Integrasi gambar memakai runtime terpisah dan belum diaktifkan pada tahap model teks.",
       "sizeBytes": 2900000000,
       "minimumRamGb": 8,
       "recommendedRamGb": 12,
@@ -15,31 +15,31 @@
       "sha256": ""
     },
     {
-      "id": "josie-1-1-4b",
-      "name": "JOSIE 1.1 4B Instruct",
+      "id": "josie-4b-instruct",
+      "name": "JOSIE 4B Instruct",
       "subtitle": "Offline • percakapan natural",
-      "description": "Difokuskan pada dialog yang lebih ekspresif dan terasa manusiawi. Hanya mendukung teks.",
+      "description": "Versi GGUF kompatibel Android yang difokuskan pada dialog ekspresif dan terasa lebih manusiawi. JOSIE 1.1 belum memiliki paket GGUF Android yang terverifikasi.",
       "sizeBytes": 2500000000,
       "minimumRamGb": 8,
       "recommendedRamGb": 12,
       "recommendedDevice": "Snapdragon 870/7+ Gen 2, Dimensity 8100, atau lebih tinggi",
       "supportsImage": false,
       "experimental": true,
-      "downloadUrl": "",
+      "downloadUrl": "https://huggingface.co/mradermacher/JOSIE-4B-Instruct-GGUF/resolve/main/JOSIE-4B-Instruct.Q4_K_M.gguf?download=true",
       "sha256": ""
     },
     {
       "id": "basically-human-4b",
       "name": "Basically-Human-4B",
       "subtitle": "Offline • emosional dan roleplay",
-      "description": "Eksperimen percakapan emosional dan konsistensi karakter. Hanya untuk pengujian terbatas dan hanya mendukung teks.",
+      "description": "Eksperimen percakapan emosional dan konsistensi karakter untuk penggunaan terbatas. Hanya mendukung teks.",
       "sizeBytes": 2500000000,
       "minimumRamGb": 8,
       "recommendedRamGb": 12,
       "recommendedDevice": "Snapdragon 870/7+ Gen 2, Dimensity 8100, atau lebih tinggi",
       "supportsImage": false,
       "experimental": true,
-      "downloadUrl": "",
+      "downloadUrl": "https://huggingface.co/prithivMLmods/Basically-Human-4B-f32-GGUF/resolve/main/Basically-Human-4B.Q4_K_M.gguf?download=true",
       "sha256": ""
     },
     {
@@ -53,7 +53,7 @@
       "recommendedDevice": "Snapdragon 870/7+ Gen 2, Dimensity 8100, atau lebih tinggi",
       "supportsImage": false,
       "experimental": true,
-      "downloadUrl": "",
+      "downloadUrl": "https://huggingface.co/mradermacher/ArityFlow-Qwen3-4B-Instruct-2507-RolePlay-i1-GGUF/resolve/main/ArityFlow-Qwen3-4B-Instruct-2507-RolePlay.i1-Q4_K_M.gguf?download=true",
       "sha256": ""
     },
     {
@@ -67,7 +67,7 @@
       "recommendedDevice": "Snapdragon 870/7+ Gen 2, Dimensity 8100, atau lebih tinggi",
       "supportsImage": false,
       "experimental": false,
-      "downloadUrl": "",
+      "downloadUrl": "https://huggingface.co/bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf?download=true",
       "sha256": ""
     }
   ]
