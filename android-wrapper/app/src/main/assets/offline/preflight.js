@@ -82,4 +82,10 @@
     enumerable: false,
     writable: false,
   });
+
+  // Keep the same Japanese voice controls available in the emergency local shell.
+  const voiceScript = document.createElement("script");
+  voiceScript.src = "voice.js";
+  voiceScript.async = false;
+  document.head.appendChild(voiceScript);
 })();
