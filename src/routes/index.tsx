@@ -731,6 +731,12 @@ function FurinaApp() {
     const trimmed = text.trim();
     if (!trimmed && !pendingImage) return;
     if (sending) return;
+    // Guard: jangan kirim sebelum data akun selesai di-hydrate, kalau tidak pesan
+    // bisa masuk ke conversation "hantu" yang langsung ditimpa hasil pullFromCloud.
+    if (authUser && !cloudHydratedRef.current) {
+      toast.info("Sebentar, data akunmu masih disinkronkan…");
+      return;
+    }
 
     const imageDataUrl = pendingImage?.dataUrl;
     const messageContent = trimmed || (imageDataUrl ? "(gambar)" : "");
@@ -748,13 +754,17 @@ function FurinaApp() {
         imageDataUrl,
       };
       updateActiveMessages((prev) => [...prev, userMsg]);
+      let nextTitle = activeConvo?.title ?? "Percakapan baru";
       if (activeConvo && (activeConvo.title === "Percakapan baru" || !activeConvo.title)) {
         const t = (trimmed || "Gambar baru").slice(0, 40).replace(/\s+/g, " ").trim();
-        renameConversation(activeConvo.id, t || "Percakapan baru");
+        nextTitle = t || "Percakapan baru";
+        renameConversation(activeConvo.id, nextTitle);
       }
       if (authUser && activeConvo) {
-        upsertSingleMessage(authUser.id, activeConvo.id, userMsg);
-        upsertSingleConversation(authUser.id, { ...activeConvo, updatedAt: Date.now() });
+        // Conversation row HARUS ada dulu (FK), baru message row.
+        upsertSingleConversation(authUser.id, { ...activeConvo, title: nextTitle, updatedAt: Date.now() })
+          .then(() => upsertSingleMessage(authUser.id, activeConvo.id, userMsg))
+          .catch((e) => console.error("persist user message:", e));
       }
       setInput("");
       setPendingImage(null);
