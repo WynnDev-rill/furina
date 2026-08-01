@@ -54,15 +54,28 @@ public final class OfflineModelEngine {
         return prefs.getString(ACTIVE_MODEL, "");
     }
 
-    public File modelFile(String modelId) {
+    private File modelDirectory() {
         File root = new File(appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "models");
         if (!root.exists()) root.mkdirs();
-        return new File(root, modelId + ".gguf");
+        return root;
+    }
+
+    public File modelFile(String modelId) {
+        return new File(modelDirectory(), modelId + ".gguf");
+    }
+
+    public File projectorFile(String modelId) {
+        return new File(modelDirectory(), modelId + "-mmproj.gguf");
     }
 
     public boolean isInstalled(String modelId) {
         File file = modelFile(modelId);
         return file.isFile() && file.length() > 100_000_000L;
+    }
+
+    public boolean isVisionReady(String modelId) {
+        File file = projectorFile(modelId);
+        return "qwen35-4b".equals(modelId) && isInstalled(modelId) && file.isFile() && file.length() > 100_000_000L;
     }
 
     public boolean isBusy() {
@@ -97,8 +110,9 @@ public final class OfflineModelEngine {
                 float temperature = (float) Math.max(0.2, Math.min(1.4, request.optDouble("temperature", 0.82)));
                 int available = Runtime.getRuntime().availableProcessors();
                 int threads = Math.max(2, Math.min(8, available - 1));
+                String imagePath = request.optString("imagePath", "");
 
-                nativeGenerate(prompt, maxTokens, temperature, contextSize, threads, new NativeListener() {
+                NativeListener listener = new NativeListener() {
                     @Override public void onToken(String token) {
                         mainHandler.post(() -> callback.onToken(token));
                     }
@@ -112,7 +126,28 @@ public final class OfflineModelEngine {
                         busy.set(false);
                         mainHandler.post(() -> callback.onError(message));
                     }
-                });
+                };
+
+                if (!imagePath.isEmpty()) {
+                    if (!"qwen35-4b".equals(modelId)) {
+                        throw new IllegalStateException("Model aktif tidak mendukung gambar. Pilih Qwen3.5-4B.");
+                    }
+                    if (!isVisionReady(modelId)) {
+                        throw new IllegalStateException("Projector gambar Qwen3.5 belum selesai diunduh.");
+                    }
+                    nativeGenerateVision(
+                        prompt,
+                        imagePath,
+                        projectorFile(modelId).getAbsolutePath(),
+                        maxTokens,
+                        temperature,
+                        Math.max(4096, contextSize),
+                        threads,
+                        listener
+                    );
+                } else {
+                    nativeGenerate(prompt, maxTokens, temperature, contextSize, threads, listener);
+                }
             } catch (Exception e) {
                 busy.set(false);
                 String message = e.getMessage() == null ? "Inferensi offline gagal." : e.getMessage();
@@ -140,7 +175,7 @@ public final class OfflineModelEngine {
             }
         } else {
             String text = request.optString("text", "").trim();
-            if (text.isEmpty()) throw new IllegalArgumentException("Pesan kosong.");
+            if (text.isEmpty()) text = "Jelaskan isi gambar ini secara jelas.";
             prompt.append("<|im_start|>user\n").append(text).append("<|im_end|>\n");
         }
 
@@ -165,6 +200,16 @@ public final class OfflineModelEngine {
     private static native boolean nativeIsLoaded();
     private static native void nativeGenerate(
         String prompt,
+        int maxTokens,
+        float temperature,
+        int contextSize,
+        int threadCount,
+        NativeListener listener
+    );
+    private static native void nativeGenerateVision(
+        String prompt,
+        String imagePath,
+        String mmprojPath,
         int maxTokens,
         float temperature,
         int contextSize,

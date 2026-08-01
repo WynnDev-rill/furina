@@ -11,7 +11,6 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Color;
-import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Build;
@@ -32,7 +31,6 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.ProgressBar;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.OnBackPressedCallback;
@@ -263,25 +261,6 @@ public class MainActivity extends AppCompatActivity {
         refresh.addView(webView, new SwipeRefreshLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         root.addView(refresh, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        TextView modelButton = new TextView(this);
-        modelButton.setText("Model AI");
-        modelButton.setTextColor(Color.rgb(238, 248, 255));
-        modelButton.setTextSize(13);
-        modelButton.setGravity(Gravity.CENTER);
-        modelButton.setPadding(dp(15), dp(10), dp(15), dp(10));
-        GradientDrawable background = new GradientDrawable();
-        background.setColor(Color.rgb(12, 30, 50));
-        background.setCornerRadius(dp(16));
-        background.setStroke(dp(1), Color.argb(80, 160, 220, 255));
-        modelButton.setBackground(background);
-        modelButton.setElevation(dp(8));
-        modelButton.setContentDescription("Buka pengelola model AI offline");
-        modelButton.setOnClickListener(v -> startActivity(new Intent(this, ModelManagerActivity.class)));
-        FrameLayout.LayoutParams buttonParams = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        buttonParams.gravity = Gravity.END | Gravity.BOTTOM;
-        buttonParams.setMargins(dp(16), dp(16), dp(16), dp(82));
-        root.addView(modelButton, buttonParams);
-
         setContentView(root);
         refresh.setOnRefreshListener(() -> webView.reload());
         configureWebView();
@@ -366,14 +345,35 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void injectSettingsEntry(WebView view) {
-        String script = "(function(){if(window.__furinaModelHook)return;window.__furinaModelHook=true;" +
-            "function mount(){if(!window.FurinaNative||!document.body)return;var id='furina-native-model-settings';if(document.getElementById(id))return;" +
-            "var text=(document.body.innerText||'').toLowerCase();var route=(location.pathname+location.hash).toLowerCase();" +
-            "var settings=text.indexOf('pengaturan')>=0||text.indexOf('settings')>=0||route.indexOf('setting')>=0||route.indexOf('pengaturan')>=0;if(!settings)return;" +
-            "var b=document.createElement('button');b.id=id;b.type='button';b.textContent='Model AI Offline';" +
-            "b.style.cssText='width:calc(100% - 32px);margin:12px 16px;padding:14px;border:1px solid rgba(138,216,255,.35);border-radius:16px;background:rgba(12,30,50,.96);color:#eef8ff;font:600 14px sans-serif';" +
-            "b.onclick=function(){window.FurinaNative.openModelManager()};document.body.appendChild(b)}" +
-            "mount();setInterval(mount,1000);new MutationObserver(mount).observe(document.documentElement,{subtree:true,childList:true,characterData:true});})();";
+        String script = "(function(){" +
+            "if(window.__furinaModelHook)return;window.__furinaModelHook=true;" +
+            "function text(v){return (v&&v.innerText||'').trim().toLowerCase();}" +
+            "function visible(el){if(!el)return false;var r=el.getBoundingClientRect();return r.width>40&&r.height>40;}" +
+            "function removeOutside(){var nodes=document.querySelectorAll('#furina-native-model-settings');nodes.forEach(function(n){if(!n.closest('[data-furina-native-settings-host]'))n.remove();});}" +
+            "function findSettingsHost(){" +
+              "var nodes=[].slice.call(document.querySelectorAll('div,section,main,article'));" +
+              "var candidates=nodes.filter(function(el){var t=text(el);if(!visible(el))return false;return t.indexOf('pengaturan')>=0&&t.indexOf('persona')>=0&&(t.indexOf('memori')>=0||t.indexOf('akun')>=0||t.indexOf('suara')>=0);});" +
+              "if(!candidates.length)return null;" +
+              "candidates.sort(function(a,b){return a.getBoundingClientRect().height-b.getBoundingClientRect().height;});" +
+              "return candidates[0];" +
+            "}" +
+            "function ensureButton(){" +
+              "removeOutside();" +
+              "if(!window.FurinaNative||!document.body)return;" +
+              "var host=findSettingsHost();" +
+              "if(!host)return;" +
+              "var existing=host.querySelector('#furina-native-model-settings');" +
+              "if(existing)return;" +
+              "var mount=document.createElement('div');mount.setAttribute('data-furina-native-settings-host','1');" +
+              "mount.style.cssText='margin-top:16px;width:100%';" +
+              "var b=document.createElement('button');b.id='furina-native-model-settings';b.type='button';b.textContent='Model AI Offline';" +
+              "b.style.cssText='width:100%;padding:16px 18px;border:1px solid rgba(138,216,255,.28);border-radius:18px;background:rgba(12,30,50,.96);color:#eef8ff;font:600 15px sans-serif;text-align:left;box-sizing:border-box';" +
+              "b.onclick=function(){window.FurinaNative.openModelManager();};" +
+              "var p=document.createElement('div');p.textContent='Atur model offline, unduh, ganti, atau hapus model AI.';p.style.cssText='margin-top:6px;color:rgba(238,248,255,.68);font:400 12px sans-serif;line-height:1.45';" +
+              "mount.appendChild(b);mount.appendChild(p);host.appendChild(mount);" +
+            "}" +
+            "ensureButton();setInterval(ensureButton,1200);new MutationObserver(ensureButton).observe(document.documentElement,{subtree:true,childList:true,characterData:true});" +
+          "})();";
         view.evaluateJavascript(script, null);
     }
 
@@ -393,10 +393,6 @@ public class MainActivity extends AppCompatActivity {
             "<style>body{margin:0;background:#08111f;color:#eef6ff;font-family:sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center}.box{padding:28px;max-width:420px}h2{margin:0 0 12px}p{opacity:.78;line-height:1.5}button{margin-top:14px;padding:12px 22px;border:0;border-radius:12px;background:#8ad8ff;color:#07111e;font-weight:700}</style></head>" +
             "<body><div class='box'><h2>Furina tidak dapat dimuat</h2><p>" + safeReason + "</p><button onclick=\"location.href='" + HOME_URL + "'\">Coba lagi</button></div></body></html>";
         webView.loadDataWithBaseURL(HOME_URL, html, "text/html", "UTF-8", null);
-    }
-
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     private void registerDownloadReceiver() {

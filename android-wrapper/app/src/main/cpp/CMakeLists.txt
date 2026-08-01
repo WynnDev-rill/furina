@@ -7,7 +7,10 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_COMMON OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_MTMD ON CACHE BOOL "" FORCE)
+set(MTMD_VIDEO OFF CACHE BOOL "" FORCE)
 set(LLAMA_CURL OFF CACHE BOOL "" FORCE)
 set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
 set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
@@ -25,8 +28,9 @@ add_library(furina_llm SHARED native-lib.cpp)
 target_include_directories(furina_llm PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/include
     ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/ggml/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/tools/mtmd
 )
 
 target_compile_options(furina_llm PRIVATE -O3 -ffast-math)
 
-target_link_libraries(furina_llm PRIVATE llama android log)
+target_link_libraries(furina_llm PRIVATE llama mtmd android log)

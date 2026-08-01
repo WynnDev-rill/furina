@@ -2,10 +2,14 @@ package com.wynndev.furina;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.util.Base64;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 
 import org.json.JSONObject;
+
+import java.io.File;
+import java.io.FileOutputStream;
 
 public final class OfflineAiBridge {
     private final Activity activity;
@@ -24,17 +28,18 @@ public final class OfflineAiBridge {
             String modelId = engine.activeModelId();
             boolean installed = !modelId.isEmpty() && engine.isInstalled(modelId);
             boolean imageModelSelected = "qwen35-4b".equals(modelId);
+            boolean multimodalReady = imageModelSelected && engine.isVisionReady(modelId);
 
             JSONObject result = new JSONObject();
             result.put("activeModelId", modelId);
             result.put("installed", installed);
             result.put("busy", engine.isBusy());
             result.put("supportsImage", imageModelSelected);
-            result.put("multimodalReady", false);
-            if (imageModelSelected) {
-                result.put("imageDisabledReason", "Runtime gambar Qwen3.5 masih dalam tahap validasi Android.");
-            } else {
+            result.put("multimodalReady", multimodalReady);
+            if (!imageModelSelected) {
                 result.put("imageDisabledReason", "Model aktif hanya mendukung teks.");
+            } else if (!multimodalReady) {
+                result.put("imageDisabledReason", "Projector gambar Qwen3.5 belum selesai diunduh.");
             }
             return result.toString();
         } catch (Exception e) {
@@ -54,12 +59,44 @@ public final class OfflineAiBridge {
 
     @JavascriptInterface
     public void generate(String requestJson) {
-        String requestId = "offline";
-        try {
-            requestId = new JSONObject(requestJson).optString("requestId", "offline");
-        } catch (Exception ignored) {}
-        final String id = requestId;
+        runGeneration(requestJson);
+    }
 
+    @JavascriptInterface
+    public void generateWithImage(String requestJson, String imageDataUrl) {
+        try {
+            if (!"qwen35-4b".equals(engine.activeModelId())) {
+                dispatchError(requestId(requestJson), "Pilih Qwen3.5-4B untuk membaca gambar.");
+                return;
+            }
+            File image = decodeImage(imageDataUrl);
+            JSONObject request = new JSONObject(requestJson);
+            request.put("imagePath", image.getAbsolutePath());
+            runGeneration(request.toString());
+        } catch (Exception e) {
+            dispatchError(requestId(requestJson), "Gambar tidak dapat dipersiapkan untuk model offline.");
+        }
+    }
+
+    private File decodeImage(String dataUrl) throws Exception {
+        String encoded = dataUrl == null ? "" : dataUrl.trim();
+        int comma = encoded.indexOf(',');
+        if (comma >= 0) encoded = encoded.substring(comma + 1);
+        byte[] bytes = Base64.decode(encoded, Base64.DEFAULT);
+        if (bytes.length == 0 || bytes.length > 25 * 1024 * 1024) {
+            throw new IllegalArgumentException("Ukuran gambar tidak valid");
+        }
+        File dir = new File(activity.getCacheDir(), "vision");
+        if (!dir.exists()) dir.mkdirs();
+        File file = new File(dir, "input-" + System.currentTimeMillis() + ".img");
+        try (FileOutputStream output = new FileOutputStream(file)) {
+            output.write(bytes);
+        }
+        return file;
+    }
+
+    private void runGeneration(String requestJson) {
+        final String id = requestId(requestJson);
         engine.generate(requestJson, new OfflineModelEngine.Callback() {
             @Override public void onToken(String token) {
                 dispatch("furina-native-token", id, token, null);
@@ -73,6 +110,18 @@ public final class OfflineAiBridge {
                 dispatch("furina-native-error", id, "", message);
             }
         });
+    }
+
+    private String requestId(String requestJson) {
+        try {
+            return new JSONObject(requestJson).optString("requestId", "offline");
+        } catch (Exception ignored) {
+            return "offline";
+        }
+    }
+
+    private void dispatchError(String requestId, String message) {
+        dispatch("furina-native-error", requestId, "", message);
     }
 
     private void dispatch(String event, String requestId, String token, String error) {
