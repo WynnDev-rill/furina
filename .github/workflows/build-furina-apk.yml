@@ -29,21 +29,28 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install Android API 35 tools
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.7'
+          gradle-version: '8.9'
 
-      - name: Restore release signing key
+      - name: Restore and verify release signing key
         working-directory: android-wrapper
-        run: base64 --decode furina-release.jks.b64 > furina-release.jks
+        env:
+          FURINA_KEYSTORE_PASSWORD: FurinaRelease2026!
+        run: |
+          base64 --decode furina-release.jks.b64 > furina-release.jks
+          keytool -list -keystore furina-release.jks -storepass "$FURINA_KEYSTORE_PASSWORD" -alias furina
 
       - name: Build signed release APK
         working-directory: android-wrapper
         env:
           FURINA_KEYSTORE_PASSWORD: FurinaRelease2026!
           FURINA_KEY_PASSWORD: FurinaRelease2026!
-        run: gradle --no-daemon clean assembleRelease
+        run: gradle --no-daemon --stacktrace clean assembleRelease
 
       - name: Verify APK signature
         run: $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose android-wrapper/app/build/outputs/apk/release/app-release.apk
