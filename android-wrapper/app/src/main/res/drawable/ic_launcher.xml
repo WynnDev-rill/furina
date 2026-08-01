@@ -5,11 +5,7 @@
             <solid android:color="#08111F" />
         </shape>
     </item>
-    <item
-        android:left="10dp"
-        android:top="10dp"
-        android:right="10dp"
-        android:bottom="10dp">
+    <item>
         <bitmap
             android:src="@drawable/furina_icon_source"
             android:gravity="fill"
