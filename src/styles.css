@@ -147,6 +147,21 @@
   }
 }
 
+/* Keep the integrated mobile layout clear of notches and home indicators. */
+@supports (padding: max(0px)) {
+  header.absolute.inset-x-0.top-0 {
+    padding-top: max(0.75rem, env(safe-area-inset-top));
+  }
+
+  nav.absolute.inset-x-0.bottom-0 {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+
+  div[class*="bottom-[82px]"] {
+    bottom: calc(82px + env(safe-area-inset-bottom));
+  }
+}
+
 @keyframes pop {
   0%   { transform: scale(0.6); opacity: 0; }
   60%  { transform: scale(1.25); opacity: 1; }
