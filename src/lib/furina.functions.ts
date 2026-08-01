@@ -11,7 +11,21 @@ function apiKey() {
   return k;
 }
 
+// Cache embedding in-memory (per worker instance) — hemat call untuk teks berulang.
+const EMBED_CACHE = new Map<string, { vec: number[]; at: number }>();
+const EMBED_TTL_MS = 10 * 60 * 1000;
+const EMBED_CACHE_MAX = 200;
+
 async function embed(text: string): Promise<number[]> {
+  const key = text.trim().toLowerCase();
+  const hit = EMBED_CACHE.get(key);
+  if (hit && Date.now() - hit.at < EMBED_TTL_MS) {
+    // refresh LRU order
+    EMBED_CACHE.delete(key);
+    EMBED_CACHE.set(key, hit);
+    return hit.vec;
+  }
+
   const res = await fetch(`${GATEWAY}/embeddings`, {
     method: "POST",
     headers: {
@@ -25,7 +39,15 @@ async function embed(text: string): Promise<number[]> {
   });
   if (!res.ok) throw new Error(`Embedding failed: ${res.status} ${await res.text()}`);
   const json = await res.json();
-  return json.data[0].embedding;
+  const vec: number[] = json.data[0].embedding;
+
+  EMBED_CACHE.set(key, { vec, at: Date.now() });
+  while (EMBED_CACHE.size > EMBED_CACHE_MAX) {
+    const oldest = EMBED_CACHE.keys().next().value;
+    if (oldest === undefined) break;
+    EMBED_CACHE.delete(oldest);
+  }
+  return vec;
 }
 
 // =================== Natural time formatting ===================
