@@ -48,6 +48,8 @@ public class ModelManagerActivity extends AppCompatActivity {
     private static final int ACCENT = Color.rgb(138, 216, 255);
     private static final String PREFS = "furina_model_manager";
     private static final String ACTIVE_MODEL = "active_model";
+    private static final String MODE_PREFS = "furina_ai_mode";
+    private static final String ACTIVE_MODE = "active_mode";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Map<String, JSONObject> models = new HashMap<>();
@@ -88,7 +90,7 @@ public class ModelManagerActivity extends AppCompatActivity {
         list.setPadding(dp(18), dp(20), dp(18), dp(32));
         scroll.addView(list, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         list.addView(text("Model AI Furina", 25, TEXT, true));
-        TextView intro = text("Unduh, pilih, dan hapus model offline. Unduhan memakai layanan foreground Furina agar tetap berjalan saat aplikasi ditutup, termasuk ketika DownloadManager Android salah menganggap Wi-Fi tidak tersedia.", 14, MUTED, false);
+        TextView intro = text("Unduh dan kelola model offline. Model dapat dilepas dari mode aktif tanpa menghapus file. Unduhan tetap berjalan saat aplikasi ditutup.", 14, MUTED, false);
         intro.setPadding(0, dp(7), 0, dp(14));
         list.addView(intro);
         ActivityManager.MemoryInfo memory = new ActivityManager.MemoryInfo();
@@ -171,7 +173,17 @@ public class ModelManagerActivity extends AppCompatActivity {
     private void onPrimary(JSONObject model) {
         String id = model.optString("id");
         if (modelFile(id).exists()) {
-            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(ACTIVE_MODEL, id).apply();
+            SharedPreferences modelPrefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+            String active = modelPrefs.getString(ACTIVE_MODEL, "");
+            if (id.equals(active)) {
+                modelPrefs.edit().remove(ACTIVE_MODEL).apply();
+                getSharedPreferences(MODE_PREFS, MODE_PRIVATE).edit().putString(ACTIVE_MODE, "online").apply();
+                Toast.makeText(this, "Model dilepas. Furina kembali memakai Lovable AI.", Toast.LENGTH_SHORT).show();
+            } else {
+                modelPrefs.edit().putString(ACTIVE_MODEL, id).apply();
+                getSharedPreferences(MODE_PREFS, MODE_PRIVATE).edit().putString(ACTIVE_MODE, "offline").apply();
+                Toast.makeText(this, model.optString("name") + " sekarang aktif.", Toast.LENGTH_SHORT).show();
+            }
             recreate();
             return;
         }
@@ -227,8 +239,8 @@ public class ModelManagerActivity extends AppCompatActivity {
         Button cancel = cancelButtons.get(id);
         if (file.exists()) {
             if (bar != null) bar.setVisibility(View.GONE);
-            if (status != null) status.setText(id.equals(active) ? "Aktif dan siap dipakai" : "Terpasang");
-            if (primary != null) primary.setText(id.equals(active) ? "Sedang digunakan" : "Gunakan");
+            if (status != null) status.setText(id.equals(active) ? "Aktif dan siap dipakai" : "Terpasang, tidak aktif");
+            if (primary != null) primary.setText(id.equals(active) ? "Lepas dari aktif" : "Gunakan");
             if (cancel != null) cancel.setVisibility(View.GONE);
             return;
         }
@@ -263,7 +275,10 @@ public class ModelManagerActivity extends AppCompatActivity {
                 String id = model.optString("id");
                 modelFile(id).delete();
                 new File(modelFile(id).getAbsolutePath() + ".part").delete();
-                if (id.equals(getSharedPreferences(PREFS, MODE_PRIVATE).getString(ACTIVE_MODEL, ""))) getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove(ACTIVE_MODEL).apply();
+                if (id.equals(getSharedPreferences(PREFS, MODE_PRIVATE).getString(ACTIVE_MODEL, ""))) {
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove(ACTIVE_MODEL).apply();
+                    getSharedPreferences(MODE_PREFS, MODE_PRIVATE).edit().putString(ACTIVE_MODE, "online").apply();
+                }
                 recreate();
             }).setNegativeButton("Batal", null).show();
     }
