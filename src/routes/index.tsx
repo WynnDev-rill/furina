@@ -183,6 +183,7 @@ type SettingsSnapshot = {
   vvTranslate?: boolean;
   preGen?: boolean;
   theme?: ThemeMode;
+  relationshipMode?: RelationshipMode;
   cloneSampleName?: string;
   cloneSampleMime?: string;
   cloneSampleB64?: string; // small samples only — large ones live in storage bucket
