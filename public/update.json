@@ -1,8 +1,8 @@
 {
-  "latestVersionCode": 47,
-  "minimumSupportedVersionCode": 47,
-  "versionName": "1.0.47",
+  "latestVersionCode": 50,
+  "minimumSupportedVersionCode": 50,
+  "versionName": "1.0.50",
   "apkUrl": "https://furina-pi.vercel.app/Furina.apk",
-  "sha256": "7020984e8c4458d2c550c06e6a72b589cc201a3159680f11e4aab836f78a742e",
+  "sha256": "ca0a00c5d640dd7ccca9317fafe98f6b2a601931e9c2538eac4951b684a12157",
   "notes": "Pembaruan Furina: UI terpadu, Lovable AI, model offline, persona bersama, dan memori bersama."
 }
