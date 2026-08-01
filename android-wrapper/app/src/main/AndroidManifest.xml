@@ -22,7 +22,7 @@
         android:theme="@style/Theme.Furina"
         android:usesCleartextTraffic="false">
         <activity
-            android:name=".MainActivity"
+            android:name=".UnifiedMainActivity"
             android:configChanges="orientation|screenSize|keyboardHidden|uiMode"
             android:exported="true"
             android:launchMode="singleTask"
