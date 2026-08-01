@@ -787,6 +787,7 @@ function FurinaApp() {
           imageDataUrl,
           millisSinceLastAssistant,
           conversationId: activeId,
+          relationshipMode,
           clientNow: Date.now(),
           tz: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return undefined; } })(),
         },
