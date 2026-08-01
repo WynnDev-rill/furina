@@ -60,6 +60,7 @@ public class MainActivity extends AppCompatActivity {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private WebView webView;
     private SwipeRefreshLayout refresh;
+    private OfflineAiBridge offlineAiBridge;
     private ValueCallback<Uri[]> fileCallback;
     private PermissionRequest pendingPermissionRequest;
     private boolean updateRequired;
@@ -312,12 +313,15 @@ public class MainActivity extends AppCompatActivity {
         s.setBuiltInZoomControls(false);
         s.setDisplayZoomControls(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
-        s.setUserAgentString(s.getUserAgentString() + " FurinaAndroid/2.0");
+        s.setUserAgentString(s.getUserAgentString() + " FurinaAndroid/3.0");
 
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
         cookies.setAcceptThirdPartyCookies(webView, true);
         WebView.setWebContentsDebuggingEnabled(false);
+
+        offlineAiBridge = new OfflineAiBridge(this, webView);
+        webView.addJavascriptInterface(offlineAiBridge, "FurinaNative");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
@@ -331,6 +335,7 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onPageFinished(WebView view, String url) {
                 refresh.setRefreshing(false);
                 CookieManager.getInstance().flush();
+                injectNativeModelSettingsEntry(view);
             }
 
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
@@ -371,6 +376,23 @@ public class MainActivity extends AppCompatActivity {
                 });
             }
         });
+    }
+
+    private void injectNativeModelSettingsEntry(WebView view) {
+        String script = "(function(){" +
+            "if(window.__furinaNativeSettingsHook)return;window.__furinaNativeSettingsHook=true;" +
+            "function add(){" +
+            "if(!window.FurinaNative||document.getElementById('furina-native-model-settings'))return;" +
+            "var bodyText=(document.body&&document.body.innerText||'').toLowerCase();" +
+            "if(bodyText.indexOf('pengaturan')<0&&bodyText.indexOf('settings')<0)return;" +
+            "var b=document.createElement('button');b.id='furina-native-model-settings';b.type='button';" +
+            "b.textContent='Model AI Offline';b.setAttribute('aria-label','Buka pengelola model AI offline');" +
+            "b.style.cssText='position:fixed;right:16px;bottom:92px;z-index:2147483646;border:1px solid rgba(255,255,255,.18);border-radius:16px;padding:12px 16px;background:rgba(10,25,44,.96);color:#eef8ff;font:600 14px sans-serif;box-shadow:0 10px 28px rgba(0,0,0,.28);backdrop-filter:blur(12px)';" +
+            "b.onclick=function(){window.FurinaNative.openModelManager();};document.body.appendChild(b);" +
+            "}" +
+            "add();new MutationObserver(add).observe(document.documentElement,{subtree:true,childList:true,characterData:true});" +
+            "})();";
+        view.evaluateJavascript(script, null);
     }
 
     private void configureBackHandling() {
@@ -419,7 +441,12 @@ public class MainActivity extends AppCompatActivity {
             receiverRegistered = false;
         }
         executor.shutdownNow();
+        if (offlineAiBridge != null) {
+            offlineAiBridge.destroy();
+            offlineAiBridge = null;
+        }
         if (webView != null) {
+            webView.removeJavascriptInterface("FurinaNative");
             webView.stopLoading();
             webView.setWebChromeClient(null);
             webView.setWebViewClient(null);
