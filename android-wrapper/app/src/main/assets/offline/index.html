@@ -11,13 +11,14 @@
 <body>
   <div class="app">
     <header class="topbar">
+      <button class="icon-btn" id="menu-button" aria-label="Buka pengaturan">☰</button>
       <div class="brand">
-        <strong>Furina</strong>
-        <small id="mode-label">Memeriksa sumber AI…</small>
+        <strong id="character-title">Furina</strong>
+        <small id="mode-label">Memeriksa model offline…</small>
       </div>
       <div class="top-actions">
-        <button class="icon-btn" id="new-chat" aria-label="Percakapan baru" title="Percakapan baru">＋</button>
-        <button class="icon-btn" id="open-online" aria-label="Buka Lovable AI" title="Buka Lovable AI">↗</button>
+        <button class="icon-btn" id="new-chat" aria-label="Percakapan baru">＋</button>
+        <button class="icon-btn" id="open-online" aria-label="Buka Lovable AI">↗</button>
       </div>
     </header>
 
@@ -27,8 +28,8 @@
           <div class="empty-chat" id="empty-chat">
             <article class="welcome">
               <div class="eyebrow">Furina Companion</div>
-              <h1>Percakapanmu tetap tersedia bahkan tanpa jaringan.</h1>
-              <p id="welcome-copy">Aktifkan model lokal dari menu Model untuk mulai mengobrol sepenuhnya offline, atau gunakan Lovable AI untuk pengalaman online yang sudah dipersonalisasi.</p>
+              <h1>Privat dan tetap hidup tanpa jaringan.</h1>
+              <p id="welcome-copy">Unduh model lokal untuk mengobrol sepenuhnya offline. Persona dan memorinya sama dengan Lovable AI.</p>
               <div class="row-actions">
                 <button class="btn primary" id="welcome-offline">Gunakan AI Offline</button>
                 <button class="btn" id="welcome-online">Buka Lovable AI</button>
@@ -45,8 +46,8 @@
             <button class="tiny" id="remove-image">Hapus</button>
           </div>
           <div class="composer">
-            <button class="icon-btn" id="pick-image" aria-label="Pilih gambar" title="Pilih gambar">▧</button>
-            <textarea id="message-input" rows="1" maxlength="8000" placeholder="Tulis pesan untuk Furina…"></textarea>
+            <button class="icon-btn" id="pick-image" aria-label="Pilih gambar">▧</button>
+            <textarea id="message-input" rows="1" maxlength="8000" placeholder="Ketik pesan…"></textarea>
             <button class="send-btn" id="send-message" aria-label="Kirim">➤</button>
           </div>
           <input id="image-input" type="file" accept="image/*" hidden />
@@ -55,11 +56,7 @@
 
       <section class="screen" data-screen="history">
         <div class="page-head">
-          <div>
-            <div class="eyebrow">Tersimpan lokal</div>
-            <h1>Riwayat Percakapan</h1>
-            <p>Percakapan offline disimpan langsung di perangkat ini.</p>
-          </div>
+          <div><div class="eyebrow">Tersimpan lokal</div><h1>Riwayat Percakapan</h1><p>Chat offline tetap berada di perangkat ini.</p></div>
           <button class="icon-btn" id="history-new" aria-label="Percakapan baru">＋</button>
         </div>
         <input class="search" id="history-search" placeholder="Cari percakapan…" />
@@ -67,122 +64,47 @@
       </section>
 
       <section class="screen" data-screen="dashboard">
-        <div class="page-head">
-          <div>
-            <div class="eyebrow">Ringkasan</div>
-            <h1>Dashboard</h1>
-            <p>Status AI, penyimpanan percakapan, dan akses cepat.</p>
-          </div>
-        </div>
+        <div class="page-head"><div><div class="eyebrow">Ringkasan</div><h1>Dashboard</h1><p>Status model, memori, dan data lokal.</p></div></div>
         <div class="grid">
-          <article class="card status-card">
-            <div class="status-orb">✦</div>
-            <div>
-              <strong id="dashboard-mode">Memeriksa AI…</strong>
-              <small id="dashboard-mode-detail">Status akan diperbarui otomatis.</small>
-            </div>
-          </article>
+          <article class="card status-card"><div class="status-orb">✦</div><div><strong id="dashboard-mode">Memeriksa AI…</strong><small id="dashboard-mode-detail">Status diperbarui otomatis.</small></div></article>
           <article class="card stat"><strong id="stat-conversations">0</strong><small>Percakapan</small></article>
           <article class="card stat"><strong id="stat-messages">0</strong><small>Pesan lokal</small></article>
-          <article class="card stat"><strong id="stat-images">0</strong><small>Chat gambar</small></article>
+          <article class="card stat"><strong id="stat-memories">0</strong><small>Memori bersama</small></article>
         </div>
-
         <article class="card">
           <h2>Sumber AI</h2>
-          <p>Lovable AI mempertahankan personalisasi online yang sudah ada. AI Offline berjalan langsung di perangkat.</p>
-          <div class="row-actions">
-            <button class="btn primary" id="dashboard-offline">Gunakan AI Offline</button>
-            <button class="btn" id="dashboard-online">Buka Lovable AI</button>
-          </div>
+          <p>Model lokal memakai persona dan memori yang sama dengan Lovable AI.</p>
+          <div class="row-actions"><button class="btn primary" id="dashboard-offline">Gunakan Offline</button><button class="btn" id="dashboard-online">Buka Online</button></div>
         </article>
-
-        <article class="card">
-          <h2>Aksi cepat</h2>
-          <div class="grid">
-            <button class="btn" id="quick-new">Chat baru</button>
-            <button class="btn" id="quick-models">Kelola model</button>
-            <button class="btn" id="quick-export">Ekspor data</button>
-            <button class="btn" id="quick-history">Lihat riwayat</button>
-          </div>
-        </article>
+        <article class="card"><h2>Aksi cepat</h2><div class="grid"><button class="btn" id="quick-new">Chat baru</button><button class="btn" id="quick-models">Kelola model</button><button class="btn" id="quick-export">Ekspor data</button><button class="btn" id="quick-history">Lihat riwayat</button></div></article>
       </section>
 
       <section class="screen" data-screen="models">
-        <div class="page-head">
-          <div>
-            <div class="eyebrow">AI di perangkat</div>
-            <h1>Model Offline</h1>
-            <p>Unduh, aktifkan, ganti, atau lepaskan model tanpa menghapus riwayat.</p>
-          </div>
-        </div>
+        <div class="page-head"><div><div class="eyebrow">AI di perangkat</div><h1>Model Offline</h1><p>Unduh, aktifkan, ganti, atau lepaskan model lokal.</p></div></div>
         <article class="card model-card">
           <span class="badge" id="model-badge">Memeriksa…</span>
           <h2 id="model-title">Model lokal</h2>
           <p id="model-description">Status model aktif akan muncul di sini.</p>
-          <div class="spec" id="model-spec">Model tersimpan di penyimpanan aplikasi dan tetap ada saat APK diperbarui.</div>
-          <div class="row-actions">
-            <button class="btn primary" id="manage-models">Kelola model</button>
-            <button class="btn" id="activate-offline">Aktifkan offline</button>
-            <button class="btn danger" id="deactivate-model">Lepas model aktif</button>
-          </div>
+          <div class="spec">File model tetap tersimpan ketika APK diperbarui.</div>
+          <div class="row-actions"><button class="btn primary" id="manage-models">Unduh / ganti model</button><button class="btn" id="activate-offline">Aktifkan offline</button><button class="btn danger" id="deactivate-model">Lepas model</button></div>
         </article>
-        <article class="card">
-          <h2>Chat gambar</h2>
-          <p id="vision-status">Qwen3.5 memerlukan paket vision tambahan untuk memahami gambar secara offline.</p>
-        </article>
+        <article class="card"><h2>Chat gambar</h2><p id="vision-status">Qwen3.5 memerlukan paket vision tambahan.</p></article>
+        <article class="card"><h2>Lovable AI</h2><p>Untuk kualitas online penuh, login Google, dan fitur cloud, buka mode Lovable AI.</p><div class="row-actions"><button class="btn" id="models-online">Buka Lovable AI</button></div></article>
       </section>
 
       <section class="screen" data-screen="settings">
-        <div class="page-head">
-          <div>
-            <div class="eyebrow">Perangkat ini</div>
-            <h1>Pengaturan</h1>
-            <p>Pengaturan berikut hanya berlaku untuk pengalaman offline. Personalisasi Lovable tidak diubah.</p>
-          </div>
-        </div>
-
+        <div class="page-head"><div><div class="eyebrow">Personalisasi</div><h1>Pengaturan</h1><p>Satu persona dan memori untuk seluruh model AI.</p></div></div>
+        <article class="card setting"><label for="character-name">Nama karakter</label><input id="character-name" maxlength="40" value="Furina" /></article>
+        <article class="card setting"><label for="offline-persona">Kepribadian tambahan</label><textarea id="offline-persona" maxlength="6000" placeholder="Kosongkan untuk persona Furina bawaan."></textarea><div class="notice">Persona bawaan berasal dari satu profil yang sama dengan versi online.</div></article>
+        <article class="card setting"><label for="offline-language">Bahasa balasan</label><select id="offline-language"><option value="auto">Ikuti bahasa pengguna</option><option value="id">Indonesia</option><option value="en">English</option><option value="ja">日本語</option></select></article>
         <article class="card setting">
-          <label for="character-name">Nama karakter offline</label>
-          <input id="character-name" maxlength="40" value="Furina" />
+          <label for="memory-input">Memori bersama</label>
+          <div class="row-actions"><input id="memory-input" maxlength="240" placeholder="Tambahkan hal yang perlu diingat…" /><button class="btn primary" id="add-memory">Tambah</button></div>
+          <div id="memory-list" class="history-list"></div>
         </article>
-
-        <article class="card setting">
-          <label for="offline-persona">Kepribadian offline</label>
-          <textarea id="offline-persona" maxlength="6000" placeholder="Kosongkan untuk persona Furina bawaan offline."></textarea>
-          <div class="notice">Prompt dan personalisasi bawaan Lovable tetap berada di versi online dan tidak disentuh oleh pengaturan ini.</div>
-        </article>
-
-        <article class="card setting">
-          <label for="offline-language">Bahasa balasan offline</label>
-          <select id="offline-language">
-            <option value="auto">Ikuti bahasa pengguna</option>
-            <option value="id">Indonesia</option>
-            <option value="en">English</option>
-            <option value="ja">日本語</option>
-          </select>
-        </article>
-
-        <article class="card">
-          <h2>Backup dan pemulihan</h2>
-          <p>Ekspor percakapan dan pengaturan lokal ke file JSON. File model tidak ikut disalin karena ukurannya besar.</p>
-          <div class="row-actions">
-            <button class="btn primary" id="export-data">Ekspor data</button>
-            <button class="btn" id="import-data">Impor data</button>
-            <input id="import-input" type="file" accept="application/json" hidden />
-          </div>
-        </article>
-
-        <article class="card">
-          <h2>Akun dan sinkronisasi Lovable</h2>
-          <p>Login Google, memori online, suara, dan sinkronisasi tetap menggunakan aplikasi Lovable yang sudah ada.</p>
-          <div class="row-actions"><button class="btn" id="settings-online">Buka pengaturan online</button></div>
-        </article>
-
-        <article class="card">
-          <h2>Data lokal</h2>
-          <p>Menghapus data lokal tidak menghapus model offline maupun data akun Lovable.</p>
-          <div class="row-actions"><button class="btn danger" id="clear-local">Hapus riwayat lokal</button></div>
-        </article>
+        <article class="card"><h2>Backup dan pemulihan</h2><p>Ekspor chat, persona, dan memori bersama. File model tidak ikut disalin.</p><div class="row-actions"><button class="btn primary" id="export-data">Ekspor</button><button class="btn" id="import-data">Impor</button><input id="import-input" type="file" accept="application/json" hidden /></div></article>
+        <article class="card"><h2>Akun dan sinkronisasi</h2><p>Login Google dan sinkronisasi cloud tersedia melalui Lovable AI.</p><div class="row-actions"><button class="btn" id="settings-online">Buka Lovable AI</button></div></article>
+        <article class="card"><h2>Data lokal</h2><div class="row-actions"><button class="btn danger" id="clear-local">Hapus riwayat lokal</button></div></article>
       </section>
     </main>
 

@@ -7,10 +7,13 @@ import android.util.Base64;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 public final class OfflineAiBridge {
     private static final String MODEL_PREFS = "furina_model_manager";
@@ -19,6 +22,10 @@ public final class OfflineAiBridge {
     private static final String ACTIVE_MODE = "active_mode";
     private static final String MODE_ONLINE = "online";
     private static final String MODE_OFFLINE = "offline";
+    private static final String SHARED_PREFS = "furina_shared_profile";
+    private static final String SHARED_STATE = "state_json";
+    private static final int MAX_SHARED_STATE_BYTES = 512 * 1024;
+    private static final int MAX_MEMORIES = 80;
 
     private final Activity activity;
     private final WebView webView;
@@ -61,7 +68,69 @@ public final class OfflineAiBridge {
     }
 
     @JavascriptInterface
+    public String getSharedState() {
+        String stored = activity.getSharedPreferences(SHARED_PREFS, Activity.MODE_PRIVATE)
+            .getString(SHARED_STATE, "");
+        if (stored != null && !stored.trim().isEmpty()) return stored;
+        try {
+            JSONObject defaults = new JSONObject();
+            defaults.put("version", 1);
+            defaults.put("name", "Furina");
+            defaults.put("persona", "");
+            defaults.put("language", "auto");
+            defaults.put("memories", new JSONArray());
+            return defaults.toString();
+        } catch (Exception ignored) {
+            return "{\"version\":1,\"name\":\"Furina\",\"persona\":\"\",\"language\":\"auto\",\"memories\":[]}";
+        }
+    }
+
+    @JavascriptInterface
+    public boolean saveSharedState(String stateJson) {
+        try {
+            if (stateJson == null || stateJson.length() > MAX_SHARED_STATE_BYTES) return false;
+            JSONObject incoming = new JSONObject(stateJson);
+            JSONObject clean = new JSONObject();
+            clean.put("version", 1);
+            clean.put("name", clip(incoming.optString("name", "Furina"), 40));
+            clean.put("persona", clip(incoming.optString("persona", ""), 6000));
+            String language = incoming.optString("language", "auto");
+            if (!language.equals("auto") && !language.equals("id") && !language.equals("en") && !language.equals("ja")) {
+                language = "auto";
+            }
+            clean.put("language", language);
+
+            JSONArray memories = incoming.optJSONArray("memories");
+            JSONArray cleanMemories = new JSONArray();
+            Set<String> seen = new LinkedHashSet<>();
+            if (memories != null) {
+                for (int i = 0; i < memories.length() && cleanMemories.length() < MAX_MEMORIES; i++) {
+                    String memory = clip(memories.optString(i, "").trim(), 240);
+                    String key = memory.toLowerCase();
+                    if (memory.length() >= 3 && seen.add(key)) cleanMemories.put(memory);
+                }
+            }
+            clean.put("memories", cleanMemories);
+
+            activity.getSharedPreferences(SHARED_PREFS, Activity.MODE_PRIVATE)
+                .edit()
+                .putString(SHARED_STATE, clean.toString())
+                .apply();
+            dispatchSharedStateChanged(clean);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private String clip(String value, int max) {
+        String safe = value == null ? "" : value.trim();
+        return safe.length() <= max ? safe : safe.substring(0, max);
+    }
+
+    @JavascriptInterface
     public boolean useOnlineAi() {
+        if (engine.isBusy()) engine.cancel();
         modePrefs().edit().putString(ACTIVE_MODE, MODE_ONLINE).apply();
         dispatchModeChanged();
         return true;
@@ -101,11 +170,12 @@ public final class OfflineAiBridge {
             dispatchError(requestId(requestJson), "Mode offline belum diaktifkan.");
             return;
         }
-        runGeneration(requestJson);
+        runGeneration(requestJson, null);
     }
 
     @JavascriptInterface
     public void generateWithImage(String requestJson, String imageDataUrl) {
+        File image = null;
         try {
             if (!MODE_OFFLINE.equals(currentMode())) {
                 dispatchError(requestId(requestJson), "Mode offline belum diaktifkan.");
@@ -115,11 +185,12 @@ public final class OfflineAiBridge {
                 dispatchError(requestId(requestJson), "Pilih Qwen3.5-4B untuk membaca gambar.");
                 return;
             }
-            File image = decodeImage(imageDataUrl);
+            image = decodeImage(imageDataUrl);
             JSONObject request = new JSONObject(requestJson);
             request.put("imagePath", image.getAbsolutePath());
-            runGeneration(request.toString());
+            runGeneration(request.toString(), image);
         } catch (Exception e) {
+            if (image != null) image.delete();
             dispatchError(requestId(requestJson), "Gambar tidak dapat dipersiapkan untuk model offline.");
         }
     }
@@ -139,6 +210,13 @@ public final class OfflineAiBridge {
         });
     }
 
+    private void dispatchSharedStateChanged(JSONObject state) {
+        activity.runOnUiThread(() -> {
+            String script = "window.dispatchEvent(new CustomEvent('furina-shared-state-changed',{detail:" + state.toString() + "}));";
+            webView.evaluateJavascript(script, null);
+        });
+    }
+
     private File decodeImage(String dataUrl) throws Exception {
         String encoded = dataUrl == null ? "" : dataUrl.trim();
         int comma = encoded.indexOf(',');
@@ -148,7 +226,7 @@ public final class OfflineAiBridge {
             throw new IllegalArgumentException("Ukuran gambar tidak valid");
         }
         File dir = new File(activity.getCacheDir(), "vision");
-        if (!dir.exists()) dir.mkdirs();
+        if (!dir.exists() && !dir.mkdirs()) throw new IllegalStateException("Folder cache gambar tidak tersedia");
         File file = new File(dir, "input-" + System.currentTimeMillis() + ".img");
         try (FileOutputStream output = new FileOutputStream(file)) {
             output.write(bytes);
@@ -156,18 +234,24 @@ public final class OfflineAiBridge {
         return file;
     }
 
-    private void runGeneration(String requestJson) {
+    private void runGeneration(String requestJson, File temporaryImage) {
         final String id = requestId(requestJson);
         engine.generate(requestJson, new OfflineModelEngine.Callback() {
+            private void cleanUp() {
+                if (temporaryImage != null) temporaryImage.delete();
+            }
+
             @Override public void onToken(String token) {
                 dispatch("furina-native-token", id, token, null);
             }
 
             @Override public void onComplete() {
+                cleanUp();
                 dispatch("furina-native-complete", id, "", null);
             }
 
             @Override public void onError(String message) {
+                cleanUp();
                 dispatch("furina-native-error", id, "", message);
             }
         });

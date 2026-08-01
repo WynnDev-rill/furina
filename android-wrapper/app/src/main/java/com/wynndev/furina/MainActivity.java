@@ -26,6 +26,7 @@ import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -38,7 +39,6 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.core.view.WindowCompat;
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import org.json.JSONObject;
 
@@ -64,7 +64,6 @@ public class MainActivity extends AppCompatActivity {
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private WebView webView;
-    private SwipeRefreshLayout refresh;
     private OfflineAiBridge offlineAiBridge;
     private ValueCallback<Uri[]> fileCallback;
     private PermissionRequest pendingPermissionRequest;
@@ -85,7 +84,9 @@ public class MainActivity extends AppCompatActivity {
                 if (dataIntent.getClipData() != null) {
                     int count = dataIntent.getClipData().getItemCount();
                     uris = new Uri[count];
-                    for (int i = 0; i < count; i++) uris[i] = dataIntent.getClipData().getItemAt(i).getUri();
+                    for (int i = 0; i < count; i++) {
+                        uris[i] = dataIntent.getClipData().getItemAt(i).getUri();
+                    }
                 } else if (dataIntent.getData() != null) {
                     uris = new Uri[]{dataIntent.getData()};
                 }
@@ -99,8 +100,11 @@ public class MainActivity extends AppCompatActivity {
         new ActivityResultContracts.RequestPermission(),
         granted -> {
             if (pendingPermissionRequest == null) return;
-            if (granted) pendingPermissionRequest.grant(pendingPermissionRequest.getResources());
-            else pendingPermissionRequest.deny();
+            if (granted) {
+                pendingPermissionRequest.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
+            } else {
+                pendingPermissionRequest.deny();
+            }
             pendingPermissionRequest = null;
         }
     );
@@ -146,9 +150,212 @@ public class MainActivity extends AppCompatActivity {
         getWindow().setNavigationBarColor(BG_COLOR);
         registerDownloadReceiver();
         configureBackHandling();
-        initializeLocalApp();
-        if (savedInstanceState != null && webView != null) webView.restoreState(savedInstanceState);
+        initializeWebApp();
+        if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
+            attachBridgeForUrl(LOCAL_URL);
+            webView.loadUrl(LOCAL_URL);
+        }
         checkNativeUpdate();
+    }
+
+    private void initializeWebApp() {
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(BG_COLOR);
+
+        webView = new WebView(this);
+        webView.setBackgroundColor(BG_COLOR);
+        webView.setOverScrollMode(WebView.OVER_SCROLL_NEVER);
+        root.addView(
+            webView,
+            new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        );
+        setContentView(root);
+        configureWebView();
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private void configureWebView() {
+        WebSettings settings = webView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setDatabaseEnabled(true);
+        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        settings.setMediaPlaybackRequiresUserGesture(false);
+        settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(true);
+        settings.setLoadWithOverviewMode(true);
+        settings.setUseWideViewPort(true);
+        settings.setSupportZoom(false);
+        settings.setBuiltInZoomControls(false);
+        settings.setDisplayZoomControls(false);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        settings.setUserAgentString(settings.getUserAgentString() + " FurinaAndroid/5.0");
+
+        CookieManager cookies = CookieManager.getInstance();
+        cookies.setAcceptCookie(true);
+        cookies.setAcceptThirdPartyCookies(webView, true);
+        WebView.setWebContentsDebuggingEnabled(false);
+
+        offlineAiBridge = new OfflineAiBridge(this, webView);
+
+        webView.setWebViewClient(new WebViewClient() {
+            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                Uri uri = request.getUrl();
+                String url = uri == null ? "" : uri.toString();
+                if (isTrustedPageUrl(url)) {
+                    attachBridgeForUrl(url);
+                    return false;
+                }
+                detachBridge();
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                } catch (Exception ignored) {}
+                return true;
+            }
+
+            @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                attachBridgeForUrl(url);
+            }
+
+            @Override public void onPageFinished(WebView view, String url) {
+                CookieManager.getInstance().flush();
+                attachBridgeForUrl(url);
+            }
+
+            @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                if (!request.isForMainFrame()) return;
+                String failedUrl = request.getUrl() == null ? "" : request.getUrl().toString();
+                if (failedUrl.startsWith("https://")) {
+                    Toast.makeText(MainActivity.this, "Mode online tidak tersedia. Kembali ke Furina offline.", Toast.LENGTH_LONG).show();
+                    attachBridgeForUrl(LOCAL_URL);
+                    view.loadUrl(LOCAL_URL);
+                } else {
+                    showLoadError(error == null ? "Antarmuka lokal tidak dapat dimuat." : String.valueOf(error.getDescription()));
+                }
+            }
+
+            @Override public void onReceivedHttpError(
+                WebView view,
+                WebResourceRequest request,
+                WebResourceResponse response
+            ) {
+                if (!request.isForMainFrame()) return;
+                String failedUrl = request.getUrl() == null ? "" : request.getUrl().toString();
+                if (failedUrl.startsWith(HOME_URL) && response.getStatusCode() >= 500) {
+                    Toast.makeText(MainActivity.this, "Server online sedang bermasalah. Mode offline tetap tersedia.", Toast.LENGTH_LONG).show();
+                    attachBridgeForUrl(LOCAL_URL);
+                    view.loadUrl(LOCAL_URL);
+                }
+            }
+
+            @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                handler.cancel();
+                Toast.makeText(MainActivity.this, "Koneksi online tidak aman. Kembali ke mode offline.", Toast.LENGTH_LONG).show();
+                attachBridgeForUrl(LOCAL_URL);
+                view.loadUrl(LOCAL_URL);
+            }
+        });
+
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override public boolean onShowFileChooser(
+                WebView view,
+                ValueCallback<Uri[]> callback,
+                FileChooserParams params
+            ) {
+                if (fileCallback != null) fileCallback.onReceiveValue(null);
+                fileCallback = callback;
+                try {
+                    filePicker.launch(params.createIntent());
+                } catch (Exception error) {
+                    fileCallback.onReceiveValue(null);
+                    fileCallback = null;
+                }
+                return true;
+            }
+
+            @Override public void onPermissionRequest(PermissionRequest request) {
+                runOnUiThread(() -> handleWebPermissionRequest(request));
+            }
+        });
+    }
+
+    private void handleWebPermissionRequest(PermissionRequest request) {
+        String origin = request.getOrigin() == null ? "" : request.getOrigin().toString();
+        String[] resources = request.getResources();
+        boolean audioOnly = resources != null && resources.length == 1 &&
+            PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resources[0]);
+        if (!isTrustedPageUrl(origin) || !audioOnly) {
+            request.deny();
+            return;
+        }
+
+        pendingPermissionRequest = request;
+        if (
+            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            request.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
+            pendingPermissionRequest = null;
+        } else {
+            audioPermission.launch(Manifest.permission.RECORD_AUDIO);
+        }
+    }
+
+    private boolean isTrustedPageUrl(String url) {
+        if (url == null) return false;
+        if (url.startsWith(LOCAL_URL) || url.startsWith("file:///android_asset/offline/")) return true;
+        try {
+            Uri uri = Uri.parse(url);
+            return "https".equalsIgnoreCase(uri.getScheme()) && HOME_HOST.equalsIgnoreCase(uri.getHost());
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private void attachBridgeForUrl(String url) {
+        if (webView == null || offlineAiBridge == null) return;
+        if (!isTrustedPageUrl(url)) {
+            detachBridge();
+            return;
+        }
+        if (!bridgeAttached) {
+            webView.addJavascriptInterface(offlineAiBridge, "FurinaNative");
+            bridgeAttached = true;
+        }
+    }
+
+    private void detachBridge() {
+        if (webView != null && bridgeAttached) {
+            webView.removeJavascriptInterface("FurinaNative");
+            bridgeAttached = false;
+        }
+    }
+
+    private void configureBackHandling() {
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override public void handleOnBackPressed() {
+                if (updateRequired) {
+                    finishAndRemoveTask();
+                    return;
+                }
+                if (webView != null) {
+                    String current = webView.getUrl() == null ? "" : webView.getUrl();
+                    if (webView.canGoBack()) {
+                        webView.goBack();
+                        return;
+                    }
+                    if (current.startsWith("https://")) {
+                        attachBridgeForUrl(LOCAL_URL);
+                        webView.loadUrl(LOCAL_URL);
+                        return;
+                    }
+                }
+                finish();
+            }
+        });
     }
 
     private void checkNativeUpdate() {
@@ -160,7 +367,7 @@ public class MainActivity extends AppCompatActivity {
                 connection.setReadTimeout(5_000);
                 connection.setUseCaches(false);
                 connection.setRequestProperty("Cache-Control", "no-cache");
-                connection.setRequestProperty("User-Agent", "Furina-Android/4.0");
+                connection.setRequestProperty("User-Agent", "Furina-Android/5.0");
                 int responseCode = connection.getResponseCode();
                 if (responseCode < 200 || responseCode >= 300) throw new IllegalStateException("HTTP " + responseCode);
 
@@ -188,7 +395,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
             } catch (Exception ignored) {
-                // Local UI remains usable when the update endpoint or network is unavailable.
+                // Offline launch must never depend on the update endpoint.
             } finally {
                 if (connection != null) connection.disconnect();
             }
@@ -217,7 +424,6 @@ public class MainActivity extends AppCompatActivity {
             webView.setClickable(!blocked);
             webView.setFocusable(!blocked);
         }
-        if (refresh != null) refresh.setEnabled(!blocked);
     }
 
     private void showRequiredUpdateDialog(String versionName, String notes) {
@@ -237,7 +443,7 @@ public class MainActivity extends AppCompatActivity {
     private void showOptionalUpdateDialog(String versionName, String notes) {
         new AlertDialog.Builder(this)
             .setTitle("Pembaruan Furina tersedia")
-            .setMessage("Versi " + versionName + " tersedia. Model dan riwayat tidak dihapus saat APK diperbarui.\n\n" + notes)
+            .setMessage("Versi " + versionName + " tersedia. Model, memori, dan riwayat tidak dihapus saat APK diperbarui.\n\n" + notes)
             .setPositiveButton("Perbarui", (dialog, which) -> beginUpdate())
             .setNegativeButton("Nanti", null)
             .show();
@@ -341,7 +547,7 @@ public class MainActivity extends AppCompatActivity {
         String details = reason == null || reason.trim().isEmpty() ? "Unduhan tidak dapat diselesaikan." : reason;
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
             .setTitle("Pembaruan gagal")
-            .setMessage(details + "\n\nModel offline dan riwayat tetap tersimpan di perangkat.")
+            .setMessage(details + "\n\nModel offline, memori, dan riwayat tetap tersimpan di perangkat.")
             .setPositiveButton("Coba lagi", (dialog, which) -> beginUpdate())
             .setNeutralButton("Unduh lewat browser", (dialog, which) -> openBrowserDownload());
         if (updateRequired) {
@@ -351,202 +557,6 @@ public class MainActivity extends AppCompatActivity {
             builder.setNegativeButton("Gunakan aplikasi", null);
         }
         builder.show();
-    }
-
-    private void initializeLocalApp() {
-        initializeWebApp(LOCAL_URL);
-    }
-
-    private void initializeWebApp(String initialUrl) {
-        if (webView != null) {
-            attachBridgeForUrl(initialUrl);
-            webView.loadUrl(initialUrl);
-            return;
-        }
-
-        FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(BG_COLOR);
-
-        refresh = new SwipeRefreshLayout(this);
-        refresh.setBackgroundColor(BG_COLOR);
-        webView = new WebView(this);
-        webView.setBackgroundColor(BG_COLOR);
-        webView.setOverScrollMode(WebView.OVER_SCROLL_NEVER);
-        refresh.addView(
-            webView,
-            new SwipeRefreshLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-        );
-        root.addView(
-            refresh,
-            new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-        );
-
-        setContentView(root);
-        refresh.setOnRefreshListener(() -> webView.reload());
-        configureWebView();
-        attachBridgeForUrl(initialUrl);
-        webView.loadUrl(initialUrl);
-    }
-
-    @SuppressLint("SetJavaScriptEnabled")
-    private void configureWebView() {
-        WebSettings settings = webView.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        settings.setDatabaseEnabled(true);
-        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
-        settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setAllowFileAccess(true);
-        settings.setAllowContentAccess(true);
-        settings.setLoadWithOverviewMode(true);
-        settings.setUseWideViewPort(true);
-        settings.setSupportZoom(false);
-        settings.setBuiltInZoomControls(false);
-        settings.setDisplayZoomControls(false);
-        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " FurinaAndroid/4.0");
-
-        CookieManager cookies = CookieManager.getInstance();
-        cookies.setAcceptCookie(true);
-        cookies.setAcceptThirdPartyCookies(webView, true);
-        WebView.setWebContentsDebuggingEnabled(false);
-
-        offlineAiBridge = new OfflineAiBridge(this, webView);
-
-        webView.setWebViewClient(new WebViewClient() {
-            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                Uri uri = request.getUrl();
-                String scheme = uri.getScheme();
-                if ("file".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
-                    attachBridgeForUrl(uri.toString());
-                    return false;
-                }
-                detachBridge();
-                try {
-                    startActivity(new Intent(Intent.ACTION_VIEW, uri));
-                } catch (Exception ignored) {}
-                return true;
-            }
-
-            @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
-                attachBridgeForUrl(url);
-            }
-
-            @Override public void onPageFinished(WebView view, String url) {
-                refresh.setRefreshing(false);
-                CookieManager.getInstance().flush();
-                refresh.setEnabled(!updateRequired && url != null && url.startsWith(HOME_URL));
-                attachBridgeForUrl(url);
-                if (url != null && url.startsWith(HOME_URL)) injectSettingsEntry(view);
-            }
-
-            @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                if (!request.isForMainFrame()) return;
-                refresh.setRefreshing(false);
-                String failedUrl = request.getUrl() == null ? "" : request.getUrl().toString();
-                if (failedUrl.startsWith("http")) {
-                    Toast.makeText(MainActivity.this, "Mode online tidak tersedia. Kembali ke Furina lokal.", Toast.LENGTH_LONG).show();
-                    attachBridgeForUrl(LOCAL_URL);
-                    view.loadUrl(LOCAL_URL);
-                } else {
-                    showLoadError(error == null ? "Antarmuka lokal tidak dapat dimuat." : String.valueOf(error.getDescription()));
-                }
-            }
-
-            @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-                handler.cancel();
-                String failedUrl = error == null ? "" : error.getUrl();
-                if (failedUrl.startsWith("http")) {
-                    Toast.makeText(MainActivity.this, "Koneksi online tidak aman. Kembali ke mode lokal.", Toast.LENGTH_LONG).show();
-                    attachBridgeForUrl(LOCAL_URL);
-                    view.loadUrl(LOCAL_URL);
-                }
-            }
-        });
-
-        webView.setWebChromeClient(new WebChromeClient() {
-            @Override public boolean onShowFileChooser(
-                WebView view,
-                ValueCallback<Uri[]> callback,
-                FileChooserParams params
-            ) {
-                if (fileCallback != null) fileCallback.onReceiveValue(null);
-                fileCallback = callback;
-                try {
-                    filePicker.launch(params.createIntent());
-                } catch (Exception error) {
-                    fileCallback.onReceiveValue(null);
-                    fileCallback = null;
-                }
-                return true;
-            }
-
-            @Override public void onPermissionRequest(PermissionRequest request) {
-                runOnUiThread(() -> {
-                    pendingPermissionRequest = request;
-                    if (
-                        ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO) ==
-                        PackageManager.PERMISSION_GRANTED
-                    ) {
-                        request.grant(request.getResources());
-                        pendingPermissionRequest = null;
-                    } else {
-                        audioPermission.launch(Manifest.permission.RECORD_AUDIO);
-                    }
-                });
-            }
-        });
-    }
-
-    private boolean isTrustedBridgeUrl(String url) {
-        if (url == null) return false;
-        if (url.startsWith(LOCAL_URL) || url.startsWith("file:///android_asset/offline/")) return true;
-        try {
-            Uri uri = Uri.parse(url);
-            return ("https".equalsIgnoreCase(uri.getScheme()) || "http".equalsIgnoreCase(uri.getScheme())) &&
-                HOME_HOST.equalsIgnoreCase(uri.getHost());
-        } catch (Exception ignored) {
-            return false;
-        }
-    }
-
-    private void attachBridgeForUrl(String url) {
-        if (webView == null || offlineAiBridge == null) return;
-        if (!isTrustedBridgeUrl(url)) {
-            detachBridge();
-            return;
-        }
-        if (!bridgeAttached) {
-            webView.addJavascriptInterface(offlineAiBridge, "FurinaNative");
-            bridgeAttached = true;
-        }
-    }
-
-    private void detachBridge() {
-        if (webView != null && bridgeAttached) {
-            webView.removeJavascriptInterface("FurinaNative");
-            bridgeAttached = false;
-        }
-    }
-
-    private void injectSettingsEntry(WebView view) {
-        String script = "(function(){" +
-            "if(!window.FurinaNative||document.getElementById('furina-native-model-settings'))return;" +
-            "var nodes=[].slice.call(document.querySelectorAll('section,div,main'));" +
-            "var host=nodes.find(function(el){var t=(el.innerText||'').toLowerCase();return t.indexOf('pengaturan')>=0&&t.indexOf('persona')>=0&&t.indexOf('akun')>=0;});" +
-            "if(!host)return;" +
-            "var b=document.createElement('button');b.id='furina-native-model-settings';b.type='button';" +
-            "b.textContent='Kelola Model AI Offline';" +
-            "b.style.cssText='width:calc(100% - 32px);margin:16px;padding:15px 17px;border:1px solid rgba(138,216,255,.28);border-radius:16px;background:#10243b;color:#eef8ff;font:600 14px sans-serif;text-align:left';" +
-            "b.onclick=function(){window.FurinaNative.openModelManager();};host.appendChild(b);" +
-        "})();";
-        view.evaluateJavascript(script, null);
     }
 
     private void showLoadError(String message) {
@@ -561,30 +571,6 @@ public class MainActivity extends AppCompatActivity {
             .setNeutralButton("Buka versi online", (dialog, which) -> webView.loadUrl(HOME_URL))
             .setNegativeButton("Keluar", (dialog, which) -> finish())
             .show();
-    }
-
-    private void configureBackHandling() {
-        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
-            @Override public void handleOnBackPressed() {
-                if (updateRequired) {
-                    finishAndRemoveTask();
-                    return;
-                }
-                if (webView != null) {
-                    String current = webView.getUrl() == null ? "" : webView.getUrl();
-                    if (webView.canGoBack()) {
-                        webView.goBack();
-                        return;
-                    }
-                    if (current.startsWith("http")) {
-                        attachBridgeForUrl(LOCAL_URL);
-                        webView.loadUrl(LOCAL_URL);
-                        return;
-                    }
-                }
-                finish();
-            }
-        });
     }
 
     private void registerDownloadReceiver() {
@@ -613,11 +599,16 @@ public class MainActivity extends AppCompatActivity {
             pendingPermissionRequest.deny();
             pendingPermissionRequest = null;
         }
+        if (fileCallback != null) {
+            fileCallback.onReceiveValue(null);
+            fileCallback = null;
+        }
         detachBridge();
         if (offlineAiBridge != null) offlineAiBridge.destroy();
         if (webView != null) {
             webView.stopLoading();
             webView.clearHistory();
+            webView.removeAllViews();
             webView.destroy();
         }
         executor.shutdownNow();
