@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src https://furina-pi.vercel.app; object-src 'none'; frame-src 'none'; base-uri 'none';" />
   <meta name="theme-color" content="#07111f" />
   <title>Furina</title>
   <link rel="stylesheet" href="app.css" />
@@ -195,6 +196,7 @@
   </div>
 
   <div class="toast" id="toast"></div>
+  <script src="preflight.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
