@@ -96,7 +96,7 @@ const ALL_FURINA_KEYS = [
   STORAGE.convos, STORAGE.activeId, STORAGE.bg, STORAGE.name, STORAGE.persona,
   STORAGE.lang, STORAGE.speed, STORAGE.provider, STORAGE.vvSpeaker, STORAGE.vvTranslate,
   STORAGE.cloneSample, STORAGE.cloneSampleMime, STORAGE.cloneSampleName,
-  STORAGE.theme, STORAGE.preGen, STORAGE.relMode,
+  STORAGE.theme, STORAGE.preGen, STORAGE.relMode, STORAGE.showClone,
   // guestId and migratedFlag are NOT cleared on logout — they belong to the browser identity
 ];
 
@@ -421,6 +421,7 @@ function FurinaApp() {
       if (vs) setVvSpeaker(parseInt(vs, 10) || VV_SPEAKERS[0].id);
       const vt = localStorage.getItem(STORAGE.vvTranslate); if (vt) setVvTranslate(vt === "1");
       const pg = localStorage.getItem(STORAGE.preGen); if (pg) setPreGenAudio(pg === "1");
+      const sc = localStorage.getItem(STORAGE.showClone); if (sc) setShowCloneVoice(sc === "1");
       const rm = localStorage.getItem(STORAGE.relMode);
       if (rm === "teman" || rm === "dekat" || rm === "pasangan") setRelationshipMode(rm);
       if (pr === "clone") setShowCloneVoice(true);
