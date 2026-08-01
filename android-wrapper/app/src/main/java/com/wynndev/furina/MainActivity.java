@@ -179,9 +179,11 @@ public class MainActivity extends AppCompatActivity {
                     expectedApkSha256 = sha256;
                     if (currentVersion < minimumVersion) {
                         updateRequired = true;
+                        setRequiredUpdateGate(true);
                         showRequiredUpdateDialog(versionName, notes);
                     } else if (currentVersion < latestVersion) {
                         updateRequired = false;
+                        setRequiredUpdateGate(false);
                         showOptionalUpdateDialog(versionName, notes);
                     }
                 });
@@ -207,6 +209,15 @@ public class MainActivity extends AppCompatActivity {
             while ((line = reader.readLine()) != null) builder.append(line);
         }
         return builder.toString();
+    }
+
+    private void setRequiredUpdateGate(boolean blocked) {
+        if (webView != null) {
+            webView.setEnabled(!blocked);
+            webView.setClickable(!blocked);
+            webView.setFocusable(!blocked);
+        }
+        if (refresh != null) refresh.setEnabled(!blocked);
     }
 
     private void showRequiredUpdateDialog(String versionName, String notes) {
@@ -334,6 +345,7 @@ public class MainActivity extends AppCompatActivity {
             .setPositiveButton("Coba lagi", (dialog, which) -> beginUpdate())
             .setNeutralButton("Unduh lewat browser", (dialog, which) -> openBrowserDownload());
         if (updateRequired) {
+            setRequiredUpdateGate(true);
             builder.setNegativeButton("Keluar", (dialog, which) -> finishAndRemoveTask()).setCancelable(false);
         } else {
             builder.setNegativeButton("Gunakan aplikasi", null);
@@ -429,7 +441,7 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onPageFinished(WebView view, String url) {
                 refresh.setRefreshing(false);
                 CookieManager.getInstance().flush();
-                refresh.setEnabled(url != null && url.startsWith(HOME_URL));
+                refresh.setEnabled(!updateRequired && url != null && url.startsWith(HOME_URL));
                 attachBridgeForUrl(url);
                 if (url != null && url.startsWith(HOME_URL)) injectSettingsEntry(view);
             }
