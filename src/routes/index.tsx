@@ -63,7 +63,6 @@ type Msg = {
   audioEmotion?: string;
   failedPayload?: string;
   imageDataUrl?: string;
-  stickerId?: string;
 };
 type TTSProvider = "voicevox" | "clone";
 type RelationshipMode = "teman" | "dekat" | "pasangan";
@@ -468,7 +467,8 @@ function FurinaApp() {
           // Auto-migrate guest data → account
           await migrateMemFn({ data: { fromGuestId: guestId, toUserId: uid } }).catch((e) => console.warn("mem migrate:", e));
           await pushSettingsTo(uid, buildSettings());
-          await pushAllConversationsTo(uid, conversations);
+          const localConvos = readLocalConversations();
+          await pushAllConversationsTo(uid, localConvos.length ? localConvos : conversations);
           localStorage.setItem(STORAGE.migratedFlag, uid);
           toast.success("Data guest dipindahkan ke akunmu.");
           cloudHydratedRef.current = true;
@@ -493,7 +493,6 @@ function FurinaApp() {
             audioUrl: r.audio_url ?? undefined,
             audioEmotion: r.audio_emotion ?? undefined,
             imageDataUrl: r.image_url ?? undefined,
-            stickerId: r.sticker_id ?? undefined,
           });
         }
         const convList: Conversation[] = (convosRows ?? []).map((c) => ({
@@ -525,7 +524,8 @@ function FurinaApp() {
         // Cloud kosong tapi local punya data → push local ke cloud (bukan reset).
         // Ini fallback aman kalau flag migrasi sebelumnya sudah diset tapi cloud entah kenapa hilang.
         try {
-          await pushAllConversationsTo(uid, conversations);
+          const localConvos = readLocalConversations();
+          await pushAllConversationsTo(uid, localConvos.length ? localConvos : conversations);
           await pushSettingsTo(uid, buildSettings());
           toast.info("Menyimpan ulang data lokal ke akun.");
         } catch (e) { console.warn("re-sync local→cloud:", e); }
@@ -582,7 +582,6 @@ function FurinaApp() {
         created_at: new Date(m.at).toISOString(),
         audio_url: m.audioUrl ?? null, audio_emotion: m.audioEmotion ?? null,
         image_url: m.imageDataUrl && m.imageDataUrl.length < 300000 ? m.imageDataUrl : null,
-        sticker_id: m.stickerId ?? null,
       })));
       // chunk to avoid payload limits
       for (let i = 0; i < msgRows.length; i += 200) {
@@ -601,7 +600,6 @@ function FurinaApp() {
         created_at: new Date(m.at).toISOString(),
         audio_url: m.audioUrl ?? null, audio_emotion: m.audioEmotion ?? null,
         image_url: m.imageDataUrl && m.imageDataUrl.length < 300000 ? m.imageDataUrl : null,
-        sticker_id: m.stickerId ?? null,
       });
     } catch (e) {
       console.warn("message upsert:", e);
@@ -725,7 +723,6 @@ function FurinaApp() {
     if (!preGenAudio) return;
     if (provider !== "voicevox") return;
     if (msg.audioUrl) return;
-    if (msg.stickerId) return;
     const clean = msg.content.replace(/\*[^*]+\*/g, "").replace(/\[stiker:[^\]]*\]/g, "").trim();
     if (!clean) return;
     try {
