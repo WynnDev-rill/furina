@@ -1,8 +1,8 @@
 {
-  "latestVersionCode": 0,
-  "minimumSupportedVersionCode": 0,
-  "versionName": "bootstrap",
+  "latestVersionCode": 8,
+  "minimumSupportedVersionCode": 8,
+  "versionName": "1.0.8",
   "apkUrl": "https://furina-pi.vercel.app/Furina.apk",
-  "sha256": "",
-  "notes": "Metadata awal updater native Furina."
+  "sha256": "8156982d9029bfbc117acce1bd5cd8bf0892344c4ad18099733effa4edc02c39",
+  "notes": "Pembaruan native Android wajib untuk kompatibilitas, keamanan, dan perbaikan aplikasi."
 }
