@@ -34,6 +34,12 @@ android {
         }
     }
 
+    sourceSets {
+        main {
+            assets.srcDirs = ['src/main/assets', '../../shared']
+        }
+    }
+
     signingConfigs {
         release {
             storeFile file('../furina-release.jks')
@@ -78,5 +84,4 @@ android {
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.activity:activity:1.9.1'
-    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
 }
