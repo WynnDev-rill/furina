@@ -65,10 +65,10 @@ self.addEventListener("fetch", (event) => {
     const cache = await caches.open(CACHE_NAME);
     const cached = await cache.match(request, { ignoreSearch: true });
     if (cached) {
-      event.waitUntil(fetch(request).then((response) => {
+      fetch(request).then((response) => {
         if (response.ok) return cache.put(request, response.clone());
         return undefined;
-      }).catch(() => undefined));
+      }).catch(() => undefined);
       return cached;
     }
     return networkAndCache(request, false);
