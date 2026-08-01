@@ -66,6 +66,7 @@ type Msg = {
   stickerId?: string;
 };
 type TTSProvider = "voicevox" | "clone";
+type RelationshipMode = "teman" | "dekat" | "pasangan";
 type Conversation = { id: string; title: string; messages: Msg[]; updatedAt: number; lastSummaryCount?: number };
 type ThemeMode = "dark" | "light";
 
