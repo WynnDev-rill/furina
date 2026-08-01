@@ -51,6 +51,9 @@ jobs:
           base64 --decode furina-release.jks.b64 > furina-release.jks
           keytool -list -keystore furina-release.jks -storepass "$FURINA_KEYSTORE_PASSWORD" -alias furina
 
+      - name: Apply Java compatibility patch
+        run: sed -i 's/setTextAllCaps(false)/setAllCaps(false)/g' android-wrapper/app/src/main/java/com/wynndev/furina/ModelManagerActivity.java
+
       - name: Build signed release APK
         working-directory: android-wrapper
         env:
