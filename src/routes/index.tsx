@@ -63,9 +63,9 @@ type Msg = {
   audioEmotion?: string;
   failedPayload?: string;
   imageDataUrl?: string;
-  stickerId?: string;
 };
 type TTSProvider = "voicevox" | "clone";
+type RelationshipMode = "teman" | "dekat" | "pasangan";
 type Conversation = { id: string; title: string; messages: Msg[]; updatedAt: number; lastSummaryCount?: number };
 type ThemeMode = "dark" | "light";
 
@@ -87,20 +87,38 @@ const STORAGE = {
   cloneSampleName: "furina:cloneSampleName",
   migratedFlag: "furina:migratedTo",
   theme: "furina:theme",
+  relMode: "furina:relationshipMode",
   preGen: "furina:preGenAudio",
+  showClone: "furina:showCloneVoice",
 };
 
 const ALL_FURINA_KEYS = [
   STORAGE.convos, STORAGE.activeId, STORAGE.bg, STORAGE.name, STORAGE.persona,
   STORAGE.lang, STORAGE.speed, STORAGE.provider, STORAGE.vvSpeaker, STORAGE.vvTranslate,
   STORAGE.cloneSample, STORAGE.cloneSampleMime, STORAGE.cloneSampleName,
-  STORAGE.theme, STORAGE.preGen,
+  STORAGE.theme, STORAGE.preGen, STORAGE.relMode, STORAGE.showClone,
   // guestId and migratedFlag are NOT cleared on logout — they belong to the browser identity
 ];
 
 function clearAllFurinaLocal() {
   for (const k of ALL_FURINA_KEYS) {
     try { localStorage.removeItem(k); } catch {}
+  }
+}
+
+function readLocalConversations(): Conversation[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(STORAGE.convos);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (c): c is Conversation =>
+        !!c && typeof c.id === "string" && Array.isArray(c.messages),
+    );
+  } catch {
+    return [];
   }
 }
 
@@ -183,6 +201,7 @@ type SettingsSnapshot = {
   vvTranslate?: boolean;
   preGen?: boolean;
   theme?: ThemeMode;
+  relationshipMode?: RelationshipMode;
   cloneSampleName?: string;
   cloneSampleMime?: string;
   cloneSampleB64?: string; // small samples only — large ones live in storage bucket
@@ -247,6 +266,8 @@ function FurinaApp() {
   const [mood, setMood] = useState<{ score: number; label: string }>({ score: 0, label: "adem" });
   const [proactiveEnabled, setProactiveEnabled] = useState(true);
   const [proactiveIdleHours, setProactiveIdleHours] = useState(6);
+  const [relationshipMode, setRelationshipMode] = useState<RelationshipMode>("teman");
+  const [showCloneVoice, setShowCloneVoice] = useState(false);
   const proactiveFiredRef = useRef(false);
   const lastActivityKey = "furina:lastActivityAt";
 
@@ -333,10 +354,11 @@ function FurinaApp() {
   }, []);
   const buildSettings = useCallback((): SettingsSnapshot => ({
     bg, name, persona, lang: language, speed, provider, vvSpeaker, vvTranslate, preGen: preGenAudio, theme,
+    relationshipMode,
     cloneSampleName,
     cloneSampleMime: typeof window !== "undefined" ? localStorage.getItem(STORAGE.cloneSampleMime) ?? undefined : undefined,
     cloneSampleB64: typeof window !== "undefined" ? localStorage.getItem(STORAGE.cloneSample) ?? undefined : undefined,
-  }), [bg, name, persona, language, speed, provider, vvSpeaker, vvTranslate, preGenAudio, theme, cloneSampleName]);
+  }), [bg, name, persona, language, speed, provider, vvSpeaker, vvTranslate, preGenAudio, theme, relationshipMode, cloneSampleName]);
 
   const applySettings = useCallback((s: SettingsSnapshot) => {
     if (s.bg) setBg(s.bg);
@@ -351,6 +373,7 @@ function FurinaApp() {
     if (typeof s.vvTranslate === "boolean") setVvTranslate(s.vvTranslate);
     if (typeof s.preGen === "boolean") setPreGenAudio(s.preGen);
     if (s.theme === "dark" || s.theme === "light") setTheme(s.theme);
+    if (s.relationshipMode === "teman" || s.relationshipMode === "dekat" || s.relationshipMode === "pasangan") setRelationshipMode(s.relationshipMode);
     if (s.cloneSampleName) setCloneSampleName(s.cloneSampleName);
     if (s.cloneSampleB64 && s.cloneSampleMime) {
       try {
@@ -398,6 +421,10 @@ function FurinaApp() {
       if (vs) setVvSpeaker(parseInt(vs, 10) || VV_SPEAKERS[0].id);
       const vt = localStorage.getItem(STORAGE.vvTranslate); if (vt) setVvTranslate(vt === "1");
       const pg = localStorage.getItem(STORAGE.preGen); if (pg) setPreGenAudio(pg === "1");
+      const sc = localStorage.getItem(STORAGE.showClone); if (sc) setShowCloneVoice(sc === "1");
+      const rm = localStorage.getItem(STORAGE.relMode);
+      if (rm === "teman" || rm === "dekat" || rm === "pasangan") setRelationshipMode(rm);
+      if (pr === "clone") setShowCloneVoice(true);
 
       const cs = localStorage.getItem(STORAGE.cloneSample);
       const csn = localStorage.getItem(STORAGE.cloneSampleName);
@@ -442,7 +469,8 @@ function FurinaApp() {
           // Auto-migrate guest data → account
           await migrateMemFn({ data: { fromGuestId: guestId, toUserId: uid } }).catch((e) => console.warn("mem migrate:", e));
           await pushSettingsTo(uid, buildSettings());
-          await pushAllConversationsTo(uid, conversations);
+          const localConvos = readLocalConversations();
+          await pushAllConversationsTo(uid, localConvos.length ? localConvos : conversations);
           localStorage.setItem(STORAGE.migratedFlag, uid);
           toast.success("Data guest dipindahkan ke akunmu.");
           cloudHydratedRef.current = true;
@@ -467,7 +495,6 @@ function FurinaApp() {
             audioUrl: r.audio_url ?? undefined,
             audioEmotion: r.audio_emotion ?? undefined,
             imageDataUrl: r.image_url ?? undefined,
-            stickerId: r.sticker_id ?? undefined,
           });
         }
         const convList: Conversation[] = (convosRows ?? []).map((c) => ({
@@ -476,6 +503,19 @@ function FurinaApp() {
           messages: byConv[c.id] ?? [],
           updatedAt: new Date(c.updated_at).getTime(),
         }));
+        // Merge percakapan lokal yang punya isi tapi belum pernah sampai ke cloud
+        // (mis. koneksi putus saat upsert). Jangan sampai hilang saat relog.
+        const cloudIds = new Set(convList.map((c) => c.id));
+        const localUnsynced = readLocalConversations().filter(
+          (c) => c.messages.length > 0 && !cloudIds.has(c.id),
+        );
+        if (localUnsynced.length) {
+          convList.push(...localUnsynced);
+          pushAllConversationsTo(uid, localUnsynced).catch((e) =>
+            console.error("re-push unsynced conversations:", e),
+          );
+        }
+        convList.sort((a, b) => b.updatedAt - a.updatedAt);
         if (!convList.length) convList.push(newConversation());
         setConversations(convList);
         // Preserve last active convo kalau masih ada di list; kalau tidak, pilih terbaru.
@@ -486,7 +526,8 @@ function FurinaApp() {
         // Cloud kosong tapi local punya data → push local ke cloud (bukan reset).
         // Ini fallback aman kalau flag migrasi sebelumnya sudah diset tapi cloud entah kenapa hilang.
         try {
-          await pushAllConversationsTo(uid, conversations);
+          const localConvos = readLocalConversations();
+          await pushAllConversationsTo(uid, localConvos.length ? localConvos : conversations);
           await pushSettingsTo(uid, buildSettings());
           toast.info("Menyimpan ulang data lokal ke akun.");
         } catch (e) { console.warn("re-sync local→cloud:", e); }
@@ -543,7 +584,6 @@ function FurinaApp() {
         created_at: new Date(m.at).toISOString(),
         audio_url: m.audioUrl ?? null, audio_emotion: m.audioEmotion ?? null,
         image_url: m.imageDataUrl && m.imageDataUrl.length < 300000 ? m.imageDataUrl : null,
-        sticker_id: m.stickerId ?? null,
       })));
       // chunk to avoid payload limits
       for (let i = 0; i < msgRows.length; i += 200) {
@@ -562,7 +602,6 @@ function FurinaApp() {
         created_at: new Date(m.at).toISOString(),
         audio_url: m.audioUrl ?? null, audio_emotion: m.audioEmotion ?? null,
         image_url: m.imageDataUrl && m.imageDataUrl.length < 300000 ? m.imageDataUrl : null,
-        sticker_id: m.stickerId ?? null,
       });
     } catch (e) {
       console.warn("message upsert:", e);
@@ -686,7 +725,6 @@ function FurinaApp() {
     if (!preGenAudio) return;
     if (provider !== "voicevox") return;
     if (msg.audioUrl) return;
-    if (msg.stickerId) return;
     const clean = msg.content.replace(/\*[^*]+\*/g, "").replace(/\[stiker:[^\]]*\]/g, "").trim();
     if (!clean) return;
     try {
@@ -721,6 +759,12 @@ function FurinaApp() {
     const trimmed = text.trim();
     if (!trimmed && !pendingImage) return;
     if (sending) return;
+    // Guard: jangan kirim sebelum data akun selesai di-hydrate, kalau tidak pesan
+    // bisa masuk ke conversation "hantu" yang langsung ditimpa hasil pullFromCloud.
+    if (authUser && !cloudHydratedRef.current) {
+      toast.info("Sebentar, data akunmu masih disinkronkan…");
+      return;
+    }
 
     const imageDataUrl = pendingImage?.dataUrl;
     const messageContent = trimmed || (imageDataUrl ? "(gambar)" : "");
@@ -738,13 +782,17 @@ function FurinaApp() {
         imageDataUrl,
       };
       updateActiveMessages((prev) => [...prev, userMsg]);
+      let nextTitle = activeConvo?.title ?? "Percakapan baru";
       if (activeConvo && (activeConvo.title === "Percakapan baru" || !activeConvo.title)) {
         const t = (trimmed || "Gambar baru").slice(0, 40).replace(/\s+/g, " ").trim();
-        renameConversation(activeConvo.id, t || "Percakapan baru");
+        nextTitle = t || "Percakapan baru";
+        renameConversation(activeConvo.id, nextTitle);
       }
       if (authUser && activeConvo) {
-        upsertSingleMessage(authUser.id, activeConvo.id, userMsg);
-        upsertSingleConversation(authUser.id, { ...activeConvo, updatedAt: Date.now() });
+        // Conversation row HARUS ada dulu (FK), baru message row.
+        upsertSingleConversation(authUser.id, { ...activeConvo, title: nextTitle, updatedAt: Date.now() })
+          .then(() => upsertSingleMessage(authUser.id, activeConvo.id, userMsg))
+          .catch((e) => console.error("persist user message:", e));
       }
       setInput("");
       setPendingImage(null);
@@ -777,6 +825,7 @@ function FurinaApp() {
           imageDataUrl,
           millisSinceLastAssistant,
           conversationId: activeId,
+          relationshipMode,
           clientNow: Date.now(),
           tz: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return undefined; } })(),
         },
@@ -1172,6 +1221,22 @@ function FurinaApp() {
                   </section>
 
                   <section className="space-y-2">
+                    <Label>Mode hubungan</Label>
+                    <Select value={relationshipMode}
+                      onValueChange={(v) => { setRelationshipMode(v as RelationshipMode); savePref(STORAGE.relMode, v); }}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="teman">Teman — akrab, santai, tanpa romansa</SelectItem>
+                        <SelectItem value="dekat">Dekat — ada rasa yang belum diakui</SelectItem>
+                        <SelectItem value="pasangan">Pasangan — kekasih, manja & terbuka</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[10px] text-muted-foreground leading-relaxed">
+                      Menentukan seberapa dekat Furina memperlakukanmu dan seberapa terbuka dia untuk topik personal.
+                    </p>
+                  </section>
+
+                  <section className="space-y-2">
                     <Label>Nama karakter</Label>
                     <Input value={name} onChange={(e) => { setName(e.target.value); savePref(STORAGE.name, e.target.value); }} />
                   </section>
@@ -1393,14 +1458,24 @@ function FurinaApp() {
 
                 {/* SUARA TAB */}
                 <TabsContent value="suara" className="mt-4 space-y-3">
-                  <Label>Mesin suara (TTS)</Label>
+                  <div className="flex items-center justify-between">
+                    <Label>Mesin suara (TTS)</Label>
+                    <button type="button"
+                      onClick={() => { const n = !showCloneVoice; setShowCloneVoice(n); if (!n && provider === "clone") { setProvider("voicevox"); savePref(STORAGE.provider, "voicevox"); } savePref(STORAGE.showClone, n ? "1" : "0"); }}
+                      className="text-[10px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
+                      {showCloneVoice ? "Sembunyikan eksperimen" : "Tampilkan opsi eksperimental"}
+                    </button>
+                  </div>
                   <Select value={provider} onValueChange={(v) => { setProvider(v as TTSProvider); savePref(STORAGE.provider, v); }}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="voicevox">VOICEVOX — anime Jepang (gratis, stabil)</SelectItem>
-                      <SelectItem value="clone">Voice Clone — suara karakter custom (XTTS Space)</SelectItem>
+                      {showCloneVoice && (
+                        <SelectItem value="clone">Voice Clone — eksperimental (XTTS Space, sering antri)</SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
+
 
                   {provider === "voicevox" ? (
                     <div className="space-y-2">
