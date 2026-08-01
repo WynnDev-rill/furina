@@ -15,16 +15,16 @@ function NotFoundComponent() {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-7xl font-bold text-foreground">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
+        <h2 className="mt-4 text-xl font-semibold text-foreground">Halaman tidak ditemukan</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          The page you're looking for doesn't exist or has been moved.
+          Halaman ini tidak tersedia atau sudah dipindahkan.
         </p>
         <div className="mt-6">
           <Link
             to="/"
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            Go home
+            Kembali ke Furina
           </Link>
         </div>
       </div>
@@ -40,10 +40,10 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          This page didn't load
+          Furina tidak dapat dimuat
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Something went wrong on our end. You can try refreshing or head back home.
+          Terjadi kesalahan saat membuka halaman. Coba muat ulang atau kembali ke beranda.
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
@@ -53,13 +53,13 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
             }}
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            Try again
+            Coba lagi
           </button>
           <a
             href="/"
             className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
           >
-            Go home
+            Kembali
           </a>
         </div>
       </div>
@@ -73,25 +73,38 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { title: "Furina — AI Companion" },
-      { name: "description", content: "Personal anime AI companion with natural Japanese voice, memory, and a customizable Furina character." },
+      {
+        name: "description",
+        content: "Furina companion pribadi dengan Lovable AI, model offline, dan memori bersama.",
+      },
       { name: "theme-color", content: "#07111f" },
       { name: "mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
       { name: "apple-mobile-web-app-title", content: "Furina" },
       { property: "og:title", content: "Furina — AI Companion" },
-      { property: "og:description", content: "Personal anime AI companion with voice, memory, vision, and optional local models." },
+      {
+        property: "og:description",
+        content: "Companion pribadi dengan pilihan AI online dan offline, persona konsisten, serta memori bersama.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:title", content: "Furina — AI Companion" },
-      { name: "twitter:description", content: "Personal anime AI companion with optional online and offline AI." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/49ce6084-a883-4c34-9fba-0823e4e9ec7d/id-preview-8df6d7cb--1a1621d2-7cae-4972-8cdc-269778779da2.lovable.app-1780708379945.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/49ce6084-a883-4c34-9fba-0823e4e9ec7d/id-preview-8df6d7cb--1a1621d2-7cae-4972-8cdc-269778779da2.lovable.app-1780708379945.png" },
+      {
+        name: "twitter:description",
+        content: "Companion pribadi dengan Lovable AI dan model offline.",
+      },
+      {
+        property: "og:image",
+        content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/49ce6084-a883-4c34-9fba-0823e4e9ec7d/id-preview-8df6d7cb--1a1621d2-7cae-4972-8cdc-269778779da2.lovable.app-1780708379945.png",
+      },
+      {
+        name: "twitter:image",
+        content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/49ce6084-a883-4c34-9fba-0823e4e9ec7d/id-preview-8df6d7cb--1a1621d2-7cae-4972-8cdc-269778779da2.lovable.app-1780708379945.png",
+      },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      { rel: "stylesheet", href: "/stage2-ui.css" },
-      { rel: "stylesheet", href: "/stage3-ai.css" },
       { rel: "manifest", href: "/manifest.webmanifest" },
       { rel: "icon", type: "image/png", sizes: "192x192", href: "/icon-192.png" },
       { rel: "icon", type: "image/png", sizes: "512x512", href: "/icon-512.png" },
@@ -113,8 +126,6 @@ function RootShell({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         {children}
-        <script src="/stage2-ui.js" defer />
-        <script src="/stage3-ai.js" defer />
         <Scripts />
       </body>
     </html>
@@ -126,7 +137,6 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
     </QueryClientProvider>
   );
