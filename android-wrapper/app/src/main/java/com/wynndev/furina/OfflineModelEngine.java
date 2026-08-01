@@ -55,7 +55,8 @@ public final class OfflineModelEngine {
     }
 
     private File modelDirectory() {
-        File root = new File(appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "models");
+        File external = appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+        File root = new File(external != null ? external : appContext.getFilesDir(), "models");
         if (!root.exists()) root.mkdirs();
         return root;
     }
@@ -109,7 +110,7 @@ public final class OfflineModelEngine {
                 int contextSize = Math.max(2048, Math.min(8192, request.optInt("contextSize", 4096)));
                 float temperature = (float) Math.max(0.2, Math.min(1.4, request.optDouble("temperature", 0.82)));
                 int available = Runtime.getRuntime().availableProcessors();
-                int threads = Math.max(2, Math.min(8, available - 1));
+                int threads = Math.max(2, Math.min(8, Math.max(2, available - 1)));
                 String imagePath = request.optString("imagePath", "");
 
                 NativeListener listener = new NativeListener() {
@@ -148,17 +149,21 @@ public final class OfflineModelEngine {
                 } else {
                     nativeGenerate(prompt, maxTokens, temperature, contextSize, threads, listener);
                 }
-            } catch (Exception e) {
+            } catch (Exception error) {
                 busy.set(false);
-                String message = e.getMessage() == null ? "Inferensi offline gagal." : e.getMessage();
+                String message = error.getMessage() == null ? "Inferensi offline gagal." : error.getMessage();
                 mainHandler.post(() -> callback.onError(message));
             }
         });
     }
 
     private String buildPrompt(JSONObject request) {
+        String requestedPrompt = request.optString("systemPrompt", "").trim();
+        String systemPrompt = requestedPrompt.isEmpty() ? SYSTEM_PROMPT : requestedPrompt;
+        if (systemPrompt.length() > 6_000) systemPrompt = systemPrompt.substring(0, 6_000);
+
         StringBuilder prompt = new StringBuilder();
-        prompt.append("<|im_start|>system\n").append(SYSTEM_PROMPT).append("<|im_end|>\n");
+        prompt.append("<|im_start|>system\n").append(systemPrompt).append("<|im_end|>\n");
 
         JSONArray messages = request.optJSONArray("messages");
         if (messages != null) {
@@ -170,12 +175,14 @@ public final class OfflineModelEngine {
                 if (!role.equals("assistant") && !role.equals("user")) continue;
                 String content = message.optString("content", "").trim();
                 if (content.isEmpty()) continue;
+                if (content.length() > 8_000) content = content.substring(0, 8_000);
                 prompt.append("<|im_start|>").append(role).append("\n")
                     .append(content).append("<|im_end|>\n");
             }
         } else {
             String text = request.optString("text", "").trim();
             if (text.isEmpty()) text = "Jelaskan isi gambar ini secara jelas.";
+            if (text.length() > 8_000) text = text.substring(0, 8_000);
             prompt.append("<|im_start|>user\n").append(text).append("<|im_end|>\n");
         }
 
@@ -192,6 +199,7 @@ public final class OfflineModelEngine {
         worker.shutdownNow();
         nativeUnload();
         loadedModelId = "";
+        busy.set(false);
     }
 
     private static native boolean nativeLoad(String path);
