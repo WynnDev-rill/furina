@@ -6,6 +6,8 @@ on:
     paths:
       - 'src/**'
       - 'shared/**'
+      - 'public/furina-*.js'
+      - 'public/sw.js'
       - 'android-wrapper/**'
       - 'package.json'
       - 'package-lock.json'
@@ -17,6 +19,8 @@ on:
     paths:
       - 'src/**'
       - 'shared/**'
+      - 'public/furina-*.js'
+      - 'public/sw.js'
       - 'android-wrapper/**'
       - 'package.json'
       - 'package-lock.json'
@@ -54,7 +58,7 @@ jobs:
       - name: Build web application
         run: npm run build
 
-      - name: Validate canonical personality and offline UI
+      - name: Validate canonical personality and unified offline UI
         run: |
           test -s shared/furina-profile.json
           node -e "JSON.parse(require('fs').readFileSync('shared/furina-profile.json','utf8'))"
@@ -62,14 +66,27 @@ jobs:
           test -s android-wrapper/app/src/main/assets/offline/app.css
           test -s android-wrapper/app/src/main/assets/offline/preflight.js
           test -s android-wrapper/app/src/main/assets/offline/app.js
+          test -s android-wrapper/app/src/main/assets/offline/voice.js
           test -s android-wrapper/app/src/main/assets/offline/furina-background.jpg
+          test -s public/furina-migration.js
+          test -s public/furina-sw-register.js
+          test -s public/furina-voice.js
+          test -s public/sw.js
           node --check android-wrapper/app/src/main/assets/offline/preflight.js
           node --check android-wrapper/app/src/main/assets/offline/app.js
+          node --check android-wrapper/app/src/main/assets/offline/voice.js
+          node --check public/furina-migration.js
+          node --check public/furina-sw-register.js
+          node --check public/furina-voice.js
+          node --check public/sw.js
           grep -q 'app.css' android-wrapper/app/src/main/assets/offline/index.html
           grep -q 'preflight.js' android-wrapper/app/src/main/assets/offline/index.html
           grep -q 'app.js' android-wrapper/app/src/main/assets/offline/index.html
           grep -q 'Content-Security-Policy' android-wrapper/app/src/main/assets/offline/index.html
           grep -q 'furina-profile.json' android-wrapper/app/src/main/assets/offline/app.js
+          grep -q 'FurinaLegacyStageReady' android-wrapper/app/src/main/assets/offline/preflight.js
+          grep -q 'furina-migration.js' src/routes/__root.tsx
+          grep -q 'UnifiedMainActivity' android-wrapper/app/src/main/AndroidManifest.xml
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -138,7 +155,7 @@ jobs:
             "versionName": "1.0.${{ github.run_number }}",
             "apkUrl": "https://furina-pi.vercel.app/Furina.apk",
             "sha256": "$APK_SHA",
-            "notes": "Pembaruan Furina: UI terpadu, Lovable AI, model offline, persona bersama, dan memori bersama."
+            "notes": "Pembaruan Furina: satu antarmuka untuk AI online dan offline, migrasi riwayat, login Google, suara Jepang, dan cache offline terpadu."
           }
           EOF
 
