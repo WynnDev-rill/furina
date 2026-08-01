@@ -2,12 +2,22 @@ package com.wynndev.furina;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.DownloadManager;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.graphics.Color;
 import android.net.Uri;
 import android.net.http.SslError;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.Settings;
+import android.view.Gravity;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.PermissionRequest;
@@ -19,6 +29,9 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
+import android.widget.ProgressBar;
+import android.widget.Toast;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.activity.result.ActivityResultLauncher;
@@ -28,14 +41,31 @@ import androidx.core.content.ContextCompat;
 import androidx.core.view.WindowCompat;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 public class MainActivity extends AppCompatActivity {
     private static final String HOME_URL = "https://furina-pi.vercel.app/";
+    private static final String UPDATE_URL = HOME_URL + "update.json";
     private static final int BG_COLOR = Color.rgb(8, 17, 31);
 
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private WebView webView;
     private SwipeRefreshLayout refresh;
     private ValueCallback<Uri[]> fileCallback;
     private PermissionRequest pendingPermissionRequest;
+    private boolean updateRequired;
+    private String pendingApkUrl;
+    private long downloadId = -1L;
+    private boolean receiverRegistered;
 
     private final ActivityResultLauncher<Intent> filePicker = registerForActivityResult(
         new ActivityResultContracts.StartActivityForResult(), result -> {
@@ -60,6 +90,37 @@ public class MainActivity extends AppCompatActivity {
         }
     );
 
+    private final ActivityResultLauncher<Intent> installPermissionLauncher = registerForActivityResult(
+        new ActivityResultContracts.StartActivityForResult(), result -> {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || getPackageManager().canRequestPackageInstalls()) {
+                startApkDownload();
+            } else {
+                finishAndRemoveTask();
+            }
+        }
+    );
+
+    private final BroadcastReceiver downloadReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            long completedId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L);
+            if (completedId != downloadId) return;
+
+            DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+            DownloadManager.Query query = new DownloadManager.Query().setFilterById(downloadId);
+            try (Cursor cursor = manager.query(query)) {
+                if (cursor != null && cursor.moveToFirst()) {
+                    int status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
+                    if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                        Uri apkUri = manager.getUriForDownloadedFile(downloadId);
+                        openInstaller(apkUri);
+                    } else {
+                        showDownloadFailedDialog();
+                    }
+                }
+            }
+        }
+    };
+
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
@@ -67,6 +128,152 @@ public class MainActivity extends AppCompatActivity {
         getWindow().setStatusBarColor(BG_COLOR);
         getWindow().setNavigationBarColor(BG_COLOR);
 
+        showNativeLoadingScreen();
+        registerDownloadReceiver();
+        configureBackHandling();
+        checkNativeUpdate();
+    }
+
+    private void showNativeLoadingScreen() {
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(BG_COLOR);
+        ProgressBar progress = new ProgressBar(this);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        params.gravity = Gravity.CENTER;
+        root.addView(progress, params);
+        setContentView(root);
+    }
+
+    private void checkNativeUpdate() {
+        executor.execute(() -> {
+            try {
+                HttpURLConnection connection = (HttpURLConnection) new URL(UPDATE_URL + "?t=" + System.currentTimeMillis()).openConnection();
+                connection.setConnectTimeout(7000);
+                connection.setReadTimeout(7000);
+                connection.setUseCaches(false);
+                connection.setRequestProperty("Cache-Control", "no-cache");
+
+                int responseCode = connection.getResponseCode();
+                if (responseCode < 200 || responseCode >= 300) throw new IllegalStateException("HTTP " + responseCode);
+
+                String jsonText = readAll(connection.getInputStream());
+                JSONObject json = new JSONObject(jsonText);
+                int minimumVersion = json.optInt("minimumSupportedVersionCode", 0);
+                int latestVersion = json.optInt("latestVersionCode", minimumVersion);
+                String apkUrl = json.optString("apkUrl", HOME_URL + "Furina.apk");
+                String versionName = json.optString("versionName", String.valueOf(latestVersion));
+                String notes = json.optString("notes", "Pembaruan native Android diperlukan.");
+                int currentVersion = getCurrentVersionCode();
+
+                runOnUiThread(() -> {
+                    if (currentVersion < minimumVersion || currentVersion < latestVersion) {
+                        updateRequired = true;
+                        pendingApkUrl = apkUrl;
+                        showRequiredUpdateDialog(versionName, notes);
+                    } else {
+                        initializeWebApp();
+                    }
+                });
+            } catch (Exception ignored) {
+                runOnUiThread(this::initializeWebApp);
+            }
+        });
+    }
+
+    private int getCurrentVersionCode() throws PackageManager.NameNotFoundException {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            return (int) getPackageManager().getPackageInfo(getPackageName(), 0).getLongVersionCode();
+        }
+        return getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
+    }
+
+    private String readAll(InputStream inputStream) throws Exception {
+        StringBuilder builder = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) builder.append(line);
+        }
+        return builder.toString();
+    }
+
+    private void showRequiredUpdateDialog(String versionName, String notes) {
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setTitle("Pembaruan Furina diperlukan")
+            .setMessage("Versi " + versionName + " harus dipasang sebelum aplikasi dapat digunakan.\n\n" + notes)
+            .setPositiveButton("Perbarui sekarang", (d, which) -> beginForcedUpdate())
+            .setNegativeButton("Keluar", (d, which) -> finishAndRemoveTask())
+            .setOnCancelListener(d -> finishAndRemoveTask())
+            .create();
+        dialog.setCancelable(false);
+        dialog.setCanceledOnTouchOutside(false);
+        dialog.show();
+    }
+
+    private void beginForcedUpdate() {
+        if (pendingApkUrl == null || pendingApkUrl.isEmpty()) {
+            finishAndRemoveTask();
+            return;
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !getPackageManager().canRequestPackageInstalls()) {
+            Intent settingsIntent = new Intent(
+                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:" + getPackageName())
+            );
+            installPermissionLauncher.launch(settingsIntent);
+            return;
+        }
+        startApkDownload();
+    }
+
+    private void startApkDownload() {
+        try {
+            DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(pendingApkUrl));
+            request.setTitle("Memperbarui Furina");
+            request.setDescription("Mengunduh pembaruan wajib");
+            request.setMimeType("application/vnd.android.package-archive");
+            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            request.setAllowedOverMetered(true);
+            request.setAllowedOverRoaming(false);
+            request.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, "Furina-update.apk");
+            downloadId = manager.enqueue(request);
+            Toast.makeText(this, "Pembaruan sedang diunduh", Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            showDownloadFailedDialog();
+        }
+    }
+
+    private void openInstaller(Uri apkUri) {
+        if (apkUri == null) {
+            showDownloadFailedDialog();
+            return;
+        }
+        try {
+            Intent installIntent = new Intent(Intent.ACTION_VIEW);
+            installIntent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+            installIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(installIntent);
+        } catch (Exception e) {
+            showDownloadFailedDialog();
+        }
+    }
+
+    private void showDownloadFailedDialog() {
+        new AlertDialog.Builder(this)
+            .setTitle("Pembaruan gagal diunduh")
+            .setMessage("Coba unduh kembali. Aplikasi tidak dapat digunakan sebelum pembaruan selesai.")
+            .setPositiveButton("Coba lagi", (d, which) -> beginForcedUpdate())
+            .setNegativeButton("Keluar", (d, which) -> finishAndRemoveTask())
+            .setCancelable(false)
+            .show();
+    }
+
+    private void initializeWebApp() {
+        updateRequired = false;
         refresh = new SwipeRefreshLayout(this);
         refresh.setLayoutParams(new ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -87,7 +294,6 @@ public class MainActivity extends AppCompatActivity {
         refresh.setOnRefreshListener(() -> webView.reload());
 
         configureWebView();
-        configureNavigation();
         webView.loadUrl(HOME_URL);
     }
 
@@ -106,12 +312,11 @@ public class MainActivity extends AppCompatActivity {
         s.setBuiltInZoomControls(false);
         s.setDisplayZoomControls(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
-        s.setUserAgentString(s.getUserAgentString() + " FurinaAndroid/1.2");
+        s.setUserAgentString(s.getUserAgentString() + " FurinaAndroid/2.0");
 
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
         cookies.setAcceptThirdPartyCookies(webView, true);
-
         WebView.setWebContentsDebuggingEnabled(false);
 
         webView.setWebViewClient(new WebViewClient() {
@@ -168,11 +373,16 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void configureNavigation() {
+    private void configureBackHandling() {
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
-                if (webView.canGoBack()) webView.goBack();
-                else finish();
+                if (updateRequired) {
+                    finishAndRemoveTask();
+                } else if (webView != null && webView.canGoBack()) {
+                    webView.goBack();
+                } else {
+                    finish();
+                }
             }
         });
     }
@@ -193,7 +403,22 @@ public class MainActivity extends AppCompatActivity {
         webView.loadDataWithBaseURL(HOME_URL, html, "text/html", "UTF-8", null);
     }
 
+    private void registerDownloadReceiver() {
+        IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(downloadReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(downloadReceiver, filter);
+        }
+        receiverRegistered = true;
+    }
+
     @Override protected void onDestroy() {
+        if (receiverRegistered) {
+            try { unregisterReceiver(downloadReceiver); } catch (Exception ignored) {}
+            receiverRegistered = false;
+        }
+        executor.shutdownNow();
         if (webView != null) {
             webView.stopLoading();
             webView.setWebChromeClient(null);
