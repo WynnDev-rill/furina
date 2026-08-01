@@ -89,6 +89,7 @@ const STORAGE = {
   theme: "furina:theme",
   relMode: "furina:relationshipMode",
   preGen: "furina:preGenAudio",
+  showClone: "furina:showCloneVoice",
 };
 
 const ALL_FURINA_KEYS = [
