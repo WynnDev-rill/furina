@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const MAX_IMAGE_DATA = 8_000_000;
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -57,10 +58,24 @@ Deno.serve(async (request: Request) => {
         : "",
     ].filter(Boolean).join("\n\n");
 
-    const messages = sourceMessages.map((message: Record<string, unknown>) => ({
-      role: message?.role === "assistant" ? "assistant" : "user",
-      content: cleanString(message?.content, 8_000),
-    }));
+    const messages: Array<{ role: "user" | "assistant"; content: unknown }> = sourceMessages.map(
+      (message: Record<string, unknown>) => ({
+        role: message?.role === "assistant" ? "assistant" : "user",
+        content: cleanString(message?.content, 8_000),
+      }),
+    );
+
+    const imageDataUrl = cleanString(input.imageDataUrl, MAX_IMAGE_DATA);
+    const lastMessage = messages[messages.length - 1];
+    if (imageDataUrl && lastMessage?.role === "user") {
+      if (!/^data:image\/(?:png|jpe?g|webp);base64,/i.test(imageDataUrl)) {
+        return json({ error: "Format gambar tidak didukung." }, 400);
+      }
+      lastMessage.content = [
+        { type: "text", text: String(lastMessage.content || "Jelaskan gambar ini.") },
+        { type: "image_url", image_url: { url: imageDataUrl } },
+      ];
+    }
 
     const response = await fetch(GATEWAY, {
       method: "POST",
