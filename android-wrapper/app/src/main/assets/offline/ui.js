@@ -29,12 +29,12 @@
     drawer.innerHTML = `
       <button class="furina-local-backdrop" aria-label="Tutup menu"></button>
       <aside class="furina-local-panel" aria-label="Menu Furina">
-        <div class="furina-local-head"><div><small>FURINA</small><strong>Companion Pribadimu</strong></div><button data-close aria-label="Tutup">×</button></div>
+        <div class="furina-local-head"><div><small>FURINA OFFLINE</small><strong>Companion Lokalmu</strong></div><button data-close aria-label="Tutup">×</button></div>
         <div class="furina-local-links">
           <button data-target="chat">Chat</button>
           <button data-target="history">Riwayat</button>
           <button data-target="dashboard">Dashboard</button>
-          <button data-target="models">Model AI</button>
+          <button data-target="models">Model Lokal</button>
           <button data-target="settings">Pengaturan</button>
         </div>
       </aside>`;
