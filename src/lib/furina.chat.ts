@@ -3,6 +3,8 @@ import { z } from "zod";
 import profile from "../../shared/furina-profile.json";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1";
+const FALLBACK_SUPABASE_URL = "https://smltficntqkoncyrnajx.supabase.co";
+const FALLBACK_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNtbHRmaWNudHFrb25jeXJuYWp4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5NjkxNjQsImV4cCI6MjA5NTU0NTE2NH0.Wtv8cACK-0lIssboV7vQCpkTwJxlxz8gtriawtjHmhw";
 const MAX_IMAGE_DATA = 8_000_000;
 const REQUEST_TIMEOUT_MS = 45_000;
 
@@ -166,9 +168,15 @@ async function callLovableGateway(data: ChatInputValue, messages: GatewayMessage
 }
 
 async function callLovableCloudFunction(data: ChatInputValue, signal: AbortSignal) {
-  const baseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").replace(/\/$/, "");
-  const publicKey = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";
-  if (!baseUrl || !publicKey) return null;
+  const baseUrl = (
+    process.env.SUPABASE_URL ||
+    process.env.VITE_SUPABASE_URL ||
+    FALLBACK_SUPABASE_URL
+  ).replace(/\/$/, "");
+  const publicKey =
+    process.env.SUPABASE_PUBLISHABLE_KEY ||
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    FALLBACK_SUPABASE_KEY;
 
   const response = await fetch(`${baseUrl}/functions/v1/furina-chat`, {
     method: "POST",
