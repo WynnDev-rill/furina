@@ -1,11 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Bot,
   Brain,
   Check,
-  Cloud,
   Cpu,
   Database,
   Download,
@@ -14,21 +12,18 @@ import {
   Home,
   Image as ImageIcon,
   LayoutDashboard,
-  LogIn,
-  Loader2,
   Menu,
   Moon,
   Plus,
   Search,
   Send,
   Settings,
+  ShieldCheck,
   Sparkles,
   Sun,
   Trash2,
   Upload,
   User,
-  Volume2,
-  VolumeX,
   WifiOff,
   X,
 } from "lucide-react";
@@ -38,19 +33,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 
 import furinaDefault from "@/assets/furina.jpg";
-import { lovable } from "@/integrations/lovable";
-import { chatWithFurina } from "@/lib/furina.chat";
 import { buildFurinaSystemPrompt } from "@/lib/furina.persona";
-import { speakWithVoicevox, VOICEVOX_SPEAKERS } from "@/lib/furina.voice";
 import profile from "../../shared/furina-profile.json";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Furina — AI Companion" },
+      { title: "Furina — Offline AI Companion" },
       {
         name: "description",
-        content: "Furina companion pribadi dengan Lovable AI, model offline, dan memori bersama.",
+        content: "Furina companion lokal dengan model GGUF, memori perangkat, dan tanpa layanan AI cloud.",
       },
     ],
   }),
@@ -60,7 +52,6 @@ export const Route = createFileRoute("/")({
 type Screen = "chat" | "history" | "dashboard" | "models" | "settings";
 type ThemeMode = "dark" | "light";
 type MessageStatus = "sending" | "sent" | "read" | "failed";
-type AiMode = "online" | "offline";
 
 type Message = {
   id: string;
@@ -89,8 +80,8 @@ type SharedState = {
 };
 
 type NativeStatus = {
-  mode: AiMode;
-  source: "lovable" | "offline";
+  mode: "offline";
+  source: "offline";
   activeModelId: string;
   installed: boolean;
   busy: boolean;
@@ -104,7 +95,6 @@ type NativeBridge = {
   getStatus: () => string;
   getSharedState: () => string;
   saveSharedState: (json: string) => boolean;
-  useOnlineAi: () => boolean;
   useOfflineAi: () => boolean;
   deactivateOfflineModel: () => boolean;
   openModelManager: () => void;
@@ -120,13 +110,11 @@ declare global {
 }
 
 const STORAGE = {
-  conversations: "furina:v3:conversations",
-  active: "furina:v3:active",
+  conversations: "furina:v4:conversations",
+  active: "furina:v4:active",
   shared: "furina:shared-state:v1",
-  theme: "furina:v3:theme",
-  screen: "furina:v3:screen",
-  clientKey: "furina:v3:client-key",
-  voice: "furina:v3:voice",
+  theme: "furina:v4:theme",
+  screen: "furina:v4:screen",
 };
 
 const DEFAULT_SHARED: SharedState = {
@@ -138,8 +126,8 @@ const DEFAULT_SHARED: SharedState = {
 };
 
 const DEFAULT_NATIVE: NativeStatus = {
-  mode: "online",
-  source: "lovable",
+  mode: "offline",
+  source: "offline",
   activeModelId: "",
   installed: false,
   busy: false,
@@ -148,17 +136,24 @@ const DEFAULT_NATIVE: NativeStatus = {
   canUseOffline: false,
 };
 
+const navigation: Array<{ id: Screen; icon: typeof Home; label: string }> = [
+  { id: "chat", icon: Home, label: "Chat" },
+  { id: "history", icon: History, label: "Riwayat" },
+  { id: "dashboard", icon: LayoutDashboard, label: "Dashboard" },
+  { id: "models", icon: Cpu, label: "Model lokal" },
+  { id: "settings", icon: Settings, label: "Pengaturan" },
+];
+
 function uid() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
   return `furina-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function newConversation(): Conversation {
-  const timestamp = Date.now();
-  return { id: uid(), title: "Percakapan baru", messages: [], updatedAt: timestamp };
+  return { id: uid(), title: "Percakapan baru", messages: [], updatedAt: Date.now() };
 }
 
-function safeParse<T>(value: string | null, fallback: T): T {
+function safeParse<T>(value: string | null | undefined, fallback: T): T {
   if (!value) return fallback;
   try {
     return JSON.parse(value) as T;
@@ -177,14 +172,7 @@ function normalizeShared(raw: Partial<SharedState> | null | undefined): SharedSt
     ? (raw?.language as SharedState["language"])
     : "auto";
   const memories = Array.isArray(raw?.memories)
-    ? Array.from(
-        new Set(
-          raw.memories
-            .filter((memory): memory is string => typeof memory === "string")
-            .map((memory) => clip(memory, 240))
-            .filter((memory) => memory.length >= 3),
-        ),
-      ).slice(-80)
+    ? Array.from(new Set(raw.memories.filter((item): item is string => typeof item === "string").map((item) => clip(item, 240)).filter((item) => item.length >= 3))).slice(-80)
     : [];
   return {
     version: 1,
@@ -198,7 +186,7 @@ function normalizeShared(raw: Partial<SharedState> | null | undefined): SharedSt
 function normalizeConversations(raw: unknown): Conversation[] {
   if (!Array.isArray(raw)) return [];
   return raw
-    .filter((item): item is Conversation => !!item && typeof item === "object")
+    .filter((item): item is Conversation => Boolean(item) && typeof item === "object")
     .map((item) => ({
       id: typeof item.id === "string" && item.id ? item.id : uid(),
       title: typeof item.title === "string" && item.title ? item.title.slice(0, 70) : "Percakapan baru",
@@ -220,12 +208,7 @@ function normalizeConversations(raw: unknown): Conversation[] {
     .slice(0, 120);
 }
 
-function deriveTitle(text: string, hasImage: boolean) {
-  return clip(text, 42) || (hasImage ? "Percakapan gambar" : "Percakapan baru");
-}
-
 function relativeTime(timestamp: number, clock: number) {
-  if (!clock) return "";
   const difference = Math.max(0, clock - timestamp);
   if (difference < 60_000) return "baru saja";
   if (difference < 3_600_000) return `${Math.floor(difference / 60_000)} m`;
@@ -241,12 +224,11 @@ function formatTime(timestamp: number) {
 function extractMemoryCandidates(text: string) {
   const cleaned = clip(text, 240);
   if (cleaned.length < 8) return [];
-  const durable = [
+  const patterns = [
     /\b(?:aku|saya)\s+(?:suka|menyukai|lebih suka|tidak suka|benci|tinggal|punya|memiliki|biasanya|sedang membangun|sedang mengerjakan|ingin|berencana|menargetkan)\b/i,
     /\b(?:nama(?:ku| saya)|aku bernama|saya bernama|targetku|tujuanku|proyekku|pekerjaanku|hobiku)\b/i,
-    /\b(?:ibu|ayah|kakak|adik|pasangan|teman dekat|peliharaan)\b.{0,90}\b(?:bernama|tinggal|suka|sedang)\b/i,
   ];
-  return durable.some((pattern) => pattern.test(cleaned)) ? [cleaned] : [];
+  return patterns.some((pattern) => pattern.test(cleaned)) ? [cleaned] : [];
 }
 
 function relevantMemories(query: string, memories: string[]) {
@@ -255,10 +237,7 @@ function relevantMemories(query: string, memories: string[]) {
     .map((memory, index) => ({
       memory,
       index,
-      score: memory
-        .toLowerCase()
-        .split(/[^a-z0-9À-ÿ]+/i)
-        .reduce((score, term) => score + (terms.has(term) ? 1 : 0), 0),
+      score: memory.toLowerCase().split(/[^a-z0-9À-ÿ]+/i).reduce((score, term) => score + (terms.has(term) ? 1 : 0), 0),
     }))
     .sort((left, right) => right.score - left.score || right.index - left.index)
     .slice(0, 20)
@@ -270,8 +249,6 @@ function nativeBridge() {
 }
 
 function FurinaApp() {
-  const chat = useServerFn(chatWithFurina);
-  const speak = useServerFn(speakWithVoicevox);
   const [theme, setTheme] = useState<ThemeMode>("dark");
   const [screen, setScreen] = useState<Screen>("chat");
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -284,91 +261,37 @@ function FurinaApp() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [historySearch, setHistorySearch] = useState("");
   const [historyFilter, setHistoryFilter] = useState<"all" | "image" | "pinned">("all");
-  const [clock, setClock] = useState(0);
+  const [clock, setClock] = useState(Date.now());
   const [memoryDraft, setMemoryDraft] = useState("");
-  const [online, setOnline] = useState(true);
-  const [voiceEnabled, setVoiceEnabled] = useState(false);
-  const [voiceSpeaker, setVoiceSpeaker] = useState(2);
-  const [voiceBusyId, setVoiceBusyId] = useState("");
-  const [voicePlayingId, setVoicePlayingId] = useState("");
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
-  const activeNativeRequest = useRef<{
-    requestId: string;
-    conversationId: string;
-    assistantMessageId: string;
-  } | null>(null);
-  const clientKeyRef = useRef("");
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const voiceCacheRef = useRef(new Map<string, string>());
+  const activeNativeRequest = useRef<{ requestId: string; conversationId: string; assistantMessageId: string } | null>(null);
 
-  const activeConversation = useMemo(
-    () => conversations.find((conversation) => conversation.id === activeId),
-    [conversations, activeId],
-  );
+  const activeConversation = useMemo(() => conversations.find((conversation) => conversation.id === activeId), [conversations, activeId]);
   const messages = activeConversation?.messages ?? [];
-  const activeMode: AiMode = nativeBridge() ? nativeStatus.mode : "online";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const storedConversations = normalizeConversations(safeParse(localStorage.getItem(STORAGE.conversations), []));
-    const initialConversations = storedConversations.length ? storedConversations : [newConversation()];
+    const stored = normalizeConversations(safeParse(localStorage.getItem(STORAGE.conversations), []));
+    const initial = stored.length ? stored : [newConversation()];
     const savedActive = localStorage.getItem(STORAGE.active);
-    const chosenActive = savedActive && initialConversations.some((item) => item.id === savedActive)
-      ? savedActive
-      : initialConversations[0].id;
-
-    const locallyStoredShared = normalizeShared(safeParse(localStorage.getItem(STORAGE.shared), DEFAULT_SHARED));
-    let initialShared = locallyStoredShared;
-    const bridge = nativeBridge();
-    if (bridge) {
-      try {
-        initialShared = normalizeShared(safeParse(bridge.getSharedState(), locallyStoredShared));
-      } catch {
-        initialShared = locallyStoredShared;
-      }
+    setConversations(initial);
+    setActiveId(savedActive && initial.some((item) => item.id === savedActive) ? savedActive : initial[0].id);
+    const localShared = normalizeShared(safeParse(localStorage.getItem(STORAGE.shared), DEFAULT_SHARED));
+    try {
+      setShared(normalizeShared(safeParse(nativeBridge()?.getSharedState(), localShared)));
+    } catch {
+      setShared(localShared);
     }
-
-    setConversations(initialConversations);
-    setActiveId(chosenActive);
-    setShared(initialShared);
     setTheme(localStorage.getItem(STORAGE.theme) === "light" ? "light" : "dark");
     const savedScreen = localStorage.getItem(STORAGE.screen);
-    if (["chat", "history", "dashboard", "models", "settings"].includes(savedScreen || "")) {
-      setScreen(savedScreen as Screen);
-    }
-    const existingClientKey = localStorage.getItem(STORAGE.clientKey) || uid();
-    localStorage.setItem(STORAGE.clientKey, existingClientKey);
-    clientKeyRef.current = existingClientKey;
-    setClock(Date.now());
-
-    const storedVoice = safeParse<{ enabled?: boolean; speaker?: number }>(localStorage.getItem(STORAGE.voice), {});
-    setVoiceEnabled(Boolean(storedVoice.enabled));
-    if (typeof storedVoice.speaker === "number") setVoiceSpeaker(storedVoice.speaker);
+    if (navigation.some((item) => item.id === savedScreen)) setScreen(savedScreen as Screen);
   }, []);
 
   useEffect(() => {
-    const sync = () => setOnline(navigator.onLine);
-    sync();
-    window.addEventListener("online", sync);
-    window.addEventListener("offline", sync);
-    return () => {
-      window.removeEventListener("online", sync);
-      window.removeEventListener("offline", sync);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem(STORAGE.voice, JSON.stringify({ enabled: voiceEnabled, speaker: voiceSpeaker }));
-    voiceCacheRef.current.clear();
-  }, [voiceEnabled, voiceSpeaker]);
-
-  useEffect(() => {
-    if (typeof document === "undefined") return;
     document.documentElement.classList.toggle("dark", theme === "dark");
     localStorage.setItem(STORAGE.theme, theme);
   }, [theme]);
@@ -384,48 +307,33 @@ function FurinaApp() {
   }, [conversations, activeId]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
     localStorage.setItem(STORAGE.screen, screen);
   }, [screen]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
     const normalized = normalizeShared(shared);
     localStorage.setItem(STORAGE.shared, JSON.stringify(normalized));
-    const bridge = nativeBridge();
-    if (bridge) {
-      try {
-        bridge.saveSharedState(JSON.stringify(normalized));
-      } catch {
-        // Browser mode still keeps the local copy.
-      }
-    }
+    try { nativeBridge()?.saveSharedState(JSON.stringify(normalized)); } catch {}
   }, [shared]);
 
   useEffect(() => {
-    const updateNative = () => {
+    const update = () => {
       const bridge = nativeBridge();
-      if (!bridge) {
-        setNativeStatus(DEFAULT_NATIVE);
-        return;
-      }
+      if (!bridge) return setNativeStatus(DEFAULT_NATIVE);
       try {
-        setNativeStatus((previous) => ({ ...previous, ...safeParse(bridge.getStatus(), DEFAULT_NATIVE) }));
+        const status = { ...DEFAULT_NATIVE, ...safeParse<Partial<NativeStatus>>(bridge.getStatus(), {}) } as NativeStatus;
+        setNativeStatus(status);
+        if (status.installed) bridge.useOfflineAi();
       } catch {
         setNativeStatus(DEFAULT_NATIVE);
       }
     };
-    updateNative();
-    const timer = window.setInterval(() => {
-      if (!document.hidden) updateNative();
-    }, 2500);
-    const visibility = () => !document.hidden && updateNative();
-    document.addEventListener("visibilitychange", visibility);
-    window.addEventListener("furina-ai-mode-changed", updateNative as EventListener);
+    update();
+    const timer = window.setInterval(() => !document.hidden && update(), 2500);
+    window.addEventListener("furina-ai-mode-changed", update as EventListener);
     return () => {
       window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", visibility);
-      window.removeEventListener("furina-ai-mode-changed", updateNative as EventListener);
+      window.removeEventListener("furina-ai-mode-changed", update as EventListener);
     };
   }, []);
 
@@ -443,41 +351,21 @@ function FurinaApp() {
       const detail = (event as CustomEvent).detail as { requestId?: string; token?: string };
       const request = activeNativeRequest.current;
       if (!request || detail.requestId !== request.requestId) return;
-      setConversations((previous) => previous.map((conversation) =>
-        conversation.id === request.conversationId
-          ? {
-              ...conversation,
-              updatedAt: Date.now(),
-              messages: conversation.messages.map((message) =>
-                message.id === request.assistantMessageId
-                  ? { ...message, content: `${message.content}${String(detail.token || "")}`, status: "sent" }
-                  : message,
-              ),
-            }
-          : conversation,
-      ));
+      setConversations((previous) => previous.map((conversation) => conversation.id === request.conversationId ? {
+        ...conversation,
+        updatedAt: Date.now(),
+        messages: conversation.messages.map((message) => message.id === request.assistantMessageId ? { ...message, content: `${message.content}${String(detail.token || "")}`, status: "sent" } : message),
+      } : conversation));
     };
     const completeListener = (event: Event) => {
       const detail = (event as CustomEvent).detail as { requestId?: string };
       const request = activeNativeRequest.current;
       if (!request || detail.requestId !== request.requestId) return;
-      setConversations((previous) => previous.map((conversation) =>
-        conversation.id === request.conversationId
-          ? {
-              ...conversation,
-              updatedAt: Date.now(),
-              messages: conversation.messages.map((message) =>
-                message.id === request.assistantMessageId
-                  ? {
-                      ...message,
-                      content: message.content.trim() || "Model selesai tanpa menghasilkan teks. Coba pesan yang lebih singkat.",
-                      status: "sent",
-                    }
-                  : message,
-              ),
-            }
-          : conversation,
-      ));
+      setConversations((previous) => previous.map((conversation) => conversation.id === request.conversationId ? {
+        ...conversation,
+        updatedAt: Date.now(),
+        messages: conversation.messages.map((message) => message.id === request.assistantMessageId ? { ...message, content: message.content.trim() || "Model selesai tanpa menghasilkan teks.", status: "sent" } : message),
+      } : conversation));
       activeNativeRequest.current = null;
       setSending(false);
     };
@@ -485,19 +373,11 @@ function FurinaApp() {
       const detail = (event as CustomEvent).detail as { requestId?: string; error?: string };
       const request = activeNativeRequest.current;
       if (!request || detail.requestId !== request.requestId) return;
-      setConversations((previous) => previous.map((conversation) =>
-        conversation.id === request.conversationId
-          ? {
-              ...conversation,
-              updatedAt: Date.now(),
-              messages: conversation.messages.map((message) =>
-                message.id === request.assistantMessageId
-                  ? { ...message, content: message.content || detail.error || "Model offline gagal merespons.", status: "failed" }
-                  : message,
-              ),
-            }
-          : conversation,
-      ));
+      setConversations((previous) => previous.map((conversation) => conversation.id === request.conversationId ? {
+        ...conversation,
+        updatedAt: Date.now(),
+        messages: conversation.messages.map((message) => message.id === request.assistantMessageId ? { ...message, content: message.content || detail.error || "Model lokal gagal merespons.", status: "failed" } : message),
+      } : conversation));
       activeNativeRequest.current = null;
       setSending(false);
     };
@@ -512,8 +392,7 @@ function FurinaApp() {
   }, []);
 
   useEffect(() => {
-    if (!scrollRef.current || screen !== "chat") return;
-    scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    if (screen === "chat") scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, sending, screen]);
 
   useEffect(() => {
@@ -521,19 +400,12 @@ function FurinaApp() {
     return () => window.clearInterval(timer);
   }, []);
 
-  function updateConversation(conversationId: string, updater: (messages: Message[]) => Message[]) {
-    setConversations((previous) => previous.map((conversation) =>
-      conversation.id === conversationId
-        ? { ...conversation, messages: updater(conversation.messages), updatedAt: Date.now() }
-        : conversation,
-    ));
+  function updateConversation(conversationId: string, updater: (items: Message[]) => Message[]) {
+    setConversations((previous) => previous.map((conversation) => conversation.id === conversationId ? { ...conversation, messages: updater(conversation.messages), updatedAt: Date.now() } : conversation));
   }
 
   function startNewConversation() {
-    if (sending) {
-      toast.info("Hentikan atau tunggu jawaban yang sedang dibuat.");
-      return;
-    }
+    if (sending) return toast.info("Hentikan atau tunggu jawaban yang sedang dibuat.");
     const created = newConversation();
     setConversations((previous) => [created, ...previous]);
     setActiveId(created.id);
@@ -564,11 +436,7 @@ function FurinaApp() {
   }
 
   function togglePinned(conversationId: string) {
-    setConversations((previous) => previous.map((conversation) =>
-      conversation.id === conversationId
-        ? { ...conversation, pinned: !conversation.pinned, updatedAt: Date.now() }
-        : conversation,
-    ));
+    setConversations((previous) => previous.map((conversation) => conversation.id === conversationId ? { ...conversation, pinned: !conversation.pinned, updatedAt: Date.now() } : conversation));
   }
 
   function mergeMemories(text: string) {
@@ -586,6 +454,15 @@ function FurinaApp() {
     const imageDataUrl = explicitImage ?? pendingImage?.dataUrl;
     if (!text && !imageDataUrl) return;
 
+    const bridge = nativeBridge();
+    if (!bridge) return toast.error("AI lokal hanya tersedia di APK Android.");
+    if (!nativeStatus.installed) {
+      toast.info("Impor dan aktifkan model GGUF lokal terlebih dahulu.");
+      bridge.openModelManager();
+      return;
+    }
+    if (imageDataUrl && !nativeStatus.multimodalReady) return toast.error(nativeStatus.imageDisabledReason || "Model aktif belum mendukung gambar.");
+
     const userMessage: Message = {
       id: uid(),
       role: "user",
@@ -599,180 +476,52 @@ function FurinaApp() {
     const contextMessages = [...conversation.messages.filter((message) => message.status !== "failed"), userMessage];
     const memories = mergeMemories(userMessage.content);
 
-    setConversations((previous) => previous.map((item) =>
-      item.id === conversationId
-        ? {
-            ...item,
-            title: item.title === "Percakapan baru" ? deriveTitle(userMessage.content, Boolean(imageDataUrl)) : item.title,
-            messages: [...item.messages, userMessage],
-            updatedAt: Date.now(),
-          }
-        : item,
-    ));
+    setConversations((previous) => previous.map((item) => item.id === conversationId ? {
+      ...item,
+      title: item.title === "Percakapan baru" ? clip(userMessage.content, 42) || "Percakapan baru" : item.title,
+      messages: [...item.messages, userMessage],
+      updatedAt: Date.now(),
+    } : item));
     setInput("");
     setPendingImage(null);
     setSending(true);
 
-    const bridgeReady = Boolean(nativeBridge()) && nativeStatus.canUseOffline;
-    const useOffline = activeMode === "offline" && bridgeReady;
-    if (activeMode === "offline" && !bridgeReady) {
-      if (!navigator.onLine) {
-        updateConversation(conversationId, (items) => items.map((message) =>
-          message.id === userMessage.id ? { ...message, status: "failed" } : message,
-        ));
-        setSending(false);
-        toast.error("Model offline belum aktif dan tidak ada jaringan. Unduh model dulu di menu Model AI.");
-        return;
-      }
-      toast.info("Model offline belum aktif — sementara memakai Lovable AI.");
-    }
-
-    if (useOffline) {
-      const bridge = nativeBridge()!;
-      if (imageDataUrl && !nativeStatus.multimodalReady) {
-        updateConversation(conversationId, (items) => items.map((message) =>
-          message.id === userMessage.id ? { ...message, status: "failed" } : message,
-        ));
-        setSending(false);
-        toast.error(nativeStatus.imageDisabledReason || "Model aktif belum mendukung gambar.");
-        return;
-      }
-
-      const assistantMessageId = uid();
-      updateConversation(conversationId, (items) => [
-        ...items.map((message) => message.id === userMessage.id ? { ...message, status: "read" as const } : message),
-        { id: assistantMessageId, role: "assistant", content: "", at: Date.now(), status: "sending" },
-      ]);
-      const requestId = uid();
-      activeNativeRequest.current = { requestId, conversationId, assistantMessageId };
-      const selectedMemories = relevantMemories(userMessage.content, memories);
-      const systemPrompt = buildFurinaSystemPrompt({
-        characterName: shared.name,
-        persona: shared.persona,
-        language: shared.language,
-        memories: selectedMemories,
-        clientNow: Date.now(),
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      });
-      const request = JSON.stringify({
-        requestId,
-        messages: contextMessages.slice(-18).map((message) => ({ role: message.role, content: message.content })),
-        systemPrompt,
-        maxTokens: imageDataUrl ? 640 : 512,
-        contextSize: imageDataUrl ? 6144 : 4096,
-        temperature: 0.8,
-      });
-      try {
-        if (imageDataUrl && bridge.generateWithImage) bridge.generateWithImage(request, imageDataUrl);
-        else bridge.generate(request);
-      } catch (error) {
-        activeNativeRequest.current = null;
-        setSending(false);
-        toast.error(error instanceof Error ? error.message : "Model offline gagal dimulai.");
-      }
-      return;
-    }
-
-    if (!navigator.onLine) {
-      updateConversation(conversationId, (items) => items.map((message) =>
-        message.id === userMessage.id ? { ...message, status: "failed" } : message,
-      ));
-      setSending(false);
-      toast.error("Tidak ada jaringan. Aktifkan model offline agar tetap bisa mengobrol.");
-      return;
-    }
-
+    const assistantMessageId = uid();
+    updateConversation(conversationId, (items) => [
+      ...items.map((message) => message.id === userMessage.id ? { ...message, status: "read" as const } : message),
+      { id: assistantMessageId, role: "assistant", content: "", at: Date.now(), status: "sending" },
+    ]);
+    const requestId = uid();
+    activeNativeRequest.current = { requestId, conversationId, assistantMessageId };
+    const systemPrompt = buildFurinaSystemPrompt({
+      characterName: shared.name,
+      persona: shared.persona,
+      language: shared.language,
+      memories: relevantMemories(userMessage.content, memories),
+      clientNow: Date.now(),
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+    const request = JSON.stringify({
+      requestId,
+      messages: contextMessages.slice(-18).map((message) => ({ role: message.role, content: message.content })),
+      systemPrompt,
+      maxTokens: imageDataUrl ? 640 : 512,
+      contextSize: imageDataUrl ? 6144 : 4096,
+      temperature: 0.8,
+    });
     try {
-      const result = await chat({
-        data: {
-          messages: contextMessages.slice(-20).map((message) => ({ role: message.role, content: message.content })),
-          characterName: shared.name,
-          persona: shared.persona,
-          language: shared.language,
-          sharedMemories: relevantMemories(userMessage.content, memories),
-          imageDataUrl,
-          clientNow: Date.now(),
-          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          clientKey: clientKeyRef.current,
-        },
-      }) as { reply: string; bubbles?: string[] };
-      const bubbles = result.bubbles?.length ? result.bubbles : [result.reply];
-      const assistantMessages: Message[] = bubbles.map((bubble) => ({
-        id: uid(),
-        role: "assistant" as const,
-        content: bubble,
-        at: Date.now(),
-        status: "sent" as const,
-      }));
-      updateConversation(conversationId, (items) => [
-        ...items.map((message) => message.id === userMessage.id ? { ...message, status: "read" as const } : message),
-        ...assistantMessages,
-      ]);
-      if (voiceEnabled && assistantMessages[0]) void prefetchVoice(assistantMessages[0]);
+      if (imageDataUrl && bridge.generateWithImage) bridge.generateWithImage(request, imageDataUrl);
+      else bridge.generate(request);
     } catch (error) {
-      updateConversation(conversationId, (items) => items.map((message) =>
-        message.id === userMessage.id ? { ...message, status: "failed" } : message,
-      ));
-      toast.error(error instanceof Error ? error.message : "Lovable AI gagal merespons.");
-    } finally {
+      activeNativeRequest.current = null;
       setSending(false);
-    }
-  }
-
-  async function resolveVoiceUrl(message: Message) {
-    const cached = voiceCacheRef.current.get(message.id);
-    if (cached) return cached;
-    const result = (await speak({ data: { text: message.content, speaker: voiceSpeaker } })) as { audioUrl: string };
-    voiceCacheRef.current.set(message.id, result.audioUrl);
-    return result.audioUrl;
-  }
-
-  /** Menyiapkan audio di latar belakang supaya tombol putar terasa instan. */
-  async function prefetchVoice(message: Message) {
-    try {
-      const url = await resolveVoiceUrl(message);
-      void fetch(url, { mode: "no-cors" }).catch(() => undefined);
-    } catch {
-      // Diamkan; pengguna tetap bisa memutar manual.
-    }
-  }
-
-  function stopVoice() {
-    audioRef.current?.pause();
-    audioRef.current = null;
-    setVoicePlayingId("");
-  }
-
-  async function toggleVoice(message: Message) {
-    if (voicePlayingId === message.id) return stopVoice();
-    if (!message.content.trim()) return;
-    stopVoice();
-    setVoiceBusyId(message.id);
-    try {
-      const url = await resolveVoiceUrl(message);
-      const audio = new Audio(url);
-      audio.onended = () => setVoicePlayingId("");
-      audio.onerror = () => {
-        voiceCacheRef.current.delete(message.id);
-        setVoicePlayingId("");
-        toast.error("Audio suara gagal diputar. Coba lagi.");
-      };
-      audioRef.current = audio;
-      await audio.play();
-      setVoicePlayingId(message.id);
-    } catch (error) {
-      voiceCacheRef.current.delete(message.id);
-      toast.error(error instanceof Error ? error.message : "Suara VOICEVOX gagal dibuat.");
-    } finally {
-      setVoiceBusyId("");
+      toast.error(error instanceof Error ? error.message : "Model lokal gagal dimulai.");
     }
   }
 
   function stopGeneration() {
-    if (!sending || activeMode !== "offline") return;
-    try {
-      nativeBridge()?.cancelGeneration();
-    } catch {}
+    if (!sending) return;
+    try { nativeBridge()?.cancelGeneration(); } catch {}
   }
 
   async function handleImagePick(event: React.ChangeEvent<HTMLInputElement>) {
@@ -782,45 +531,9 @@ function FurinaApp() {
     if (!file.type.startsWith("image/")) return toast.error("Pilih file gambar.");
     if (file.size > 12 * 1024 * 1024) return toast.error("Gambar maksimal 12 MB.");
     try {
-      const dataUrl = await compressImage(file, 1280, 0.82);
-      setPendingImage({ dataUrl, name: file.name || "Gambar" });
+      setPendingImage({ dataUrl: await compressImage(file, 1280, 0.82), name: file.name || "Gambar" });
     } catch {
       toast.error("Gambar gagal diproses.");
-    }
-  }
-
-  function useOnlineMode() {
-    try {
-      nativeBridge()?.useOnlineAi();
-      setNativeStatus((previous) => ({ ...previous, mode: "online", source: "lovable" }));
-      toast.success("Lovable AI aktif.");
-    } catch {
-      toast.error("Mode online tidak dapat diaktifkan.");
-    }
-  }
-
-  function useOfflineMode() {
-    const bridge = nativeBridge();
-    if (!bridge) return toast.info("AI offline hanya tersedia di APK Android.");
-    try {
-      if (!bridge.useOfflineAi()) {
-        bridge.openModelManager();
-        toast.info("Unduh dan pilih model offline terlebih dahulu.");
-        return;
-      }
-      setNativeStatus((previous) => ({ ...previous, mode: "offline", source: "offline" }));
-      toast.success("AI offline aktif.");
-    } catch {
-      toast.error("Mode offline tidak dapat diaktifkan.");
-    }
-  }
-
-  async function loginGoogle() {
-    try {
-      const result = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin });
-      if (result.error) toast.error(result.error.message || "Login Google gagal.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Login Google gagal.");
     }
   }
 
@@ -832,9 +545,7 @@ function FurinaApp() {
   }
 
   function exportData() {
-    const blob = new Blob([
-      JSON.stringify({ app: "Furina", version: 3, exportedAt: new Date().toISOString(), shared, conversations, activeId }, null, 2),
-    ], { type: "application/json" });
+    const blob = new Blob([JSON.stringify({ app: "Furina", version: 4, exportedAt: new Date().toISOString(), shared, conversations, activeId }, null, 2)], { type: "application/json" });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.href = url;
@@ -848,18 +559,13 @@ function FurinaApp() {
   async function importData(file?: File) {
     if (!file) return;
     try {
-      const backup = JSON.parse(await file.text()) as {
-        app?: string;
-        shared?: Partial<SharedState>;
-        conversations?: unknown;
-        activeId?: string;
-      };
+      const backup = JSON.parse(await file.text()) as { app?: string; shared?: Partial<SharedState>; conversations?: unknown; activeId?: string };
       if (backup.app !== "Furina") throw new Error("File bukan backup Furina.");
-      const importedConversations = normalizeConversations(backup.conversations);
-      if (!importedConversations.length) throw new Error("Backup tidak berisi percakapan.");
+      const imported = normalizeConversations(backup.conversations);
+      if (!imported.length) throw new Error("Backup tidak berisi percakapan.");
       if (!confirm("Impor akan mengganti data lokal saat ini. Lanjutkan?")) return;
-      setConversations(importedConversations);
-      setActiveId(importedConversations.some((item) => item.id === backup.activeId) ? String(backup.activeId) : importedConversations[0].id);
+      setConversations(imported);
+      setActiveId(imported.some((item) => item.id === backup.activeId) ? String(backup.activeId) : imported[0].id);
       setShared(normalizeShared(backup.shared));
       toast.success("Backup berhasil dipulihkan.");
     } catch (error) {
@@ -877,9 +583,7 @@ function FurinaApp() {
         if (historyFilter === "image" && !conversation.messages.some((message) => message.imageDataUrl)) return false;
         if (historyFilter === "pinned" && !conversation.pinned) return false;
         if (!keyword) return true;
-        return `${conversation.title} ${conversation.messages.map((message) => message.content).join(" ")}`
-          .toLowerCase()
-          .includes(keyword);
+        return `${conversation.title} ${conversation.messages.map((message) => message.content).join(" ")}`.toLowerCase().includes(keyword);
       });
   }, [conversations, historySearch, historyFilter]);
 
@@ -897,121 +601,43 @@ function FurinaApp() {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_85%_8%,rgba(82,184,255,.18),transparent_30%)]" />
 
       <aside className={`absolute inset-y-0 left-0 z-50 w-[82%] max-w-xs fx-card rounded-r-[28px] border-y-0 border-l-0 p-4 transition-transform duration-300 ease-out ${menuOpen ? "translate-x-0" : "-translate-x-full"}`}>
-        <div className="flex items-center justify-between">
-          <div><p className="text-xs uppercase tracking-[.28em] text-sky-200/70">Furina</p><h2 className="mt-1 text-xl font-semibold">Companion Pribadimu</h2></div>
-          <Button variant="ghost" size="icon" className="rounded-full" onClick={() => setMenuOpen(false)}><X className="h-4 w-4" /></Button>
-        </div>
-        <div className="mt-6 space-y-2">
-          {[
-            ["chat", Home, "Chat"], ["history", History, "Riwayat"], ["dashboard", LayoutDashboard, "Dashboard"], ["models", Cpu, "Model AI"], ["settings", Settings, "Pengaturan"],
-          ].map(([id, Icon, label]) => (
-            <button key={String(id)} onClick={() => { setScreen(id as Screen); setMenuOpen(false); }} className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm ${screen === id ? "bg-sky-500/20 ring-1 ring-sky-300/30" : "fx-soft hover:bg-foreground/5"}`}>
-              <Icon className="h-4 w-4" /><span>{String(label)}</span>
-            </button>
-          ))}
-        </div>
-        <div className="mt-6 rounded-3xl fx-subtle p-4">
-          <p className="text-xs uppercase tracking-[.22em] text-sky-200/70">AI aktif</p>
-          <p className="mt-2 font-semibold">{activeMode === "offline" ? (nativeStatus.activeModelId || "Model offline") : "Lovable AI"}</p>
-          <p className="mt-1 text-xs fx-soft">{activeMode === "offline" ? "Privat, berjalan di perangkat" : "Online, persona dan memori sama"}</p>
-        </div>
+        <div className="flex items-center justify-between"><div><p className="text-xs uppercase tracking-[.28em] text-sky-200/70">Furina</p><h2 className="mt-1 text-xl font-semibold">Companion Lokalmu</h2></div><Button variant="ghost" size="icon" className="rounded-full" onClick={() => setMenuOpen(false)}><X className="h-4 w-4" /></Button></div>
+        <div className="mt-6 space-y-2">{navigation.map(({ id, icon: Icon, label }) => <button key={id} onClick={() => { setScreen(id); setMenuOpen(false); }} className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm ${screen === id ? "bg-sky-500/20 ring-1 ring-sky-300/30" : "fx-soft hover:bg-foreground/5"}`}><Icon className="h-4 w-4" /><span>{label}</span></button>)}</div>
+        <div className="mt-6 rounded-3xl fx-subtle p-4"><p className="text-xs uppercase tracking-[.22em] text-sky-200/70">AI aktif</p><p className="mt-2 font-semibold">{nativeStatus.installed ? nativeStatus.activeModelId || "Model lokal" : "Belum ada model"}</p><p className="mt-1 text-xs fx-soft">100% lokal · tanpa cloud</p></div>
       </aside>
       {menuOpen && <button aria-label="Tutup menu" className="absolute inset-0 z-40 bg-black/45 backdrop-blur-sm" onClick={() => setMenuOpen(false)} />}
 
-      <header className="absolute inset-x-0 top-0 z-30 px-4 pt-3">
-        <div className="mx-auto flex max-w-5xl items-center justify-between rounded-[28px] fx-card px-3 py-3 shadow-2xl ">
-          <div className="flex min-w-0 items-center gap-3">
-            <Button variant="ghost" size="icon" className="fx-press rounded-full" onClick={() => setMenuOpen(true)}><Menu className="h-5 w-5" /></Button>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${activeMode === "offline" ? "bg-violet-400" : online ? "bg-emerald-400" : "bg-amber-400"}`} /><p className="truncate text-sm font-semibold">{shared.name}</p></div>
-              <p className="truncate text-xs fx-soft">{activeMode === "offline" ? "AI offline" : online ? "Lovable AI" : "Tidak ada jaringan"}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-1">
-            {screen === "chat" && <Button variant="ghost" size="icon" className="fx-press rounded-full" onClick={startNewConversation}><Plus className="h-5 w-5" /></Button>}
-            <Button variant="ghost" size="icon" className="fx-press rounded-full" onClick={() => setTheme((value) => value === "dark" ? "light" : "dark")}>{theme === "dark" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}</Button>
-          </div>
-        </div>
-      </header>
+      <header className="absolute inset-x-0 top-0 z-30 px-4 pt-3"><div className="mx-auto flex max-w-5xl items-center justify-between rounded-[28px] fx-card px-3 py-3 shadow-2xl"><div className="flex min-w-0 items-center gap-3"><Button variant="ghost" size="icon" className="fx-press rounded-full" onClick={() => setMenuOpen(true)}><Menu className="h-5 w-5" /></Button><div className="min-w-0"><div className="flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${nativeStatus.installed ? "bg-violet-400" : "bg-amber-400"}`} /><p className="truncate text-sm font-semibold">{shared.name}</p></div><p className="truncate text-xs fx-soft">{nativeStatus.installed ? "AI lokal" : "Model lokal belum dipasang"}</p></div></div><div className="flex items-center gap-1">{screen === "chat" && <Button variant="ghost" size="icon" className="fx-press rounded-full" onClick={startNewConversation}><Plus className="h-5 w-5" /></Button>}<Button variant="ghost" size="icon" className="fx-press rounded-full" onClick={() => setTheme((value) => value === "dark" ? "light" : "dark")}>{theme === "dark" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}</Button></div></div></header>
 
-      {screen === "chat" && (
-        <main ref={scrollRef} className="absolute inset-x-0 bottom-0 top-0 z-10 overflow-y-auto px-4 pb-48 pt-24">
-          <div className="mx-auto flex min-h-full max-w-3xl flex-col justify-end gap-3">
-            {!messages.length && (
-              <div className="max-w-[88%] self-start rounded-[26px] fx-card px-4 py-4 shadow-2xl ">
-                <p className="text-sm leading-relaxed">{profile.defaultGreeting}</p>
-                <p className="mt-2 text-[11px] fx-soft">{activeMode === "offline" ? "Mode offline siap" : "Lovable AI siap"}</p>
-              </div>
-            )}
-            {messages.map((message, index) => {
-              const user = message.role === "user";
-              const speaking = voicePlayingId === message.id;
-              return (
-                <div
-                  key={message.id}
-                  className={`fx-rise flex flex-col ${user ? "items-end" : "items-start"}`}
-                  style={{ animationDelay: `${Math.min(index, 6) * 35}ms` }}
-                >
-                  <div className={`w-fit max-w-[88%] rounded-[25px] px-4 py-3 text-sm shadow-xl ${user ? "fx-bubble-user" : "fx-bubble-ai"}`}>
-                    {message.imageDataUrl && <img src={message.imageDataUrl} alt="Lampiran" className="mb-3 max-h-72 rounded-2xl object-cover" />}
-                    <p className="whitespace-pre-wrap leading-relaxed">{message.content || (message.role === "assistant" ? "…" : "")}</p>
-                  </div>
-                  <div className="mt-1 flex items-center gap-2 px-2 text-[11px] fx-soft">
-                    <span>{formatTime(message.at)}</span>
-                    {!user && message.content.trim() && (
-                      <button
-                        aria-label={speaking ? "Hentikan suara" : "Dengarkan suara Furina"}
-                        className="fx-press flex items-center gap-1 rounded-full fx-subtle px-2 py-0.5 text-[10px]"
-                        onClick={() => toggleVoice(message)}
-                        disabled={voiceBusyId === message.id}
-                      >
-                        {voiceBusyId === message.id
-                          ? <Loader2 className="h-3 w-3 animate-spin" />
-                          : speaking
-                            ? <VolumeX className="h-3 w-3" />
-                            : <Volume2 className="h-3 w-3" />}
-                        {speaking ? "Berhenti" : "Suara"}
-                      </button>
-                    )}
-                    {message.status === "failed" && user && <button className="fx-press rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] text-white" onClick={() => sendMessage(message.failedPayload || message.content, message.imageDataUrl)}>Kirim ulang</button>}
-                  </div>
-                </div>
-              );
-            })}
-            {sending && activeMode === "online" && <div className="fx-rise self-start rounded-[25px] fx-card px-4 py-3"><div className="flex gap-1"><span className="h-2 w-2 animate-bounce rounded-full bg-current opacity-60" /><span className="h-2 w-2 animate-bounce rounded-full bg-current opacity-60 [animation-delay:120ms]" /><span className="h-2 w-2 animate-bounce rounded-full bg-current opacity-60 [animation-delay:240ms]" /></div></div>}
-          </div>
-        </main>
-      )}
+      {screen === "chat" && <main ref={scrollRef} className="furina-page absolute inset-x-0 bottom-0 top-0 z-10 overflow-y-auto px-4 pb-40 pt-24"><div className="mx-auto flex min-h-full max-w-3xl flex-col justify-end gap-3">{!messages.length && <div className="max-w-[88%] self-start rounded-[26px] fx-card px-4 py-4 shadow-2xl"><p className="text-sm leading-relaxed">{profile.defaultGreeting}</p><p className="mt-2 text-[11px] fx-soft">{nativeStatus.installed ? "Model lokal siap" : "Impor model GGUF untuk mulai"}</p></div>}{messages.map((message, index) => <div key={message.id} className={`fx-rise flex flex-col ${message.role === "user" ? "items-end" : "items-start"}`} style={{ animationDelay: `${Math.min(index, 6) * 35}ms` }}><div className={`w-fit max-w-[88%] rounded-[25px] px-4 py-3 text-sm shadow-xl ${message.role === "user" ? "fx-bubble-user" : "fx-bubble-ai"}`}>{message.imageDataUrl && <img src={message.imageDataUrl} alt="Lampiran" className="mb-3 max-h-72 rounded-2xl object-cover" />}<p className="whitespace-pre-wrap leading-relaxed">{message.content || (message.role === "assistant" ? "…" : "")}</p></div><div className="mt-1 flex items-center gap-2 px-2 text-[11px] fx-soft"><span>{formatTime(message.at)}</span>{message.status === "failed" && message.role === "user" && <button className="fx-press rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] text-white" onClick={() => sendMessage(message.failedPayload || message.content, message.imageDataUrl)}>Kirim ulang</button>}</div></div>)}</div></main>}
 
-      {screen === "history" && <PageShell><PageTitle eyebrow="Tersimpan lokal" title="Riwayat Percakapan" description="Chat online dan offline pada tampilan ini tersimpan di perangkat." /><div className="rounded-3xl fx-card p-3 "><div className="flex items-center gap-2 rounded-2xl fx-subtle px-3 py-2"><Search className="h-4 w-4 fx-soft" /><input value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Cari percakapan…" className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400" /></div><div className="mt-3 flex gap-2">{[["all","Semua"],["image","Gambar"],["pinned","Pinned"]].map(([id,label]) => <button key={id} onClick={() => setHistoryFilter(id as typeof historyFilter)} className={`rounded-full px-3 py-1.5 text-xs ${historyFilter === id ? "bg-sky-500" : "fx-subtle text-slate-200/70"}`}>{label}</button>)}</div></div><div className="mt-4 grid gap-3">{filteredConversations.map((conversation) => { const last = conversation.messages[conversation.messages.length - 1]; return <article key={conversation.id} className="rounded-3xl fx-card p-4 "><div className="flex items-start justify-between gap-3"><button className="min-w-0 flex-1 text-left" onClick={() => selectConversation(conversation.id)}><div className="flex items-center gap-2"><p className="truncate text-sm font-semibold">{conversation.title}</p>{conversation.pinned && <span className="rounded-full bg-sky-500/20 px-2 py-0.5 text-[10px]">Pinned</span>}</div><p className="mt-1 line-clamp-2 text-sm fx-soft">{last?.content || "Belum ada pesan."}</p><p className="mt-2 text-[11px] fx-soft">{relativeTime(conversation.updatedAt, clock)} · {conversation.messages.length} pesan</p></button><div className="flex gap-1"><Button variant="ghost" size="sm" className="rounded-full" onClick={() => togglePinned(conversation.id)}>{conversation.pinned ? "Lepas" : "Pin"}</Button><Button variant="ghost" size="icon" className="rounded-full text-red-200" onClick={() => deleteConversation(conversation.id)}><Trash2 className="h-4 w-4" /></Button></div></div></article>; })}</div></PageShell>}
+      {screen === "history" && <PageShell><PageTitle eyebrow="Tersimpan lokal" title="Riwayat Percakapan" description="Semua chat berada di perangkat ini." /><div className="rounded-3xl fx-card p-3"><div className="flex items-center gap-2 rounded-2xl fx-subtle px-3 py-2"><Search className="h-4 w-4 fx-soft" /><input value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Cari percakapan…" className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400" /></div><div className="mt-3 flex gap-2">{[["all", "Semua"], ["image", "Gambar"], ["pinned", "Pinned"]].map(([id, label]) => <button key={id} onClick={() => setHistoryFilter(id as typeof historyFilter)} className={`rounded-full px-3 py-1.5 text-xs ${historyFilter === id ? "bg-sky-500" : "fx-subtle text-slate-200/70"}`}>{label}</button>)}</div></div><div className="mt-4 grid gap-3">{filteredConversations.map((conversation) => { const last = conversation.messages[conversation.messages.length - 1]; return <article key={conversation.id} className="rounded-3xl fx-card p-4"><div className="flex items-start justify-between gap-3"><button className="min-w-0 flex-1 text-left" onClick={() => selectConversation(conversation.id)}><div className="flex items-center gap-2"><p className="truncate text-sm font-semibold">{conversation.title}</p>{conversation.pinned && <span className="rounded-full bg-sky-500/20 px-2 py-0.5 text-[10px]">Pinned</span>}</div><p className="mt-1 line-clamp-2 text-sm fx-soft">{last?.content || "Belum ada pesan."}</p><p className="mt-2 text-[11px] fx-soft">{relativeTime(conversation.updatedAt, clock)} · {conversation.messages.length} pesan</p></button><div className="flex gap-1"><Button variant="ghost" size="sm" className="rounded-full" onClick={() => togglePinned(conversation.id)}>{conversation.pinned ? "Lepas" : "Pin"}</Button><Button variant="ghost" size="icon" className="rounded-full text-red-200" onClick={() => deleteConversation(conversation.id)}><Trash2 className="h-4 w-4" /></Button></div></div></article>; })}</div></PageShell>}
 
-      {screen === "dashboard" && <PageShell><PageTitle eyebrow="Ringkasan" title="Dashboard" description="Status AI, memori, dan data lokal dalam satu tempat." /><div className="grid grid-cols-2 gap-3"><Metric icon={activeMode === "offline" ? Cpu : Cloud} label="Mode aktif" value={activeMode === "offline" ? "Offline" : "Lovable"} /><Metric icon={History} label="Percakapan" value={String(stats.conversations)} /><Metric icon={ImageIcon} label="Gambar" value={String(stats.images)} /><Metric icon={Brain} label="Memori" value={String(stats.memories)} /></div><Card><h3 className="font-semibold">Sumber AI</h3><p className="mt-2 text-sm fx-soft">Persona dan memori bersama dikirim ke Lovable AI maupun model offline, sehingga karakter tidak berubah ketika mode diganti.</p><div className="mt-4 grid grid-cols-2 gap-2"><Button onClick={useOnlineMode} className={`rounded-2xl ${activeMode === "online" ? "bg-sky-500" : "bg-white/10"}`}><Cloud className="mr-2 h-4 w-4" />Online</Button><Button onClick={useOfflineMode} className={`rounded-2xl ${activeMode === "offline" ? "bg-violet-500" : "bg-white/10"}`}><Cpu className="mr-2 h-4 w-4" />Offline</Button></div></Card><Card><h3 className="font-semibold">Aksi cepat</h3><div className="mt-3 grid gap-2"><QuickButton icon={Plus} title="Chat baru" onClick={startNewConversation} /><QuickButton icon={Bot} title="Kelola model" onClick={() => setScreen("models")} /><QuickButton icon={Download} title="Ekspor backup" onClick={exportData} /></div></Card></PageShell>}
+      {screen === "dashboard" && <PageShell><PageTitle eyebrow="Ringkasan lokal" title="Dashboard" description="Status model, memori, dan data perangkat." /><div className="grid grid-cols-2 gap-3"><Metric icon={Cpu} label="Mode aktif" value="Offline" /><Metric icon={History} label="Percakapan" value={String(stats.conversations)} /><Metric icon={ImageIcon} label="Gambar" value={String(stats.images)} /><Metric icon={Brain} label="Memori" value={String(stats.memories)} /></div><Card><h3 className="font-semibold">Privasi perangkat</h3><p className="mt-2 text-sm fx-soft">Tidak ada provider cloud, login, sinkronisasi, ataupun fallback jaringan. Prompt dan data diproses oleh model GGUF lokal.</p><div className="mt-4 flex items-center gap-2 rounded-2xl bg-emerald-500/10 px-3 py-3 text-sm text-emerald-100"><ShieldCheck className="h-4 w-4" />Tidak mengirim data keluar</div></Card><Card><h3 className="font-semibold">Aksi cepat</h3><div className="mt-3 grid gap-2"><QuickButton icon={Plus} title="Chat baru" onClick={startNewConversation} /><QuickButton icon={Bot} title="Kelola model lokal" onClick={() => nativeBridge()?.openModelManager()} /><QuickButton icon={Download} title="Ekspor backup" onClick={exportData} /></div></Card></PageShell>}
 
-      {screen === "models" && <PageShell><PageTitle eyebrow="AI di perangkat" title="Kelola Model" description="Lovable AI untuk kualitas online; model lokal untuk privasi dan penggunaan tanpa jaringan." /><Card><div className="flex items-start gap-3"><div className="rounded-2xl bg-sky-500/20 p-3"><Cloud className="h-5 w-5" /></div><div className="flex-1"><div className="flex items-center justify-between"><h3 className="font-semibold">Lovable AI</h3>{activeMode === "online" && <span className="rounded-full bg-emerald-500/20 px-2 py-1 text-[10px] text-emerald-100">Aktif</span>}</div><p className="mt-1 text-sm fx-soft">Mode online dengan persona dan memori bersama.</p><Button onClick={useOnlineMode} className="mt-3 rounded-2xl bg-sky-500">Gunakan online</Button></div></div></Card><Card><div className="flex items-start gap-3"><div className="rounded-2xl bg-violet-500/20 p-3"><Cpu className="h-5 w-5" /></div><div className="flex-1"><div className="flex items-center justify-between"><h3 className="font-semibold">{nativeStatus.activeModelId || "Model Offline"}</h3>{activeMode === "offline" && <span className="rounded-full bg-violet-500/20 px-2 py-1 text-[10px] text-violet-100">Aktif</span>}</div><p className="mt-1 text-sm fx-soft">{nativeBridge() ? nativeStatus.installed ? `Terpasang${nativeStatus.multimodalReady ? " · teks + gambar" : " · teks"}` : "Belum ada model aktif." : "Tersedia melalui APK Android."}</p><div className="mt-3 flex flex-wrap gap-2"><Button onClick={useOfflineMode} className="rounded-2xl bg-violet-500">Gunakan offline</Button><Button variant="outline" className="fx-subtle fx-press rounded-2xl" onClick={() => nativeBridge()?.openModelManager()} disabled={!nativeBridge()}>Unduh / ganti model</Button></div></div></div></Card><Card><h3 className="font-semibold">Cara kerja</h3><div className="mt-3 space-y-3 text-sm fx-soft"><p className="flex gap-2"><Check className="mt-0.5 h-4 w-4 text-emerald-300" />Model offline tetap tersimpan ketika APK diperbarui.</p><p className="flex gap-2"><Check className="mt-0.5 h-4 w-4 text-emerald-300" />Memori bersama digunakan oleh semua model.</p><p className="flex gap-2"><WifiOff className="mt-0.5 h-4 w-4 text-sky-300" />Saat jaringan tidak ada, APK dapat dibuka melalui antarmuka lokal.</p></div></Card></PageShell>}
+      {screen === "models" && <PageShell><PageTitle eyebrow="AI di perangkat" title="Model Lokal" description="Impor model GGUF dari penyimpanan perangkat. Aplikasi tidak mengunduh model sendiri." /><Card><div className="flex items-start gap-3"><div className="rounded-2xl bg-violet-500/20 p-3"><Cpu className="h-5 w-5" /></div><div className="flex-1"><div className="flex items-center justify-between"><h3 className="font-semibold">{nativeStatus.activeModelId || "Belum ada model aktif"}</h3>{nativeStatus.installed && <span className="rounded-full bg-violet-500/20 px-2 py-1 text-[10px] text-violet-100">Aktif lokal</span>}</div><p className="mt-1 text-sm fx-soft">{nativeBridge() ? nativeStatus.installed ? `Terpasang${nativeStatus.multimodalReady ? " · teks + gambar" : " · teks"}` : "Impor model GGUF untuk mulai." : "Pengelola model tersedia melalui APK Android."}</p><div className="mt-3 flex flex-wrap gap-2"><Button className="rounded-2xl bg-violet-500" onClick={() => nativeBridge()?.openModelManager()} disabled={!nativeBridge()}><HardDrive className="mr-2 h-4 w-4" />Impor / ganti model</Button>{nativeStatus.installed && <Button variant="outline" className="fx-subtle fx-press rounded-2xl" onClick={() => { nativeBridge()?.deactivateOfflineModel(); setNativeStatus(DEFAULT_NATIVE); }}>Lepas model</Button>}</div></div></div></Card><Card><h3 className="font-semibold">Cara kerja</h3><div className="mt-3 space-y-3 text-sm fx-soft"><p className="flex gap-2"><Check className="mt-0.5 h-4 w-4 text-emerald-300" />File model tersimpan di ruang aplikasi dan tidak hilang saat APK diperbarui.</p><p className="flex gap-2"><Check className="mt-0.5 h-4 w-4 text-emerald-300" />Persona dan memori lokal dimasukkan ke prompt model aktif.</p><p className="flex gap-2"><WifiOff className="mt-0.5 h-4 w-4 text-sky-300" />Inferensi tetap berjalan tanpa Wi-Fi maupun data seluler.</p></div></Card></PageShell>}
 
-      {screen === "settings" && <PageShell><PageTitle eyebrow="Personalisasi" title="Pengaturan" description="Satu persona dan satu memori untuk seluruh mode AI." /><Card><SettingTitle icon={User} title="Persona bersama" /><label className="text-xs fx-soft">Nama karakter</label><Input value={shared.name} onChange={(event) => setShared((previous) => ({ ...previous, name: event.target.value.slice(0, 40) }))} className="fx-subtle mt-2" /><label className="mt-4 block text-xs fx-soft">Kepribadian tambahan</label><Textarea rows={5} value={shared.persona} onChange={(event) => setShared((previous) => ({ ...previous, persona: event.target.value.slice(0, 6000) }))} placeholder="Kosongkan untuk memakai persona Furina bawaan." className="fx-subtle mt-2" /><label className="mt-4 block text-xs fx-soft">Bahasa balasan</label><select value={shared.language} onChange={(event) => setShared((previous) => ({ ...previous, language: event.target.value as SharedState["language"] }))} className="fx-subtle mt-2 h-11 w-full rounded-xl px-3 text-sm"><option value="auto">Ikuti bahasa pengguna</option><option value="id">Indonesia</option><option value="en">English</option><option value="ja">日本語</option></select></Card><Card><SettingTitle icon={Brain} title="Memori bersama" /><p className="text-sm fx-soft">Memori ini disimpan di perangkat dan diberikan kepada Lovable AI serta model offline ketika relevan.</p><div className="mt-3 flex gap-2"><Input value={memoryDraft} onChange={(event) => setMemoryDraft(event.target.value)} onKeyDown={(event) => event.key === "Enter" && addMemory()} placeholder="Contoh: Wynn menyukai jawaban yang langsung." className="fx-subtle" /><Button size="icon" className="shrink-0 rounded-xl bg-sky-500" onClick={addMemory}><Plus className="h-4 w-4" /></Button></div><div className="mt-3 max-h-60 space-y-2 overflow-y-auto">{shared.memories.slice().reverse().map((memory) => <div key={memory} className="flex items-start gap-2 rounded-2xl fx-subtle px-3 py-2 text-sm"><p className="flex-1 fx-text">{memory}</p><button onClick={() => setShared((previous) => ({ ...previous, memories: previous.memories.filter((item) => item !== memory) }))}><X className="h-4 w-4 text-slate-400" /></button></div>)}{!shared.memories.length && <p className="rounded-2xl border border-dashed border-white/10 p-4 text-center text-sm text-slate-400">Belum ada memori bersama.</p>}</div></Card><Card><SettingTitle icon={Volume2} title="Suara VOICEVOX" /><p className="text-sm fx-soft">Suara Furina memakai VOICEVOX gratis. Teks non-Jepang diterjemahkan otomatis sebelum dibacakan, dan balasan terakhir disiapkan di latar belakang agar tombol putar terasa instan.</p><div className="mt-3 flex items-center justify-between rounded-2xl fx-subtle px-3 py-2"><span className="text-sm">Siapkan suara otomatis</span><button onClick={() => setVoiceEnabled((value) => !value)} className={`fx-press h-7 w-12 rounded-full transition-colors ${voiceEnabled ? "bg-sky-500" : "bg-foreground/20"}`}><span className={`block h-6 w-6 rounded-full bg-white transition-transform ${voiceEnabled ? "translate-x-6" : "translate-x-0.5"}`} /></button></div><label className="mt-4 block text-xs fx-soft">Karakter suara</label><select value={voiceSpeaker} onChange={(event) => { stopVoice(); setVoiceSpeaker(Number(event.target.value)); }} className="fx-subtle mt-2 h-11 w-full rounded-xl px-3 text-sm">{VOICEVOX_SPEAKERS.map((speaker) => <option key={speaker.id} value={speaker.id}>{speaker.label}</option>)}</select><Button className="fx-press mt-3 w-full rounded-2xl bg-sky-500" onClick={() => toggleVoice({ id: "preview-voice", role: "assistant", content: "Halo, aku Furina. Beginilah suaraku terdengar.", at: Date.now() })}>{voiceBusyId === "preview-voice" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Volume2 className="mr-2 h-4 w-4" />}Coba suara</Button></Card><Card><SettingTitle icon={Database} title="Akun dan backup" /><Button className="fx-subtle fx-press w-full rounded-2xl" onClick={loginGoogle}><LogIn className="mr-2 h-4 w-4" />Masuk dengan Google</Button><div className="mt-3 grid grid-cols-2 gap-2"><Button variant="outline" className="fx-subtle fx-press rounded-2xl" onClick={exportData}><Download className="mr-2 h-4 w-4" />Ekspor</Button><Button variant="outline" className="fx-subtle fx-press rounded-2xl" onClick={() => importInputRef.current?.click()}><Upload className="mr-2 h-4 w-4" />Impor</Button></div><input ref={importInputRef} type="file" accept="application/json" className="hidden" onChange={(event) => importData(event.target.files?.[0])} /></Card></PageShell>}
+      {screen === "settings" && <PageShell><PageTitle eyebrow="Personalisasi lokal" title="Pengaturan" description="Persona dan memori hanya digunakan di perangkat." /><Card><SettingTitle icon={User} title="Persona lokal" /><label className="text-xs fx-soft">Nama karakter</label><Input value={shared.name} onChange={(event) => setShared((previous) => ({ ...previous, name: event.target.value.slice(0, 40) }))} className="fx-subtle mt-2" /><label className="mt-4 block text-xs fx-soft">Kepribadian tambahan</label><Textarea rows={5} value={shared.persona} onChange={(event) => setShared((previous) => ({ ...previous, persona: event.target.value.slice(0, 6000) }))} placeholder="Kosongkan untuk memakai persona Furina bawaan." className="fx-subtle mt-2" /><label className="mt-4 block text-xs fx-soft">Bahasa balasan</label><select value={shared.language} onChange={(event) => setShared((previous) => ({ ...previous, language: event.target.value as SharedState["language"] }))} className="fx-subtle mt-2 h-11 w-full rounded-xl px-3 text-sm"><option value="auto">Ikuti bahasa pengguna</option><option value="id">Indonesia</option><option value="en">English</option><option value="ja">日本語</option></select></Card><Card><SettingTitle icon={Brain} title="Memori lokal" /><p className="text-sm fx-soft">Memori disimpan di perangkat dan diberikan hanya kepada model lokal ketika relevan.</p><div className="mt-3 flex gap-2"><Input value={memoryDraft} onChange={(event) => setMemoryDraft(event.target.value)} onKeyDown={(event) => event.key === "Enter" && addMemory()} placeholder="Contoh: Wynn menyukai jawaban yang langsung." className="fx-subtle" /><Button size="icon" className="shrink-0 rounded-xl bg-sky-500" onClick={addMemory}><Plus className="h-4 w-4" /></Button></div><div className="mt-3 max-h-60 space-y-2 overflow-y-auto">{shared.memories.slice().reverse().map((memory) => <div key={memory} className="flex items-start gap-2 rounded-2xl fx-subtle px-3 py-2 text-sm"><p className="flex-1 fx-text">{memory}</p><button onClick={() => setShared((previous) => ({ ...previous, memories: previous.memories.filter((item) => item !== memory) }))}><X className="h-4 w-4 text-slate-400" /></button></div>)}{!shared.memories.length && <p className="rounded-2xl border border-dashed border-white/10 p-4 text-center text-sm text-slate-400">Belum ada memori lokal.</p>}</div></Card><Card><SettingTitle icon={Database} title="Backup lokal" /><p className="text-sm fx-soft">Ekspor dan impor chat, persona, serta memori melalui file JSON. Tidak ada sinkronisasi akun.</p><div className="mt-3 grid grid-cols-2 gap-2"><Button variant="outline" className="fx-subtle fx-press rounded-2xl" onClick={exportData}><Download className="mr-2 h-4 w-4" />Ekspor</Button><Button variant="outline" className="fx-subtle fx-press rounded-2xl" onClick={() => importInputRef.current?.click()}><Upload className="mr-2 h-4 w-4" />Impor</Button></div><input ref={importInputRef} type="file" accept="application/json" className="hidden" onChange={(event) => importData(event.target.files?.[0])} /></Card></PageShell>}
 
-      {screen === "chat" && <div className="absolute inset-x-0 bottom-[82px] z-30 px-4"><div className="mx-auto max-w-3xl rounded-[28px] fx-card p-3 shadow-2xl ">{pendingImage && <div className="mb-3 flex items-center gap-3 rounded-2xl fx-subtle p-2"><img src={pendingImage.dataUrl} alt="Preview" className="h-14 w-14 rounded-2xl object-cover" /><p className="min-w-0 flex-1 truncate text-sm">{pendingImage.name}</p><Button variant="ghost" size="icon" className="rounded-full" onClick={() => setPendingImage(null)}><X className="h-4 w-4" /></Button></div>}<div className="flex items-end gap-2 rounded-[24px] fx-subtle p-2"><input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleImagePick} /><Button variant="ghost" size="icon" className="rounded-full" onClick={() => imageInputRef.current?.click()}><ImageIcon className="h-5 w-5" /></Button><Textarea ref={inputRef} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendMessage(); } }} rows={1} placeholder="Ketik pesan…" className="min-h-11 max-h-32 flex-1 resize-none border-0 bg-transparent text-white shadow-none focus-visible:ring-0" /><Button size="icon" className={`rounded-full ${sending && activeMode === "offline" ? "bg-red-500" : "bg-sky-500"}`} onClick={() => sending && activeMode === "offline" ? stopGeneration() : sendMessage()} disabled={sending && activeMode === "online"}>{sending && activeMode === "offline" ? <X className="h-4 w-4" /> : <Send className="h-4 w-4" />}</Button></div></div></div>}
-
-      <nav className="absolute inset-x-0 bottom-0 z-30 px-3 pb-3"><div className="mx-auto grid max-w-5xl grid-cols-5 rounded-[26px] fx-card p-2 shadow-2xl ">{[["chat",Home,"Chat"],["history",History,"Riwayat"],["dashboard",LayoutDashboard,"Dashboard"],["models",Bot,"Model"],["settings",Settings,"Pengaturan"]].map(([id,Icon,label]) => <button key={String(id)} onClick={() => setScreen(id as Screen)} className={`flex flex-col items-center rounded-[18px] px-1 py-2 text-[10px] ${screen === id ? "bg-sky-500/18 text-sky-100" : "fx-soft"}`}><Icon className="mb-1 h-4 w-4" />{String(label)}</button>)}</div></nav>
+      {screen === "chat" && <div className="furina-composer-dock absolute inset-x-0 bottom-0 z-30 px-4 pb-[max(.8rem,env(safe-area-inset-bottom))]"><div className="mx-auto max-w-3xl rounded-[28px] fx-card p-3 shadow-2xl">{pendingImage && <div className="mb-3 flex items-center gap-3 rounded-2xl fx-subtle p-2"><img src={pendingImage.dataUrl} alt="Preview" className="h-14 w-14 rounded-2xl object-cover" /><p className="min-w-0 flex-1 truncate text-sm">{pendingImage.name}</p><Button variant="ghost" size="icon" className="rounded-full" onClick={() => setPendingImage(null)}><X className="h-4 w-4" /></Button></div>}<div className="flex items-end gap-2 rounded-[24px] fx-subtle p-2"><input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleImagePick} /><Button variant="ghost" size="icon" className="rounded-full" onClick={() => imageInputRef.current?.click()}><ImageIcon className="h-5 w-5" /></Button><Textarea ref={inputRef} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendMessage(); } }} rows={1} placeholder="Ketik pesan…" className="min-h-11 max-h-32 flex-1 resize-none border-0 bg-transparent text-white shadow-none focus-visible:ring-0" /><Button size="icon" className={`rounded-full ${sending ? "bg-red-500" : "bg-sky-500"}`} onClick={() => sending ? stopGeneration() : sendMessage()}>{sending ? <X className="h-4 w-4" /> : <Send className="h-4 w-4" />}</Button></div></div></div>}
     </div>
   );
 }
 
 function PageShell({ children }: { children: ReactNode }) {
-  return <main className="absolute inset-x-0 bottom-0 top-0 z-10 overflow-y-auto px-4 pb-28 pt-24"><div className="mx-auto max-w-5xl space-y-4">{children}</div></main>;
+  return <main className="furina-page absolute inset-x-0 bottom-0 top-0 z-10 overflow-y-auto px-4 pb-8 pt-24"><div className="mx-auto max-w-5xl space-y-4">{children}</div></main>;
 }
 
 function PageTitle({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
-  return <div className="rounded-[30px] fx-card p-5 "><p className="text-xs uppercase tracking-[.28em] text-sky-200/70">{eyebrow}</p><h2 className="mt-2 text-2xl font-semibold">{title}</h2><p className="mt-2 text-sm fx-soft">{description}</p></div>;
+  return <div className="rounded-[30px] fx-card p-5"><p className="text-xs uppercase tracking-[.28em] text-sky-200/70">{eyebrow}</p><h2 className="mt-2 text-2xl font-semibold">{title}</h2><p className="mt-2 text-sm fx-soft">{description}</p></div>;
 }
 
 function Card({ children }: { children: ReactNode }) {
-  return <section className="rounded-[28px] fx-card p-5 shadow-xl ">{children}</section>;
+  return <section className="rounded-[28px] fx-card p-5 shadow-xl">{children}</section>;
 }
 
 function Metric({ icon: Icon, label, value }: { icon: typeof Sparkles; label: string; value: string }) {
-  return <div className="rounded-[26px] fx-card p-4 "><Icon className="h-4 w-4 text-sky-200/80" /><p className="mt-4 text-2xl font-semibold">{value}</p><p className="mt-1 text-xs fx-soft">{label}</p></div>;
+  return <div className="rounded-[26px] fx-card p-4"><Icon className="h-4 w-4 text-sky-200/80" /><p className="mt-4 text-2xl font-semibold">{value}</p><p className="mt-1 text-xs fx-soft">{label}</p></div>;
 }
 
 function QuickButton({ icon: Icon, title, onClick }: { icon: typeof Plus; title: string; onClick: () => void }) {
