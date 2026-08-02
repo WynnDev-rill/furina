@@ -105,7 +105,6 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      { rel: "stylesheet", href: "/furina-ui.css" },
       { rel: "manifest", href: "/manifest.webmanifest" },
       { rel: "icon", type: "image/png", sizes: "192x192", href: "/icon-192.png" },
       { rel: "icon", type: "image/png", sizes: "512x512", href: "/icon-512.png" },
@@ -128,9 +127,7 @@ function RootShell({ children }: { children: React.ReactNode }) {
       <body>
         {children}
         <script src="/furina-migration.js" />
-        <script src="/furina-ui.js" />
         <script src="/furina-sw-register.js" defer />
-        <script src="/furina-voice.js" defer />
         <Scripts />
       </body>
     </html>
