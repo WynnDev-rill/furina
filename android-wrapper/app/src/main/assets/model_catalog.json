@@ -3,75 +3,63 @@
     {
       "id": "qwen35-4b",
       "name": "Qwen3.5-4B",
-      "subtitle": "Offline • teks + gambar • eksperimental",
-      "description": "Model multimodal utama. Paket Q4 dapat digunakan untuk percakapan teks offline. Dukungan gambar memerlukan projector tambahan sekitar 672 MB dan sedang divalidasi pada runtime Android.",
+      "subtitle": "Lokal • teks + gambar • eksperimental",
+      "description": "Model multimodal utama. Impor berkas GGUF Q4 untuk percakapan teks. Dukungan gambar memerlukan berkas projector GGUF terpisah.",
       "sizeBytes": 3300000000,
       "minimumRamGb": 8,
       "recommendedRamGb": 12,
       "recommendedDevice": "Snapdragon 8 Gen 1/8s Gen 3, Dimensity 8200, atau lebih tinggi",
       "supportsImage": true,
       "experimental": true,
-      "downloadUrl": "https://huggingface.co/bartowski/Qwen_Qwen3.5-4B-GGUF/resolve/main/Qwen_Qwen3.5-4B-Q4_K_M.gguf?download=true",
-      "sha256": "",
-      "projectorUrl": "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/mmproj-F16.gguf?download=true",
-      "projectorSha256": "cd88edcf8d031894960bb0c9c5b9b7e1fea6ebee02b9f7ce925a00d12891f864",
       "projectorSizeBytes": 672000000
     },
     {
       "id": "josie-4b-instruct",
       "name": "JOSIE 4B Instruct",
-      "subtitle": "Offline • percakapan natural",
-      "description": "Versi GGUF kompatibel Android yang difokuskan pada dialog ekspresif dan terasa lebih manusiawi. Hanya mendukung teks.",
+      "subtitle": "Lokal • percakapan natural",
+      "description": "Model dialog ekspresif yang kompatibel dengan runtime GGUF Android. Hanya mendukung teks.",
       "sizeBytes": 2500000000,
       "minimumRamGb": 8,
       "recommendedRamGb": 12,
       "recommendedDevice": "Snapdragon 870/7+ Gen 2, Dimensity 8100, atau lebih tinggi",
       "supportsImage": false,
-      "experimental": true,
-      "downloadUrl": "https://huggingface.co/mradermacher/JOSIE-4B-Instruct-GGUF/resolve/main/JOSIE-4B-Instruct.Q4_K_M.gguf?download=true",
-      "sha256": ""
+      "experimental": true
     },
     {
       "id": "basically-human-4b",
       "name": "Basically-Human-4B",
-      "subtitle": "Offline • emosional dan roleplay",
-      "description": "Eksperimen percakapan emosional dan konsistensi karakter untuk penggunaan terbatas. Hanya mendukung teks.",
+      "subtitle": "Lokal • emosional dan roleplay",
+      "description": "Eksperimen percakapan emosional dan konsistensi karakter. Hanya mendukung teks.",
       "sizeBytes": 2500000000,
       "minimumRamGb": 8,
       "recommendedRamGb": 12,
       "recommendedDevice": "Snapdragon 870/7+ Gen 2, Dimensity 8100, atau lebih tinggi",
       "supportsImage": false,
-      "experimental": true,
-      "downloadUrl": "https://huggingface.co/prithivMLmods/Basically-Human-4B-f32-GGUF/resolve/main/Basically-Human-4B.Q4_K_M.gguf?download=true",
-      "sha256": ""
+      "experimental": true
     },
     {
       "id": "arityflow-qwen3-4b-roleplay",
       "name": "ArityFlow Qwen3 4B RolePlay",
-      "subtitle": "Offline • roleplay mendalam",
+      "subtitle": "Lokal • roleplay mendalam",
       "description": "Ditujukan untuk konsistensi karakter dan dialog roleplay lebih panjang. Hanya mendukung teks.",
       "sizeBytes": 2500000000,
       "minimumRamGb": 8,
       "recommendedRamGb": 12,
       "recommendedDevice": "Snapdragon 870/7+ Gen 2, Dimensity 8100, atau lebih tinggi",
       "supportsImage": false,
-      "experimental": true,
-      "downloadUrl": "https://huggingface.co/mradermacher/ArityFlow-Qwen3-4B-Instruct-2507-RolePlay-i1-GGUF/resolve/main/ArityFlow-Qwen3-4B-Instruct-2507-RolePlay.i1-Q4_K_M.gguf?download=true",
-      "sha256": ""
+      "experimental": true
     },
     {
       "id": "qwen3-4b-instruct-2507",
       "name": "Qwen3-4B-Instruct-2507",
-      "subtitle": "Offline • stabil dan seimbang",
-      "description": "Model teks resmi yang paling aman sebagai baseline awal. Stabil, multilingual, tetapi tidak dapat membaca gambar.",
+      "subtitle": "Lokal • stabil dan seimbang",
+      "description": "Model teks multilingual yang stabil sebagai baseline. Tidak mendukung gambar.",
       "sizeBytes": 2500000000,
       "minimumRamGb": 8,
       "recommendedRamGb": 12,
       "recommendedDevice": "Snapdragon 870/7+ Gen 2, Dimensity 8100, atau lebih tinggi",
       "supportsImage": false,
-      "experimental": false,
-      "downloadUrl": "https://huggingface.co/bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf?download=true",
-      "sha256": ""
+      "experimental": false
     }
   ]
 }

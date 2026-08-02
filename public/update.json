@@ -1,8 +1,0 @@
-{
-  "latestVersionCode": 63,
-  "minimumSupportedVersionCode": 63,
-  "versionName": "1.0.63",
-  "apkUrl": "https://furina-pi.vercel.app/Furina.apk",
-  "sha256": "692541c3eef14b654c7b4f2ff7c11b08b599cce2049d083c0ba57988fefb830c",
-  "notes": "Pembaruan Furina: perbaikan Lovable AI dan AI offline, penguatan persona, VOICEVOX, navigasi hamburger, serta animasi antarmuka yang lebih halus."
-}

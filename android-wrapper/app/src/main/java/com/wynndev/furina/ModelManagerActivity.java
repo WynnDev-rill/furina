@@ -1,24 +1,18 @@
 package com.wynndev.furina;
 
-import android.Manifest;
 import android.app.ActivityManager;
 import android.app.AlertDialog;
-import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.os.Build;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.Handler;
-import android.os.Looper;
 import android.os.StatFs;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
-import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -26,7 +20,6 @@ import android.widget.Toast;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.content.ContextCompat;
 import androidx.core.view.WindowCompat;
 
 import org.json.JSONArray;
@@ -34,12 +27,15 @@ import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 
+/** Offline model manager. Models are imported from local storage; no download client exists. */
 public class ModelManagerActivity extends AppCompatActivity {
     private static final int BG = Color.rgb(8, 17, 31);
     private static final int CARD = Color.rgb(17, 31, 49);
@@ -51,36 +47,29 @@ public class ModelManagerActivity extends AppCompatActivity {
     private static final String ACTIVE_MODEL = "active_model";
     private static final String MODE_PREFS = "furina_ai_mode";
     private static final String ACTIVE_MODE = "active_mode";
+    private static final long MIN_MODEL_BYTES = 100_000_000L;
 
-    private final Handler handler = new Handler(Looper.getMainLooper());
     private final Map<String, JSONObject> models = new HashMap<>();
-    private final Map<String, ProgressBar> progressBars = new HashMap<>();
     private final Map<String, TextView> statusViews = new HashMap<>();
-    private final Map<String, Button> primaryButtons = new HashMap<>();
+    private final Map<String, Button> activateButtons = new HashMap<>();
+    private final Map<String, Button> importButtons = new HashMap<>();
     private final Map<String, Button> visionButtons = new HashMap<>();
-    private final Map<String, Button> cancelButtons = new HashMap<>();
     private final Map<String, Button> deleteButtons = new HashMap<>();
 
     private LinearLayout list;
-    private JSONObject pendingModel;
+    private String pendingModelId = "";
     private boolean pendingVision;
+    private boolean importing;
 
-    private final ActivityResultLauncher<String> notificationPermission = registerForActivityResult(
-        new ActivityResultContracts.RequestPermission(), granted -> {
-            if (pendingModel != null) {
-                JSONObject model = pendingModel;
-                boolean vision = pendingVision;
-                pendingModel = null;
+    private final ActivityResultLauncher<String[]> modelPicker = registerForActivityResult(
+        new ActivityResultContracts.OpenDocument(),
+        uri -> {
+            if (uri == null || pendingModelId.isEmpty()) {
+                pendingModelId = "";
                 pendingVision = false;
-                startForegroundDownload(model, vision);
-                if (!granted) {
-                    Toast.makeText(
-                        this,
-                        "Unduhan tetap berjalan, tetapi progres mungkin tidak terlihat di notifikasi.",
-                        Toast.LENGTH_LONG
-                    ).show();
-                }
+                return;
             }
+            importSelectedFile(uri, pendingModelId, pendingVision);
         }
     );
 
@@ -91,7 +80,11 @@ public class ModelManagerActivity extends AppCompatActivity {
         getWindow().setNavigationBarColor(BG);
         buildUi();
         loadCatalog();
-        handler.post(progressPoller);
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        refreshAll();
     }
 
     private void buildUi() {
@@ -102,18 +95,14 @@ public class ModelManagerActivity extends AppCompatActivity {
         list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(dp(18), dp(20), dp(18), dp(36));
-        scroll.addView(
-            list,
-            new ScrollView.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        );
+        scroll.addView(list, new ScrollView.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
 
-        list.addView(text("Model AI Furina", 25, TEXT, true));
+        list.addView(text("Model Lokal Furina", 25, TEXT, true));
         TextView intro = text(
-            "Model tersimpan di perangkat. Kamu dapat mengganti atau melepas model aktif tanpa menghapus file. " +
-                "Qwen3.5 membutuhkan paket vision tambahan agar dapat membaca gambar.",
+            "Furina tidak mengunduh model dari internet. Siapkan file GGUF secara terpisah, lalu impor dari penyimpanan perangkat. File disalin ke ruang privat aplikasi dan tetap tersimpan setelah pembaruan APK.",
             14,
             MUTED,
             false
@@ -126,7 +115,7 @@ public class ModelManagerActivity extends AppCompatActivity {
         long ramGb = Math.max(1, Math.round(memory.totalMem / 1073741824.0));
         long freeGb = getFreeBytes() / 1073741824L;
         TextView device = text(
-            "Perangkat ini: sekitar " + ramGb + " GB RAM • " + freeGb + " GB penyimpanan kosong",
+            "Perangkat: sekitar " + ramGb + " GB RAM • " + freeGb + " GB penyimpanan kosong",
             13,
             ACCENT,
             true
@@ -139,18 +128,15 @@ public class ModelManagerActivity extends AppCompatActivity {
     private void loadCatalog() {
         try {
             StringBuilder out = new StringBuilder();
-            try (
-                BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(getAssets().open("model_catalog.json"), StandardCharsets.UTF_8)
-                )
-            ) {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                getAssets().open("model_catalog.json"), StandardCharsets.UTF_8
+            ))) {
                 String line;
                 while ((line = reader.readLine()) != null) out.append(line);
             }
-
             JSONArray array = new JSONObject(out.toString()).getJSONArray("models");
-            for (int i = 0; i < array.length(); i++) {
-                JSONObject model = array.getJSONObject(i);
+            for (int index = 0; index < array.length(); index++) {
+                JSONObject model = array.getJSONObject(index);
                 models.put(model.getString("id"), model);
                 addModelCard(model);
             }
@@ -161,7 +147,6 @@ public class ModelManagerActivity extends AppCompatActivity {
 
     private void addModelCard(JSONObject model) throws Exception {
         String id = model.getString("id");
-
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(16), dp(15), dp(16), dp(15));
@@ -174,12 +159,7 @@ public class ModelManagerActivity extends AppCompatActivity {
         list.addView(card, params);
 
         card.addView(text(model.getString("name"), 18, TEXT, true));
-        TextView subtitle = text(
-            model.getString("subtitle"),
-            13,
-            model.optBoolean("supportsImage") ? ACCENT : MUTED,
-            true
-        );
+        TextView subtitle = text(model.getString("subtitle"), 13, model.optBoolean("supportsImage") ? ACCENT : MUTED, true);
         subtitle.setPadding(0, dp(4), 0, dp(8));
         card.addView(subtitle);
         card.addView(text(model.getString("description"), 14, MUTED, false));
@@ -187,23 +167,19 @@ public class ModelManagerActivity extends AppCompatActivity {
         long mainSize = model.optLong("sizeBytes", 0L);
         long projectorSize = model.optLong("projectorSizeBytes", 0L);
         String totalSize = projectorSize > 0L
-            ? String.format(Locale.US, "±%.1f GB + vision %.0f MB", mainSize / 1_000_000_000.0, projectorSize / 1_000_000.0)
+            ? String.format(Locale.US, "±%.1f GB + projector %.0f MB", mainSize / 1_000_000_000.0, projectorSize / 1_000_000.0)
             : String.format(Locale.US, "±%.1f GB", mainSize / 1_000_000_000.0);
-        String specs = totalSize +
-            " • RAM minimum " + model.optInt("minimumRamGb", 8) + " GB" +
-            " • disarankan " + model.optInt("recommendedRamGb", 12) + " GB\nPerangkat: " +
-            model.optString("recommendedDevice", "Android arm64 kelas menengah atas");
-        TextView specView = text(specs, 12, Color.rgb(133, 158, 181), false);
-        specView.setPadding(0, dp(9), 0, dp(9));
-        card.addView(specView);
+        TextView specs = text(
+            totalSize + " • RAM minimum " + model.optInt("minimumRamGb", 8) + " GB\n" +
+                model.optString("recommendedDevice", "Android arm64 kelas menengah atas"),
+            12,
+            Color.rgb(133, 158, 181),
+            false
+        );
+        specs.setPadding(0, dp(9), 0, dp(9));
+        card.addView(specs);
 
-        ProgressBar progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        progress.setMax(100);
-        progress.setVisibility(View.GONE);
-        card.addView(progress, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(7)));
-        progressBars.put(id, progress);
-
-        TextView status = text("Memeriksa model…", 12, MUTED, false);
+        TextView status = text("Memeriksa file lokal…", 12, MUTED, false);
         status.setPadding(0, dp(7), 0, dp(8));
         card.addView(status);
         statusViews.put(id, status);
@@ -212,26 +188,24 @@ public class ModelManagerActivity extends AppCompatActivity {
         actions.setGravity(Gravity.END);
         actions.setOrientation(LinearLayout.HORIZONTAL);
 
-        Button vision = button("Unduh fitur gambar");
-        vision.setVisibility(View.GONE);
-        vision.setOnClickListener(v -> requestDownload(model, true));
-        actions.addView(vision);
-        visionButtons.put(id, vision);
+        Button importModel = button("Impor GGUF");
+        importModel.setOnClickListener(view -> pickModel(id, false));
+        actions.addView(importModel);
+        importButtons.put(id, importModel);
 
-        Button primary = button("Unduh");
-        primary.setOnClickListener(v -> onPrimary(model));
-        actions.addView(primary);
-        primaryButtons.put(id, primary);
+        Button importVision = button("Impor projector");
+        importVision.setVisibility(model.optBoolean("supportsImage") ? View.VISIBLE : View.GONE);
+        importVision.setOnClickListener(view -> pickModel(id, true));
+        actions.addView(importVision);
+        visionButtons.put(id, importVision);
 
-        Button cancel = button("Batalkan");
-        cancel.setVisibility(View.GONE);
-        cancel.setOnClickListener(v -> cancelDownload(id));
-        actions.addView(cancel);
-        cancelButtons.put(id, cancel);
+        Button activate = button("Gunakan");
+        activate.setOnClickListener(view -> toggleActive(id));
+        actions.addView(activate);
+        activateButtons.put(id, activate);
 
         Button delete = button("Hapus");
-        delete.setVisibility(View.GONE);
-        delete.setOnClickListener(v -> confirmDelete(model));
+        delete.setOnClickListener(view -> confirmDelete(id));
         actions.addView(delete);
         deleteButtons.put(id, delete);
 
@@ -239,117 +213,109 @@ public class ModelManagerActivity extends AppCompatActivity {
         refreshOne(id);
     }
 
-    private void onPrimary(JSONObject model) {
-        String id = model.optString("id");
-        if (modelFile(id).isFile()) {
-            SharedPreferences modelPrefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-            String active = modelPrefs.getString(ACTIVE_MODEL, "");
-            if (id.equals(active)) {
-                modelPrefs.edit().remove(ACTIVE_MODEL).apply();
-                getSharedPreferences(MODE_PREFS, MODE_PRIVATE)
-                    .edit()
-                    .putString(ACTIVE_MODE, "online")
-                    .apply();
-                Toast.makeText(this, "Model dilepas. Furina kembali memakai mode online saat dipilih.", Toast.LENGTH_SHORT).show();
-            } else {
-                modelPrefs.edit().putString(ACTIVE_MODEL, id).apply();
-                getSharedPreferences(MODE_PREFS, MODE_PRIVATE)
-                    .edit()
-                    .putString(ACTIVE_MODE, "offline")
-                    .apply();
-                Toast.makeText(this, model.optString("name") + " sekarang aktif.", Toast.LENGTH_SHORT).show();
+    private void pickModel(String id, boolean vision) {
+        if (importing) {
+            Toast.makeText(this, "Tunggu proses impor selesai.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        pendingModelId = id;
+        pendingVision = vision;
+        modelPicker.launch(new String[]{"application/octet-stream", "application/x-gguf", "*/*"});
+    }
+
+    private void importSelectedFile(Uri uri, String id, boolean vision) {
+        importing = true;
+        setButtonsEnabled(false);
+        TextView status = statusViews.get(id);
+        if (status != null) {
+            status.setText(vision ? "Menyalin projector dari penyimpanan…" : "Menyalin model dari penyimpanan…");
+            status.setTextColor(ACCENT);
+        }
+
+        new Thread(() -> {
+            File target = vision ? projectorFile(id) : modelFile(id);
+            File temporary = new File(target.getAbsolutePath() + ".importing");
+            String error = null;
+            try {
+                if (!target.getParentFile().exists() && !target.getParentFile().mkdirs()) {
+                    throw new IllegalStateException("Folder model tidak dapat dibuat.");
+                }
+                long copied = 0L;
+                try (InputStream input = getContentResolver().openInputStream(uri);
+                     FileOutputStream output = new FileOutputStream(temporary, false)) {
+                    if (input == null) throw new IllegalStateException("File tidak dapat dibuka.");
+                    byte[] buffer = new byte[1024 * 1024];
+                    int read;
+                    while ((read = input.read(buffer)) >= 0) {
+                        output.write(buffer, 0, read);
+                        copied += read;
+                    }
+                    output.flush();
+                }
+                if (copied < MIN_MODEL_BYTES) throw new IllegalStateException("File terlalu kecil untuk menjadi model GGUF yang valid.");
+                if (target.exists() && !target.delete()) throw new IllegalStateException("Model lama tidak dapat diganti.");
+                if (!temporary.renameTo(target)) throw new IllegalStateException("File impor tidak dapat dipindahkan.");
+                if (!vision) {
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(ACTIVE_MODEL, id).apply();
+                    getSharedPreferences(MODE_PREFS, MODE_PRIVATE).edit().putString(ACTIVE_MODE, "offline").apply();
+                }
+            } catch (Exception exception) {
+                error = exception.getMessage();
+                temporary.delete();
             }
-            refreshAll();
-            return;
-        }
-        requestDownload(model, false);
+            String finalError = error;
+            runOnUiThread(() -> {
+                importing = false;
+                pendingModelId = "";
+                pendingVision = false;
+                setButtonsEnabled(true);
+                refreshAll();
+                Toast.makeText(
+                    this,
+                    finalError == null ? (vision ? "Projector berhasil diimpor." : "Model berhasil diimpor dan diaktifkan.") : "Impor gagal: " + finalError,
+                    Toast.LENGTH_LONG
+                ).show();
+            });
+        }, "FurinaModelImport").start();
     }
 
-    private void requestDownload(JSONObject model, boolean vision) {
-        String id = model.optString("id");
-        String key = downloadKey(id, vision);
-        String state = downloadPrefs().getString(key + "_state", "");
-        if ("running".equals(state) || "verifying".equals(state)) return;
-
-        long expectedSize = vision
-            ? model.optLong("projectorSizeBytes", 0L)
-            : model.optLong("sizeBytes", 0L);
-        if (expectedSize <= 0L) {
-            Toast.makeText(this, "Paket ini belum tersedia untuk diunduh.", Toast.LENGTH_LONG).show();
+    private void toggleActive(String id) {
+        File file = modelFile(id);
+        if (!file.isFile() || file.length() < MIN_MODEL_BYTES) {
+            Toast.makeText(this, "Impor file GGUF model terlebih dahulu.", Toast.LENGTH_LONG).show();
             return;
         }
-        if (getFreeBytes() < expectedSize + 700_000_000L) {
-            new AlertDialog.Builder(this)
-                .setTitle("Penyimpanan tidak cukup")
-                .setMessage("Kosongkan setidaknya " + formatGb(expectedSize + 700_000_000L) + " sebelum mengunduh paket ini.")
-                .setPositiveButton("Mengerti", null)
-                .show();
-            return;
-        }
-
-        if (
-            Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            pendingModel = model;
-            pendingVision = vision;
-            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS);
+        SharedPreferences preferences = getSharedPreferences(PREFS, MODE_PRIVATE);
+        String active = preferences.getString(ACTIVE_MODEL, "");
+        if (id.equals(active)) {
+            preferences.edit().remove(ACTIVE_MODEL).apply();
+            Toast.makeText(this, "Model dilepas. Furina tetap berada dalam mode offline.", Toast.LENGTH_SHORT).show();
         } else {
-            startForegroundDownload(model, vision);
+            preferences.edit().putString(ACTIVE_MODEL, id).apply();
+            getSharedPreferences(MODE_PREFS, MODE_PRIVATE).edit().putString(ACTIVE_MODE, "offline").apply();
+            Toast.makeText(this, models.get(id).optString("name") + " sekarang aktif.", Toast.LENGTH_SHORT).show();
         }
+        refreshAll();
     }
 
-    private void startForegroundDownload(JSONObject model, boolean vision) {
-        try {
-            String id = model.getString("id");
-            String url = vision ? model.optString("projectorUrl") : model.optString("downloadUrl");
-            String sha = vision ? model.optString("projectorSha256") : model.optString("sha256");
-            long expectedSize = vision
-                ? model.optLong("projectorSizeBytes", 0L)
-                : model.optLong("sizeBytes", 0L);
-            String key = downloadKey(id, vision);
-            String fileName = vision ? id + "-mmproj.gguf" : id + ".gguf";
-            String displayName = model.getString("name") + (vision ? " • fitur gambar" : "");
-
-            if (url.trim().isEmpty()) throw new IllegalStateException("URL paket belum tersedia.");
-
-            Intent intent = new Intent(this, ModelDownloadService.class)
-                .setAction(ModelDownloadService.ACTION_START)
-                .putExtra(ModelDownloadService.EXTRA_ID, id)
-                .putExtra(ModelDownloadService.EXTRA_NAME, displayName)
-                .putExtra(ModelDownloadService.EXTRA_URL, url)
-                .putExtra(ModelDownloadService.EXTRA_FILE_NAME, fileName)
-                .putExtra(ModelDownloadService.EXTRA_PREF_KEY, key)
-                .putExtra(ModelDownloadService.EXTRA_EXPECTED_SHA256, sha)
-                .putExtra(ModelDownloadService.EXTRA_EXPECTED_SIZE, expectedSize);
-            ContextCompat.startForegroundService(this, intent);
-
-            downloadPrefs()
-                .edit()
-                .putString(key + "_state", "running")
-                .putString(key + "_message", "Menghubungkan…")
-                .putLong(key + "_done", 0L)
-                .putLong(key + "_total", expectedSize)
-                .apply();
-            refreshOne(id);
-        } catch (Exception error) {
-            Toast.makeText(this, "Unduhan gagal dimulai: " + error.getMessage(), Toast.LENGTH_LONG).show();
-        }
-    }
-
-    private void cancelDownload(String id) {
-        String key = runningKey(id);
-        if (key.isEmpty()) return;
-        Intent intent = new Intent(this, ModelDownloadService.class)
-            .setAction(ModelDownloadService.ACTION_CANCEL)
-            .putExtra(ModelDownloadService.EXTRA_PREF_KEY, key);
-        startService(intent);
-        downloadPrefs()
-            .edit()
-            .putString(key + "_state", "cancelled")
-            .putString(key + "_message", "Membatalkan unduhan…")
-            .apply();
-        refreshOne(id);
+    private void confirmDelete(String id) {
+        JSONObject model = models.get(id);
+        if (model == null) return;
+        new AlertDialog.Builder(this)
+            .setTitle("Hapus " + model.optString("name") + "?")
+            .setMessage("File model dan projector lokal akan dihapus. Percakapan, persona, dan memori tidak ikut terhapus.")
+            .setPositiveButton("Hapus", (dialog, which) -> {
+                modelFile(id).delete();
+                projectorFile(id).delete();
+                new File(modelFile(id).getAbsolutePath() + ".importing").delete();
+                new File(projectorFile(id).getAbsolutePath() + ".importing").delete();
+                if (id.equals(getSharedPreferences(PREFS, MODE_PRIVATE).getString(ACTIVE_MODEL, ""))) {
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove(ACTIVE_MODEL).apply();
+                }
+                refreshAll();
+            })
+            .setNegativeButton("Batal", null)
+            .show();
     }
 
     private void refreshAll() {
@@ -359,152 +325,51 @@ public class ModelManagerActivity extends AppCompatActivity {
     private void refreshOne(String id) {
         JSONObject model = models.get(id);
         if (model == null) return;
-
-        boolean mainInstalled = modelFile(id).isFile() && modelFile(id).length() > 100_000_000L;
+        boolean installed = modelFile(id).isFile() && modelFile(id).length() >= MIN_MODEL_BYTES;
+        boolean visionInstalled = projectorFile(id).isFile() && projectorFile(id).length() >= MIN_MODEL_BYTES;
         boolean supportsImage = model.optBoolean("supportsImage", false);
-        boolean visionInstalled = projectorFile(id).isFile() && projectorFile(id).length() > 100_000_000L;
-        String active = getSharedPreferences(PREFS, MODE_PRIVATE).getString(ACTIVE_MODEL, "");
-        String runningKey = runningKey(id);
+        boolean active = id.equals(getSharedPreferences(PREFS, MODE_PRIVATE).getString(ACTIVE_MODEL, ""));
 
-        ProgressBar bar = progressBars.get(id);
         TextView status = statusViews.get(id);
-        Button primary = primaryButtons.get(id);
-        Button vision = visionButtons.get(id);
-        Button cancel = cancelButtons.get(id);
-        Button delete = deleteButtons.get(id);
-
-        if (!runningKey.isEmpty()) {
-            SharedPreferences downloads = downloadPrefs();
-            String state = downloads.getString(runningKey + "_state", "running");
-            long done = downloads.getLong(runningKey + "_done", 0L);
-            long total = downloads.getLong(runningKey + "_total", 0L);
-            String message = downloads.getString(runningKey + "_message", "Mengunduh");
-            boolean isVision = runningKey.endsWith(":vision");
-
-            if (bar != null) {
-                bar.setVisibility(View.VISIBLE);
-                bar.setIndeterminate(total <= 0L || "verifying".equals(state));
-                if (total > 0L && !"verifying".equals(state)) {
-                    bar.setProgress((int) Math.min(100L, done * 100L / total));
-                }
-            }
-            if (status != null) {
-                String progress = total > 0L
-                    ? " • " + formatMb(done) + " / " + formatMb(total) + " (" + Math.min(100L, done * 100L / total) + "%)"
-                    : "";
-                status.setText((isVision ? "Fitur gambar: " : "Model: ") + message + progress);
+        if (status != null && !importing) {
+            if (active) {
+                status.setText(supportsImage && visionInstalled ? "Aktif • teks dan gambar lokal siap" : "Aktif • model teks lokal siap");
                 status.setTextColor(ACCENT);
-            }
-            if (primary != null) primary.setVisibility(View.GONE);
-            if (vision != null) vision.setVisibility(View.GONE);
-            if (cancel != null) cancel.setVisibility(View.VISIBLE);
-            if (delete != null) delete.setVisibility(View.GONE);
-            return;
-        }
-
-        if (bar != null) bar.setVisibility(View.GONE);
-        if (cancel != null) cancel.setVisibility(View.GONE);
-        if (primary != null) primary.setVisibility(View.VISIBLE);
-        if (delete != null) delete.setVisibility(mainInstalled ? View.VISIBLE : View.GONE);
-
-        if (mainInstalled) {
-            String stateText;
-            if (id.equals(active)) {
-                stateText = supportsImage && visionInstalled
-                    ? "Aktif • teks dan gambar siap digunakan"
-                    : supportsImage
-                        ? "Aktif • teks siap, paket gambar belum dipasang"
-                        : "Aktif dan siap digunakan";
+            } else if (installed) {
+                status.setText(supportsImage && visionInstalled ? "Terpasang • projector tersedia" : "Terpasang di perangkat");
+                status.setTextColor(MUTED);
             } else {
-                stateText = supportsImage && visionInstalled
-                    ? "Terpasang • teks dan gambar tersedia"
-                    : supportsImage
-                        ? "Terpasang • teks tersedia, paket gambar belum dipasang"
-                        : "Terpasang, tidak aktif";
+                status.setText("Belum diimpor");
+                status.setTextColor(MUTED);
             }
-            if (status != null) {
-                status.setText(stateText);
-                status.setTextColor(id.equals(active) ? ACCENT : MUTED);
-            }
-            if (primary != null) primary.setText(id.equals(active) ? "Lepas" : "Gunakan");
-            if (vision != null) {
-                vision.setVisibility(supportsImage && !visionInstalled ? View.VISIBLE : View.GONE);
-                vision.setText("Unduh fitur gambar");
-            }
-        } else {
-            String key = downloadKey(id, false);
-            String state = downloadPrefs().getString(key + "_state", "");
-            String message = downloadPrefs().getString(key + "_message", "");
-            if (status != null) {
-                if ("error".equals(state)) {
-                    status.setText("Gagal: " + message);
-                    status.setTextColor(ERROR);
-                } else if ("cancelled".equals(state)) {
-                    status.setText("Unduhan dibatalkan; tekan Unduh untuk melanjutkan.");
-                    status.setTextColor(MUTED);
-                } else {
-                    status.setText("Belum diunduh");
-                    status.setTextColor(MUTED);
-                }
-            }
-            if (primary != null) primary.setText("Unduh");
-            if (vision != null) vision.setVisibility(View.GONE);
         }
-    }
 
-    private String runningKey(String id) {
-        SharedPreferences downloads = downloadPrefs();
-        String main = downloadKey(id, false);
-        String vision = downloadKey(id, true);
-        String mainState = downloads.getString(main + "_state", "");
-        if ("running".equals(mainState) || "verifying".equals(mainState)) return main;
-        String visionState = downloads.getString(vision + "_state", "");
-        if ("running".equals(visionState) || "verifying".equals(visionState)) return vision;
-        return "";
-    }
-
-    private final Runnable progressPoller = new Runnable() {
-        @Override public void run() {
-            refreshAll();
-            handler.postDelayed(this, 850L);
+        Button activate = activateButtons.get(id);
+        if (activate != null) {
+            activate.setVisibility(installed ? View.VISIBLE : View.GONE);
+            activate.setText(active ? "Lepas" : "Gunakan");
         }
-    };
-
-    private void confirmDelete(JSONObject model) {
-        new AlertDialog.Builder(this)
-            .setTitle("Hapus " + model.optString("name") + "?")
-            .setMessage("File model dan paket gambarnya akan dihapus. Percakapan, memori, dan pengaturan Furina tidak ikut terhapus.")
-            .setPositiveButton("Hapus", (dialog, which) -> {
-                String id = model.optString("id");
-                modelFile(id).delete();
-                projectorFile(id).delete();
-                new File(modelFile(id).getAbsolutePath() + ".part").delete();
-                new File(projectorFile(id).getAbsolutePath() + ".part").delete();
-                if (id.equals(getSharedPreferences(PREFS, MODE_PRIVATE).getString(ACTIVE_MODEL, ""))) {
-                    getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove(ACTIVE_MODEL).apply();
-                    getSharedPreferences(MODE_PREFS, MODE_PRIVATE)
-                        .edit()
-                        .putString(ACTIVE_MODE, "online")
-                        .apply();
-                }
-                refreshAll();
-            })
-            .setNegativeButton("Batal", null)
-            .show();
+        Button delete = deleteButtons.get(id);
+        if (delete != null) delete.setVisibility(installed || visionInstalled ? View.VISIBLE : View.GONE);
+        Button vision = visionButtons.get(id);
+        if (vision != null && supportsImage) vision.setText(visionInstalled ? "Ganti projector" : "Impor projector");
+        Button importer = importButtons.get(id);
+        if (importer != null) importer.setText(installed ? "Ganti GGUF" : "Impor GGUF");
     }
 
-    private String downloadKey(String id, boolean vision) {
-        return vision ? id + ":vision" : id;
-    }
-
-    private SharedPreferences downloadPrefs() {
-        return getSharedPreferences(ModelDownloadService.PREFS, MODE_PRIVATE);
+    private void setButtonsEnabled(boolean enabled) {
+        for (Button button : importButtons.values()) button.setEnabled(enabled);
+        for (Button button : visionButtons.values()) button.setEnabled(enabled);
+        for (Button button : activateButtons.values()) button.setEnabled(enabled);
+        for (Button button : deleteButtons.values()) button.setEnabled(enabled);
     }
 
     private File modelDirectory() {
-        File base = new File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "models");
-        if (!base.exists()) base.mkdirs();
-        return base;
+        File base = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+        if (base == null) base = getFilesDir();
+        File directory = new File(base, "models");
+        if (!directory.exists()) directory.mkdirs();
+        return directory;
     }
 
     private File modelFile(String id) {
@@ -516,9 +381,9 @@ public class ModelManagerActivity extends AppCompatActivity {
     }
 
     private long getFreeBytes() {
-        File dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
-        if (dir == null) dir = getFilesDir();
-        return new StatFs(dir.getAbsolutePath()).getAvailableBytes();
+        File directory = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+        if (directory == null) directory = getFilesDir();
+        return new StatFs(directory.getAbsolutePath()).getAvailableBytes();
     }
 
     private TextView text(String value, int sp, int color, boolean bold) {
@@ -539,20 +404,7 @@ public class ModelManagerActivity extends AppCompatActivity {
         return button;
     }
 
-    private String formatMb(long bytes) {
-        return String.format(Locale.US, "%.1f MB", bytes / 1_000_000.0);
-    }
-
-    private String formatGb(long bytes) {
-        return String.format(Locale.US, "%.1f GB", bytes / 1_000_000_000.0);
-    }
-
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
-    }
-
-    @Override protected void onDestroy() {
-        handler.removeCallbacksAndMessages(null);
-        super.onDestroy();
     }
 }

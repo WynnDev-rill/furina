@@ -2,7 +2,6 @@ package com.wynndev.furina;
 
 import android.app.Activity;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.util.Base64;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
@@ -15,12 +14,12 @@ import java.io.FileOutputStream;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
+/** JavaScript bridge for the device-local model runtime. No network provider exists. */
 public final class OfflineAiBridge {
     private static final String MODEL_PREFS = "furina_model_manager";
     private static final String ACTIVE_MODEL = "active_model";
     private static final String MODE_PREFS = "furina_ai_mode";
     private static final String ACTIVE_MODE = "active_mode";
-    private static final String MODE_ONLINE = "online";
     private static final String MODE_OFFLINE = "offline";
     private static final String SHARED_PREFS = "furina_shared_profile";
     private static final String SHARED_STATE = "state_json";
@@ -35,21 +34,19 @@ public final class OfflineAiBridge {
         this.activity = activity;
         this.webView = webView;
         this.engine = new OfflineModelEngine(activity);
+        modePrefs().edit().putString(ACTIVE_MODE, MODE_OFFLINE).apply();
     }
 
-    @JavascriptInterface
-    public String getStatus() {
+    @JavascriptInterface public String getStatus() {
         try {
             String modelId = engine.activeModelId();
             boolean installed = !modelId.isEmpty() && engine.isInstalled(modelId);
             boolean imageModelSelected = "qwen35-4b".equals(modelId);
             boolean multimodalReady = imageModelSelected && engine.isVisionReady(modelId);
-            String mode = modePrefs().getString(ACTIVE_MODE, installed ? MODE_OFFLINE : MODE_ONLINE);
-            if (MODE_OFFLINE.equals(mode) && !installed) mode = MODE_ONLINE;
 
             JSONObject result = new JSONObject();
-            result.put("mode", mode);
-            result.put("source", MODE_OFFLINE.equals(mode) ? "offline" : "lovable");
+            result.put("mode", MODE_OFFLINE);
+            result.put("source", MODE_OFFLINE);
             result.put("activeModelId", modelId);
             result.put("installed", installed);
             result.put("busy", engine.isBusy());
@@ -59,34 +56,22 @@ public final class OfflineAiBridge {
             if (!imageModelSelected) {
                 result.put("imageDisabledReason", "Model aktif hanya mendukung teks.");
             } else if (!multimodalReady) {
-                result.put("imageDisabledReason", "Projector gambar Qwen3.5 belum selesai diunduh.");
+                result.put("imageDisabledReason", "Projector gambar Qwen3.5 belum diimpor.");
             }
             return result.toString();
-        } catch (Exception e) {
-            return "{\"mode\":\"online\",\"source\":\"lovable\",\"installed\":false,\"busy\":false,\"supportsImage\":false,\"multimodalReady\":false,\"canUseOffline\":false}";
+        } catch (Exception ignored) {
+            return "{\"mode\":\"offline\",\"source\":\"offline\",\"installed\":false,\"busy\":false,\"supportsImage\":false,\"multimodalReady\":false,\"canUseOffline\":false}";
         }
     }
 
-    @JavascriptInterface
-    public String getSharedState() {
+    @JavascriptInterface public String getSharedState() {
         String stored = activity.getSharedPreferences(SHARED_PREFS, Activity.MODE_PRIVATE)
             .getString(SHARED_STATE, "");
         if (stored != null && !stored.trim().isEmpty()) return stored;
-        try {
-            JSONObject defaults = new JSONObject();
-            defaults.put("version", 1);
-            defaults.put("name", "Furina");
-            defaults.put("persona", "");
-            defaults.put("language", "auto");
-            defaults.put("memories", new JSONArray());
-            return defaults.toString();
-        } catch (Exception ignored) {
-            return "{\"version\":1,\"name\":\"Furina\",\"persona\":\"\",\"language\":\"auto\",\"memories\":[]}";
-        }
+        return "{\"version\":1,\"name\":\"Furina\",\"persona\":\"\",\"language\":\"auto\",\"memories\":[]}";
     }
 
-    @JavascriptInterface
-    public boolean saveSharedState(String stateJson) {
+    @JavascriptInterface public boolean saveSharedState(String stateJson) {
         try {
             if (stateJson == null || stateJson.length() > MAX_SHARED_STATE_BYTES) return false;
             JSONObject incoming = new JSONObject(stateJson);
@@ -104,14 +89,13 @@ public final class OfflineAiBridge {
             JSONArray cleanMemories = new JSONArray();
             Set<String> seen = new LinkedHashSet<>();
             if (memories != null) {
-                for (int i = 0; i < memories.length() && cleanMemories.length() < MAX_MEMORIES; i++) {
-                    String memory = clip(memories.optString(i, "").trim(), 240);
+                for (int index = 0; index < memories.length() && cleanMemories.length() < MAX_MEMORIES; index++) {
+                    String memory = clip(memories.optString(index, "").trim(), 240);
                     String key = memory.toLowerCase();
                     if (memory.length() >= 3 && seen.add(key)) cleanMemories.put(memory);
                 }
             }
             clean.put("memories", cleanMemories);
-
             activity.getSharedPreferences(SHARED_PREFS, Activity.MODE_PRIVATE)
                 .edit()
                 .putString(SHARED_STATE, clean.toString())
@@ -128,93 +112,90 @@ public final class OfflineAiBridge {
         return safe.length() <= max ? safe : safe.substring(0, max);
     }
 
-    @JavascriptInterface
-    public boolean useOnlineAi() {
-        if (engine.isBusy()) engine.cancel();
-        modePrefs().edit().putString(ACTIVE_MODE, MODE_ONLINE).apply();
+    /** Retained only for compatibility with older cached UI. Online mode no longer exists. */
+    @JavascriptInterface public boolean useOnlineAi() {
+        modePrefs().edit().putString(ACTIVE_MODE, MODE_OFFLINE).apply();
         dispatchModeChanged();
-        return true;
+        return false;
     }
 
-    @JavascriptInterface
-    public boolean useOfflineAi() {
+    @JavascriptInterface public boolean useOfflineAi() {
+        modePrefs().edit().putString(ACTIVE_MODE, MODE_OFFLINE).apply();
+        dispatchModeChanged();
         String modelId = engine.activeModelId();
-        if (modelId.isEmpty() || !engine.isInstalled(modelId)) return false;
+        return !modelId.isEmpty() && engine.isInstalled(modelId);
+    }
+
+    @JavascriptInterface public boolean deactivateOfflineModel() {
+        if (engine.isBusy()) engine.cancel();
+        activity.getSharedPreferences(MODEL_PREFS, Activity.MODE_PRIVATE).edit().remove(ACTIVE_MODEL).apply();
         modePrefs().edit().putString(ACTIVE_MODE, MODE_OFFLINE).apply();
         dispatchModeChanged();
         return true;
     }
 
-    @JavascriptInterface
-    public boolean deactivateOfflineModel() {
-        if (engine.isBusy()) engine.cancel();
-        activity.getSharedPreferences(MODEL_PREFS, Activity.MODE_PRIVATE).edit().remove(ACTIVE_MODEL).apply();
-        modePrefs().edit().putString(ACTIVE_MODE, MODE_ONLINE).apply();
-        dispatchModeChanged();
-        return true;
-    }
-
-    @JavascriptInterface
-    public void openModelManager() {
+    @JavascriptInterface public void openModelManager() {
         activity.runOnUiThread(() -> activity.startActivity(new Intent(activity, ModelManagerActivity.class)));
     }
 
-    @JavascriptInterface
-    public void cancelGeneration() {
+    @JavascriptInterface public void cancelGeneration() {
         engine.cancel();
     }
 
-    @JavascriptInterface
-    public void generate(String requestJson) {
-        if (!MODE_OFFLINE.equals(currentMode())) {
-            dispatchError(requestId(requestJson), "Mode offline belum diaktifkan.");
+    @JavascriptInterface public void generate(String requestJson) {
+        if (!hasActiveModel()) {
+            dispatchError(requestId(requestJson), "Belum ada model GGUF lokal yang aktif.");
             return;
         }
         runGeneration(requestJson, null);
     }
 
-    @JavascriptInterface
-    public void generateWithImage(String requestJson, String imageDataUrl) {
+    @JavascriptInterface public void generateWithImage(String requestJson, String imageDataUrl) {
         File image = null;
         try {
-            if (!MODE_OFFLINE.equals(currentMode())) {
-                dispatchError(requestId(requestJson), "Mode offline belum diaktifkan.");
+            if (!hasActiveModel()) {
+                dispatchError(requestId(requestJson), "Belum ada model GGUF lokal yang aktif.");
                 return;
             }
             if (!"qwen35-4b".equals(engine.activeModelId())) {
                 dispatchError(requestId(requestJson), "Pilih Qwen3.5-4B untuk membaca gambar.");
                 return;
             }
+            if (!engine.isVisionReady(engine.activeModelId())) {
+                dispatchError(requestId(requestJson), "Impor projector gambar Qwen3.5 terlebih dahulu.");
+                return;
+            }
             image = decodeImage(imageDataUrl);
             JSONObject request = new JSONObject(requestJson);
             request.put("imagePath", image.getAbsolutePath());
             runGeneration(request.toString(), image);
-        } catch (Exception e) {
+        } catch (Exception ignored) {
             if (image != null) image.delete();
-            dispatchError(requestId(requestJson), "Gambar tidak dapat dipersiapkan untuk model offline.");
+            dispatchError(requestId(requestJson), "Gambar tidak dapat dipersiapkan untuk model lokal.");
         }
     }
 
-    private String currentMode() {
-        return modePrefs().getString(ACTIVE_MODE, engine.activeModelId().isEmpty() ? MODE_ONLINE : MODE_OFFLINE);
+    private boolean hasActiveModel() {
+        String modelId = engine.activeModelId();
+        return !modelId.isEmpty() && engine.isInstalled(modelId);
     }
 
-    private SharedPreferences modePrefs() {
+    private android.content.SharedPreferences modePrefs() {
         return activity.getSharedPreferences(MODE_PREFS, Activity.MODE_PRIVATE);
     }
 
     private void dispatchModeChanged() {
-        activity.runOnUiThread(() -> {
-            String script = "window.dispatchEvent(new CustomEvent('furina-ai-mode-changed',{detail:" + getStatus() + "}));";
-            webView.evaluateJavascript(script, null);
-        });
+        activity.runOnUiThread(() -> webView.evaluateJavascript(
+            "window.dispatchEvent(new CustomEvent('furina-ai-mode-changed',{detail:" + getStatus() + "}));",
+            null
+        ));
     }
 
     private void dispatchSharedStateChanged(JSONObject state) {
-        activity.runOnUiThread(() -> {
-            String script = "window.dispatchEvent(new CustomEvent('furina-shared-state-changed',{detail:" + state.toString() + "}));";
-            webView.evaluateJavascript(script, null);
-        });
+        activity.runOnUiThread(() -> webView.evaluateJavascript(
+            "window.dispatchEvent(new CustomEvent('furina-shared-state-changed',{detail:" + state + "}));",
+            null
+        ));
     }
 
     private File decodeImage(String dataUrl) throws Exception {
@@ -222,12 +203,10 @@ public final class OfflineAiBridge {
         int comma = encoded.indexOf(',');
         if (comma >= 0) encoded = encoded.substring(comma + 1);
         byte[] bytes = Base64.decode(encoded, Base64.DEFAULT);
-        if (bytes.length == 0 || bytes.length > 25 * 1024 * 1024) {
-            throw new IllegalArgumentException("Ukuran gambar tidak valid");
-        }
-        File dir = new File(activity.getCacheDir(), "vision");
-        if (!dir.exists() && !dir.mkdirs()) throw new IllegalStateException("Folder cache gambar tidak tersedia");
-        File file = new File(dir, "input-" + System.currentTimeMillis() + ".img");
+        if (bytes.length == 0 || bytes.length > 25 * 1024 * 1024) throw new IllegalArgumentException("Ukuran gambar tidak valid");
+        File directory = new File(activity.getCacheDir(), "vision");
+        if (!directory.exists() && !directory.mkdirs()) throw new IllegalStateException("Folder cache gambar tidak tersedia");
+        File file = new File(directory, "input-" + System.currentTimeMillis() + ".img");
         try (FileOutputStream output = new FileOutputStream(file)) {
             output.write(bytes);
         }
@@ -276,8 +255,7 @@ public final class OfflineAiBridge {
                 detail.put("requestId", requestId);
                 if (!token.isEmpty()) detail.put("token", token);
                 if (error != null) detail.put("error", error);
-                String script = "window.dispatchEvent(new CustomEvent(" + JSONObject.quote(event) + "," +
-                    "{detail:" + detail.toString() + "}));";
+                String script = "window.dispatchEvent(new CustomEvent(" + JSONObject.quote(event) + ",{detail:" + detail + "}));";
                 webView.evaluateJavascript(script, null);
             } catch (Exception ignored) {}
         });
