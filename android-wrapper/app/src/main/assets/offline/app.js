@@ -1,23 +1,22 @@
 (() => {
   "use strict";
 
-  const HOME_URL = "https://furina-pi.vercel.app/";
   const STORAGE = {
-    conversations: "furina-offline:v3:conversations",
-    active: "furina-offline:v3:active",
-    draft: "furina-offline:v3:draft",
+    conversations: "furina-offline:v4:conversations",
+    active: "furina-offline:v4:active",
     shared: "furina:shared-state:v1",
+    draft: "furina-offline:v4:draft",
   };
   const DEFAULT_PROFILE = {
     name: "Furina",
-    systemPrompt: "Kamu adalah Furina, companion pribadi yang ekspresif, cerdas, hangat, dan punya pendapat sendiri. Balas secara alami dalam bahasa pengguna.",
-    memoryInstruction: "Gunakan memori berikut hanya jika relevan dan jangan membacakan daftar memori.",
+    systemPrompt: "Kamu adalah Furina, companion pribadi yang ekspresif, cerdas, hangat, rasional, dan memiliki pendapat sendiri. Balas secara alami dalam bahasa pengguna.",
+    memoryInstruction: "Gunakan memori berikut hanya saat relevan. Jangan membacakan daftar memori secara mentah.",
     defaultGreeting: "Halo… akhirnya kamu datang juga. Ceritakan apa saja.",
   };
   const DEFAULT_SHARED = { version: 1, name: "Furina", persona: "", language: "auto", memories: [] };
   const DEFAULT_STATUS = {
-    mode: "online",
-    source: "lovable",
+    mode: "offline",
+    source: "offline",
     activeModelId: "",
     installed: false,
     busy: false,
@@ -31,19 +30,16 @@
   const uid = () => globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
     ? globalThis.crypto.randomUUID()
     : `furina-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const now = () => Date.now();
 
   let profile = DEFAULT_PROFILE;
   let shared = DEFAULT_SHARED;
   let nativeStatus = DEFAULT_STATUS;
   let conversations = [];
   let activeId = "";
-  let currentScreen = "chat";
   let pendingImage = null;
   let activeRequest = null;
   let responseTimeout = null;
   let toastTimer = null;
-
   const elements = {};
 
   function bridge() {
@@ -79,7 +75,12 @@
     const memories = Array.isArray(input.memories)
       ? input.memories
           .map((memory) => clip(memory, 240))
-          .filter((memory) => memory.length >= 3 && !seen.has(memory.toLowerCase()) && seen.add(memory.toLowerCase()))
+          .filter((memory) => {
+            const key = memory.toLowerCase();
+            if (memory.length < 3 || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
           .slice(-80)
       : [];
     return {
@@ -92,7 +93,7 @@
   }
 
   function newConversation() {
-    const timestamp = now();
+    const timestamp = Date.now();
     return { id: uid(), title: "Percakapan baru", createdAt: timestamp, updatedAt: timestamp, messages: [] };
   }
 
@@ -103,14 +104,14 @@
       .map((item) => ({
         id: typeof item.id === "string" && item.id ? item.id : uid(),
         title: typeof item.title === "string" && item.title ? item.title.slice(0, 70) : "Percakapan baru",
-        createdAt: Number(item.createdAt) || now(),
-        updatedAt: Number(item.updatedAt) || now(),
+        createdAt: Number(item.createdAt) || Date.now(),
+        updatedAt: Number(item.updatedAt) || Date.now(),
         messages: Array.isArray(item.messages)
           ? item.messages.slice(-1000).map((message) => ({
               id: typeof message.id === "string" && message.id ? message.id : uid(),
               role: message.role === "assistant" ? "assistant" : "user",
               content: typeof message.content === "string" ? message.content.slice(0, 32000) : "",
-              at: Number(message.at) || now(),
+              at: Number(message.at) || Date.now(),
               imageDataUrl: typeof message.imageDataUrl === "string" ? message.imageDataUrl : "",
               error: Boolean(message.error),
             }))
@@ -130,6 +131,13 @@
     return conversation;
   }
 
+  function showToast(message) {
+    clearTimeout(toastTimer);
+    elements.toast.textContent = String(message || "");
+    elements.toast.classList.add("show");
+    toastTimer = setTimeout(() => elements.toast.classList.remove("show"), 3200);
+  }
+
   function persistConversations() {
     conversations.sort((left, right) => right.updatedAt - left.updatedAt);
     try {
@@ -143,30 +151,7 @@
   function persistShared() {
     shared = normalizeShared(shared);
     localStorage.setItem(STORAGE.shared, JSON.stringify(shared));
-    const api = bridge();
-    if (api && typeof api.saveSharedState === "function") {
-      try { api.saveSharedState(JSON.stringify(shared)); } catch {}
-    }
-  }
-
-  function showToast(message) {
-    clearTimeout(toastTimer);
-    elements.toast.textContent = String(message || "");
-    elements.toast.classList.add("show");
-    toastTimer = setTimeout(() => elements.toast.classList.remove("show"), 3200);
-  }
-
-  function relativeTime(timestamp) {
-    const difference = Math.max(0, now() - Number(timestamp || 0));
-    if (difference < 60000) return "baru saja";
-    if (difference < 3600000) return `${Math.floor(difference / 60000)} m`;
-    if (difference < 86400000) return `${Math.floor(difference / 3600000)} j`;
-    if (difference < 604800000) return `${Math.floor(difference / 86400000)} h`;
-    return new Date(timestamp).toLocaleDateString("id-ID", { day: "2-digit", month: "short" });
-  }
-
-  function titleFromMessage(text, hasImage) {
-    return clip(text, 42) || (hasImage ? "Percakapan gambar" : "Percakapan baru");
+    try { bridge()?.saveSharedState(JSON.stringify(shared)); } catch {}
   }
 
   function addMessage(conversation, message) {
@@ -174,15 +159,24 @@
       id: message.id || uid(),
       role: message.role === "assistant" ? "assistant" : "user",
       content: String(message.content || ""),
-      at: Number(message.at) || now(),
+      at: Number(message.at) || Date.now(),
       imageDataUrl: message.imageDataUrl || "",
       error: Boolean(message.error),
     });
-    conversation.updatedAt = now();
+    conversation.updatedAt = Date.now();
     if (conversation.title === "Percakapan baru" && message.role === "user") {
-      conversation.title = titleFromMessage(message.content, Boolean(message.imageDataUrl));
+      conversation.title = clip(message.content, 42) || (message.imageDataUrl ? "Percakapan gambar" : "Percakapan baru");
     }
     persistConversations();
+  }
+
+  function relativeTime(timestamp) {
+    const difference = Math.max(0, Date.now() - Number(timestamp || 0));
+    if (difference < 60000) return "baru saja";
+    if (difference < 3600000) return `${Math.floor(difference / 60000)} m`;
+    if (difference < 86400000) return `${Math.floor(difference / 3600000)} j`;
+    if (difference < 604800000) return `${Math.floor(difference / 86400000)} h`;
+    return new Date(timestamp).toLocaleDateString("id-ID", { day: "2-digit", month: "short" });
   }
 
   function renderMessages() {
@@ -193,11 +187,13 @@
     elements.messages.innerHTML = conversation.messages.map((message) => {
       const image = message.imageDataUrl ? `<img src="${message.imageDataUrl}" alt="Gambar percakapan" />` : "";
       const content = escapeHtml(message.content).replace(/\n/g, "<br>");
-      return `<article class="message ${message.role}${message.error ? " error" : ""}" data-message-id="${escapeHtml(message.id)}">${image}${content || (message.role === "assistant" ? "…" : "")}<span class="message-meta">${message.role === "assistant" ? (message.error ? "Gagal" : "AI offline") : new Date(message.at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</span></article>`;
+      const meta = message.role === "assistant"
+        ? (message.error ? "Gagal" : "AI lokal")
+        : new Date(message.at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+      return `<article class="message ${message.role}${message.error ? " error" : ""}" data-message-id="${escapeHtml(message.id)}">${image}${content || (message.role === "assistant" ? "…" : "")}<span class="message-meta">${meta}</span></article>`;
     }).join("");
     if (activeRequest && !activeRequest.receivedToken) {
-      const node = document.querySelector(`[data-message-id="${activeRequest.assistantMessageId}"]`);
-      if (node) node.classList.add("typing");
+      document.querySelector(`[data-message-id="${activeRequest.assistantMessageId}"]`)?.classList.add("typing");
     }
     requestAnimationFrame(() => { elements.chatScroll.scrollTop = elements.chatScroll.scrollHeight; });
   }
@@ -219,26 +215,25 @@
     elements.statConversations.textContent = String(conversations.filter((item) => item.messages.length).length);
     elements.statMessages.textContent = String(allMessages.length);
     elements.statMemories.textContent = String(shared.memories.length);
-    const offline = nativeStatus.mode === "offline" && nativeStatus.installed;
-    elements.dashboardMode.textContent = offline ? "AI Offline aktif" : nativeStatus.installed ? "Model offline siap" : "Belum ada model aktif";
-    elements.dashboardModeDetail.textContent = offline ? "Percakapan diproses langsung di perangkat." : "Lovable AI tersedia melalui mode online.";
+    elements.dashboardMode.textContent = nativeStatus.installed ? "AI lokal aktif" : "Belum ada model lokal";
+    elements.dashboardModeDetail.textContent = nativeStatus.installed
+      ? "Inferensi berjalan langsung di perangkat."
+      : "Impor model GGUF untuk mulai mengobrol.";
   }
 
   function renderModelStatus() {
     const installed = Boolean(nativeStatus.installed);
-    const offline = nativeStatus.mode === "offline" && installed;
-    elements.modelBadge.textContent = offline ? "AKTIF OFFLINE" : installed ? "TERPASANG" : "BELUM TERPASANG";
+    elements.modelBadge.textContent = installed ? "AKTIF LOKAL" : "BELUM TERPASANG";
     elements.modelTitle.textContent = installed ? (nativeStatus.activeModelId || "Model lokal siap") : "Belum ada model aktif";
     elements.modelDescription.textContent = installed
-      ? offline ? "Jawaban diproses langsung di perangkat tanpa jaringan." : "Model tersedia dan dapat diaktifkan kapan saja."
-      : "Buka pengelola model untuk mengunduh salah satu model AI offline.";
-    elements.activateOffline.disabled = !nativeStatus.canUseOffline || offline;
+      ? "Jawaban diproses di perangkat tanpa koneksi jaringan."
+      : "Impor model GGUF dari penyimpanan perangkat.";
     elements.deactivateModel.disabled = !installed;
     elements.visionStatus.textContent = nativeStatus.multimodalReady
-      ? "Chat gambar offline siap digunakan."
+      ? "Chat gambar lokal siap digunakan."
       : nativeStatus.supportsImage
-        ? (nativeStatus.imageDisabledReason || "Paket vision belum siap.")
-        : "Model aktif hanya mendukung teks. Qwen3.5 diperlukan untuk gambar.";
+        ? (nativeStatus.imageDisabledReason || "Projector gambar belum diimpor.")
+        : "Model aktif hanya mendukung teks.";
   }
 
   function renderSettings() {
@@ -246,16 +241,16 @@
     elements.persona.value = shared.persona;
     elements.language.value = shared.language;
     elements.characterTitle.textContent = shared.name;
-    elements.memoryList.innerHTML = shared.memories.length ? shared.memories.slice().reverse().map((memory) => `<article class="history-item memory-item"><div><p>${escapeHtml(memory)}</p></div><button class="tiny" data-memory="${escapeHtml(memory)}">Hapus</button></article>`).join("") : `<div class="notice">Belum ada memori bersama. Aplikasi juga akan menangkap beberapa fakta pribadi secara otomatis dari chat.</div>`;
+    elements.memoryList.innerHTML = shared.memories.length
+      ? shared.memories.slice().reverse().map((memory) => `<article class="history-item memory-item"><div><p>${escapeHtml(memory)}</p></div><button class="tiny" data-memory="${escapeHtml(memory)}">Hapus</button></article>`).join("")
+      : `<div class="notice">Belum ada memori lokal. Beberapa fakta pribadi juga dapat ditangkap otomatis dari chat.</div>`;
   }
 
   function renderStatus() {
-    const offline = nativeStatus.mode === "offline" && nativeStatus.installed;
-    elements.modeLabel.textContent = offline ? "AI offline" : nativeStatus.installed ? "Model lokal siap" : "Belum ada model offline";
-    elements.welcomeCopy.textContent = offline
-      ? "Model lokal siap. Persona dan memori bersama diproses langsung di perangkat."
-      : "Unduh model lokal untuk mengobrol tanpa jaringan, atau buka Lovable AI untuk mode online.";
-    elements.welcomeOffline.disabled = !nativeStatus.canUseOffline;
+    elements.modeLabel.textContent = nativeStatus.installed ? "AI lokal siap" : "Belum ada model lokal";
+    elements.welcomeCopy.textContent = nativeStatus.installed
+      ? "Model lokal siap. Persona, gambar, dan memori diproses langsung di perangkat."
+      : "Impor model GGUF lokal untuk mulai mengobrol. Tidak ada fallback cloud atau koneksi jaringan.";
     renderDashboard();
     renderModelStatus();
     renderSettings();
@@ -274,23 +269,26 @@
       renderStatus();
       return;
     }
-    try { nativeStatus = { ...DEFAULT_STATUS, ...safeParse(api.getStatus(), {}) }; } catch { nativeStatus = DEFAULT_STATUS; }
+    try {
+      nativeStatus = { ...DEFAULT_STATUS, ...safeParse(api.getStatus(), {}) };
+      if (nativeStatus.installed) api.useOfflineAi();
+    } catch {
+      nativeStatus = DEFAULT_STATUS;
+    }
     renderStatus();
   }
 
   function readSharedState() {
     const local = normalizeShared(safeParse(localStorage.getItem(STORAGE.shared), DEFAULT_SHARED));
-    const api = bridge();
-    if (api && typeof api.getSharedState === "function") {
-      try { shared = normalizeShared(safeParse(api.getSharedState(), local)); } catch { shared = local; }
-    } else {
+    try {
+      shared = normalizeShared(safeParse(bridge()?.getSharedState(), local));
+    } catch {
       shared = local;
     }
     persistShared();
   }
 
   function switchScreen(screen) {
-    currentScreen = screen;
     $$(".screen").forEach((node) => node.classList.toggle("active", node.dataset.screen === screen));
     $$(".nav-btn").forEach((node) => node.classList.toggle("active", node.dataset.target === screen));
     if (screen === "history") renderHistory();
@@ -337,41 +335,9 @@
     const value = prompt("Nama percakapan", target.title);
     if (!value || !value.trim()) return;
     target.title = value.trim().slice(0, 70);
-    target.updatedAt = now();
+    target.updatedAt = Date.now();
     persistConversations();
     renderHistory();
-  }
-
-  function openOnline() {
-    if (!navigator.onLine) return showToast("Tidak ada jaringan. Gunakan model offline.");
-    try { bridge()?.useOnlineAi(); } catch {}
-    localStorage.setItem(STORAGE.draft, elements.input.value || "");
-    location.href = HOME_URL;
-  }
-
-  function activateOffline() {
-    const api = bridge();
-    if (!api || typeof api.useOfflineAi !== "function") return showToast("AI offline hanya tersedia di APK Android.");
-    try {
-      if (!api.useOfflineAi()) {
-        showToast("Unduh dan pilih model offline terlebih dahulu.");
-        api.openModelManager();
-        return false;
-      }
-      readNativeStatus();
-      showToast("AI Offline aktif.");
-      switchScreen("chat");
-      return true;
-    } catch {
-      showToast("Mode offline tidak dapat diaktifkan.");
-      return false;
-    }
-  }
-
-  function deactivateModel() {
-    const api = bridge();
-    if (!api || !confirm("Lepas model aktif tanpa menghapus file model?")) return;
-    try { api.deactivateOfflineModel(); readNativeStatus(); showToast("Model dilepas. File model tetap tersimpan."); } catch { showToast("Model tidak dapat dilepas."); }
   }
 
   function openModelManager() {
@@ -380,12 +346,23 @@
     else showToast("Pengelola model hanya tersedia di APK Android.");
   }
 
+  function deactivateModel() {
+    if (!nativeStatus.installed || !confirm("Lepas model aktif tanpa menghapus file?")) return;
+    try {
+      bridge()?.deactivateOfflineModel();
+      readNativeStatus();
+      showToast("Model dilepas. File GGUF tetap tersimpan.");
+    } catch {
+      showToast("Model tidak dapat dilepas.");
+    }
+  }
+
   function extractMemoryCandidates(text) {
     const cleaned = clip(text, 240);
     if (cleaned.length < 8) return [];
     const durable = [
       /\b(?:aku|saya)\s+(?:suka|menyukai|lebih suka|tidak suka|benci|tinggal|punya|memiliki|biasanya|sedang membangun|sedang mengerjakan|ingin|berencana|menargetkan)\b/i,
-      /\b(?:nama(?:ku| saya)|aku bernama|saya bernama|targetku|tujuanku|proyekku|hobiku)\b/i,
+      /\b(?:nama(?:ku| saya)|aku bernama|saya bernama|targetku|tujuanku|proyekku|pekerjaanku|hobiku)\b/i,
     ];
     return durable.some((pattern) => pattern.test(cleaned)) ? [cleaned] : [];
   }
@@ -399,7 +376,15 @@
 
   function relevantMemories(query) {
     const terms = new Set(query.toLowerCase().split(/[^a-z0-9À-ÿ]+/i).filter((term) => term.length >= 3));
-    return shared.memories.map((memory, index) => ({ memory, index, score: memory.toLowerCase().split(/[^a-z0-9À-ÿ]+/i).reduce((score, term) => score + (terms.has(term) ? 1 : 0), 0) })).sort((left, right) => right.score - left.score || right.index - left.index).slice(0, 20).map((entry) => entry.memory);
+    return shared.memories
+      .map((memory, index) => ({
+        memory,
+        index,
+        score: memory.toLowerCase().split(/[^a-z0-9À-ÿ]+/i).reduce((score, term) => score + (terms.has(term) ? 1 : 0), 0),
+      }))
+      .sort((left, right) => right.score - left.score || right.index - left.index)
+      .slice(0, 20)
+      .map((entry) => entry.memory);
   }
 
   function buildSystemPrompt(query) {
@@ -427,7 +412,7 @@
     if (response) {
       response.content = response.content.trim() ? `${response.content}\n\n${message}` : message;
       response.error = true;
-      conversation.updatedAt = now();
+      conversation.updatedAt = Date.now();
     }
     activeRequest = null;
     elements.send.textContent = "➤";
@@ -442,7 +427,7 @@
     const conversation = conversations.find((item) => item.id === activeRequest.conversationId);
     const response = conversation?.messages.find((item) => item.id === activeRequest.assistantMessageId);
     if (response && !response.content.trim()) response.content = "Model selesai tanpa menghasilkan teks. Coba pesan yang lebih singkat.";
-    if (conversation) conversation.updatedAt = now();
+    if (conversation) conversation.updatedAt = Date.now();
     activeRequest = null;
     elements.send.textContent = "➤";
     persistConversations();
@@ -455,13 +440,17 @@
     const text = elements.input.value.trim();
     if (!text && !pendingImage) return;
     readNativeStatus();
-    if (nativeStatus.mode !== "offline" || !nativeStatus.installed) {
-      if (confirm("Model offline belum aktif. Buka Lovable AI online?")) openOnline();
+    if (!nativeStatus.installed) {
+      showToast("Impor dan aktifkan model GGUF lokal terlebih dahulu.");
+      openModelManager();
       return;
     }
-    if (pendingImage && !nativeStatus.multimodalReady) return showToast(nativeStatus.imageDisabledReason || "Model aktif belum siap membaca gambar.");
+    if (pendingImage && !nativeStatus.multimodalReady) {
+      showToast(nativeStatus.imageDisabledReason || "Model aktif belum siap membaca gambar.");
+      return;
+    }
     const api = bridge();
-    if (!api || typeof api.generate !== "function") return showToast("Runtime AI Offline tidak tersedia.");
+    if (!api || typeof api.generate !== "function") return showToast("Runtime AI lokal tidak tersedia.");
 
     const conversation = activeConversation();
     const imageDataUrl = pendingImage ? pendingImage.dataUrl : "";
@@ -473,8 +462,18 @@
     addMessage(conversation, { id: assistantMessageId, role: "assistant", content: "" });
     const requestId = uid();
     activeRequest = { requestId, conversationId: conversation.id, assistantMessageId, receivedToken: false };
-    const messages = conversation.messages.filter((message) => message.id !== assistantMessageId && !message.error).slice(-18).map((message) => ({ role: message.role, content: message.content }));
-    const request = JSON.stringify({ requestId, messages, systemPrompt: buildSystemPrompt(userText), maxTokens: imageDataUrl ? 640 : 512, contextSize: imageDataUrl ? 6144 : 4096, temperature: 0.8 });
+    const messages = conversation.messages
+      .filter((message) => message.id !== assistantMessageId && !message.error)
+      .slice(-18)
+      .map((message) => ({ role: message.role, content: message.content }));
+    const request = JSON.stringify({
+      requestId,
+      messages,
+      systemPrompt: buildSystemPrompt(userText),
+      maxTokens: imageDataUrl ? 640 : 512,
+      contextSize: imageDataUrl ? 6144 : 4096,
+      temperature: 0.8,
+    });
 
     elements.input.value = "";
     localStorage.removeItem(STORAGE.draft);
@@ -483,12 +482,15 @@
     resizeComposer();
     elements.send.textContent = "■";
     renderMessages();
-    responseTimeout = setTimeout(() => { try { api.cancelGeneration(); } catch {} finishRequestWithError("Model membutuhkan waktu terlalu lama dan dihentikan."); }, 600000);
+    responseTimeout = setTimeout(() => {
+      try { api.cancelGeneration(); } catch {}
+      finishRequestWithError("Model membutuhkan waktu terlalu lama dan dihentikan.");
+    }, 600000);
     try {
       if (imageDataUrl && typeof api.generateWithImage === "function") api.generateWithImage(request, imageDataUrl);
       else api.generate(request);
     } catch (error) {
-      finishRequestWithError(error instanceof Error ? error.message : "Model offline gagal dimulai.");
+      finishRequestWithError(error instanceof Error ? error.message : "Model lokal gagal dimulai.");
     }
   }
 
@@ -500,7 +502,7 @@
     response.content += String(detail.token || "");
     response.error = false;
     activeRequest.receivedToken = true;
-    conversation.updatedAt = now();
+    conversation.updatedAt = Date.now();
     renderMessages();
   }
 
@@ -529,6 +531,7 @@
           canvas.width = Math.max(1, Math.round(image.naturalWidth * ratio));
           canvas.height = Math.max(1, Math.round(image.naturalHeight * ratio));
           const context = canvas.getContext("2d", { alpha: false });
+          if (!context) return resolve(String(reader.result));
           context.fillStyle = "#fff";
           context.fillRect(0, 0, canvas.width, canvas.height);
           context.drawImage(image, 0, 0, canvas.width, canvas.height);
@@ -544,7 +547,12 @@
     if (!file) return;
     if (!file.type.startsWith("image/")) return showToast("Pilih file gambar.");
     if (file.size > 12 * 1024 * 1024) return showToast("Gambar maksimal 12 MB.");
-    try { pendingImage = { dataUrl: await compressImage(file), name: file.name || "Gambar" }; renderImagePreview(); } catch (error) { showToast(error instanceof Error ? error.message : "Gambar gagal diproses."); }
+    try {
+      pendingImage = { dataUrl: await compressImage(file), name: file.name || "Gambar" };
+      renderImagePreview();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Gambar gagal diproses.");
+    }
   }
 
   function resizeComposer() {
@@ -563,17 +571,12 @@
   }
 
   function exportData() {
-    const backup = { app: "Furina", version: 3, exportedAt: new Date().toISOString(), conversations, activeId, shared };
+    const backup = { app: "Furina", version: 4, exportedAt: new Date().toISOString(), conversations, activeId, shared };
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
-    const file = new File([blob], `furina-backup-${new Date().toISOString().slice(0, 10)}.json`, { type: "application/json" });
-    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-      navigator.share({ title: "Backup Furina", files: [file] }).catch(() => {});
-      return;
-    }
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = file.name;
+    link.download = `furina-backup-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -604,7 +607,7 @@
   }
 
   function clearLocalHistory() {
-    if (!confirm("Hapus seluruh riwayat percakapan lokal? Model dan memori bersama tidak ikut dihapus.")) return;
+    if (!confirm("Hapus seluruh riwayat percakapan lokal? Model dan memori tidak ikut dihapus.")) return;
     conversations = [newConversation()];
     activeId = conversations[0].id;
     persistConversations();
@@ -614,21 +617,25 @@
 
   function cacheElements() {
     Object.assign(elements, {
-      modeLabel: $("#mode-label"), characterTitle: $("#character-title"), messages: $("#messages"), emptyChat: $("#empty-chat"), chatScroll: $("#chat-scroll"), input: $("#message-input"), send: $("#send-message"), imageInput: $("#image-input"), imagePreview: $("#image-preview"), imagePreviewImg: $("#image-preview-img"), imagePreviewName: $("#image-preview-name"), historySearch: $("#history-search"), historyList: $("#history-list"), toast: $("#toast"), welcomeCopy: $("#welcome-copy"), welcomeOffline: $("#welcome-offline"), dashboardMode: $("#dashboard-mode"), dashboardModeDetail: $("#dashboard-mode-detail"), statConversations: $("#stat-conversations"), statMessages: $("#stat-messages"), statMemories: $("#stat-memories"), modelBadge: $("#model-badge"), modelTitle: $("#model-title"), modelDescription: $("#model-description"), activateOffline: $("#activate-offline"), deactivateModel: $("#deactivate-model"), visionStatus: $("#vision-status"), characterName: $("#character-name"), persona: $("#offline-persona"), language: $("#offline-language"), memoryInput: $("#memory-input"), memoryList: $("#memory-list"), importInput: $("#import-input"),
+      modeLabel: $("#mode-label"), characterTitle: $("#character-title"), messages: $("#messages"), emptyChat: $("#empty-chat"),
+      chatScroll: $("#chat-scroll"), input: $("#message-input"), send: $("#send-message"), imageInput: $("#image-input"),
+      imagePreview: $("#image-preview"), imagePreviewImg: $("#image-preview-img"), imagePreviewName: $("#image-preview-name"),
+      historySearch: $("#history-search"), historyList: $("#history-list"), toast: $("#toast"), welcomeCopy: $("#welcome-copy"),
+      dashboardMode: $("#dashboard-mode"), dashboardModeDetail: $("#dashboard-mode-detail"), statConversations: $("#stat-conversations"),
+      statMessages: $("#stat-messages"), statMemories: $("#stat-memories"), modelBadge: $("#model-badge"), modelTitle: $("#model-title"),
+      modelDescription: $("#model-description"), deactivateModel: $("#deactivate-model"), visionStatus: $("#vision-status"),
+      characterName: $("#character-name"), persona: $("#offline-persona"), language: $("#offline-language"),
+      memoryInput: $("#memory-input"), memoryList: $("#memory-list"), importInput: $("#import-input"),
     });
   }
 
   function bindEvents() {
     $$(".nav-btn").forEach((button) => button.addEventListener("click", () => switchScreen(button.dataset.target)));
-    $("#menu-button").addEventListener("click", () => switchScreen("settings"));
     $("#new-chat").addEventListener("click", createConversation);
     $("#history-new").addEventListener("click", createConversation);
     $("#quick-new").addEventListener("click", createConversation);
-    ["#open-online", "#welcome-online", "#dashboard-online", "#models-online", "#settings-online"].forEach((selector) => $(selector).addEventListener("click", openOnline));
-    ["#welcome-offline", "#dashboard-offline", "#activate-offline"].forEach((selector) => $(selector).addEventListener("click", activateOffline));
+    ["#welcome-models", "#dashboard-models", "#manage-models", "#quick-models"].forEach((selector) => $(selector).addEventListener("click", openModelManager));
     $("#deactivate-model").addEventListener("click", deactivateModel);
-    $("#manage-models").addEventListener("click", openModelManager);
-    $("#quick-models").addEventListener("click", openModelManager);
     $("#quick-history").addEventListener("click", () => switchScreen("history"));
     $("#quick-export").addEventListener("click", exportData);
     $("#export-data").addEventListener("click", exportData);
@@ -636,7 +643,12 @@
     elements.importInput.addEventListener("change", (event) => importData(event.target.files?.[0]));
     $("#clear-local").addEventListener("click", clearLocalHistory);
     $("#add-memory").addEventListener("click", addMemory);
-    elements.memoryInput.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); addMemory(); } });
+    elements.memoryInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        addMemory();
+      }
+    });
     elements.memoryList.addEventListener("click", (event) => {
       const button = event.target.closest("[data-memory]");
       if (!button) return;
@@ -647,10 +659,21 @@
 
     elements.send.addEventListener("click", sendMessage);
     elements.input.addEventListener("input", resizeComposer);
-    elements.input.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendMessage(); } });
+    elements.input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        sendMessage();
+      }
+    });
     $("#pick-image").addEventListener("click", () => elements.imageInput.click());
-    elements.imageInput.addEventListener("change", (event) => { handleImage(event.target.files?.[0]); event.target.value = ""; });
-    $("#remove-image").addEventListener("click", () => { pendingImage = null; renderImagePreview(); });
+    elements.imageInput.addEventListener("change", (event) => {
+      handleImage(event.target.files?.[0]);
+      event.target.value = "";
+    });
+    $("#remove-image").addEventListener("click", () => {
+      pendingImage = null;
+      renderImagePreview();
+    });
 
     elements.historySearch.addEventListener("input", renderHistory);
     elements.historyList.addEventListener("click", (event) => {
@@ -662,16 +685,42 @@
       else if (action === "delete") deleteConversation(row.dataset.historyId);
     });
 
-    elements.characterName.addEventListener("input", () => { shared.name = elements.characterName.value.slice(0, 40); persistShared(); elements.characterTitle.textContent = shared.name || "Furina"; });
-    elements.persona.addEventListener("input", () => { shared.persona = elements.persona.value.slice(0, 6000); persistShared(); });
-    elements.language.addEventListener("change", () => { shared.language = elements.language.value; persistShared(); });
+    elements.characterName.addEventListener("input", () => {
+      shared.name = elements.characterName.value.slice(0, 40);
+      persistShared();
+      elements.characterTitle.textContent = shared.name || "Furina";
+    });
+    elements.persona.addEventListener("input", () => {
+      shared.persona = elements.persona.value.slice(0, 6000);
+      persistShared();
+    });
+    elements.language.addEventListener("change", () => {
+      shared.language = elements.language.value;
+      persistShared();
+    });
 
     window.addEventListener("furina-native-token", (event) => handleToken(event.detail));
-    window.addEventListener("furina-native-complete", (event) => { if (activeRequest && event.detail?.requestId === activeRequest.requestId) completeRequest(); });
-    window.addEventListener("furina-native-error", (event) => { if (activeRequest && event.detail?.requestId === activeRequest.requestId) finishRequestWithError(event.detail.error || "Model offline gagal merespons."); });
-    window.addEventListener("furina-ai-mode-changed", (event) => { nativeStatus = { ...nativeStatus, ...(event.detail || {}) }; renderStatus(); });
-    window.addEventListener("furina-shared-state-changed", (event) => { shared = normalizeShared(event.detail); localStorage.setItem(STORAGE.shared, JSON.stringify(shared)); renderSettings(); });
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) { readNativeStatus(); readSharedState(); } });
+    window.addEventListener("furina-native-complete", (event) => {
+      if (activeRequest && event.detail?.requestId === activeRequest.requestId) completeRequest();
+    });
+    window.addEventListener("furina-native-error", (event) => {
+      if (activeRequest && event.detail?.requestId === activeRequest.requestId) finishRequestWithError(event.detail.error || "Model lokal gagal merespons.");
+    });
+    window.addEventListener("furina-ai-mode-changed", (event) => {
+      nativeStatus = { ...nativeStatus, ...(event.detail || {}) };
+      renderStatus();
+    });
+    window.addEventListener("furina-shared-state-changed", (event) => {
+      shared = normalizeShared(event.detail);
+      localStorage.setItem(STORAGE.shared, JSON.stringify(shared));
+      renderSettings();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        readNativeStatus();
+        readSharedState();
+      }
+    });
   }
 
   async function boot() {
@@ -686,12 +735,13 @@
     activeId = localStorage.getItem(STORAGE.active) || conversations[0].id;
     if (!conversations.some((conversation) => conversation.id === activeId)) activeId = conversations[0].id;
     bindEvents();
-    const draft = localStorage.getItem(STORAGE.draft);
-    if (draft) elements.input.value = draft;
+    elements.input.value = localStorage.getItem(STORAGE.draft) || "";
     resizeComposer();
     readNativeStatus();
     renderAll();
-    setInterval(() => { if (!document.hidden && !activeRequest) readNativeStatus(); }, 2500);
+    setInterval(() => {
+      if (!document.hidden && !activeRequest) readNativeStatus();
+    }, 2500);
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot, { once: true });
