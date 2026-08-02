@@ -1,4 +1,4 @@
-name: Validate Furina and Build APK
+name: Validate Offline Furina and Build APK
 
 on:
   workflow_dispatch:
@@ -6,37 +6,33 @@ on:
     paths:
       - 'src/**'
       - 'shared/**'
-      - 'public/furina-*.js'
-      - 'public/furina-*.css'
-      - 'public/sw.js'
-      - 'supabase/functions/**'
+      - 'public/**'
       - 'android-wrapper/**'
       - 'package.json'
       - 'package-lock.json'
       - 'tsconfig.json'
       - 'vite.config.ts'
+      - 'vercel.json'
       - '.github/workflows/build-furina-apk.yml'
   push:
     branches: [main]
     paths:
       - 'src/**'
       - 'shared/**'
-      - 'public/furina-*.js'
-      - 'public/furina-*.css'
-      - 'public/sw.js'
-      - 'supabase/functions/**'
+      - 'public/**'
       - 'android-wrapper/**'
       - 'package.json'
       - 'package-lock.json'
       - 'tsconfig.json'
       - 'vite.config.ts'
+      - 'vercel.json'
       - '.github/workflows/build-furina-apk.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: furina-release-${{ github.ref }}
+  group: furina-offline-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -47,8 +43,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Node 22
         uses: actions/setup-node@v4
@@ -62,10 +56,11 @@ jobs:
       - name: Build web application
         run: npm run build
 
-      - name: Validate personality, VOICEVOX, and offline UI
+      - name: Validate offline-only architecture
         run: |
           test -s shared/furina-profile.json
           node -e "JSON.parse(require('fs').readFileSync('shared/furina-profile.json','utf8'))"
+          node -e "JSON.parse(require('fs').readFileSync('android-wrapper/app/src/main/assets/model_catalog.json','utf8'))"
           test -s android-wrapper/app/src/main/assets/offline/index.html
           test -s android-wrapper/app/src/main/assets/offline/app.css
           test -s android-wrapper/app/src/main/assets/offline/enhanced.css
@@ -73,35 +68,21 @@ jobs:
           test -s android-wrapper/app/src/main/assets/offline/app.js
           test -s android-wrapper/app/src/main/assets/offline/ui.js
           test -s android-wrapper/app/src/main/assets/offline/furina-background.jpg
-          test -s public/furina-migration.js
-          test -s public/furina-sw-register.js
-          test -s public/furina-ui.js
-          test -s public/furina-ui.css
-          test -s public/furina-voice.js
-          test -s public/sw.js
-          test -s supabase/functions/furina-chat/index.ts
           node --check android-wrapper/app/src/main/assets/offline/preflight.js
           node --check android-wrapper/app/src/main/assets/offline/app.js
           node --check android-wrapper/app/src/main/assets/offline/ui.js
-          node --check public/furina-migration.js
-          node --check public/furina-sw-register.js
-          node --check public/furina-ui.js
-          node --check public/furina-voice.js
-          node --check public/sw.js
-          grep -q 'app.css' android-wrapper/app/src/main/assets/offline/index.html
-          grep -q 'enhanced.css' android-wrapper/app/src/main/assets/offline/index.html
-          grep -q 'preflight.js' android-wrapper/app/src/main/assets/offline/index.html
-          grep -q 'app.js' android-wrapper/app/src/main/assets/offline/index.html
-          grep -q 'ui.js' android-wrapper/app/src/main/assets/offline/index.html
-          grep -q 'Content-Security-Policy' android-wrapper/app/src/main/assets/offline/index.html
-          grep -q 'furina-profile.json' android-wrapper/app/src/main/assets/offline/app.js
-          grep -q 'FurinaLegacyStageReady' android-wrapper/app/src/main/assets/offline/preflight.js
-          grep -q 'furina-ui.js' src/routes/__root.tsx
-          grep -q 'furina-voice.js' src/routes/__root.tsx
-          grep -q 'api.tts.quest/v3/voicevox/synthesis' public/furina-voice.js
+          grep -q "connect-src 'self'" android-wrapper/app/src/main/assets/offline/index.html
+          grep -q 'setBlockNetworkLoads(true)' android-wrapper/app/src/main/java/com/wynndev/furina/MainActivity.java
+          grep -q 'ActivityResultContracts.OpenDocument' android-wrapper/app/src/main/java/com/wynndev/furina/ModelManagerActivity.java
           grep -q 'GENERATION_TIMEOUT_MS' android-wrapper/app/src/main/java/com/wynndev/furina/OfflineModelEngine.java
           grep -q 'IDENTITAS DAN PERILAKU WAJIB' android-wrapper/app/src/main/java/com/wynndev/furina/OfflineModelEngine.java
           grep -q 'UnifiedMainActivity' android-wrapper/app/src/main/AndroidManifest.xml
+          ! grep -q 'android.permission.INTERNET' android-wrapper/app/src/main/AndroidManifest.xml
+          ! grep -R -E 'ai\.gateway\.lovable\.dev|supabase\.co|api\.tts\.quest|furina-pi\.vercel\.app' \
+            src android-wrapper/app/src/main public --exclude='Furina.apk' --exclude='update.json'
+          ! grep -R -E 'downloadUrl|projectorUrl' android-wrapper/app/src/main/assets/model_catalog.json
+          ! grep -q '@/integrations/lovable' src/routes/index.tsx
+          ! grep -q 'useServerFn' src/routes/index.tsx
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -115,7 +96,7 @@ jobs:
       - name: Install Android native build tools
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
 
-      - name: Fetch llama.cpp source
+      - name: Fetch llama.cpp source for compilation
         run: |
           rm -rf android-wrapper/app/src/main/cpp/llama.cpp
           git clone --depth 1 https://github.com/ggml-org/llama.cpp.git android-wrapper/app/src/main/cpp/llama.cpp
@@ -133,57 +114,26 @@ jobs:
           base64 --decode furina-release.jks.b64 > furina-release.jks
           keytool -list -keystore furina-release.jks -storepass "$FURINA_KEYSTORE_PASSWORD" -alias furina
 
-      - name: Apply Java compatibility patch
-        run: sed -i 's/setTextAllCaps(false)/setAllCaps(false)/g' android-wrapper/app/src/main/java/com/wynndev/furina/ModelManagerActivity.java
-
-      - name: Build signed release APK
+      - name: Build signed offline release APK
         working-directory: android-wrapper
         env:
           FURINA_KEYSTORE_PASSWORD: FurinaRelease2026!
           FURINA_KEY_PASSWORD: FurinaRelease2026!
         run: gradle --no-daemon --stacktrace clean assembleRelease
 
-      - name: Verify APK signature
-        run: $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose android-wrapper/app/build/outputs/apk/release/app-release.apk
+      - name: Verify APK signature and permissions
+        run: |
+          $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose android-wrapper/app/build/outputs/apk/release/app-release.apk
+          $ANDROID_HOME/build-tools/35.0.0/aapt dump permissions android-wrapper/app/build/outputs/apk/release/app-release.apk | tee apk-permissions.txt
+          ! grep -q 'android.permission.INTERNET' apk-permissions.txt
 
       - name: Rename APK
-        run: cp android-wrapper/app/build/outputs/apk/release/app-release.apk Furina.apk
+        run: cp android-wrapper/app/build/outputs/apk/release/app-release.apk Furina-Offline.apk
 
       - name: Upload installable APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Furina-Release-${{ github.run_number }}
-          path: Furina.apk
+          name: Furina-Offline-${{ github.run_number }}
+          path: Furina-Offline.apk
           if-no-files-found: error
           retention-days: 90
-
-      - name: Publish native updater files
-        if: github.event_name != 'pull_request'
-        run: |
-          mkdir -p public
-          cp Furina.apk public/Furina.apk
-          APK_SHA=$(sha256sum Furina.apk | awk '{print $1}')
-          cat > public/update.json <<EOF
-          {
-            "latestVersionCode": ${{ github.run_number }},
-            "minimumSupportedVersionCode": ${{ github.run_number }},
-            "versionName": "1.0.${{ github.run_number }}",
-            "apkUrl": "https://furina-pi.vercel.app/Furina.apk",
-            "sha256": "$APK_SHA",
-            "notes": "Pembaruan Furina: perbaikan Lovable AI dan AI offline, penguatan persona, VOICEVOX, navigasi hamburger, serta animasi antarmuka yang lebih halus."
-          }
-          EOF
-
-      - name: Commit updater files for Vercel
-        if: github.event_name != 'pull_request'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git pull --rebase --autostash origin main
-          git add public/Furina.apk public/update.json
-          if git diff --cached --quiet; then
-            echo "Updater files unchanged"
-          else
-            git commit -m "Publish Furina native update ${{ github.run_number }}"
-            git push origin HEAD:main
-          fi
