@@ -7,11 +7,12 @@
   <meta name="theme-color" content="#07111f" />
   <title>Furina</title>
   <link rel="stylesheet" href="app.css" />
+  <link rel="stylesheet" href="enhanced.css" />
 </head>
 <body>
   <div class="app">
     <header class="topbar">
-      <button class="icon-btn" id="menu-button" aria-label="Buka pengaturan">☰</button>
+      <button class="icon-btn" id="menu-button" aria-label="Buka menu">☰</button>
       <div class="brand">
         <strong id="character-title">Furina</strong>
         <small id="mode-label">Memeriksa model offline…</small>
@@ -108,7 +109,7 @@
       </section>
     </main>
 
-    <nav class="bottom-nav" aria-label="Navigasi utama">
+    <nav class="bottom-nav" aria-label="Navigasi internal" hidden>
       <button class="nav-btn active" data-target="chat"><span>◉</span>Chat</button>
       <button class="nav-btn" data-target="history"><span>◴</span>Riwayat</button>
       <button class="nav-btn" data-target="dashboard"><span>▦</span>Dashboard</button>
@@ -120,5 +121,6 @@
   <div class="toast" id="toast"></div>
   <script src="preflight.js"></script>
   <script src="app.js"></script>
+  <script src="ui.js"></script>
 </body>
 </html>

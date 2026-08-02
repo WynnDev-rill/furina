@@ -5,7 +5,6 @@ import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.os.Bundle;
-import android.speech.tts.TextToSpeech;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
@@ -22,12 +21,11 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.Locale;
 
 /**
  * Launcher activity that keeps the hosted Smart Dashboard as the single Furina UI.
- * The existing FurinaNative bridge remains available inside that page, so changing
- * between Lovable AI and the local model only changes the response provider.
+ * The FurinaNative bridge remains available inside that page, so switching between
+ * Lovable AI and the local model changes only the response provider.
  */
 public final class UnifiedMainActivity extends MainActivity {
     private static final String HOME_URL = "https://furina-pi.vercel.app/";
@@ -38,8 +36,6 @@ public final class UnifiedMainActivity extends MainActivity {
 
     private final Object migrationLock = new Object();
     private WebView unifiedWebView;
-    private TextToSpeech japaneseVoice;
-    private volatile boolean japaneseVoiceReady;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override protected void onCreate(Bundle savedInstanceState) {
@@ -48,20 +44,18 @@ public final class UnifiedMainActivity extends MainActivity {
         unifiedWebView = findWebView(getWindow().getDecorView());
         if (unifiedWebView == null) return;
 
-        initializeJapaneseVoice();
-        unifiedWebView.addJavascriptInterface(new JapaneseVoiceBridge(), "FurinaVoice");
         unifiedWebView.addJavascriptInterface(new LegacyMigrationBridge(), "FurinaMigration");
+        unifiedWebView.addJavascriptInterface(new NetworkBridge(), "FurinaNetwork");
         unifiedWebView.getSettings().setCacheMode(
             hasUsableNetwork() ? WebSettings.LOAD_DEFAULT : WebSettings.LOAD_CACHE_ELSE_NETWORK
         );
 
-        // Load the old local origin invisibly once so its Web Storage can be staged
-        // into native storage before the hosted Smart Dashboard becomes primary.
+        // Stage data from the old file origin before opening the hosted interface.
         unifiedWebView.setAlpha(0f);
         unifiedWebView.loadUrl(LOCAL_URL);
         unifiedWebView.postDelayed(() -> waitForLegacyStage(0), 120L);
 
-        // Prevent Android Back from exposing the staging shell.
+        // Prevent Back from exposing the staging shell.
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
                 if (unifiedWebView == null) {
@@ -98,8 +92,8 @@ public final class UnifiedMainActivity extends MainActivity {
         if (unifiedWebView == null || isFinishing() || isDestroyed()) return;
         unifiedWebView.loadUrl(HOME_URL);
         unifiedWebView.postDelayed(() -> {
-            if (unifiedWebView != null) unifiedWebView.animate().alpha(1f).setDuration(180L).start();
-        }, 700L);
+            if (unifiedWebView != null) unifiedWebView.animate().alpha(1f).setDuration(220L).start();
+        }, 620L);
         unifiedWebView.postDelayed(() -> {
             if (unifiedWebView == null) return;
             String current = unifiedWebView.getUrl();
@@ -137,18 +131,10 @@ public final class UnifiedMainActivity extends MainActivity {
         return new File(getFilesDir(), LEGACY_FILE);
     }
 
-    private void initializeJapaneseVoice() {
-        japaneseVoice = new TextToSpeech(this, status -> {
-            if (status != TextToSpeech.SUCCESS || japaneseVoice == null) {
-                japaneseVoiceReady = false;
-                return;
-            }
-            int result = japaneseVoice.setLanguage(Locale.JAPAN);
-            japaneseVoice.setSpeechRate(1.0f);
-            japaneseVoice.setPitch(1.08f);
-            japaneseVoiceReady = result != TextToSpeech.LANG_MISSING_DATA &&
-                result != TextToSpeech.LANG_NOT_SUPPORTED;
-        });
+    private final class NetworkBridge {
+        @JavascriptInterface public boolean isOnline() {
+            return hasUsableNetwork();
+        }
     }
 
     private final class LegacyMigrationBridge {
@@ -213,42 +199,10 @@ public final class UnifiedMainActivity extends MainActivity {
         }
     }
 
-    private final class JapaneseVoiceBridge {
-        @JavascriptInterface public boolean speak(String text) {
-            if (!japaneseVoiceReady || japaneseVoice == null || text == null) return false;
-            String safe = text.trim();
-            if (safe.isEmpty()) return false;
-            if (safe.length() > 4_000) safe = safe.substring(0, 4_000);
-            final String utterance = safe;
-            runOnUiThread(() -> japaneseVoice.speak(
-                utterance,
-                TextToSpeech.QUEUE_FLUSH,
-                null,
-                "furina-japanese-" + System.currentTimeMillis()
-            ));
-            return true;
-        }
-
-        @JavascriptInterface public void stop() {
-            runOnUiThread(() -> {
-                if (japaneseVoice != null) japaneseVoice.stop();
-            });
-        }
-
-        @JavascriptInterface public boolean isReady() {
-            return japaneseVoiceReady;
-        }
-    }
-
     @Override protected void onDestroy() {
         if (unifiedWebView != null) {
-            unifiedWebView.removeJavascriptInterface("FurinaVoice");
             unifiedWebView.removeJavascriptInterface("FurinaMigration");
-        }
-        if (japaneseVoice != null) {
-            japaneseVoice.stop();
-            japaneseVoice.shutdown();
-            japaneseVoice = null;
+            unifiedWebView.removeJavascriptInterface("FurinaNetwork");
         }
         super.onDestroy();
     }

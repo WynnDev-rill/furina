@@ -1,9 +1,11 @@
-const CACHE_NAME = "furina-unified-shell-v2";
+const CACHE_NAME = "furina-unified-shell-v3";
 const FIXED_ASSETS = [
   "/manifest.webmanifest",
   "/icon-192.png",
   "/icon-512.png",
   "/furina-migration.js",
+  "/furina-ui.js",
+  "/furina-ui.css",
   "/furina-voice.js",
   "/furina-sw-register.js",
 ];

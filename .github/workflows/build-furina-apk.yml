@@ -7,7 +7,9 @@ on:
       - 'src/**'
       - 'shared/**'
       - 'public/furina-*.js'
+      - 'public/furina-*.css'
       - 'public/sw.js'
+      - 'supabase/functions/**'
       - 'android-wrapper/**'
       - 'package.json'
       - 'package-lock.json'
@@ -20,7 +22,9 @@ on:
       - 'src/**'
       - 'shared/**'
       - 'public/furina-*.js'
+      - 'public/furina-*.css'
       - 'public/sw.js'
+      - 'supabase/functions/**'
       - 'android-wrapper/**'
       - 'package.json'
       - 'package-lock.json'
@@ -58,34 +62,45 @@ jobs:
       - name: Build web application
         run: npm run build
 
-      - name: Validate canonical personality and unified offline UI
+      - name: Validate personality, VOICEVOX, and offline UI
         run: |
           test -s shared/furina-profile.json
           node -e "JSON.parse(require('fs').readFileSync('shared/furina-profile.json','utf8'))"
           test -s android-wrapper/app/src/main/assets/offline/index.html
           test -s android-wrapper/app/src/main/assets/offline/app.css
+          test -s android-wrapper/app/src/main/assets/offline/enhanced.css
           test -s android-wrapper/app/src/main/assets/offline/preflight.js
           test -s android-wrapper/app/src/main/assets/offline/app.js
-          test -s android-wrapper/app/src/main/assets/offline/voice.js
+          test -s android-wrapper/app/src/main/assets/offline/ui.js
           test -s android-wrapper/app/src/main/assets/offline/furina-background.jpg
           test -s public/furina-migration.js
           test -s public/furina-sw-register.js
+          test -s public/furina-ui.js
+          test -s public/furina-ui.css
           test -s public/furina-voice.js
           test -s public/sw.js
+          test -s supabase/functions/furina-chat/index.ts
           node --check android-wrapper/app/src/main/assets/offline/preflight.js
           node --check android-wrapper/app/src/main/assets/offline/app.js
-          node --check android-wrapper/app/src/main/assets/offline/voice.js
+          node --check android-wrapper/app/src/main/assets/offline/ui.js
           node --check public/furina-migration.js
           node --check public/furina-sw-register.js
+          node --check public/furina-ui.js
           node --check public/furina-voice.js
           node --check public/sw.js
           grep -q 'app.css' android-wrapper/app/src/main/assets/offline/index.html
+          grep -q 'enhanced.css' android-wrapper/app/src/main/assets/offline/index.html
           grep -q 'preflight.js' android-wrapper/app/src/main/assets/offline/index.html
           grep -q 'app.js' android-wrapper/app/src/main/assets/offline/index.html
+          grep -q 'ui.js' android-wrapper/app/src/main/assets/offline/index.html
           grep -q 'Content-Security-Policy' android-wrapper/app/src/main/assets/offline/index.html
           grep -q 'furina-profile.json' android-wrapper/app/src/main/assets/offline/app.js
           grep -q 'FurinaLegacyStageReady' android-wrapper/app/src/main/assets/offline/preflight.js
-          grep -q 'furina-migration.js' src/routes/__root.tsx
+          grep -q 'furina-ui.js' src/routes/__root.tsx
+          grep -q 'furina-voice.js' src/routes/__root.tsx
+          grep -q 'api.tts.quest/v3/voicevox/synthesis' public/furina-voice.js
+          grep -q 'GENERATION_TIMEOUT_MS' android-wrapper/app/src/main/java/com/wynndev/furina/OfflineModelEngine.java
+          grep -q 'IDENTITAS DAN PERILAKU WAJIB' android-wrapper/app/src/main/java/com/wynndev/furina/OfflineModelEngine.java
           grep -q 'UnifiedMainActivity' android-wrapper/app/src/main/AndroidManifest.xml
 
       - name: Set up Java 17
@@ -155,7 +170,7 @@ jobs:
             "versionName": "1.0.${{ github.run_number }}",
             "apkUrl": "https://furina-pi.vercel.app/Furina.apk",
             "sha256": "$APK_SHA",
-            "notes": "Pembaruan Furina: satu antarmuka untuk AI online dan offline, migrasi riwayat, login Google, suara Jepang, dan cache offline terpadu."
+            "notes": "Pembaruan Furina: perbaikan Lovable AI dan AI offline, penguatan persona, VOICEVOX, navigasi hamburger, serta animasi antarmuka yang lebih halus."
           }
           EOF
 
