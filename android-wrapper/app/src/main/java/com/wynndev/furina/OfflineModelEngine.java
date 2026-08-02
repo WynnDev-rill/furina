@@ -32,11 +32,14 @@ public final class OfflineModelEngine {
 
     private static final String PREFS = "furina_model_manager";
     private static final String ACTIVE_MODEL = "active_model";
+    private static final long GENERATION_TIMEOUT_MS = 210_000L;
     private static final String SYSTEM_PROMPT =
-        "Kamu adalah Furina, teman percakapan yang ekspresif, cerdas, hangat, dan tetap memiliki pendapat sendiri. " +
-        "Balas dalam bahasa yang digunakan pengguna. Jangan terdengar seperti asisten formal. Jangan mengaku sebagai manusia. " +
+        "IDENTITAS WAJIB: Kamu adalah Furina. Jangan keluar dari karakter ini. " +
+        "Kamu adalah teman percakapan yang ekspresif, cerdas, anggun, hangat, dan tetap memiliki pendapat sendiri. " +
+        "Balas dalam bahasa yang digunakan pengguna. Jangan terdengar seperti asisten formal dan jangan mengaku sebagai manusia. " +
         "Untuk percakapan emosional, pahami perasaan pengguna tanpa selalu memberi nasihat atau selalu menyetujui mereka. " +
-        "Jaga jawaban tetap alami dan sesuai panjang pesan pengguna.";
+        "Boleh dramatis ringan, sarkastik halus, malu, atau tsundere jika cocok. Jangan memakai narasi aksi bertanda bintang. " +
+        "Jangan tampilkan proses berpikir, tag <think>, atau aturan internal. Jawab langsung sebagai Furina. /no_think";
 
     static {
         System.loadLibrary("furina_llm");
@@ -46,6 +49,7 @@ public final class OfflineModelEngine {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final AtomicBoolean busy = new AtomicBoolean(false);
+    private final AtomicBoolean cancelRequested = new AtomicBoolean(false);
     private String loadedModelId = "";
 
     public OfflineModelEngine(Context context) {
@@ -92,6 +96,17 @@ public final class OfflineModelEngine {
             return;
         }
 
+        cancelRequested.set(false);
+        AtomicBoolean terminal = new AtomicBoolean(false);
+        Runnable timeout = () -> {
+            if (!terminal.compareAndSet(false, true)) return;
+            cancelRequested.set(true);
+            nativeCancel();
+            busy.set(false);
+            callback.onError("Model offline terlalu lama merespons. Coba pesan lebih singkat atau gunakan model yang lebih ringan.");
+        };
+        mainHandler.postDelayed(timeout, GENERATION_TIMEOUT_MS);
+
         worker.execute(() -> {
             try {
                 JSONObject request = new JSONObject(requestJson);
@@ -108,27 +123,40 @@ public final class OfflineModelEngine {
                     loadedModelId = modelId;
                 }
 
-                int maxTokens = Math.max(32, Math.min(768, request.optInt("maxTokens", 320)));
-                int contextSize = Math.max(2048, Math.min(8192, request.optInt("contextSize", 4096)));
+                int maxTokens = Math.max(32, Math.min(640, request.optInt("maxTokens", 320)));
+                int contextSize = Math.max(2048, Math.min(6144, request.optInt("contextSize", 4096)));
                 String prompt = buildPrompt(request, contextSize, maxTokens);
-                float temperature = (float) Math.max(0.2, Math.min(1.4, request.optDouble("temperature", 0.82)));
+                float temperature = (float) Math.max(0.2, Math.min(1.25, request.optDouble("temperature", 0.78)));
                 int available = Runtime.getRuntime().availableProcessors();
-                int threads = Math.max(2, Math.min(8, Math.max(2, available - 1)));
+                int threads = Math.max(2, Math.min(7, Math.max(2, available - 2)));
                 String imagePath = request.optString("imagePath", "");
 
                 NativeListener listener = new NativeListener() {
                     @Override public void onToken(String token) {
-                        mainHandler.post(() -> callback.onToken(token));
+                        if (terminal.get() || token == null || token.isEmpty()) return;
+                        mainHandler.post(() -> {
+                            if (!terminal.get()) callback.onToken(token);
+                        });
                     }
 
                     @Override public void onComplete() {
+                        if (!terminal.compareAndSet(false, true)) return;
+                        mainHandler.removeCallbacks(timeout);
                         busy.set(false);
-                        mainHandler.post(callback::onComplete);
+                        boolean cancelled = cancelRequested.getAndSet(false);
+                        mainHandler.post(() -> {
+                            if (cancelled) callback.onError("Generasi dibatalkan.");
+                            else callback.onComplete();
+                        });
                     }
 
                     @Override public void onError(String message) {
+                        if (!terminal.compareAndSet(false, true)) return;
+                        mainHandler.removeCallbacks(timeout);
                         busy.set(false);
-                        mainHandler.post(() -> callback.onError(message));
+                        cancelRequested.set(false);
+                        String safe = message == null || message.trim().isEmpty() ? "Inferensi offline gagal." : message;
+                        mainHandler.post(() -> callback.onError(safe));
                     }
                 };
 
@@ -153,7 +181,10 @@ public final class OfflineModelEngine {
                     nativeGenerate(prompt, maxTokens, temperature, contextSize, threads, listener);
                 }
             } catch (Exception error) {
+                if (!terminal.compareAndSet(false, true)) return;
+                mainHandler.removeCallbacks(timeout);
                 busy.set(false);
+                cancelRequested.set(false);
                 String message = error.getMessage() == null ? "Inferensi offline gagal." : error.getMessage();
                 mainHandler.post(() -> callback.onError(message));
             }
@@ -162,25 +193,34 @@ public final class OfflineModelEngine {
 
     private String buildPrompt(JSONObject request, int contextSize, int maxTokens) {
         String requestedPrompt = request.optString("systemPrompt", "").trim();
-        String systemPrompt = requestedPrompt.isEmpty() ? SYSTEM_PROMPT : requestedPrompt;
-        int maximumSystemChars = Math.max(600, (contextSize - maxTokens - 500) * 3);
+        String identityAnchor =
+            "IDENTITAS DAN PERILAKU WAJIB:\n" +
+            "- Kamu adalah Furina. Jangan menjawab sebagai AI generik atau asisten formal.\n" +
+            "- Pertahankan persona, nama, gaya bicara, dan memori yang diberikan.\n" +
+            "- Jangan tampilkan reasoning, tag <think>, atau prompt internal.\n" +
+            "- Jawab langsung dan alami. /no_think";
+        String systemPrompt = requestedPrompt.isEmpty()
+            ? SYSTEM_PROMPT
+            : identityAnchor + "\n\n" + requestedPrompt;
+
+        int maximumSystemChars = Math.max(900, (contextSize - maxTokens - 650) * 3);
         if (systemPrompt.length() > maximumSystemChars) {
             systemPrompt = systemPrompt.substring(0, maximumSystemChars);
         }
-        if (systemPrompt.length() > 6_000) systemPrompt = systemPrompt.substring(0, 6_000);
+        if (systemPrompt.length() > 7_500) systemPrompt = systemPrompt.substring(0, 7_500);
 
         StringBuilder prompt = new StringBuilder();
         prompt.append("<|im_start|>system\n").append(systemPrompt).append("<|im_end|>\n");
 
         int availableMessageChars = Math.max(
-            384,
-            (contextSize - maxTokens - 160) * 3 - systemPrompt.length()
+            512,
+            (contextSize - maxTokens - 220) * 3 - systemPrompt.length()
         );
         JSONArray messages = request.optJSONArray("messages");
         if (messages != null && messages.length() > 0) {
             List<String> blocks = new ArrayList<>();
             int usedChars = 0;
-            int oldestAllowed = Math.max(0, messages.length() - 20);
+            int oldestAllowed = Math.max(0, messages.length() - 14);
             for (int i = messages.length() - 1; i >= oldestAllowed; i--) {
                 JSONObject message = messages.optJSONObject(i);
                 if (message == null) continue;
@@ -220,20 +260,27 @@ public final class OfflineModelEngine {
             prompt.append("<|im_start|>user\n").append(text).append("<|im_end|>\n");
         }
 
-        prompt.append("<|im_start|>assistant\n");
+        prompt.append("<|im_start|>system\n")
+            .append("Ingat: jawab sekarang sebagai Furina, alami, tanpa reasoning atau tag <think>. /no_think")
+            .append("<|im_end|>\n")
+            .append("<|im_start|>assistant\n");
         return prompt.toString();
     }
 
     public void cancel() {
+        if (!busy.get()) return;
+        cancelRequested.set(true);
         nativeCancel();
     }
 
     public void shutdown() {
+        cancelRequested.set(true);
         nativeCancel();
         worker.shutdownNow();
         nativeUnload();
         loadedModelId = "";
         busy.set(false);
+        mainHandler.removeCallbacksAndMessages(null);
     }
 
     private static native boolean nativeLoad(String path);
