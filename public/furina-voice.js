@@ -89,6 +89,34 @@
     activeButton = null;
   }
 
+  function delay(milliseconds, signal) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(resolve, milliseconds);
+      signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(new DOMException("Aborted", "AbortError"));
+      }, { once: true });
+    });
+  }
+
+  async function resolveAudioUrl(result, signal) {
+    if (result.mp3StreamingUrl) return result.mp3StreamingUrl;
+    if (!result.audioStatusUrl || !result.mp3DownloadUrl) {
+      throw new Error(result.errorMessage || "VOICEVOX tidak memberikan alamat audio.");
+    }
+
+    for (let attempt = 0; attempt < 36; attempt += 1) {
+      const statusResponse = await fetch(result.audioStatusUrl, { signal, cache: "no-store" });
+      if (statusResponse.ok) {
+        const status = await statusResponse.json().catch(() => ({}));
+        if (status.isAudioError) throw new Error(status.status || "VOICEVOX gagal menyintesis suara.");
+        if (status.isAudioReady) return result.mp3DownloadUrl;
+      }
+      await delay(700, signal);
+    }
+    throw new Error("VOICEVOX terlalu lama menyiapkan audio.");
+  }
+
   async function speak(text, button) {
     const safe = cleanText(text);
     if (!safe || safe === "…") return;
@@ -105,7 +133,7 @@
     activeButton = button;
     setButtonState(button, "loading");
     requestController = new AbortController();
-    const timeout = setTimeout(() => requestController?.abort(), 30_000);
+    const timeout = setTimeout(() => requestController?.abort(), 35_000);
 
     try {
       const body = new URLSearchParams({ speaker: String(speakerId()), text: safe });
@@ -116,12 +144,13 @@
         body,
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok || !result.success || !result.mp3StreamingUrl) {
+      if (!response.ok || !result.success) {
         const wait = Number(result.retryAfter || 0);
         throw new Error(wait > 0 ? `VOICEVOX sibuk. Coba lagi dalam ${wait} detik.` : (result.errorMessage || "VOICEVOX gagal membuat suara."));
       }
 
-      currentAudio = new Audio(result.mp3StreamingUrl);
+      const audioUrl = await resolveAudioUrl(result, requestController.signal);
+      currentAudio = new Audio(audioUrl);
       currentAudio.preload = "auto";
       currentAudio.onplaying = () => setButtonState(button, "playing");
       currentAudio.onended = stopVoice;
