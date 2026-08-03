@@ -1,0 +1,4 @@
+{
+  "requestedAt": "2026-08-03T01:33:00Z",
+  "reason": "Trigger a fresh signed offline APK build after the previous Vercel rate-limit incident."
+}
