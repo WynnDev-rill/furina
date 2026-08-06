@@ -1,7 +1,9 @@
 import { ContactShadows, Environment, OrbitControls, Sparkles } from "@react-three/drei";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Suspense, useMemo, useRef } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+
+import { VrmAvatar } from "./VrmAvatar";
 
 import type {
   CompanionEmotion,
@@ -41,12 +43,25 @@ const eyeOpen: Record<CompanionEmotion, number> = {
   playful: 0.84,
 };
 
-function damp(object: THREE.Object3D | null, axis: "x" | "y" | "z", target: number, delta: number, speed = 6) {
+function damp(
+  object: THREE.Object3D | null,
+  axis: "x" | "y" | "z",
+  target: number,
+  delta: number,
+  speed = 6,
+) {
   if (!object) return;
   object.rotation[axis] = THREE.MathUtils.damp(object.rotation[axis], target, speed, delta);
 }
 
-function OriginalAvatar({ emotion, gesture, gaze, intensity, speaking, onTouch }: CompanionStageProps) {
+function OriginalAvatar({
+  emotion,
+  gesture,
+  gaze,
+  intensity,
+  speaking,
+  onTouch,
+}: CompanionStageProps) {
   const root = useRef<THREE.Group>(null);
   const torso = useRef<THREE.Group>(null);
   const head = useRef<THREE.Group>(null);
@@ -74,7 +89,12 @@ function OriginalAvatar({ emotion, gesture, gaze, intensity, speaking, onTouch }
 
     if (root.current) {
       root.current.position.y = -1.72 + Math.sin(t * 1.25) * 0.022;
-      root.current.rotation.y = THREE.MathUtils.damp(root.current.rotation.y, pointer.x * 0.07, 4, delta);
+      root.current.rotation.y = THREE.MathUtils.damp(
+        root.current.rotation.y,
+        pointer.x * 0.07,
+        4,
+        delta,
+      );
       root.current.rotation.z = Math.sin(t * 0.58) * 0.006;
     }
 
@@ -104,7 +124,13 @@ function OriginalAvatar({ emotion, gesture, gaze, intensity, speaking, onTouch }
       );
       head.current.rotation.z = THREE.MathUtils.damp(
         head.current.rotation.z,
-        emotion === "embarrassed" ? 0.045 : emotion === "playful" ? -0.04 : emotion === "sad" ? 0.025 : 0,
+        emotion === "embarrassed"
+          ? 0.045
+          : emotion === "playful"
+            ? -0.04
+            : emotion === "sad"
+              ? 0.025
+              : 0,
         5,
         delta,
       );
@@ -113,21 +139,52 @@ function OriginalAvatar({ emotion, gesture, gaze, intensity, speaking, onTouch }
     const blinkPhase = (t + blinkSeed) % 4.4;
     const blinking = blinkPhase > 4.17 || (blinkPhase > 2.22 && blinkPhase < 2.29);
     const targetEye = blinking ? 0.055 : eyeOpen[emotion];
-    if (leftEye.current) leftEye.current.scale.y = THREE.MathUtils.damp(leftEye.current.scale.y, targetEye, 24, delta);
-    if (rightEye.current) rightEye.current.scale.y = THREE.MathUtils.damp(rightEye.current.scale.y, targetEye, 24, delta);
+    if (leftEye.current)
+      leftEye.current.scale.y = THREE.MathUtils.damp(leftEye.current.scale.y, targetEye, 24, delta);
+    if (rightEye.current)
+      rightEye.current.scale.y = THREE.MathUtils.damp(
+        rightEye.current.scale.y,
+        targetEye,
+        24,
+        delta,
+      );
     if (leftIris.current) {
-      leftIris.current.position.x = THREE.MathUtils.damp(leftIris.current.position.x, gazeX * 0.032, 9, delta);
-      leftIris.current.position.y = THREE.MathUtils.damp(leftIris.current.position.y, gazeY * 0.025, 9, delta);
+      leftIris.current.position.x = THREE.MathUtils.damp(
+        leftIris.current.position.x,
+        gazeX * 0.032,
+        9,
+        delta,
+      );
+      leftIris.current.position.y = THREE.MathUtils.damp(
+        leftIris.current.position.y,
+        gazeY * 0.025,
+        9,
+        delta,
+      );
     }
     if (rightIris.current) {
-      rightIris.current.position.x = THREE.MathUtils.damp(rightIris.current.position.x, gazeX * 0.032, 9, delta);
-      rightIris.current.position.y = THREE.MathUtils.damp(rightIris.current.position.y, gazeY * 0.025, 9, delta);
+      rightIris.current.position.x = THREE.MathUtils.damp(
+        rightIris.current.position.x,
+        gazeX * 0.032,
+        9,
+        delta,
+      );
+      rightIris.current.position.y = THREE.MathUtils.damp(
+        rightIris.current.position.y,
+        gazeY * 0.025,
+        9,
+        delta,
+      );
     }
 
     if (mouth.current) {
       const syllable = speaking
         ? 0.32 + Math.abs(Math.sin(t * 12.5) * 0.58 + Math.sin(t * 7.2) * 0.18)
-        : emotion === "surprised" ? 0.5 : emotion === "happy" || emotion === "playful" ? 0.16 : 0.09;
+        : emotion === "surprised"
+          ? 0.5
+          : emotion === "happy" || emotion === "playful"
+            ? 0.16
+            : 0.09;
       mouth.current.scale.y = THREE.MathUtils.damp(mouth.current.scale.y, syllable, 18, delta);
       mouth.current.scale.x = THREE.MathUtils.damp(
         mouth.current.scale.x,
@@ -146,31 +203,66 @@ function OriginalAvatar({ emotion, gesture, gaze, intensity, speaking, onTouch }
     const browConcern = emotion === "worried" || emotion === "sad";
     const browAnnoyed = emotion === "annoyed";
     if (leftBrow.current && rightBrow.current) {
-      leftBrow.current.rotation.z = THREE.MathUtils.damp(leftBrow.current.rotation.z, browAnnoyed ? -0.18 : browConcern ? 0.14 : -0.035, 10, delta);
-      rightBrow.current.rotation.z = THREE.MathUtils.damp(rightBrow.current.rotation.z, browAnnoyed ? 0.18 : browConcern ? -0.14 : 0.035, 10, delta);
-      leftBrow.current.position.y = THREE.MathUtils.damp(leftBrow.current.position.y, emotion === "surprised" ? 0.335 : 0.29, 10, delta);
-      rightBrow.current.position.y = THREE.MathUtils.damp(rightBrow.current.position.y, emotion === "surprised" ? 0.335 : 0.29, 10, delta);
+      leftBrow.current.rotation.z = THREE.MathUtils.damp(
+        leftBrow.current.rotation.z,
+        browAnnoyed ? -0.18 : browConcern ? 0.14 : -0.035,
+        10,
+        delta,
+      );
+      rightBrow.current.rotation.z = THREE.MathUtils.damp(
+        rightBrow.current.rotation.z,
+        browAnnoyed ? 0.18 : browConcern ? -0.14 : 0.035,
+        10,
+        delta,
+      );
+      leftBrow.current.position.y = THREE.MathUtils.damp(
+        leftBrow.current.position.y,
+        emotion === "surprised" ? 0.335 : 0.29,
+        10,
+        delta,
+      );
+      rightBrow.current.position.y = THREE.MathUtils.damp(
+        rightBrow.current.position.y,
+        emotion === "surprised" ? 0.335 : 0.29,
+        10,
+        delta,
+      );
     }
 
     const leftTargets = { x: 0.03, y: 0, z: -0.08 };
     const rightTargets = { x: 0.03, y: 0, z: 0.08 };
     if (gesture === "hands_on_hips") {
-      leftTargets.x = -0.2; leftTargets.z = -0.72;
-      rightTargets.x = -0.2; rightTargets.z = 0.72;
+      leftTargets.x = -0.2;
+      leftTargets.z = -0.72;
+      rightTargets.x = -0.2;
+      rightTargets.z = 0.72;
     } else if (gesture === "crossed_arms" || gesture === "pout") {
-      leftTargets.x = -0.38; leftTargets.y = 0.12; leftTargets.z = -0.92;
-      rightTargets.x = -0.38; rightTargets.y = -0.12; rightTargets.z = 0.92;
+      leftTargets.x = -0.38;
+      leftTargets.y = 0.12;
+      leftTargets.z = -0.92;
+      rightTargets.x = -0.38;
+      rightTargets.y = -0.12;
+      rightTargets.z = 0.92;
     } else if (gesture === "hand_to_chest") {
-      rightTargets.x = -0.62; rightTargets.y = -0.18; rightTargets.z = 0.72;
+      rightTargets.x = -0.62;
+      rightTargets.y = -0.18;
+      rightTargets.z = 0.72;
     } else if (gesture === "shy_hair_touch") {
-      rightTargets.x = -1.25; rightTargets.y = -0.18; rightTargets.z = 0.42;
+      rightTargets.x = -1.25;
+      rightTargets.y = -0.18;
+      rightTargets.z = 0.42;
     } else if (gesture === "small_wave") {
-      rightTargets.x = -1.18; rightTargets.z = 0.2;
+      rightTargets.x = -1.18;
+      rightTargets.z = 0.2;
     } else if (gesture === "thinking") {
-      rightTargets.x = -1.02; rightTargets.y = -0.12; rightTargets.z = 0.32;
+      rightTargets.x = -1.02;
+      rightTargets.y = -0.12;
+      rightTargets.z = 0.32;
     } else if (gesture === "lean_closer") {
-      leftTargets.x = -0.12; leftTargets.z = -0.25;
-      rightTargets.x = -0.12; rightTargets.z = 0.25;
+      leftTargets.x = -0.12;
+      leftTargets.z = -0.25;
+      rightTargets.x = -0.12;
+      rightTargets.z = 0.25;
     }
     damp(leftArm.current, "x", leftTargets.x * power, delta, 7);
     damp(leftArm.current, "y", leftTargets.y, delta, 7);
@@ -183,14 +275,29 @@ function OriginalAvatar({ emotion, gesture, gaze, intensity, speaking, onTouch }
       waveHand.current.rotation.z = gesture === "small_wave" ? Math.sin(t * 7) * 0.22 : 0;
     }
 
-    if (hairBack.current) hairBack.current.rotation.z = Math.sin(t * 0.92) * 0.012 - pointer.x * 0.012;
-    if (hairLeft.current) hairLeft.current.rotation.z = THREE.MathUtils.damp(hairLeft.current.rotation.z, 0.06 + Math.sin(t * 1.15) * 0.025 - pointer.x * 0.025, 4, delta);
-    if (hairRight.current) hairRight.current.rotation.z = THREE.MathUtils.damp(hairRight.current.rotation.z, -0.06 - Math.sin(t * 1.08) * 0.025 - pointer.x * 0.025, 4, delta);
+    if (hairBack.current)
+      hairBack.current.rotation.z = Math.sin(t * 0.92) * 0.012 - pointer.x * 0.012;
+    if (hairLeft.current)
+      hairLeft.current.rotation.z = THREE.MathUtils.damp(
+        hairLeft.current.rotation.z,
+        0.06 + Math.sin(t * 1.15) * 0.025 - pointer.x * 0.025,
+        4,
+        delta,
+      );
+    if (hairRight.current)
+      hairRight.current.rotation.z = THREE.MathUtils.damp(
+        hairRight.current.rotation.z,
+        -0.06 - Math.sin(t * 1.08) * 0.025 - pointer.x * 0.025,
+        4,
+        delta,
+      );
     if (face.current) face.current.position.y = Math.sin(t * 1.25) * 0.0015;
   });
 
-  const irisColor = emotion === "annoyed" ? "#bb7ad8" : emotion === "surprised" ? "#b8eea7" : "#a8dfa0";
-  const cheekOpacity = emotion === "embarrassed" ? 0.72 : emotion === "happy" || emotion === "playful" ? 0.3 : 0.08;
+  const irisColor =
+    emotion === "annoyed" ? "#bb7ad8" : emotion === "surprised" ? "#b8eea7" : "#a8dfa0";
+  const cheekOpacity =
+    emotion === "embarrassed" ? 0.72 : emotion === "happy" || emotion === "playful" ? 0.3 : 0.08;
   const cardigan = "#f1dfcf";
   const cardiganShade = "#d9c1b0";
   const hair = "#e982ab";
@@ -198,7 +305,14 @@ function OriginalAvatar({ emotion, gesture, gaze, intensity, speaking, onTouch }
 
   return (
     <group ref={root} position={[0, -1.72, 0]}>
-      <group ref={torso} position={[0, 0, 0]} onPointerDown={(event) => { event.stopPropagation(); onTouch("body"); }}>
+      <group
+        ref={torso}
+        position={[0, 0, 0]}
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          onTouch("body");
+        }}
+      >
         <mesh position={[0, 0.56, 0]} scale={[1.02, 1.22, 0.66]} castShadow>
           <capsuleGeometry args={[0.58, 1.05, 12, 28]} />
           <meshToonMaterial color={cardigan} />
@@ -234,12 +348,25 @@ function OriginalAvatar({ emotion, gesture, gaze, intensity, speaking, onTouch }
           <meshStandardMaterial color="#d8b48b" metalness={0.5} roughness={0.35} />
         </mesh>
 
-        <group ref={leftArm} position={[-0.74, 0.92, 0]} onPointerDown={(event) => { event.stopPropagation(); onTouch("shoulder"); }}>
+        <group
+          ref={leftArm}
+          position={[-0.74, 0.92, 0]}
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            onTouch("shoulder");
+          }}
+        >
           <mesh position={[0, -0.54, 0]} rotation={[0, 0, -0.06]} castShadow>
             <capsuleGeometry args={[0.22, 0.92, 10, 20]} />
             <meshToonMaterial color={cardigan} />
           </mesh>
-          <mesh position={[-0.03, -1.14, 0.02]} onPointerDown={(event) => { event.stopPropagation(); onTouch("hand"); }}>
+          <mesh
+            position={[-0.03, -1.14, 0.02]}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              onTouch("hand");
+            }}
+          >
             <sphereGeometry args={[0.21, 24, 18]} />
             <meshToonMaterial color="#ffd9cf" />
           </mesh>
@@ -249,12 +376,26 @@ function OriginalAvatar({ emotion, gesture, gaze, intensity, speaking, onTouch }
           </mesh>
         </group>
 
-        <group ref={rightArm} position={[0.74, 0.92, 0]} onPointerDown={(event) => { event.stopPropagation(); onTouch("shoulder"); }}>
+        <group
+          ref={rightArm}
+          position={[0.74, 0.92, 0]}
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            onTouch("shoulder");
+          }}
+        >
           <mesh position={[0, -0.54, 0]} rotation={[0, 0, 0.06]} castShadow>
             <capsuleGeometry args={[0.22, 0.92, 10, 20]} />
             <meshToonMaterial color={cardigan} />
           </mesh>
-          <group ref={waveHand} position={[0.03, -1.14, 0.02]} onPointerDown={(event) => { event.stopPropagation(); onTouch("hand"); }}>
+          <group
+            ref={waveHand}
+            position={[0.03, -1.14, 0.02]}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              onTouch("hand");
+            }}
+          >
             <mesh>
               <sphereGeometry args={[0.21, 24, 18]} />
               <meshToonMaterial color="#ffd9cf" />
@@ -267,7 +408,14 @@ function OriginalAvatar({ emotion, gesture, gaze, intensity, speaking, onTouch }
         </group>
       </group>
 
-      <group ref={head} position={[0, 2.05, 0]} onPointerDown={(event) => { event.stopPropagation(); onTouch("head"); }}>
+      <group
+        ref={head}
+        position={[0, 2.05, 0]}
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          onTouch("head");
+        }}
+      >
         <group ref={hairBack} position={[0, 0.05, -0.28]}>
           <mesh scale={[1.08, 1.14, 0.82]} castShadow>
             <sphereGeometry args={[0.79, 48, 32]} />
@@ -317,7 +465,11 @@ function OriginalAvatar({ emotion, gesture, gaze, intensity, speaking, onTouch }
           <capsuleGeometry args={[0.16, 0.48, 8, 16]} />
           <meshToonMaterial color={hairLight} />
         </mesh>
-        <mesh position={[0.51, 0.3, 0.55]} rotation={[0.08, -0.25, -0.27]} scale={[0.21, 0.66, 0.1]}>
+        <mesh
+          position={[0.51, 0.3, 0.55]}
+          rotation={[0.08, -0.25, -0.27]}
+          scale={[0.21, 0.66, 0.1]}
+        >
           <capsuleGeometry args={[0.14, 0.42, 8, 16]} />
           <meshToonMaterial color={hair} />
         </mesh>
@@ -333,7 +485,14 @@ function OriginalAvatar({ emotion, gesture, gaze, intensity, speaking, onTouch }
           </mesh>
         </group>
 
-        <group ref={face} position={[0, 0, 0.635]} onPointerDown={(event) => { event.stopPropagation(); onTouch("face"); }}>
+        <group
+          ref={face}
+          position={[0, 0, 0.635]}
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            onTouch("face");
+          }}
+        >
           <group ref={leftEye} position={[-0.235, 0.11, 0]}>
             <mesh scale={[1.22, 0.88, 0.45]}>
               <sphereGeometry args={[0.125, 28, 18]} />
@@ -371,11 +530,21 @@ function OriginalAvatar({ emotion, gesture, gaze, intensity, speaking, onTouch }
             </mesh>
           </group>
 
-          <mesh ref={leftBrow} position={[-0.235, 0.29, 0.03]} rotation={[0, 0, -0.035]} scale={[1.25, 0.23, 0.2]}>
+          <mesh
+            ref={leftBrow}
+            position={[-0.235, 0.29, 0.03]}
+            rotation={[0, 0, -0.035]}
+            scale={[1.25, 0.23, 0.2]}
+          >
             <capsuleGeometry args={[0.035, 0.16, 6, 12]} />
             <meshBasicMaterial color="#9e5577" />
           </mesh>
-          <mesh ref={rightBrow} position={[0.235, 0.29, 0.03]} rotation={[0, 0, 0.035]} scale={[1.25, 0.23, 0.2]}>
+          <mesh
+            ref={rightBrow}
+            position={[0.235, 0.29, 0.03]}
+            rotation={[0, 0, 0.035]}
+            scale={[1.25, 0.23, 0.2]}
+          >
             <capsuleGeometry args={[0.035, 0.16, 6, 12]} />
             <meshBasicMaterial color="#9e5577" />
           </mesh>
@@ -413,24 +582,79 @@ function OriginalAvatar({ emotion, gesture, gaze, intensity, speaking, onTouch }
   );
 }
 
-export function CompanionStage(props: CompanionStageProps) {
+type Quality = "low" | "medium" | "high";
+
+function detectQuality(): Quality {
+  if (typeof navigator === "undefined") return "medium";
+  const cores = navigator.hardwareConcurrency ?? 4;
+  const memory = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 4;
+  if (cores <= 4 || memory <= 3) return "low";
+  if (cores >= 8 && memory >= 8) return "high";
+  return "medium";
+}
+
+export function CompanionStage(props: CompanionStageProps & { quality?: Quality }) {
+  const [quality, setQuality] = useState<Quality>("medium");
+  const [mode, setMode] = useState<"loading" | "vrm" | "procedural">("loading");
+  const [active, setActive] = useState(true);
+
+  useEffect(() => {
+    setQuality(props.quality ?? detectQuality());
+  }, [props.quality]);
+
+  useEffect(() => {
+    const onVisibility = () => setActive(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
+
+  const dpr: [number, number] =
+    quality === "low" ? [1, 1.1] : quality === "high" ? [1, 2] : [1, 1.6];
+
   return (
     <div className="relative h-full min-h-[460px] w-full overflow-hidden rounded-[2rem] bg-[radial-gradient(circle_at_50%_24%,rgba(255,206,224,0.32),transparent_34%),radial-gradient(circle_at_20%_74%,rgba(155,132,255,0.18),transparent_35%),linear-gradient(180deg,#24192e_0%,#100d19_76%)]">
       <Canvas
-        camera={{ position: [0, 1.18, 5.25], fov: 32 }}
-        dpr={[1, 1.7]}
-        gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
-        shadows
+        camera={{ position: [0, 1.28, 2.15], fov: 30 }}
+        dpr={dpr}
+        frameloop={active ? "always" : "demand"}
+        gl={{ antialias: quality !== "low", alpha: true, powerPreference: "high-performance" }}
+        shadows={quality !== "low"}
       >
         <ambientLight intensity={1.25} />
         <hemisphereLight args={["#ffe6ef", "#342345", 1.45]} />
-        <directionalLight position={[3.5, 5.5, 4.2]} intensity={2.35} color="#fff0f5" castShadow />
+        <directionalLight
+          position={[3.5, 5.5, 4.2]}
+          intensity={2.35}
+          color="#fff0f5"
+          castShadow={quality !== "low"}
+        />
         <directionalLight position={[-4, 2.5, 2]} intensity={1.15} color="#c8beff" />
         <pointLight position={[0, 2.2, 3]} intensity={0.8} color="#ffbad2" distance={6} />
         <Suspense fallback={null}>
-          <OriginalAvatar {...props} />
-          <Sparkles count={34} scale={[4.2, 5, 2]} size={1.7} speed={0.2} opacity={0.28} color="#ffd7e5" />
-          <ContactShadows position={[0, -1.78, 0]} opacity={0.36} scale={4.4} blur={2.5} far={4} />
+          {mode === "procedural" ? (
+            <group position={[0, 1.3, 0]} scale={0.52}>
+              <OriginalAvatar {...props} />
+            </group>
+          ) : (
+            <VrmAvatar
+              {...props}
+              quality={quality}
+              onReady={() => setMode("vrm")}
+              onFailed={() => setMode("procedural")}
+            />
+          )}
+          {quality !== "low" && (
+            <Sparkles
+              count={26}
+              scale={[1.6, 2, 1]}
+              position={[0, 1.2, 0]}
+              size={1.4}
+              speed={0.2}
+              opacity={0.26}
+              color="#ffd7e5"
+            />
+          )}
+          <ContactShadows position={[0, 0.001, 0]} opacity={0.32} scale={2.4} blur={2.5} far={2} />
           <Environment preset="city" environmentIntensity={0.24} />
         </Suspense>
         <OrbitControls
@@ -440,9 +664,18 @@ export function CompanionStage(props: CompanionStageProps) {
           maxPolarAngle={Math.PI * 0.57}
           minAzimuthAngle={-0.3}
           maxAzimuthAngle={0.3}
-          target={[0, 0.62, 0]}
+          target={[0, 1.22, 0]}
         />
       </Canvas>
+
+      {mode === "loading" && (
+        <div className="pointer-events-none absolute inset-0 grid place-items-center">
+          <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-4 py-2 text-[11px] text-white/60 backdrop-blur-xl">
+            <span className="size-2 animate-ping rounded-full bg-pink-300" />
+            Memuat model 3D…
+          </div>
+        </div>
+      )}
       <div className="pointer-events-none absolute inset-0 rounded-[2rem] ring-1 ring-inset ring-white/10" />
     </div>
   );
