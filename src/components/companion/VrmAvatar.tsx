@@ -157,6 +157,7 @@ export function VrmAvatar({
   const hitRefs = useRef<(THREE.Mesh | null)[]>([]);
   const blinkSeed = useMemo(() => Math.random() * 4, []);
   const mouthRef = useRef(0);
+  const poseStateRef = useRef<Record<string, { x: number; y: number; z: number }>>({});
   const lookTarget = useMemo(() => new THREE.Object3D(), []);
   const bonePosition = useMemo(() => new THREE.Vector3(), []);
 
