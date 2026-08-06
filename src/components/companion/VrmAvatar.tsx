@@ -119,7 +119,12 @@ const HEAD_TILT: Record<CompanionEmotion, number> = {
   playful: -0.08,
 };
 
-type Hitbox = { region: TouchRegion; bone: string; radius: number; offset: [number, number, number] };
+type Hitbox = {
+  region: TouchRegion;
+  bone: string;
+  radius: number;
+  offset: [number, number, number];
+};
 
 const HITBOXES: Hitbox[] = [
   { region: "head", bone: "head", radius: 0.14, offset: [0, 0.11, -0.01] },
@@ -197,18 +202,19 @@ export function VrmAvatar({
     return () => {
       disposed = true;
       if (loaded) {
-        void import("@pixiv/three-vrm").then((module) => module.VRMUtils.deepDispose(loaded!.scene));
+        void import("@pixiv/three-vrm").then((module) =>
+          module.VRMUtils.deepDispose(loaded!.scene),
+        );
       }
     };
     // Load once; quality only affects shadow flags on first build.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!vrm) return;
     camera.add(lookTarget);
     lookTarget.position.set(0, 0, -1);
-    vrm.lookAt && (vrm.lookAt.target = lookTarget);
+    if (vrm.lookAt) vrm.lookAt.target = lookTarget;
     return () => {
       camera.remove(lookTarget);
     };
@@ -282,7 +288,13 @@ export function VrmAvatar({
         "head",
         HEAD_TILT[emotion] * 0.6 + (gaze === "down" ? 0.12 : pointer.y * 0.04),
         gaze === "side" ? -0.2 : pointer.x * 0.1,
-        emotion === "embarrassed" ? 0.06 : emotion === "playful" ? -0.06 : emotion === "sad" ? 0.04 : 0,
+        emotion === "embarrassed"
+          ? 0.06
+          : emotion === "playful"
+            ? -0.06
+            : emotion === "sad"
+              ? 0.04
+              : 0,
         6,
       );
 
@@ -290,9 +302,21 @@ export function VrmAvatar({
       const sway = Math.sin(t * 1.05) * 0.02;
       const waving = gesture === "small_wave" ? Math.sin(t * 8) * 0.32 : 0;
 
-      setBone("leftUpperArm", armPose.upperL[0], armPose.upperL[1], armPose.upperL[2] * power + sway, 7);
+      setBone(
+        "leftUpperArm",
+        armPose.upperL[0],
+        armPose.upperL[1],
+        armPose.upperL[2] * power + sway,
+        7,
+      );
       setBone("leftLowerArm", armPose.lowerL[0], armPose.lowerL[1] * power, armPose.lowerL[2], 7);
-      setBone("rightUpperArm", armPose.upperR[0], armPose.upperR[1], armPose.upperR[2] * power - sway, 7);
+      setBone(
+        "rightUpperArm",
+        armPose.upperR[0],
+        armPose.upperR[1],
+        armPose.upperR[2] * power - sway,
+        7,
+      );
       setBone(
         "rightLowerArm",
         armPose.lowerR[0],
