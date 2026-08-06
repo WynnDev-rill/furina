@@ -1,7 +1,9 @@
 import { ContactShadows, Environment, OrbitControls, Sparkles } from "@react-three/drei";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Suspense, useMemo, useRef } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+
+import { VrmAvatar } from "./VrmAvatar";
 
 import type {
   CompanionEmotion,
