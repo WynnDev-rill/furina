@@ -80,18 +80,81 @@ async function waitForDownload(statusUrl: string, downloadUrl: string) {
   throw new Error("VOICEVOX synthesis timeout");
 }
 
+let audioContext: AudioContext | null = null;
+let analyser: AnalyserNode | null = null;
+let analyserData: Uint8Array | null = null;
+let analyserUsable = false;
+let analyserStartedAt = 0;
+
+/**
+ * Live loudness of the currently playing voice, 0..1.
+ * Returns -1 when no real signal is measurable (native/browser TTS, or a
+ * cross-origin stream the analyser cannot read) so callers can fall back to
+ * procedural mouth motion.
+ */
+export function getVoiceLevel() {
+  if (!analyser || !analyserData) return -1;
+  analyser.getByteTimeDomainData(analyserData);
+  let peak = 0;
+  for (let index = 0; index < analyserData.length; index += 4) {
+    const value = Math.abs(analyserData[index] - 128) / 128;
+    if (value > peak) peak = value;
+  }
+  if (peak > 0.012) analyserUsable = true;
+  if (!analyserUsable) {
+    // Give the graph a moment; if it stays silent the source is unreadable.
+    return Date.now() - analyserStartedAt < 900 ? 0 : -1;
+  }
+  return Math.min(1, peak * 2.6);
+}
+
+function attachAnalyser(audio: HTMLAudioElement) {
+  try {
+    const AudioContextCtor =
+      window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) return;
+    audioContext ||= new AudioContextCtor();
+    void audioContext.resume();
+    const source = audioContext.createMediaElementSource(audio);
+    const node = audioContext.createAnalyser();
+    node.fftSize = 1024;
+    node.smoothingTimeConstant = 0.55;
+    source.connect(node);
+    node.connect(audioContext.destination);
+    analyser = node;
+    analyserData = new Uint8Array(node.fftSize);
+    analyserUsable = false;
+    analyserStartedAt = Date.now();
+  } catch {
+    analyser = null;
+    analyserData = null;
+  }
+}
+
+function detachAnalyser() {
+  analyser = null;
+  analyserData = null;
+  analyserUsable = false;
+}
+
 async function playAudioUrl(url: string, handlers: VoiceHandlers) {
   const audio = new Audio();
   activeAudio = audio;
   audio.preload = "auto";
+  audio.crossOrigin = "anonymous";
   audio.src = url;
-  audio.onplaying = () => handlers.onStart();
+  audio.onplaying = () => {
+    attachAnalyser(audio);
+    handlers.onStart();
+  };
   audio.onended = () => {
     if (activeAudio === audio) activeAudio = null;
+    detachAnalyser();
     handlers.onEnd();
   };
   audio.onerror = () => {
     if (activeAudio === audio) activeAudio = null;
+    detachAnalyser();
     handlers.onError?.("audio playback failed");
   };
   await audio.play();
