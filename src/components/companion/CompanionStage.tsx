@@ -413,24 +413,65 @@ function OriginalAvatar({ emotion, gesture, gaze, intensity, speaking, onTouch }
   );
 }
 
-export function CompanionStage(props: CompanionStageProps) {
+type Quality = "low" | "medium" | "high";
+
+function detectQuality(): Quality {
+  if (typeof navigator === "undefined") return "medium";
+  const cores = navigator.hardwareConcurrency ?? 4;
+  const memory = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 4;
+  if (cores <= 4 || memory <= 3) return "low";
+  if (cores >= 8 && memory >= 8) return "high";
+  return "medium";
+}
+
+export function CompanionStage(props: CompanionStageProps & { quality?: Quality }) {
+  const [quality, setQuality] = useState<Quality>("medium");
+  const [mode, setMode] = useState<"loading" | "vrm" | "procedural">("loading");
+  const [active, setActive] = useState(true);
+
+  useEffect(() => {
+    setQuality(props.quality ?? detectQuality());
+  }, [props.quality]);
+
+  useEffect(() => {
+    const onVisibility = () => setActive(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
+
+  const dpr: [number, number] = quality === "low" ? [1, 1.1] : quality === "high" ? [1, 2] : [1, 1.6];
+
   return (
     <div className="relative h-full min-h-[460px] w-full overflow-hidden rounded-[2rem] bg-[radial-gradient(circle_at_50%_24%,rgba(255,206,224,0.32),transparent_34%),radial-gradient(circle_at_20%_74%,rgba(155,132,255,0.18),transparent_35%),linear-gradient(180deg,#24192e_0%,#100d19_76%)]">
       <Canvas
-        camera={{ position: [0, 1.18, 5.25], fov: 32 }}
-        dpr={[1, 1.7]}
-        gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
-        shadows
+        camera={{ position: [0, 1.32, 1.75], fov: 30 }}
+        dpr={dpr}
+        frameloop={active ? "always" : "demand"}
+        gl={{ antialias: quality !== "low", alpha: true, powerPreference: "high-performance" }}
+        shadows={quality !== "low"}
       >
         <ambientLight intensity={1.25} />
         <hemisphereLight args={["#ffe6ef", "#342345", 1.45]} />
-        <directionalLight position={[3.5, 5.5, 4.2]} intensity={2.35} color="#fff0f5" castShadow />
+        <directionalLight position={[3.5, 5.5, 4.2]} intensity={2.35} color="#fff0f5" castShadow={quality !== "low"} />
         <directionalLight position={[-4, 2.5, 2]} intensity={1.15} color="#c8beff" />
         <pointLight position={[0, 2.2, 3]} intensity={0.8} color="#ffbad2" distance={6} />
         <Suspense fallback={null}>
-          <OriginalAvatar {...props} />
-          <Sparkles count={34} scale={[4.2, 5, 2]} size={1.7} speed={0.2} opacity={0.28} color="#ffd7e5" />
-          <ContactShadows position={[0, -1.78, 0]} opacity={0.36} scale={4.4} blur={2.5} far={4} />
+          {mode === "procedural" ? (
+            <group position={[0, 1.3, 0]} scale={0.52}>
+              <OriginalAvatar {...props} />
+            </group>
+          ) : (
+            <VrmAvatar
+              {...props}
+              quality={quality}
+              onReady={() => setMode("vrm")}
+              onFailed={() => setMode("procedural")}
+            />
+          )}
+          {quality !== "low" && (
+            <Sparkles count={26} scale={[1.6, 2, 1]} position={[0, 1.2, 0]} size={1.4} speed={0.2} opacity={0.26} color="#ffd7e5" />
+          )}
+          <ContactShadows position={[0, 0.001, 0]} opacity={0.32} scale={2.4} blur={2.5} far={2} />
           <Environment preset="city" environmentIntensity={0.24} />
         </Suspense>
         <OrbitControls
@@ -440,9 +481,18 @@ export function CompanionStage(props: CompanionStageProps) {
           maxPolarAngle={Math.PI * 0.57}
           minAzimuthAngle={-0.3}
           maxAzimuthAngle={0.3}
-          target={[0, 0.62, 0]}
+          target={[0, 1.3, 0]}
         />
       </Canvas>
+
+      {mode === "loading" && (
+        <div className="pointer-events-none absolute inset-0 grid place-items-center">
+          <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-4 py-2 text-[11px] text-white/60 backdrop-blur-xl">
+            <span className="size-2 animate-ping rounded-full bg-pink-300" />
+            Memuat model 3D…
+          </div>
+        </div>
+      )}
       <div className="pointer-events-none absolute inset-0 rounded-[2rem] ring-1 ring-inset ring-white/10" />
     </div>
   );
