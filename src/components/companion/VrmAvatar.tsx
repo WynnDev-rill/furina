@@ -2,7 +2,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
-import mireiAsset from "../../../public/avatar/mirei.vrm.asset.json";
+import mireiAsset from "@/assets/mirei.vrm.asset.json";
 import type {
   CompanionEmotion,
   CompanionGaze,
