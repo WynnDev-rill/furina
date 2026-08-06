@@ -1,0 +1,43 @@
+3D avatar assets used by this application
+=========================================
+
+Model file: mirei.vrm  (served from the Lovable CDN, pointer: public/avatar/mirei.vrm.asset.json)
+
+  Original name : VRM1_Constraint_Twist_Sample
+  Format        : VRM 1.0 (glTF binary with VRMC_vrm + VRMC_springBone)
+  Author        : pixiv Inc.
+  Copyright     : (c) 2022 pixiv Inc.
+  Source        : https://github.com/pixiv/three-vrm
+                  packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm
+  License URL   : https://vrm.dev/licenses/1.0/
+
+  Embedded VRM 1.0 license metadata (verbatim from the file):
+    avatarPermission          : everyone
+    allowRedistribution       : true
+    modification              : allowModificationRedistribution
+    commercialUsage           : corporation
+    creditNotation            : unnecessary
+    allowAntisocialOrHateUsage: false
+
+  This permits use in an application, modification, redistribution
+  (including inside an APK), and personal use. Credit is not required but is
+  given here anyway.
+
+Animation
+---------
+No third-party motion files are bundled. All body motion, gaze, blinking,
+breathing and lip movement is generated procedurally at runtime by
+src/components/companion/VrmAvatar.tsx.
+
+Optional: drop VRM Animation files into public/avatar/anim/ (idle.vrma,
+talk.vrma, happy.vrma, embarrassed.vrma, annoyed.vrma, sad.vrma,
+thinking.vrma, wave.vrma, touch.vrma). They are loaded automatically when
+present and blended over the procedural layer. Missing files are ignored.
+Only add files whose own licence permits application use, modification and
+redistribution, and record that licence in this file.
+
+Replacing the character
+-----------------------
+Upload another .vrm and replace public/avatar/mirei.vrm.asset.json with the new
+pointer (or set the URL in src/components/companion/VrmAvatar.tsx). No other
+code change is required.
