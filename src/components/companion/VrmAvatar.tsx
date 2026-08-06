@@ -190,6 +190,7 @@ export function VrmAvatar({
           }
         });
         loaded = instance;
+        (window as unknown as { __vrm?: AnyVrm }).__vrm = instance;
         setVrm(instance);
         onReady();
       } catch (error) {
