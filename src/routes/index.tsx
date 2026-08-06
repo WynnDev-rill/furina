@@ -326,7 +326,7 @@ function CompanionApp() {
       annoyance: current.annoyance + annoyanceDelta,
       touchCount: current.touchCount + 1,
     }));
-    setMessages((current) => [...current, { id: createId(), role: "assistant", content: reaction.text, createdAt: Date.now() }].slice(-100));
+    setMessages((current) => [...current, { id: createId(), role: "assistant" as const, content: reaction.text, createdAt: Date.now() }].slice(-100));
     animateReply(reaction);
     setStatus(`touch · ${region}`);
     if (navigator.vibrate) navigator.vibrate(region === "body" ? [25, 40, 25] : 18);
