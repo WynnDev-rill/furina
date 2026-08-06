@@ -82,7 +82,7 @@ async function waitForDownload(statusUrl: string, downloadUrl: string) {
 
 let audioContext: AudioContext | null = null;
 let analyser: AnalyserNode | null = null;
-let analyserData: Uint8Array | null = null;
+let analyserData: Uint8Array<ArrayBuffer> | null = null;
 let analyserUsable = false;
 let analyserStartedAt = 0;
 
@@ -122,7 +122,7 @@ function attachAnalyser(audio: HTMLAudioElement) {
     source.connect(node);
     node.connect(audioContext.destination);
     analyser = node;
-    analyserData = new Uint8Array(node.fftSize);
+    analyserData = new Uint8Array(new ArrayBuffer(node.fftSize));
     analyserUsable = false;
     analyserStartedAt = Date.now();
   } catch {
