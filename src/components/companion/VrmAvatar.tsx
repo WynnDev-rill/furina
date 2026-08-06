@@ -266,9 +266,14 @@ export function VrmAvatar({
       const setBone = (name: string, x: number, y: number, z: number, lambda = 6) => {
         const node = humanoid.getNormalizedBoneNode(name) as THREE.Object3D | null;
         if (!node) return;
-        node.rotation.x = damp(node.rotation.x, x, lambda, step);
-        node.rotation.y = damp(node.rotation.y, y, lambda, step);
-        node.rotation.z = damp(node.rotation.z, z, lambda, step);
+        // three-vrm resets normalized bone rotations after each update(), so we
+        // keep our own smoothed state instead of reading back from the node.
+        const state = poseStateRef.current[name] ?? { x: 0, y: 0, z: 0 };
+        state.x = damp(state.x, x, lambda, step);
+        state.y = damp(state.y, y, lambda, step);
+        state.z = damp(state.z, z, lambda, step);
+        poseStateRef.current[name] = state;
+        node.rotation.set(state.x, state.y, state.z);
       };
 
       const breathe = Math.sin(t * 1.2) * 0.014;
