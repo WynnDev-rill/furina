@@ -1,78 +1,52 @@
-# Perbaikan Bug + Furina Lebih Hidup & Punya Pendirian
+# Avatar 3D VRM untuk Mirei/Furina
 
-## A. Bug fixes
+Menambahkan panel avatar 3D di layar chat: model VRM gratis berlisensi terbuka, animasi VRMA gratis, ekspresi dan gaze yang mengikuti emosi balasan AI, plus lip-sync mengikuti pemutaran suara VOICEVOX. Semua AI tetap lewat Lovable AI Gateway — tidak ada API key tambahan.
 
-### 1. Chat terbaru kadang menghilang
-- Setelah `sendMessage`, refetch bisa me-*replace* array sebelum row assistant tersimpan → pesan hilang sekejap.
-- Perbaikan:
-  - Realtime subscribe ke `messages` per `conversation_id` (INSERT/UPDATE), merge **by id**, bukan replace.
-  - Optimistic message dipertahankan sampai row dengan id sama muncul dari server.
-  - Setelah server fn balas, update state langsung dari hasilnya (tanpa full reload).
+## 0. Perbaikan build lebih dulu
 
-### 2. Waktu riwayat sama semua
-- Pastikan `conversations.updated_at` di-*touch* setiap kirim pesan di server fn.
-- Sidebar pakai util `formatRelative(date)`: "baru saja", "5 mnt lalu", "2 jam lalu", "kemarin", "3 hari lalu", "12 Nov".
+Build saat ini gagal dan harus diberesi sebelum fitur baru:
 
-### 3. Grouping riwayat
-- Bucket: **Hari ini / Kemarin / 7 hari terakhir / 30 hari terakhir / Lebih lama**, header kecil, urut desc dalam bucket.
+- Paket klien backend `@supabase/supabase-js` belum terpasang (sudah saya pasang saat pengecekan, tinggal dipastikan ikut terbawa).
+- Type error di `src/routes/index.tsx` baris 329: field `role` pada pesan sentuhan perlu di-cast ke tipe peran chat.
 
-## B. Kesadaran & ekspresi
+## 1. Sumber model dan lisensi
 
-### 4. Inner state ringan (di luar mood)
-- Simpan di `user_settings.data.innerState`: `energy` (0..100, decay harian), `focus` (0..100), `interest` (topik singkat dari kata kunci pesan).
-- Prompt menerima 1 baris hint (`state: energy tinggi, fokus rendah, tertarik "musik"`). Furina memodulasi panjang/antusiasme; **tidak boleh mengumumkan state**.
+Model diambil dari koleksi avatar VRM berlisensi terbuka (Open Source Avatars / VTubeMe — CC0 atau CC BY 4.0, mengizinkan pemakaian di aplikasi, modifikasi, distribusi dalam APK, dan penggunaan pribadi). Saya pilih satu model VRM 1.0 perempuan bergaya anime yang paling mendekati arah karakter, unduh, verifikasi metadata lisensinya, lalu simpan:
 
-### 5. Kesadaran waktu & sesi
-- Client kirim `clientNow` + `tz`. Server hitung: waktu lokal (pagi/siang/sore/malam/dini hari), jarak sejak pesan terakhir, hari & weekend.
-- Sisipkan sebagai konteks di prompt. Furina boleh menyinggung natural.
-
-### 6. Memori diri (self-notes)
-- Pakai `memories.kind='self'` (konvensi, tanpa migrasi).
-- Server fn `updateSelfNotes` (rate-limited ~1x per 6 giliran) bikin 1 catatan pendek tentang Furina sendiri.
-- Semantic recall mengambil top 1–2 self-memory selain memori user-facing.
-
-## C. Sifat egois & menentang (level: sedang)
-
-### 7. Opini & bantah dalam karakter
-- Update `DEFAULT_PERSONA` + system-prompt builder:
-  - 8–12 preferensi konkret Furina + 4–6 pet peeves (panggung, drama, air/laut, wine, dsb).
-  - Boleh **tidak setuju**, koreksi user, jawab dari sudut pandangnya. Tidak wajib validate.
-  - Boleh kesombongan halus, merajuk, merasa lebih tahu.
-  - **Bukan penolakan moral untuk konten dewasa/vulgar**; hanya menolak/menawar kalau secara karakter sedang tidak mood. Kalau moodnya cocok, ia bisa antusias.
-  - Larangan tetap: tidak khotbah moral, tidak jadi asisten netral, tidak selalu setuju.
-- ~20% giliran mulai dengan "counter" (koreksi/opini) sebelum bantu — tetap membantu.
-
-## D. Proaktif dalam obrolan
-
-### 8. Inisiatif dalam obrolan
-- ~30% giliran, tambah **giliran mini** setelah balasan utama: lempar topik baru dari inner state, cerita hal kecil tentang dirinya, atau opini spontan.
-- Tidak muncul kalau: user baru bertanya spesifik yang belum tuntas, topik sensitif, atau balasan sudah panjang.
-
-### 9. Callback memori spontan
-- ~15% per giliran, ambil 1 memori lama (importance ≥ 6, `last_accessed_at` > 3 hari) yang **cocok embedding** dengan konteks. Sisipkan hint prompt.
-- Update `last_accessed_at` + `access_count` supaya tidak berulang.
-
-## E. File yang disentuh
-
-```
-src/lib/utils.ts               + formatRelative()
-src/lib/furina.functions.ts    inner state, time awareness, self-notes,
-                               opinion/counter rules, initiative + callback,
-                               touch conversations.updated_at, terima clientNow + tz
-src/routes/index.tsx           realtime subscribe messages, merge-by-id,
-                               kirim clientNow + tz,
-                               sidebar: formatRelative + grouping bucket
+```text
+public/avatar/mirei.vrm
+public/avatar/LICENSE.txt      # nama model, pembuat, URL sumber, jenis lisensi
+public/avatar/anim/idle.vrma
+public/avatar/anim/wave.vrma   # dst. sesuai yang tersedia gratis
 ```
 
-Tanpa tabel baru. `memories.kind='self'` cukup pakai kolom yang ada. `user_settings.data.innerState` menyatu di JSON.
+Kalau ukurannya besar, file diunggah ke penyimpanan CDN Lovable dan dirujuk lewat pointer, agar repo tetap ringan. Kalau nanti kamu punya model sendiri, tinggal ganti file `.vrm`-nya — kode tidak perlu diubah.
 
-## F. Urutan eksekusi
+## 2. Panel avatar di layar chat
 
-1. Bug: realtime + dedupe pesan.
-2. Bug: `updated_at` conversation + formatRelative + grouping sidebar.
-3. Persona rework (opini/bantah + preferensi konkret).
-4. Inner state + kesadaran waktu.
-5. Self-notes + callback memori spontan.
-6. Inisiatif giliran mini.
+- Komponen baru `src/components/avatar/VrmStage.tsx`: kanvas React Three Fiber, dimuat hanya di browser (bukan saat render server), dengan indikator loading dan fallback aman bila model gagal dimuat.
+- Ditempatkan sebagai panel di layar chat yang sudah ada — tata letak chat, komposer, dan setting tidak diubah. Di layar sempit (mobile) panel tampil sebagai area avatar di atas transkrip, dengan tombol untuk menyembunyikan.
+- Kamera close-up wajah/torso, pencahayaan lembut, latar transparan supaya menyatu dengan tema terang dan gelap.
 
-Mau **semua sekaligus 1 turn** atau **bertahap A→F**? Rekomendasi: bertahap, mulai **A (bug)** dulu.
+## 3. Gerakan dan ekspresi
+
+- Animasi klip `.vrma` gratis untuk idle, talk, wave, thinking, dan reaksi sentuhan, di-blend dengan crossfade halus.
+- Lapisan prosedural tetap aktif di atas klip: napas, kedip acak, gaze mengikuti kursor/sentuhan, dan micro-sway — jadi avatar tidak pernah terlihat beku meski klip terbatas.
+- Peta emosi (`happy`, `embarrassed`, `annoyed`, `sad`, `surprised`, `playful`, `neutral`) ke ekspresi VRM dan pose, memakai emosi yang sudah dikeluarkan sistem balasan sekarang.
+- Spring bone (rambut/pakaian) aktif dengan intensitas yang bisa diturunkan pada profil performa rendah.
+
+## 4. Lip-sync dengan VOICEVOX
+
+Saat audio VOICEVOX diputar, amplitudo audio dibaca lewat analyser dan dipetakan ke bentuk mulut VRM, sehingga mulut bergerak sesuai suara, bukan sekadar buka-tutup acak. Saat suara dimatikan, mulut mengikuti ritme teks yang muncul.
+
+## 5. Performa dan Android
+
+- Batas frame rate adaptif dan penurunan resolusi render otomatis di perangkat lemah, agar WebView Android tetap lancar.
+- Kanvas dijeda saat tab/aplikasi tidak aktif supaya baterai tidak terkuras.
+- Setelan baru di tab Setting yang sudah ada: tampilkan/sembunyikan avatar, dan kualitas render (rendah/sedang/tinggi).
+
+## Catatan teknis
+
+- Paket `@pixiv/three-vrm`, `@pixiv/three-vrm-animation`, `@react-three/fiber`, dan `@react-three/drei` sudah terpasang; tidak ada dependensi berat baru.
+- Modul three.js hanya diimpor secara dinamis di sisi klien agar SSR tidak pecah.
+- Emosi/gaze memakai kontrak data balasan yang sudah ada, jadi logika chat, memori, dan persona tidak disentuh.
