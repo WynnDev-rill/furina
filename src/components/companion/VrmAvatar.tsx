@@ -55,9 +55,9 @@ type ArmPose = {
 };
 
 const REST_POSE: ArmPose = {
-  upperL: [0.05, 0, 1.28],
+  upperL: [0.05, 0, 1.4],
   lowerL: [0, -0.18, 0.16],
-  upperR: [0.05, 0, -1.28],
+  upperR: [0.05, 0, -1.4],
   lowerR: [0, 0.18, -0.16],
 };
 
@@ -191,7 +191,6 @@ export function VrmAvatar({
           }
         });
         loaded = instance;
-        (window as unknown as { __vrm?: AnyVrm }).__vrm = instance;
         setVrm(instance);
         onReady();
       } catch (error) {
