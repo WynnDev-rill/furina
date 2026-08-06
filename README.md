@@ -1,26 +1,32 @@
-# Furina's Companion
+# Mirei Virtual Companion
 
-Aku ingin membuat sebuah aplikasi ai dengan antarmuka seperti digambar(tanpa 3 alat yang ada di gambar, tidak perlu) dengan tujuan ai assistant personal pribadi yang memiliki voice Jepang dan Inggris alami, memiliki memori RAG, memiliki personalisasi karakter anime, bisa Custom gambar backgroundnya, TTS yang mirip dengan voice anime, intinya fiturnya mirip dengan AOi (Live2D) tapi hanya pakai satu karakter saja(karakter furina yang digambar)
+An experimental Android and web virtual companion with an original 3D character, Japanese voice, contextual animation, touch reactions, local conversation history, and a realistic tsundere personality.
 
-This project was built with [Lovable](https://lovable.dev).
+This branch is a complete reconstruction of the former Furina prototype. It intentionally avoids the lore, costume, identity, and protected visual design of existing game characters.
 
-**Live app**: https://furina.lovable.app
+## Challenge structure
 
-## Build with Lovable
+- **Stage 1 — Foundation:** online architecture, community inference, 3D runtime, Android networking, CI prototype.
+- **Stage 2 — Character:** original VRM character, facial expressions, spring bones, animation state machine, mobile optimization.
+- **Stage 3 — Interaction:** Japanese VOICEVOX speech, lip-sync, contextual gestures, touch regions, memory.
+- **Stage 4 — Finalization:** UI polish, performance profiles, signed APK, production deployment, reliability testing.
 
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/1a1621d2-7cae-4972-8cdc-269778779da2).
+Current work happens on `challenge/virtual-companion-3d`. The branch is kept separate from `main` until the web build and Android build both succeed.
 
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
+## Current foundation
+
+- React 19 and TanStack Start.
+- Three.js through React Three Fiber and Drei.
+- VRM runtime packages from pixiv.
+- Anonymous AI Horde text generation for the initial experiment.
+- Procedural 3D placeholder that already supports gaze, breathing, blinking, mouth motion, emotional poses, and touch regions.
+- Android WebView with Internet and microphone support.
 
 ## Development
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
-
 ```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
+npm install
 npm run dev
 ```
+
+The anonymous community provider has the lowest queue priority and is deliberately isolated behind `src/lib/companion/ai-horde.ts`, so it can be replaced later without rebuilding the character system.
