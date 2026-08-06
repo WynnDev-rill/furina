@@ -7,7 +7,10 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
 import android.view.ViewGroup;
+import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -25,16 +28,21 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.core.view.WindowCompat;
 
-/**
- * Hardware-accelerated online host for the 3D companion web application.
- * The URL remains configurable in one place so Stage 4 can point the APK to the final deployment.
- */
+import org.json.JSONObject;
+
+import java.util.Locale;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/** Hardware-accelerated online host for the Mirei 3D companion. */
 public class MainActivity extends AppCompatActivity {
-    private static final String APP_URL = "https://furina.lovable.app";
+    private static final String APP_URL = "https://furina-indonesiafilmku-2721s-projects.vercel.app";
     private static final int BG_COLOR = Color.rgb(11, 9, 17);
 
+    private final AtomicInteger utteranceCounter = new AtomicInteger();
     private WebView webView;
     private PermissionRequest pendingMicrophoneRequest;
+    private TextToSpeech textToSpeech;
+    private volatile boolean textToSpeechReady;
 
     private final ActivityResultLauncher<String> microphonePermissionLauncher =
         registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
@@ -51,11 +59,86 @@ public class MainActivity extends AppCompatActivity {
         WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
         getWindow().setStatusBarColor(BG_COLOR);
         getWindow().setNavigationBarColor(BG_COLOR);
+        initializeJapaneseVoice();
         initializeWebApp();
         configureBackHandling();
 
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
             webView.loadUrl(APP_URL);
+        }
+    }
+
+    private void initializeJapaneseVoice() {
+        textToSpeech = new TextToSpeech(getApplicationContext(), status -> {
+            if (status != TextToSpeech.SUCCESS || textToSpeech == null) {
+                textToSpeechReady = false;
+                dispatchVoiceEvent("mirei-tts-error");
+                return;
+            }
+
+            int languageResult = textToSpeech.setLanguage(Locale.JAPAN);
+            textToSpeechReady = languageResult != TextToSpeech.LANG_MISSING_DATA
+                && languageResult != TextToSpeech.LANG_NOT_SUPPORTED;
+            textToSpeech.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+                @Override
+                public void onStart(String utteranceId) {
+                    dispatchVoiceEvent("mirei-tts-start");
+                }
+
+                @Override
+                public void onDone(String utteranceId) {
+                    dispatchVoiceEvent("mirei-tts-done");
+                }
+
+                @Override
+                public void onError(String utteranceId) {
+                    dispatchVoiceEvent("mirei-tts-error");
+                }
+
+                @Override
+                public void onError(String utteranceId, int errorCode) {
+                    dispatchVoiceEvent("mirei-tts-error");
+                }
+            });
+        });
+    }
+
+    private void dispatchVoiceEvent(String eventName) {
+        runOnUiThread(() -> {
+            if (webView == null) return;
+            String script = "window.dispatchEvent(new CustomEvent(" + JSONObject.quote(eventName) + "));";
+            webView.evaluateJavascript(script, null);
+        });
+    }
+
+    private final class MireiVoiceBridge {
+        @JavascriptInterface
+        public boolean isAvailable() {
+            return textToSpeechReady;
+        }
+
+        @JavascriptInterface
+        public void speak(String text, float rate, float pitch) {
+            if (text == null || text.trim().isEmpty()) return;
+            runOnUiThread(() -> {
+                if (!textToSpeechReady || textToSpeech == null) {
+                    dispatchVoiceEvent("mirei-tts-error");
+                    return;
+                }
+                textToSpeech.setSpeechRate(Math.max(0.72f, Math.min(1.3f, rate)));
+                textToSpeech.setPitch(Math.max(0.82f, Math.min(1.35f, pitch)));
+                String utteranceId = "mirei-" + utteranceCounter.incrementAndGet();
+                int result = textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId);
+                if (result == TextToSpeech.ERROR) dispatchVoiceEvent("mirei-tts-error");
+            });
+        }
+
+        @JavascriptInterface
+        public void stop() {
+            runOnUiThread(() -> {
+                if (textToSpeech != null) textToSpeech.stop();
+                dispatchVoiceEvent("mirei-tts-done");
+            });
         }
     }
 
@@ -74,7 +157,7 @@ public class MainActivity extends AppCompatActivity {
         configureWebView();
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
+    @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     private void configureWebView() {
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -89,8 +172,9 @@ public class MainActivity extends AppCompatActivity {
         settings.setDisplayZoomControls(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setBlockNetworkLoads(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " MireiCompanion/0.1");
+        settings.setUserAgentString(settings.getUserAgentString() + " MireiCompanion/1.0");
 
+        webView.addJavascriptInterface(new MireiVoiceBridge(), "MireiNative");
         WebView.setWebContentsDebuggingEnabled(false);
 
         webView.setWebViewClient(new WebViewClient() {
@@ -98,8 +182,8 @@ public class MainActivity extends AppCompatActivity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 if (uri == null) return true;
-                String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
-                boolean trustedAppHost = host.equals("furina.lovable.app")
+                String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+                boolean trustedAppHost = host.equals("furina-indonesiafilmku-2721s-projects.vercel.app")
                     || host.endsWith(".vercel.app")
                     || host.endsWith(".lovable.app");
                 if (trustedAppHost) return false;
@@ -181,7 +265,14 @@ public class MainActivity extends AppCompatActivity {
             pendingMicrophoneRequest.deny();
             pendingMicrophoneRequest = null;
         }
+        if (textToSpeech != null) {
+            textToSpeech.stop();
+            textToSpeech.shutdown();
+            textToSpeech = null;
+            textToSpeechReady = false;
+        }
         if (webView != null) {
+            webView.removeJavascriptInterface("MireiNative");
             webView.stopLoading();
             webView.loadUrl("about:blank");
             webView.clearHistory();

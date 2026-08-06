@@ -1,11 +1,10 @@
-name: Validate 3D Companion and Build APK
+name: Validate Mirei Final and Build APK
 
 on:
   workflow_dispatch:
   pull_request:
     paths:
       - 'src/**'
-      - 'shared/**'
       - 'public/**'
       - 'android-wrapper/**'
       - 'package.json'
@@ -17,7 +16,6 @@ on:
     branches: [main]
     paths:
       - 'src/**'
-      - 'shared/**'
       - 'public/**'
       - 'android-wrapper/**'
       - 'package.json'
@@ -30,11 +28,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: mirei-companion-${{ github.ref }}
+  group: mirei-final-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  prototype:
+  final:
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
@@ -51,16 +49,21 @@ jobs:
       - name: Install web dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Build web application
+      - name: Build production web application
         run: npm run build
 
-      - name: Validate companion foundation
+      - name: Validate final companion systems
         run: |
           node -e "const p=require('./package.json'); for (const name of ['three','@react-three/fiber','@react-three/drei','@pixiv/three-vrm']) if (!p.dependencies[name]) throw new Error('Missing '+name)"
           grep -q 'aihorde.net/api/v2' src/lib/companion/ai-horde.ts
+          grep -q 'api.tts.quest/v3/voicevox/synthesis' src/lib/companion/voice.ts
+          grep -q 'instant local fallback' src/routes/index.tsx
+          grep -q 'RelationshipState' src/lib/companion/types.ts
           grep -q 'CompanionStage' src/routes/index.tsx
           grep -q 'android.permission.INTERNET' android-wrapper/app/src/main/AndroidManifest.xml
           grep -q 'android.permission.RECORD_AUDIO' android-wrapper/app/src/main/AndroidManifest.xml
+          grep -q 'MireiNative' android-wrapper/app/src/main/java/com/wynndev/furina/MainActivity.java
+          grep -q 'furina-indonesiafilmku-2721s-projects.vercel.app' android-wrapper/app/src/main/java/com/wynndev/furina/MainActivity.java
           grep -q 'setBlockNetworkLoads(false)' android-wrapper/app/src/main/java/com/wynndev/furina/MainActivity.java
           ! grep -q 'android_asset/offline' android-wrapper/app/src/main/java/com/wynndev/furina/MainActivity.java
 
@@ -81,23 +84,27 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build Android prototype
+      - name: Build installable final APK
         working-directory: android-wrapper
         run: gradle --no-daemon --stacktrace clean assembleDebug
 
-      - name: Verify APK permissions
+      - name: Verify APK permissions and package
         run: |
-          $ANDROID_HOME/build-tools/35.0.0/aapt dump permissions android-wrapper/app/build/outputs/apk/debug/app-debug.apk | tee apk-permissions.txt
+          APK=android-wrapper/app/build/outputs/apk/debug/app-debug.apk
+          $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose "$APK"
+          $ANDROID_HOME/build-tools/35.0.0/aapt dump permissions "$APK" | tee apk-permissions.txt
           grep -q 'android.permission.INTERNET' apk-permissions.txt
           grep -q 'android.permission.RECORD_AUDIO' apk-permissions.txt
+          $ANDROID_HOME/build-tools/35.0.0/aapt dump badging "$APK" | tee apk-badging.txt
+          grep -q "application-label:'Mirei'" apk-badging.txt
 
-      - name: Rename APK
-        run: cp android-wrapper/app/build/outputs/apk/debug/app-debug.apk Mirei-Stage1-Prototype.apk
+      - name: Package final APK
+        run: cp android-wrapper/app/build/outputs/apk/debug/app-debug.apk Mirei-Final.apk
 
-      - name: Upload prototype APK
+      - name: Upload final APK
         uses: actions/upload-artifact@v4
         with:
-          name: Mirei-Stage1-${{ github.run_number }}
-          path: Mirei-Stage1-Prototype.apk
+          name: Mirei-Final-${{ github.run_number }}
+          path: Mirei-Final.apk
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
