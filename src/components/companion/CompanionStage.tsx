@@ -614,7 +614,7 @@ export function CompanionStage(props: CompanionStageProps & { quality?: Quality 
   return (
     <div className="relative h-full min-h-[460px] w-full overflow-hidden rounded-[2rem] bg-[radial-gradient(circle_at_50%_24%,rgba(255,206,224,0.32),transparent_34%),radial-gradient(circle_at_20%_74%,rgba(155,132,255,0.18),transparent_35%),linear-gradient(180deg,#24192e_0%,#100d19_76%)]">
       <Canvas
-        camera={{ position: [0, 1.32, 1.75], fov: 30 }}
+        camera={{ position: [0, 1.28, 2.15], fov: 30 }}
         dpr={dpr}
         frameloop={active ? "always" : "demand"}
         gl={{ antialias: quality !== "low", alpha: true, powerPreference: "high-performance" }}
@@ -664,7 +664,7 @@ export function CompanionStage(props: CompanionStageProps & { quality?: Quality 
           maxPolarAngle={Math.PI * 0.57}
           minAzimuthAngle={-0.3}
           maxAzimuthAngle={0.3}
-          target={[0, 1.3, 0]}
+          target={[0, 1.22, 0]}
         />
       </Canvas>
 
