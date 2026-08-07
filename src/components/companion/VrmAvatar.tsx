@@ -11,8 +11,8 @@ import type {
 import { getVoiceLevel } from "@/lib/companion/voice";
 
 /**
- * "Vivi" — official VRoid sample avatar, CC0, released by pixiv/VRoid.
- * Full humanoid rig (54 bones), preset expressions, 22 spring-bone groups.
+ * "Sendagaya Shino" — official VRoid sample avatar, CC0, released by pixiv/VRoid.
+ * Full humanoid rig, preset expressions, look-at and spring bones.
  * Served from jsDelivr so the web build, Vercel deploy and the Android APK
  * all resolve the same absolute URL. See public/avatar/LICENSE.txt.
  */
