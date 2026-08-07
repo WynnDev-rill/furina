@@ -1,27 +1,35 @@
 3D avatar assets used by this application
 =========================================
 
-Model file: mirei.vrm  (served from the Lovable CDN, pointer: public/avatar/mirei.vrm.asset.json)
+Model: "Vivi" (official VRoid sample avatar)
 
-  Original name : VRM1_Constraint_Twist_Sample
-  Format        : VRM 1.0 (glTF binary with VRMC_vrm + VRMC_springBone)
-  Author        : pixiv Inc.
-  Copyright     : (c) 2022 pixiv Inc.
-  Source        : https://github.com/pixiv/three-vrm
-                  packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm
-  License URL   : https://vrm.dev/licenses/1.0/
+  Format        : VRM 0.x (glTF binary, humanoid rig + spring bones)
+  Rig           : 54 humanoid bones
+  Expressions   : neutral, a/i/u/e/o (lip-sync), blink, blink_l, blink_r,
+                  angry, fun, joy, sorrow
+  Spring bones  : 22 groups (hair, skirt, accessories)
+  Size          : ~18 MB
+  Source        : https://github.com/madjin/vrm-samples
+                  vroid/beta/Vivi.vrm  (VRoid Studio sample models)
+  Served from   : https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/beta/Vivi.vrm
 
-  Embedded VRM 1.0 license metadata (verbatim from the file):
-    avatarPermission          : everyone
-    allowRedistribution       : true
-    modification              : allowModificationRedistribution
-    commercialUsage           : corporation
-    creditNotation            : unnecessary
-    allowAntisocialOrHateUsage: false
+  Embedded VRM license metadata (verbatim from the file):
+    licenseName          : CC0
+    allowedUserName      : Everyone
+    violentUssageName    : Allow
+    sexualUssageName     : Allow
+    commercialUssageName : Allow
 
-  This permits use in an application, modification, redistribution
-  (including inside an APK), and personal use. Credit is not required but is
-  given here anyway.
+  CC0 permits use in an application, modification, redistribution
+  (including inside an APK) and personal use, with no attribution
+  requirement. Credit is given here anyway.
+
+Why the file is not committed to this repository
+------------------------------------------------
+The repository has a 10 MB per-file limit and the model is ~18 MB, so it is
+loaded at runtime from the jsDelivr CDN (CORS enabled, long cache headers).
+The same absolute URL resolves from the web build, the Vercel deployment and
+the Android WebView, so there is no 404 in any environment.
 
 Animation
 ---------
@@ -31,13 +39,11 @@ src/components/companion/VrmAvatar.tsx.
 
 Optional: drop VRM Animation files into public/avatar/anim/ (idle.vrma,
 talk.vrma, happy.vrma, embarrassed.vrma, annoyed.vrma, sad.vrma,
-thinking.vrma, wave.vrma, touch.vrma). They are loaded automatically when
-present and blended over the procedural layer. Missing files are ignored.
-Only add files whose own licence permits application use, modification and
-redistribution, and record that licence in this file.
+thinking.vrma, wave.vrma, touch.vrma). Only add files whose own licence
+permits application use, modification and redistribution, and record that
+licence here.
 
 Replacing the character
 -----------------------
-Upload another .vrm and replace public/avatar/mirei.vrm.asset.json with the new
-pointer (or set the URL in src/components/companion/VrmAvatar.tsx). No other
-code change is required.
+Set VRM_MODEL_URL in src/components/companion/VrmAvatar.tsx to any other
+.vrm URL. No other code change is required.
