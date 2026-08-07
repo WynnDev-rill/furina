@@ -11,13 +11,12 @@ import type {
 import { getVoiceLevel } from "@/lib/companion/voice";
 
 /**
- * "Sendagaya Shino" — official VRoid sample avatar, CC0, released by pixiv/VRoid.
- * Full humanoid rig, preset expressions, look-at and spring bones.
- * Served from jsDelivr so the web build, Vercel deploy and the Android APK
- * all resolve the same absolute URL. See public/avatar/LICENSE.txt.
+ * Temporary CC0 VRoid base while the original Mirei character is being refined.
+ * Pin the exact source commit so a future upstream change cannot silently alter
+ * the character or its runtime behavior.
  */
 export const VRM_MODEL_URL =
-  "https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/beta/Sendagaya_Shino.vrm";
+  "https://cdn.jsdelivr.net/gh/madjin/vrm-samples@e16eb187100149a315ad92c3c9968f1d5baa6c7d/vroid/beta/Sendagaya_Shino.vrm";
 
 type VrmAvatarProps = {
   emotion: CompanionEmotion;
@@ -33,6 +32,18 @@ type VrmAvatarProps = {
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type AnyVrm = any;
+
+const PALETTE = {
+  hair: "#ef8faf",
+  hairShadow: "#d96f98",
+  iris: "#a9dc9d",
+  irisAccent: "#c783db",
+  lash: "#7b3f58",
+  cream: "#f1dfcf",
+  creamShadow: "#d5bba8",
+  blush: "#f1a0ad",
+  gold: "#d5ae65",
+};
 
 const EXPRESSION_BY_EMOTION: Record<CompanionEmotion, { name: string; weight: number }[]> = {
   neutral: [{ name: "neutral", weight: 0.35 }],
@@ -146,6 +157,71 @@ function damp(current: number, target: number, lambda: number, delta: number) {
   return THREE.MathUtils.damp(current, target, lambda, delta);
 }
 
+type ColorMaterial = THREE.Material & {
+  color?: THREE.Color;
+  map?: THREE.Texture | null;
+  roughness?: number;
+  metalness?: number;
+  emissive?: THREE.Color;
+  emissiveIntensity?: number;
+};
+
+function forEachMaterial(object: THREE.Object3D, callback: (material: ColorMaterial, key: string) => void) {
+  const mesh = object as THREE.Mesh;
+  if (!mesh.isMesh || !mesh.material) return;
+  const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  materials.forEach((material, index) => {
+    const key = `${object.name} ${material.name} ${index}`.toLowerCase();
+    callback(material as ColorMaterial, key);
+  });
+}
+
+/**
+ * The free VRoid base is intentionally restyled at runtime so it no longer reads
+ * as the stock navy school-uniform sample. This is a palette pass, not a claim
+ * that the underlying mesh is a custom premium sculpt.
+ */
+function applyReferencePalette(scene: THREE.Object3D) {
+  let hairIndex = 0;
+  scene.traverse((object) => {
+    forEachMaterial(object, (material, key) => {
+      const isSkin = /(face|skin|body|mouth|lip|teeth|tongue)/.test(key);
+      const isEyeWhite = /(eyewhite|eye_white|whiteeye|sclera)/.test(key);
+      const isIris = /(iris|pupil|eyeiris|eye_iris)/.test(key);
+      const isEyeLine = /(eyeline|eye_line|lash|eyelash|brow)/.test(key);
+      const isHair = /hair/.test(key);
+      const isCloth = /(cloth|clothes|outfit|uniform|skirt|shirt|top|wear|ribbon|tie)/.test(key);
+      const isMetal = /(metal|accessory|accessory|earring|clip|button)/.test(key);
+
+      if (isHair) {
+        const color = hairIndex++ % 3 === 0 ? PALETTE.hairShadow : PALETTE.hair;
+        material.map = null;
+        material.color?.set(color);
+        if (typeof material.roughness === "number") material.roughness = 0.72;
+        if (typeof material.metalness === "number") material.metalness = 0.02;
+      } else if (isIris && !isEyeWhite) {
+        material.color?.set(key.includes("right") ? PALETTE.irisAccent : PALETTE.iris);
+        if (material.emissive) {
+          material.emissive.set(PALETTE.iris);
+          material.emissiveIntensity = 0.035;
+        }
+      } else if (isEyeLine) {
+        material.color?.set(PALETTE.lash);
+      } else if (isCloth && !isSkin) {
+        material.map = null;
+        material.color?.set(key.includes("ribbon") || key.includes("tie") ? "#e8a1b9" : PALETTE.cream);
+        if (typeof material.roughness === "number") material.roughness = 0.92;
+        if (typeof material.metalness === "number") material.metalness = 0;
+      } else if (isMetal) {
+        material.color?.set(PALETTE.gold);
+        if (typeof material.metalness === "number") material.metalness = 0.55;
+        if (typeof material.roughness === "number") material.roughness = 0.38;
+      }
+      material.needsUpdate = true;
+    });
+  });
+}
+
 export function VrmAvatar({
   emotion,
   gesture,
@@ -187,13 +263,9 @@ export function VrmAvatar({
           return;
         }
         vrmModule.VRMUtils.removeUnnecessaryVertices(gltf.scene);
-        // VRM 0.x avatars face +Z; rotate so the model looks at the camera.
         vrmModule.VRMUtils.rotateVRM0(instance);
-        // Some VRM 0.x exports keep facing +Z after rotateVRM0; make sure the
-        // avatar always looks at the camera.
-        if (instance.meta?.metaVersion !== "1") {
-          instance.scene.rotation.y = Math.PI;
-        }
+        if (instance.meta?.metaVersion !== "1") instance.scene.rotation.y = Math.PI;
+        applyReferencePalette(instance.scene);
         instance.scene.traverse((object: THREE.Object3D) => {
           object.frustumCulled = false;
           const mesh = object as THREE.Mesh;
@@ -219,7 +291,6 @@ export function VrmAvatar({
         );
       }
     };
-    // Load once; quality only affects shadow flags on first build.
   }, []);
 
   useEffect(() => {
@@ -227,9 +298,7 @@ export function VrmAvatar({
     camera.add(lookTarget);
     lookTarget.position.set(0, 0, -1);
     if (vrm.lookAt) vrm.lookAt.target = lookTarget;
-    return () => {
-      camera.remove(lookTarget);
-    };
+    return () => camera.remove(lookTarget);
   }, [camera, lookTarget, vrm]);
 
   useFrame(({ clock, pointer }, delta) => {
@@ -239,7 +308,6 @@ export function VrmAvatar({
     const power = 0.55 + intensity * 0.6;
     const humanoid = vrm.humanoid;
 
-    // Expressions
     const manager = vrm.expressionManager;
     if (manager) {
       const targets = new Map<string, number>();
@@ -259,14 +327,13 @@ export function VrmAvatar({
       const procedural = speaking
         ? 0.22 + Math.abs(Math.sin(t * 11.5) * 0.5 + Math.sin(t * 6.4) * 0.16)
         : 0;
-      const target = speaking ? (level >= 0 ? Math.min(1, level * 1.15) : procedural) : 0;
+      const target = speaking ? Math.min(1, level > 0.01 ? level * 1.15 : procedural) : 0;
       mouthRef.current = damp(mouthRef.current, target, 22, step);
       manager.setValue("aa", mouthRef.current * 0.85);
       manager.setValue("ih", mouthRef.current * 0.22);
       manager.setValue("ou", mouthRef.current * 0.14);
     }
 
-    // Gaze
     if (vrm.lookAt) {
       const targetX = gaze === "side" ? -0.7 : gaze === "down" ? 0 : pointer.x * 0.55;
       const targetY = gaze === "down" ? -0.75 : pointer.y * 0.35;
@@ -278,8 +345,6 @@ export function VrmAvatar({
       const setBone = (name: string, x: number, y: number, z: number, lambda = 6) => {
         const node = humanoid.getNormalizedBoneNode(name) as THREE.Object3D | null;
         if (!node) return;
-        // three-vrm resets normalized bone rotations after each update(), so we
-        // keep our own smoothed state instead of reading back from the node.
         const state = poseStateRef.current[name] ?? { x: 0, y: 0, z: 0 };
         state.x = damp(state.x, x, lambda, step);
         state.y = damp(state.y, y, lambda, step);
@@ -289,16 +354,17 @@ export function VrmAvatar({
       };
 
       const breathe = Math.sin(t * 1.2) * 0.014;
+      const microSway = Math.sin(t * 0.55 + 0.9) * 0.012;
       const lean = gesture === "lean_closer" ? 0.11 : gesture === "pout" ? -0.03 : 0;
 
-      setBone("hips", breathe * 0.4, pointer.x * 0.05, 0, 4);
-      setBone("spine", lean * 0.5 + breathe, 0, Math.sin(t * 0.6) * 0.01, 5);
-      setBone("chest", lean * 0.4 + breathe * 0.8, pointer.x * 0.04, 0, 5);
+      setBone("hips", breathe * 0.4, pointer.x * 0.05, -microSway, 4);
+      setBone("spine", lean * 0.5 + breathe, 0, microSway, 5);
+      setBone("chest", lean * 0.4 + breathe * 0.8, pointer.x * 0.04, -microSway * 0.75, 5);
       setBone(
         "neck",
         HEAD_TILT[emotion] * 0.4 + (gaze === "down" ? 0.1 : 0),
         gaze === "side" ? -0.16 : pointer.x * 0.07,
-        emotion === "embarrassed" ? 0.03 : 0,
+        emotion === "embarrassed" ? 0.03 : microSway * 0.2,
         6,
       );
       setBone(
@@ -311,7 +377,7 @@ export function VrmAvatar({
             ? -0.06
             : emotion === "sad"
               ? 0.04
-              : 0,
+              : microSway * 0.28,
         6,
       );
 
@@ -319,21 +385,9 @@ export function VrmAvatar({
       const sway = Math.sin(t * 1.05) * 0.02;
       const waving = gesture === "small_wave" ? Math.sin(t * 8) * 0.32 : 0;
 
-      setBone(
-        "leftUpperArm",
-        armPose.upperL[0],
-        armPose.upperL[1],
-        armPose.upperL[2] * power + sway,
-        7,
-      );
+      setBone("leftUpperArm", armPose.upperL[0], armPose.upperL[1], armPose.upperL[2] * power + sway, 7);
       setBone("leftLowerArm", armPose.lowerL[0], armPose.lowerL[1] * power, armPose.lowerL[2], 7);
-      setBone(
-        "rightUpperArm",
-        armPose.upperR[0],
-        armPose.upperR[1],
-        armPose.upperR[2] * power - sway,
-        7,
-      );
+      setBone("rightUpperArm", armPose.upperR[0], armPose.upperR[1], armPose.upperR[2] * power - sway, 7);
       setBone(
         "rightLowerArm",
         armPose.lowerR[0],
@@ -344,7 +398,6 @@ export function VrmAvatar({
       setBone("leftHand", 0, 0, 0.05, 6);
       setBone("rightHand", 0, 0, -0.05 + waving * 0.3, 8);
 
-      // Keep the invisible touch targets glued to their bones.
       HITBOXES.forEach((hitbox, index) => {
         const mesh = hitRefs.current[index];
         const node = humanoid.getNormalizedBoneNode(hitbox.bone) as THREE.Object3D | null;
@@ -358,10 +411,7 @@ export function VrmAvatar({
       });
     }
 
-    if (root.current) {
-      root.current.position.y = Math.sin(t * 1.25) * 0.006;
-    }
-
+    if (root.current) root.current.position.y = Math.sin(t * 1.25) * 0.006;
     vrm.update(step);
   });
 

@@ -13,6 +13,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CompanionStage } from "@/components/companion/CompanionStage";
+import { InochiCompanionStage } from "@/components/companion/InochiCompanionStage";
 import { generateCompanionReply } from "@/lib/companion/ai-horde";
 import { COMPANION_NAME } from "@/lib/companion/persona";
 import type {
@@ -29,10 +30,10 @@ import { speakJapanese, stopJapaneseVoice } from "@/lib/companion/voice";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: `${COMPANION_NAME} — 3D Virtual Companion` },
+      { title: `${COMPANION_NAME} — Virtual Companion` },
       {
         name: "description",
-        content: "Original Japanese-speaking 3D companion with contextual animation, memory, voice, and touch reactions.",
+        content: "Original Japanese-speaking companion with switchable VRM 3D and Inochi2D character engines, contextual animation, memory, voice, and touch reactions.",
       },
       { name: "theme-color", content: "#100d19" },
     ],
@@ -40,11 +41,14 @@ export const Route = createFileRoute("/")({
   component: CompanionApp,
 });
 
+type AvatarEngine = "vrm" | "inochi";
+
 const STORAGE = {
   messages: "mirei:final:conversation",
   memories: "mirei:final:memories",
   relationship: "mirei:final:relationship",
   voice: "mirei:final:voice",
+  engine: "mirei:final:avatar-engine",
 };
 
 const DEFAULT_RELATIONSHIP: RelationshipState = {
@@ -172,6 +176,7 @@ function CompanionApp() {
   const [thinking, setThinking] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [avatarEngine, setAvatarEngine] = useState<AvatarEngine>("vrm");
   const [chatVisible, setChatVisible] = useState(true);
   const [status, setStatus] = useState("ready");
   const [voiceEngine, setVoiceEngine] = useState("VOICEVOX ready");
@@ -184,6 +189,8 @@ function CompanionApp() {
     setMemories(safeRead<string[]>(STORAGE.memories, []).filter((item) => typeof item === "string").slice(-36));
     setRelationship(normalizeRelationship(safeRead<Partial<RelationshipState>>(STORAGE.relationship, DEFAULT_RELATIONSHIP)));
     setVoiceEnabled(safeRead(STORAGE.voice, true));
+    const savedEngine = safeRead<AvatarEngine>(STORAGE.engine, "vrm");
+    setAvatarEngine(savedEngine === "inochi" ? "inochi" : "vrm");
     setHydrated(true);
   }, []);
 
@@ -193,7 +200,8 @@ function CompanionApp() {
     localStorage.setItem(STORAGE.memories, JSON.stringify(memories.slice(-36)));
     localStorage.setItem(STORAGE.relationship, JSON.stringify(relationship));
     localStorage.setItem(STORAGE.voice, JSON.stringify(voiceEnabled));
-  }, [hydrated, memories, messages, relationship, voiceEnabled]);
+    localStorage.setItem(STORAGE.engine, JSON.stringify(avatarEngine));
+  }, [avatarEngine, hydrated, memories, messages, relationship, voiceEnabled]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -370,7 +378,7 @@ function CompanionApp() {
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h1 className="truncate text-base font-semibold tracking-wide">{COMPANION_NAME}</h1>
-                <span className="rounded-full bg-pink-300/10 px-2 py-0.5 text-[9px] uppercase tracking-[0.14em] text-pink-200/70">original</span>
+                <span className="rounded-full bg-pink-300/10 px-2 py-0.5 text-[9px] uppercase tracking-[0.14em] text-pink-200/70">{avatarEngine === "vrm" ? "VRM 3D" : "Inochi 2D"}</span>
               </div>
               <p className="truncate text-[11px] text-white/45">{status} · {relationshipLabel}</p>
             </div>
@@ -382,6 +390,10 @@ function CompanionApp() {
               <div className="h-1.5 w-20 overflow-hidden rounded-full bg-white/10">
                 <div className="h-full rounded-full bg-gradient-to-r from-pink-300 to-violet-400 transition-all" style={{ width: `${relationship.affinity}%` }} />
               </div>
+            </div>
+            <div className="flex rounded-xl border border-white/10 bg-black/20 p-1" aria-label="Character engine">
+              <button type="button" onClick={() => setAvatarEngine("vrm")} className={`rounded-lg px-2 py-2 text-[10px] font-medium transition ${avatarEngine === "vrm" ? "bg-pink-200 text-[#281426]" : "text-white/55 hover:bg-white/8"}`} aria-pressed={avatarEngine === "vrm"}>3D</button>
+              <button type="button" onClick={() => setAvatarEngine("inochi")} className={`rounded-lg px-2 py-2 text-[10px] font-medium transition ${avatarEngine === "inochi" ? "bg-pink-200 text-[#281426]" : "text-white/55 hover:bg-white/8"}`} aria-pressed={avatarEngine === "inochi"}>2D</button>
             </div>
             <button type="button" onClick={toggleVoice} className="grid size-10 place-items-center rounded-xl border border-white/10 bg-white/[0.055] text-white/75 transition hover:bg-white/10" aria-label={voiceEnabled ? "Disable voice" : "Enable voice"}>
               {voiceEnabled ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
@@ -398,13 +410,17 @@ function CompanionApp() {
         <section className={`grid min-h-0 flex-1 gap-2.5 transition-[grid-template-columns] duration-300 ${chatVisible ? "lg:grid-cols-[minmax(0,1.12fr)_minmax(380px,0.68fr)]" : "grid-cols-1"}`}>
           <div className="relative min-h-[52dvh] lg:min-h-0">
             {hydrated ? (
-              <CompanionStage emotion={emotion} gesture={gesture} gaze={gaze} intensity={intensity} speaking={speaking || thinking} onTouch={handleTouch} />
+              avatarEngine === "vrm" ? (
+                <CompanionStage emotion={emotion} gesture={gesture} gaze={gaze} intensity={intensity} speaking={speaking || thinking} onTouch={handleTouch} />
+              ) : (
+                <InochiCompanionStage emotion={emotion} gesture={gesture} gaze={gaze} intensity={intensity} speaking={speaking || thinking} onTouch={handleTouch} />
+              )
             ) : (
               <div className="h-full min-h-[460px] animate-pulse rounded-[2rem] bg-white/[0.04]" />
             )}
             <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center px-3">
               <div className="rounded-full border border-white/10 bg-black/40 px-3 py-1.5 text-[10px] tracking-wide text-white/55 shadow-lg backdrop-blur-xl">
-                Touch her head, face, shoulder, hand, or body
+                {avatarEngine === "vrm" ? "VRM 3D · touch head, face, shoulder, hand, or body" : "Inochi2D · tap or drag the puppet to react"}
               </div>
             </div>
           </div>
@@ -453,7 +469,7 @@ function CompanionApp() {
                   </button>
                 </div>
                 <p className="mt-2 px-1 text-[9px] leading-relaxed text-white/28">
-                  AI Horde community inference with instant local fallback · Voice: VOICEVOX 四国めたん via TTS Quest · Data stays on this device
+                  AI Horde community inference with instant local fallback · Voice: VOICEVOX 四国めたん via TTS Quest · Avatar engine: {avatarEngine === "vrm" ? "VRM 3D" : "Inochi2D 2.5D"}
                 </p>
               </div>
             </div>
