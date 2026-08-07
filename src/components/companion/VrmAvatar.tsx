@@ -61,10 +61,10 @@ type ArmPose = {
 };
 
 const REST_POSE: ArmPose = {
-  upperL: [0.05, 0, 1.4],
-  lowerL: [0, -0.18, 0.16],
-  upperR: [0.05, 0, -1.4],
-  lowerR: [0, 0.18, -0.16],
+  upperL: [0, 0, 0],
+  lowerL: [0, 0, 0],
+  upperR: [0, 0, 0],
+  lowerR: [0, 0, 0],
 };
 
 function pose(partial: Partial<ArmPose>): ArmPose {
