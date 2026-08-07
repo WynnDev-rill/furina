@@ -11,6 +11,7 @@ import type {
 const API_BASE = "https://aihorde.net/api/v2";
 const ANONYMOUS_API_KEY = "0000000000";
 const CLIENT_AGENT = "MireiCompanion:1.0:github.com/WynnDev-rill/furina";
+const COMMUNITY_REPLY_BUDGET_MS = 30_000;
 
 const EMOTIONS = new Set<CompanionEmotion>([
   "neutral",
@@ -209,7 +210,7 @@ export async function generateCompanionReply(
     }
 
     const startedAt = Date.now();
-    while (Date.now() - startedAt < 72_000) {
+    while (Date.now() - startedAt < COMMUNITY_REPLY_BUDGET_MS) {
       await delay(2_200, signal);
       const statusResponse = await fetch(
         `${API_BASE}/generate/text/status/${encodeURIComponent(submitted.id)}`,
