@@ -17,7 +17,7 @@ import { getVoiceLevel } from "@/lib/companion/voice";
  * all resolve the same absolute URL. See public/avatar/LICENSE.txt.
  */
 export const VRM_MODEL_URL =
-  "https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/beta/Vivi.vrm";
+  "https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/beta/Sendagaya_Shino.vrm";
 
 type VrmAvatarProps = {
   emotion: CompanionEmotion;
