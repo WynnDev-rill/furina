@@ -62,13 +62,16 @@ jobs:
           grep -q 'CompanionStage' src/routes/index.tsx
           grep -q 'InochiCompanionStage' src/routes/index.tsx
           test -s public/mirei-polish.css
-          grep -q 'mirei-polish.css' public/mirei-cleanup.js
+          test -s public/mirei-final.css
+          grep -q '/mirei-polish.css' src/routes/__root.tsx
+          grep -q '/mirei-final.css' src/routes/__root.tsx
+          grep -q 'interactive-widget=resizes-content' src/routes/__root.tsx
           grep -q 'prefers-reduced-motion' public/mirei-polish.css
           grep -q 'android.permission.INTERNET' android-wrapper/app/src/main/AndroidManifest.xml
           grep -q 'android.permission.RECORD_AUDIO' android-wrapper/app/src/main/AndroidManifest.xml
           grep -q 'adjustResize' android-wrapper/app/src/main/AndroidManifest.xml
           grep -q 'MireiNative' android-wrapper/app/src/main/java/com/wynndev/furina/MainActivity.java
-          grep -q 'furina-pi.vercel.app' android-wrapper/app/src/main/java/com/wynndev/furina/MainActivity.java
+          grep -q 'https://furina-pi.vercel.app/' android-wrapper/app/src/main/java/com/wynndev/furina/MainActivity.java
           grep -q 'LEGACY_PROTECTED_HOST' android-wrapper/app/src/main/java/com/wynndev/furina/MainActivity.java
           grep -q 'setBlockNetworkLoads(false)' android-wrapper/app/src/main/java/com/wynndev/furina/MainActivity.java
           grep -q 'pauseTimers' android-wrapper/app/src/main/java/com/wynndev/furina/MainActivity.java
