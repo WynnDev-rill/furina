@@ -2,7 +2,6 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
-import mireiAsset from "@/assets/mirei.vrm.asset.json";
 import type {
   CompanionEmotion,
   CompanionGaze,
@@ -11,7 +10,14 @@ import type {
 } from "@/lib/companion/types";
 import { getVoiceLevel } from "@/lib/companion/voice";
 
-export const VRM_MODEL_URL = mireiAsset.url;
+/**
+ * "Vivi" — official VRoid sample avatar, CC0, released by pixiv/VRoid.
+ * Full humanoid rig (54 bones), preset expressions, 22 spring-bone groups.
+ * Served from jsDelivr so the web build, Vercel deploy and the Android APK
+ * all resolve the same absolute URL. See public/avatar/LICENSE.txt.
+ */
+export const VRM_MODEL_URL =
+  "https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/beta/Vivi.vrm";
 
 type VrmAvatarProps = {
   emotion: CompanionEmotion;
