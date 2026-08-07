@@ -61,7 +61,7 @@ type ArmPose = {
 };
 
 const REST_POSE: ArmPose = {
-  upperL: [0, 0, 0],
+  upperL: [0, 0, -1.2],
   lowerL: [0, 0, 0],
   upperR: [0, 0, 0],
   lowerR: [0, 0, 0],
