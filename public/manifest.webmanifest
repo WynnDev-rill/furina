@@ -1,13 +1,13 @@
 {
-  "name": "Mirei — 3D Virtual Companion",
+  "name": "Mirei — Virtual Companion",
   "short_name": "Mirei",
-  "description": "Original Japanese-speaking 3D companion with contextual animation, voice, touch reactions, and local memory.",
+  "description": "Original Japanese-speaking virtual companion with switchable VRM 3D and Inochi2D character engines, contextual animation, voice, touch reactions, and local memory.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#0b0911",
-  "theme_color": "#100d19",
+  "theme_color": "#0b0911",
   "lang": "ja",
   "categories": ["entertainment", "lifestyle"],
   "icons": [

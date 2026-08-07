@@ -1,15 +1,6 @@
 (() => {
   const root = document.documentElement;
 
-  function ensurePolishStyles() {
-    if (document.getElementById("mirei-polish-css")) return;
-    const link = document.createElement("link");
-    link.id = "mirei-polish-css";
-    link.rel = "stylesheet";
-    link.href = "/mirei-polish.css?v=ux2";
-    document.head.appendChild(link);
-  }
-
   function syncEnvironment() {
     root.classList.toggle("mirei-native", Boolean(window.MireiNative));
     root.classList.toggle("mirei-offline", navigator.onLine === false);
@@ -27,7 +18,6 @@
     target.style.height = `${Math.min(Math.max(target.scrollHeight, 48), 112)}px`;
   }
 
-  ensurePolishStyles();
   syncEnvironment();
 
   document.addEventListener("input", (event) => growComposer(event.target), true);
@@ -60,7 +50,7 @@
   }
 
   // One-time removal of obsolete offline/service-worker caches from older builds.
-  const marker = "mirei:legacy-cache-cleaned:v2";
+  const marker = "mirei:legacy-cache-cleaned:v3";
   if (localStorage.getItem(marker) === "1") return;
 
   const tasks = [];
