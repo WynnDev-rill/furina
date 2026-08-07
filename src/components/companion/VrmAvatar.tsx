@@ -197,6 +197,7 @@ export function VrmAvatar({
             mesh.receiveShadow = false;
           }
         });
+        console.log("VRM-DEBUG bones", ["leftUpperArm","rightUpperArm","head","hips"].map((b)=>b+":"+(instance.humanoid?.getNormalizedBoneNode(b)?"ok":"MISSING")).join(","));
         loaded = instance;
         setVrm(instance);
         onReady();
