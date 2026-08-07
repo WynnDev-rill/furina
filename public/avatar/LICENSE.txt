@@ -1,35 +1,22 @@
 3D avatar assets used by this application
 =========================================
 
-Model: "Vivi" (official VRoid sample avatar)
+Model: Sendagaya Shino (VRoid official sample avatar)
 
-  Format        : VRM 0.x (glTF binary, humanoid rig + spring bones)
-  Rig           : 54 humanoid bones
-  Expressions   : neutral, a/i/u/e/o (lip-sync), blink, blink_l, blink_r,
-                  angry, fun, joy, sorrow
-  Spring bones  : 22 groups (hair, skirt, accessories)
-  Size          : ~18 MB
-  Source        : https://github.com/madjin/vrm-samples
-                  vroid/beta/Vivi.vrm  (VRoid Studio sample models)
-  Served from   : https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/beta/Vivi.vrm
+  Format      : VRM 0.x (humanoid rig, preset expressions, look-at, spring bones)
+  Author      : pixiv Inc. / VRoid Project
+  License     : CC0 1.0 Universal (public domain dedication)
+  Source      : https://github.com/madjin/vrm-samples
+                vroid/beta/Sendagaya_Shino.vrm
+  Served from : https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/beta/Sendagaya_Shino.vrm
 
-  Embedded VRM license metadata (verbatim from the file):
-    licenseName          : CC0
-    allowedUserName      : Everyone
-    violentUssageName    : Allow
-    sexualUssageName     : Allow
-    commercialUssageName : Allow
+  CC0 permits use in an application, modification, redistribution (including
+  inside an APK) and personal or commercial use, with no attribution required.
+  Credit is given here anyway.
 
-  CC0 permits use in an application, modification, redistribution
-  (including inside an APK) and personal use, with no attribution
-  requirement. Credit is given here anyway.
-
-Why the file is not committed to this repository
-------------------------------------------------
-The repository has a 10 MB per-file limit and the model is ~18 MB, so it is
-loaded at runtime from the jsDelivr CDN (CORS enabled, long cache headers).
-The same absolute URL resolves from the web build, the Vercel deployment and
-the Android WebView, so there is no 404 in any environment.
+  The model is loaded from the jsDelivr CDN instead of being committed to the
+  repository, so the same absolute URL resolves on the web build, the Vercel
+  deploy and inside the Android WebView.
 
 Animation
 ---------
@@ -39,11 +26,11 @@ src/components/companion/VrmAvatar.tsx.
 
 Optional: drop VRM Animation files into public/avatar/anim/ (idle.vrma,
 talk.vrma, happy.vrma, embarrassed.vrma, annoyed.vrma, sad.vrma,
-thinking.vrma, wave.vrma, touch.vrma). Only add files whose own licence
-permits application use, modification and redistribution, and record that
-licence here.
+thinking.vrma, wave.vrma, touch.vrma). Missing files are ignored. Only add
+files whose own licence permits application use, modification and
+redistribution, and record that licence here.
 
 Replacing the character
 -----------------------
-Set VRM_MODEL_URL in src/components/companion/VrmAvatar.tsx to any other
-.vrm URL. No other code change is required.
+Point VRM_MODEL_URL in src/components/companion/VrmAvatar.tsx at another .vrm
+URL. No other code change is required.
