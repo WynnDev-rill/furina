@@ -319,22 +319,22 @@ export function VrmAvatar({
         "leftUpperArm",
         armPose.upperL[0],
         armPose.upperL[1],
-        -armPose.upperL[2] * power + sway,
+        armPose.upperL[2] * power + sway,
         7,
       );
-      setBone("leftLowerArm", armPose.lowerL[0], armPose.lowerL[1] * power, -armPose.lowerL[2], 7);
+      setBone("leftLowerArm", armPose.lowerL[0], armPose.lowerL[1] * power, armPose.lowerL[2], 7);
       setBone(
         "rightUpperArm",
         armPose.upperR[0],
         armPose.upperR[1],
-        -armPose.upperR[2] * power - sway,
+        armPose.upperR[2] * power - sway,
         7,
       );
       setBone(
         "rightLowerArm",
         armPose.lowerR[0],
         armPose.lowerR[1] * power,
-        -armPose.lowerR[2] + waving,
+        armPose.lowerR[2] + waving,
         gesture === "small_wave" ? 18 : 7,
       );
       setBone("leftHand", 0, 0, 0.05, 6);
