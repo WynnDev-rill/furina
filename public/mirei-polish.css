@@ -1,0 +1,510 @@
+/* Mirei mobile-first polish pass
+   Applied after the core stylesheet so the existing React logic stays intact.
+   UI targets follow UI UX Pro Max: 48dp touch targets, readable type,
+   predictable hierarchy, safe areas, high contrast and reduced-motion support. */
+
+:root {
+  --mirei-bg: #0b0911;
+  --mirei-panel: rgba(20, 15, 27, 0.9);
+  --mirei-panel-strong: rgba(19, 14, 26, 0.97);
+  --mirei-line: rgba(255, 255, 255, 0.11);
+  --mirei-line-strong: rgba(255, 208, 225, 0.24);
+  --mirei-text: rgba(255, 255, 255, 0.94);
+  --mirei-muted: rgba(255, 255, 255, 0.66);
+  --mirei-soft: rgba(255, 255, 255, 0.48);
+  --mirei-pink: #efa1bd;
+  --mirei-pink-soft: #ffd4e3;
+  --mirei-violet: #a99bea;
+  color-scheme: dark;
+}
+
+html,
+body {
+  min-height: 100%;
+  background: var(--mirei-bg);
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  margin: 0;
+  color: var(--mirei-text);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+textarea,
+input {
+  font: inherit;
+}
+
+button {
+  touch-action: manipulation;
+}
+
+button:focus-visible,
+textarea:focus-visible,
+input:focus-visible {
+  outline: 2px solid rgba(255, 205, 225, 0.9) !important;
+  outline-offset: 2px;
+}
+
+main {
+  background:
+    radial-gradient(circle at 50% 22%, rgba(239, 143, 175, 0.12), transparent 34%),
+    radial-gradient(circle at 87% 75%, rgba(142, 125, 224, 0.12), transparent 36%),
+    #0b0911 !important;
+}
+
+main > .pointer-events-none.fixed {
+  opacity: 0.72;
+}
+
+main header {
+  border-color: var(--mirei-line) !important;
+  background: rgba(16, 12, 22, 0.82) !important;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28) !important;
+}
+
+main header h1 {
+  color: rgba(255, 255, 255, 0.96);
+  letter-spacing: 0.01em !important;
+}
+
+main header p {
+  color: var(--mirei-muted) !important;
+}
+
+main header button,
+main header [aria-label="Character engine"] button {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+main header button {
+  border-color: var(--mirei-line) !important;
+}
+
+main header button:active,
+main section button:active {
+  transform: scale(0.965);
+}
+
+main section > div:last-child:not(:first-child) {
+  border-color: var(--mirei-line) !important;
+  background: var(--mirei-panel) !important;
+}
+
+main section textarea {
+  font-size: 16px !important;
+  line-height: 1.45 !important;
+  caret-color: var(--mirei-pink-soft);
+}
+
+main section textarea::placeholder {
+  color: rgba(255, 255, 255, 0.42) !important;
+}
+
+main section [aria-label="Send message"] {
+  min-width: 48px !important;
+  min-height: 48px !important;
+}
+
+main section [aria-label="Send message"]:not(:disabled) {
+  box-shadow:
+    0 9px 30px rgba(226, 121, 169, 0.22),
+    inset 0 1px rgba(255, 255, 255, 0.35) !important;
+}
+
+main section .overflow-y-auto {
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 199, 221, 0.22) transparent;
+}
+
+main section .overflow-y-auto::-webkit-scrollbar {
+  width: 5px;
+}
+
+main section .overflow-y-auto::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 199, 221, 0.22);
+}
+
+.mirei-offline main header::after {
+  content: "Offline · local fallback";
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 14px;
+  z-index: 80;
+  border: 1px solid rgba(255, 208, 225, 0.18);
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: rgba(33, 22, 30, 0.9);
+  color: rgba(255, 224, 233, 0.9);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(14px);
+}
+
+/* Mobile: character is the primary surface; chat becomes a native-style sheet. */
+@media (max-width: 1023px) {
+  html,
+  body,
+  #root,
+  main {
+    width: 100%;
+    height: 100dvh;
+    min-height: 100dvh;
+    overflow: hidden !important;
+  }
+
+  main > div.relative.mx-auto {
+    width: 100%;
+    max-width: none !important;
+    height: 100dvh;
+    min-height: 100dvh !important;
+    padding: 0 !important;
+  }
+
+  main header {
+    position: absolute !important;
+    z-index: 60;
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    margin: 0 !important;
+    min-height: 62px;
+    padding: 8px 9px !important;
+    border-radius: 21px !important;
+    background: linear-gradient(180deg, rgba(25, 18, 31, 0.9), rgba(14, 11, 20, 0.78)) !important;
+    box-shadow:
+      0 16px 42px rgba(0, 0, 0, 0.34),
+      inset 0 1px rgba(255, 255, 255, 0.055) !important;
+    backdrop-filter: blur(22px) saturate(1.15) !important;
+  }
+
+  .mirei-native main header {
+    top: 6px;
+  }
+
+  main header > div:first-child {
+    min-width: 0;
+    max-width: 43%;
+    gap: 9px !important;
+  }
+
+  main header > div:first-child > div:first-child {
+    width: 42px !important;
+    height: 42px !important;
+  }
+
+  main header h1 {
+    font-size: 15px !important;
+    line-height: 1.2;
+  }
+
+  main header h1 + span {
+    max-width: 72px;
+    padding: 3px 7px !important;
+    overflow: hidden;
+    font-size: 10px !important;
+    line-height: 1.15;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: rgba(255, 218, 231, 0.82) !important;
+  }
+
+  main header p {
+    margin-top: 3px;
+    font-size: 11.5px !important;
+    line-height: 1.25;
+  }
+
+  main header > div:last-child {
+    gap: 5px !important;
+  }
+
+  main header [aria-label="Character engine"] {
+    gap: 2px;
+    padding: 3px !important;
+    border-radius: 14px !important;
+    background: rgba(0, 0, 0, 0.28) !important;
+  }
+
+  main header [aria-label="Character engine"] button {
+    width: 42px;
+    min-width: 42px !important;
+    height: 42px;
+    min-height: 42px !important;
+    padding: 0 !important;
+    border-radius: 11px !important;
+    font-size: 11px !important;
+  }
+
+  main header button[aria-label="Disable voice"],
+  main header button[aria-label="Enable voice"],
+  main header button[aria-label="Toggle chat"] {
+    width: 44px !important;
+    min-width: 44px !important;
+    height: 44px !important;
+    min-height: 44px !important;
+    border-radius: 13px !important;
+    background: rgba(255, 255, 255, 0.055) !important;
+  }
+
+  main header button[aria-label="Reset conversation"] {
+    display: none !important;
+  }
+
+  main section {
+    position: relative !important;
+    display: block !important;
+    width: 100%;
+    height: 100dvh;
+    min-height: 100dvh !important;
+    gap: 0 !important;
+  }
+
+  main section > div:first-child {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100%;
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+  }
+
+  main section > div:first-child > div:first-child,
+  main section > div:first-child canvas {
+    width: 100% !important;
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  main section > div:first-child > div:first-child {
+    background:
+      radial-gradient(circle at 50% 27%, rgba(255, 199, 220, 0.16), transparent 31%),
+      linear-gradient(180deg, #211429 0%, #130e1d 55%, #0b0911 100%) !important;
+    box-shadow: none !important;
+  }
+
+  main section > div:first-child > .pointer-events-none.absolute {
+    z-index: 45;
+    bottom: 14px !important;
+    transition: bottom 220ms ease;
+  }
+
+  .mirei-chat-open main section > div:first-child > .pointer-events-none.absolute {
+    bottom: calc(min(46dvh, 430px) + 18px) !important;
+  }
+
+  main section > div:first-child > .pointer-events-none.absolute > div {
+    max-width: calc(100vw - 34px);
+    padding: 7px 11px !important;
+    border-color: rgba(255, 255, 255, 0.13) !important;
+    background: rgba(8, 7, 12, 0.54) !important;
+    color: rgba(255, 255, 255, 0.67) !important;
+    font-size: 11px !important;
+    line-height: 1.25;
+    backdrop-filter: blur(16px);
+  }
+
+  main section > div:last-child:not(:first-child) {
+    position: absolute !important;
+    z-index: 50;
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    width: auto;
+    height: min(46dvh, 430px);
+    min-height: 0 !important;
+    max-height: min(58dvh, 520px);
+    overflow: hidden;
+    border-radius: 28px !important;
+    background:
+      linear-gradient(180deg, rgba(28, 21, 34, 0.96), rgba(15, 12, 21, 0.965)) !important;
+    box-shadow:
+      0 -18px 60px rgba(0, 0, 0, 0.38),
+      inset 0 1px rgba(255, 255, 255, 0.055) !important;
+    backdrop-filter: blur(26px) saturate(1.12) !important;
+  }
+
+  main section > div:last-child:not(:first-child)::before {
+    content: "";
+    position: absolute;
+    z-index: 4;
+    top: 7px;
+    left: 50%;
+    width: 34px;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.2);
+    transform: translateX(-50%);
+    pointer-events: none;
+  }
+
+  main section > div:last-child:not(:first-child) > div:first-child {
+    min-height: 50px;
+    padding: 16px 15px 10px !important;
+    border-color: rgba(255, 255, 255, 0.075) !important;
+    color: rgba(255, 255, 255, 0.8) !important;
+    font-size: 13px !important;
+    font-weight: 600;
+  }
+
+  main section > div:last-child:not(:first-child) > div:first-child span {
+    max-width: 138px !important;
+    padding: 5px 8px !important;
+    font-size: 10.5px !important;
+    color: rgba(255, 255, 255, 0.55) !important;
+    letter-spacing: 0.06em !important;
+  }
+
+  main section > div:last-child:not(:first-child) > .overflow-y-auto {
+    padding: 12px 12px 8px !important;
+  }
+
+  main section > div:last-child:not(:first-child) > .overflow-y-auto > div > div {
+    max-width: 86% !important;
+    padding: 10px 12px !important;
+    border-color: rgba(255, 255, 255, 0.095) !important;
+    font-size: 14.5px !important;
+    line-height: 1.55 !important;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12) !important;
+  }
+
+  main section > div:last-child:not(:first-child) > .flex.gap-2.overflow-x-auto {
+    gap: 7px !important;
+    padding: 2px 12px 9px !important;
+    scrollbar-width: none;
+  }
+
+  main section > div:last-child:not(:first-child) > .flex.gap-2.overflow-x-auto::-webkit-scrollbar {
+    display: none;
+  }
+
+  main section > div:last-child:not(:first-child) > .flex.gap-2.overflow-x-auto button {
+    min-height: 40px;
+    padding: 8px 12px !important;
+    border-color: rgba(255, 205, 225, 0.16) !important;
+    background: rgba(255, 194, 217, 0.065) !important;
+    color: rgba(255, 226, 236, 0.82) !important;
+    font-size: 12.5px !important;
+  }
+
+  main section > div:last-child:not(:first-child) > div:last-child {
+    padding: 9px 10px 10px !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
+    background: rgba(10, 8, 14, 0.32);
+  }
+
+  main section > div:last-child:not(:first-child) > div:last-child > div {
+    min-height: 56px;
+    gap: 7px !important;
+    padding: 4px 5px 4px 9px !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
+    border-radius: 18px !important;
+    background: rgba(0, 0, 0, 0.22) !important;
+  }
+
+  main section textarea {
+    min-height: 48px !important;
+    max-height: 112px !important;
+    padding: 12px 5px !important;
+  }
+
+  main section [aria-label="Send message"] {
+    width: 48px !important;
+    height: 48px !important;
+    border-radius: 15px !important;
+  }
+
+  .mirei-native main section > div:last-child:not(:first-child) > div:last-child > p {
+    display: none;
+  }
+
+  .mirei-native main section > div:last-child:not(:first-child) > div:last-child {
+    padding-bottom: 10px !important;
+  }
+}
+
+/* Small phones: protect the header from horizontal overflow. */
+@media (max-width: 390px) {
+  main header > div:first-child {
+    max-width: 37%;
+  }
+
+  main header > div:first-child > div:first-child {
+    width: 38px !important;
+    height: 38px !important;
+  }
+
+  main header [aria-label="Character engine"] button {
+    width: 38px;
+    min-width: 38px !important;
+  }
+
+  main header button[aria-label="Disable voice"],
+  main header button[aria-label="Enable voice"] {
+    display: none !important;
+  }
+
+  main section > div:last-child:not(:first-child) {
+    right: 6px;
+    bottom: 6px;
+    left: 6px;
+    height: min(48dvh, 430px);
+  }
+
+  .mirei-chat-open main section > div:first-child > .pointer-events-none.absolute {
+    bottom: calc(min(48dvh, 430px) + 15px) !important;
+  }
+}
+
+/* Desktop/tablet: keep split layout but remove the template-like card feel. */
+@media (min-width: 1024px) {
+  main > div.relative.mx-auto {
+    padding-top: max(14px, env(safe-area-inset-top)) !important;
+    padding-bottom: max(14px, env(safe-area-inset-bottom)) !important;
+  }
+
+  main header {
+    min-height: 64px;
+    border-radius: 22px !important;
+  }
+
+  main header button {
+    min-width: 46px !important;
+    min-height: 46px !important;
+  }
+
+  main section > div:first-child > div:first-child,
+  main section > div:last-child:not(:first-child) {
+    border-radius: 28px !important;
+  }
+
+  main section > div:last-child:not(:first-child) > .overflow-y-auto > div > div {
+    font-size: 15px !important;
+    line-height: 1.55 !important;
+  }
+
+  main section textarea {
+    font-size: 16px !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
