@@ -187,7 +187,6 @@ export function VrmAvatar({
           return;
         }
         vrmModule.VRMUtils.removeUnnecessaryVertices(gltf.scene);
-        vrmModule.VRMUtils.combineSkeletons(gltf.scene);
         // VRM 0.x avatars face +Z; rotate so the model looks at the camera.
         vrmModule.VRMUtils.rotateVRM0(instance);
         instance.scene.traverse((object: THREE.Object3D) => {
