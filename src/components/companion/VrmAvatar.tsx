@@ -61,10 +61,10 @@ type ArmPose = {
 };
 
 const REST_POSE: ArmPose = {
-  upperL: [0, 0, -1.2],
-  lowerL: [0, 0, 0],
-  upperR: [0, 0, 1.2],
-  lowerR: [0, 0, 0],
+  upperL: [0.05, 0, 1.32],
+  lowerL: [0, -0.18, 0.16],
+  upperR: [0.05, 0, -1.32],
+  lowerR: [0, 0.18, -0.16],
 };
 
 function pose(partial: Partial<ArmPose>): ArmPose {
@@ -189,6 +189,11 @@ export function VrmAvatar({
         vrmModule.VRMUtils.removeUnnecessaryVertices(gltf.scene);
         // VRM 0.x avatars face +Z; rotate so the model looks at the camera.
         vrmModule.VRMUtils.rotateVRM0(instance);
+        // Some VRM 0.x exports keep facing +Z after rotateVRM0; make sure the
+        // avatar always looks at the camera.
+        if (instance.meta?.metaVersion !== "1") {
+          instance.scene.rotation.y = Math.PI;
+        }
         instance.scene.traverse((object: THREE.Object3D) => {
           object.frustumCulled = false;
           const mesh = object as THREE.Mesh;
@@ -197,7 +202,6 @@ export function VrmAvatar({
             mesh.receiveShadow = false;
           }
         });
-        console.log("VRM-DEBUG bones", ["leftUpperArm","rightUpperArm","head","hips"].map((b)=>b+":"+(instance.humanoid?.getNormalizedBoneNode(b)?"ok":"MISSING")).join(","));
         loaded = instance;
         setVrm(instance);
         onReady();
