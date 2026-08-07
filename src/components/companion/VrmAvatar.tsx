@@ -2,7 +2,6 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
-import mireiAsset from "@/assets/mirei.vrm.asset.json";
 import type {
   CompanionEmotion,
   CompanionGaze,
@@ -11,7 +10,14 @@ import type {
 } from "@/lib/companion/types";
 import { getVoiceLevel } from "@/lib/companion/voice";
 
-export const VRM_MODEL_URL = mireiAsset.url;
+/**
+ * "Sendagaya Shino" — official VRoid sample avatar, CC0, released by pixiv/VRoid.
+ * Full humanoid rig, preset expressions, look-at and spring bones.
+ * Served from jsDelivr so the web build, Vercel deploy and the Android APK
+ * all resolve the same absolute URL. See public/avatar/LICENSE.txt.
+ */
+export const VRM_MODEL_URL =
+  "https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/beta/Sendagaya_Shino.vrm";
 
 type VrmAvatarProps = {
   emotion: CompanionEmotion;
@@ -55,9 +61,9 @@ type ArmPose = {
 };
 
 const REST_POSE: ArmPose = {
-  upperL: [0.05, 0, 1.4],
+  upperL: [0.05, 0, 1.32],
   lowerL: [0, -0.18, 0.16],
-  upperR: [0.05, 0, -1.4],
+  upperR: [0.05, 0, -1.32],
   lowerR: [0, 0.18, -0.16],
 };
 
@@ -181,7 +187,13 @@ export function VrmAvatar({
           return;
         }
         vrmModule.VRMUtils.removeUnnecessaryVertices(gltf.scene);
-        vrmModule.VRMUtils.combineSkeletons(gltf.scene);
+        // VRM 0.x avatars face +Z; rotate so the model looks at the camera.
+        vrmModule.VRMUtils.rotateVRM0(instance);
+        // Some VRM 0.x exports keep facing +Z after rotateVRM0; make sure the
+        // avatar always looks at the camera.
+        if (instance.meta?.metaVersion !== "1") {
+          instance.scene.rotation.y = Math.PI;
+        }
         instance.scene.traverse((object: THREE.Object3D) => {
           object.frustumCulled = false;
           const mesh = object as THREE.Mesh;
@@ -311,22 +323,22 @@ export function VrmAvatar({
         "leftUpperArm",
         armPose.upperL[0],
         armPose.upperL[1],
-        -armPose.upperL[2] * power + sway,
+        armPose.upperL[2] * power + sway,
         7,
       );
-      setBone("leftLowerArm", armPose.lowerL[0], armPose.lowerL[1] * power, -armPose.lowerL[2], 7);
+      setBone("leftLowerArm", armPose.lowerL[0], armPose.lowerL[1] * power, armPose.lowerL[2], 7);
       setBone(
         "rightUpperArm",
         armPose.upperR[0],
         armPose.upperR[1],
-        -armPose.upperR[2] * power - sway,
+        armPose.upperR[2] * power - sway,
         7,
       );
       setBone(
         "rightLowerArm",
         armPose.lowerR[0],
         armPose.lowerR[1] * power,
-        -armPose.lowerR[2] + waving,
+        armPose.lowerR[2] + waving,
         gesture === "small_wave" ? 18 : 7,
       );
       setBone("leftHand", 0, 0, 0.05, 6);

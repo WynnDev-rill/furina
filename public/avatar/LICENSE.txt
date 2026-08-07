@@ -1,27 +1,22 @@
 3D avatar assets used by this application
 =========================================
 
-Model file: mirei.vrm  (served from the Lovable CDN, pointer: public/avatar/mirei.vrm.asset.json)
+Model: Sendagaya Shino (VRoid official sample avatar)
 
-  Original name : VRM1_Constraint_Twist_Sample
-  Format        : VRM 1.0 (glTF binary with VRMC_vrm + VRMC_springBone)
-  Author        : pixiv Inc.
-  Copyright     : (c) 2022 pixiv Inc.
-  Source        : https://github.com/pixiv/three-vrm
-                  packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm
-  License URL   : https://vrm.dev/licenses/1.0/
+  Format      : VRM 0.x (humanoid rig, preset expressions, look-at, spring bones)
+  Author      : pixiv Inc. / VRoid Project
+  License     : CC0 1.0 Universal (public domain dedication)
+  Source      : https://github.com/madjin/vrm-samples
+                vroid/beta/Sendagaya_Shino.vrm
+  Served from : https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/beta/Sendagaya_Shino.vrm
 
-  Embedded VRM 1.0 license metadata (verbatim from the file):
-    avatarPermission          : everyone
-    allowRedistribution       : true
-    modification              : allowModificationRedistribution
-    commercialUsage           : corporation
-    creditNotation            : unnecessary
-    allowAntisocialOrHateUsage: false
+  CC0 permits use in an application, modification, redistribution (including
+  inside an APK) and personal or commercial use, with no attribution required.
+  Credit is given here anyway.
 
-  This permits use in an application, modification, redistribution
-  (including inside an APK), and personal use. Credit is not required but is
-  given here anyway.
+  The model is loaded from the jsDelivr CDN instead of being committed to the
+  repository, so the same absolute URL resolves on the web build, the Vercel
+  deploy and inside the Android WebView.
 
 Animation
 ---------
@@ -31,13 +26,11 @@ src/components/companion/VrmAvatar.tsx.
 
 Optional: drop VRM Animation files into public/avatar/anim/ (idle.vrma,
 talk.vrma, happy.vrma, embarrassed.vrma, annoyed.vrma, sad.vrma,
-thinking.vrma, wave.vrma, touch.vrma). They are loaded automatically when
-present and blended over the procedural layer. Missing files are ignored.
-Only add files whose own licence permits application use, modification and
-redistribution, and record that licence in this file.
+thinking.vrma, wave.vrma, touch.vrma). Missing files are ignored. Only add
+files whose own licence permits application use, modification and
+redistribution, and record that licence here.
 
 Replacing the character
 -----------------------
-Upload another .vrm and replace public/avatar/mirei.vrm.asset.json with the new
-pointer (or set the URL in src/components/companion/VrmAvatar.tsx). No other
-code change is required.
+Point VRM_MODEL_URL in src/components/companion/VrmAvatar.tsx at another .vrm
+URL. No other code change is required.

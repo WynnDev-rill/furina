@@ -25,6 +25,7 @@ import androidx.activity.OnBackPressedCallback;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.browser.customtabs.CustomTabsIntent;
 import androidx.core.content.ContextCompat;
 import androidx.core.view.WindowCompat;
 
@@ -66,6 +67,7 @@ public class MainActivity extends AppCompatActivity {
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
             webView.loadUrl(APP_URL);
         }
+        handleDeepLink(getIntent());
     }
 
     private void initializeJapaneseVoice() {
@@ -185,14 +187,13 @@ public class MainActivity extends AppCompatActivity {
                 String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
                 boolean trustedAppHost = host.equals("furina-indonesiafilmku-2721s-projects.vercel.app")
                     || host.endsWith(".vercel.app")
-                    || host.endsWith(".lovable.app");
+                    || host.endsWith(".lovable.app")
+                    || host.endsWith(".supabase.co");
                 if (trustedAppHost) return false;
 
-                try {
-                    startActivity(new Intent(Intent.ACTION_VIEW, uri));
-                } catch (Exception ignored) {
-                    Toast.makeText(MainActivity.this, "Tautan tidak dapat dibuka.", Toast.LENGTH_SHORT).show();
-                }
+                // Sign-in and any other outside link stays inside the app shell
+                // through Chrome Custom Tabs instead of launching the browser app.
+                openInsideApp(uri);
                 return true;
             }
 
@@ -217,6 +218,44 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(() -> handleWebPermissionRequest(request));
             }
         });
+    }
+
+    /** Opens a link in an in-app Custom Tab; falls back to the system handler. */
+    private void openInsideApp(Uri uri) {
+        try {
+            CustomTabsIntent tab = new CustomTabsIntent.Builder()
+                .setShowTitle(true)
+                .setUrlBarHidingEnabled(true)
+                .build();
+            tab.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            tab.launchUrl(this, uri);
+        } catch (Exception first) {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, uri));
+            } catch (Exception ignored) {
+                Toast.makeText(MainActivity.this, "Tautan tidak dapat dibuka.", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleDeepLink(intent);
+    }
+
+    /** mirei://auth#access_token=... hands the finished sign-in back to the WebView. */
+    private void handleDeepLink(Intent intent) {
+        if (intent == null || webView == null) return;
+        Uri data = intent.getData();
+        if (data == null || !"mirei".equalsIgnoreCase(data.getScheme())) return;
+        String fragment = data.getEncodedFragment();
+        String query = data.getEncodedQuery();
+        StringBuilder target = new StringBuilder(APP_URL);
+        if (query != null && !query.isEmpty()) target.append('?').append(query);
+        if (fragment != null && !fragment.isEmpty()) target.append('#').append(fragment);
+        webView.loadUrl(target.toString());
     }
 
     private void handleWebPermissionRequest(PermissionRequest request) {
