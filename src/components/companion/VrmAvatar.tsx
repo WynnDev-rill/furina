@@ -63,7 +63,7 @@ type ArmPose = {
 const REST_POSE: ArmPose = {
   upperL: [0, 0, -1.2],
   lowerL: [0, 0, 0],
-  upperR: [0, 0, 0],
+  upperR: [0, 0, 1.2],
   lowerR: [0, 0, 0],
 };
 
@@ -188,7 +188,7 @@ export function VrmAvatar({
         }
         vrmModule.VRMUtils.removeUnnecessaryVertices(gltf.scene);
         // VRM 0.x avatars face +Z; rotate so the model looks at the camera.
-        // rotateVRM0 disabled for test
+        vrmModule.VRMUtils.rotateVRM0(instance);
         instance.scene.traverse((object: THREE.Object3D) => {
           object.frustumCulled = false;
           const mesh = object as THREE.Mesh;
