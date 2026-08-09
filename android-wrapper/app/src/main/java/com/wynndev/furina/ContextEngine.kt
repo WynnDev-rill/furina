@@ -16,7 +16,7 @@ class ContextEngine(private val store: MemoryStore) {
         return AiContext(
             sessionId = sessionId,
             identityPrompt = identityPrompt(customPersona),
-            summary = store.sessionSummary(sessionId).bounded(SUMMARY_BUDGET),
+            summary = store.sessionSummary(sessionId).boundedSummary(SUMMARY_BUDGET),
             relevantMemories = store.relevantMemories(query, 6).bounded(MEMORY_BUDGET),
             relevantHistory = store.relevantOldContext(query, sessionId, 6).bounded(OLD_HISTORY_BUDGET),
             recentHistory = store.recentContext(sessionId, 10).bounded(RECENT_HISTORY_BUDGET, keepEnd = true),
@@ -42,5 +42,12 @@ class ContextEngine(private val store: MemoryStore) {
     private fun String.bounded(limit: Int, keepEnd: Boolean = false): String {
         if (length <= limit) return this
         return if (keepEnd) "…\n" + takeLast(limit - 2) else take(limit - 2) + "…"
+    }
+
+    private fun String.boundedSummary(limit: Int): String {
+        if (length <= limit) return this
+        val head = limit / 3
+        val separator = "\n…\n"
+        return take(head) + separator + takeLast(limit - head - separator.length)
     }
 }
