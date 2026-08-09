@@ -1,4 +1,4 @@
-name: Build Furina Offline Qwen APK
+name: Build Furina Stable APK
 
 on:
   workflow_dispatch:
@@ -27,7 +27,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: furina-offline-qwen-${{ github.ref }}
+  group: furina-stable-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -55,13 +55,11 @@ jobs:
           grep -q 'Qwen3.5 4B Uncensored' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
           grep -q 'Qwen3.5 9B Uncensored' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
           ! grep -qi 'gemma' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
-          grep -q '55e05aba5a4e1e2d6c4919753a68941c4ad4cb11' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
-          grep -q 'a5ebf434dfbf9646d1bb97a469c1d8f69e4feb2e' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
           grep -q 'generationJob = null' android-wrapper/app/src/main/java/com/wynndev/furina/FurinaBridge.kt
           grep -q 'DB_VERSION = 2' android-wrapper/app/src/main/java/com/wynndev/furina/MemoryStore.kt
-          grep -q 'furina-before-restore' android-wrapper/app/src/main/java/com/wynndev/furina/MemoryStore.kt
           grep -q 'saveAppSettings' src/routes/native.tsx
-          grep -q 'tokensPerSecond' android-wrapper/app/src/main/java/com/wynndev/furina/FurinaBridge.kt
+          grep -q 'setDecorFitsSystemWindows(window, true)' android-wrapper/app/src/main/java/com/wynndev/furina/MainActivity.kt
+          grep -q 'windowOptOutEdgeToEdgeEnforcement' android-wrapper/app/src/main/res/values/styles.xml
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -116,14 +114,20 @@ jobs:
         with:
           gradle-version: '8.14.3'
 
-      - name: Build installable Furina APK
+      - name: Restore stable Furina signing key
+        working-directory: android-wrapper
+        run: |
+          base64 --decode furina-release.jks.b64 > app/furina-release.jks
+          test -s app/furina-release.jks
+
+      - name: Build stable signed Furina APK
         working-directory: android-wrapper
         shell: bash
         run: |
           set -o pipefail
           mkdir -p app/src/main/res/drawable
           cp ../public/icon-192.png app/src/main/res/drawable/furina_icon.png
-          gradle --no-daemon --stacktrace clean assembleDebug 2>&1 | tee ../gradle-build.log
+          gradle --no-daemon --stacktrace clean assembleRelease 2>&1 | tee ../gradle-build.log
 
       - name: Upload Gradle diagnostic log
         if: always()
@@ -134,24 +138,26 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Verify APK identity and permissions
+      - name: Verify stable APK identity, signing, and permissions
         run: |
-          APK=android-wrapper/app/build/outputs/apk/debug/app-debug.apk
+          APK=android-wrapper/app/build/outputs/apk/release/app-release.apk
           test -s "$APK"
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK" | tee apk-signing.txt
+          grep -q '69b11ec474d557c92de2bc329cccbaaac488d0dcb99c9b1ba78f6c5e1d9cd1a7' apk-signing.txt
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | tee apk-badging.txt
           grep -q "package: name='com.wynndev.furina'" apk-badging.txt
           grep -q "application-label:'Furina'" apk-badging.txt
           grep -Eq "application-icon-[0-9]+:'res/.+\\.png'" apk-badging.txt
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump permissions "$APK" | tee apk-permissions.txt
           grep -q 'android.permission.INTERNET' apk-permissions.txt
-          cp "$APK" Furina-Offline-Qwen.apk
-          ls -lh Furina-Offline-Qwen.apk
+          cp "$APK" Furina-Stable.apk
+          ls -lh Furina-Stable.apk
 
-      - name: Upload Furina APK
+      - name: Upload Furina stable APK
         uses: actions/upload-artifact@v4
         with:
-          name: Furina-Offline-Qwen-${{ github.run_number }}
-          path: Furina-Offline-Qwen.apk
+          name: Furina-Stable-${{ github.run_number }}
+          path: Furina-Stable.apk
           if-no-files-found: error
           retention-days: 90
+
