@@ -146,6 +146,23 @@ const VV_SPEAKERS = [
   { id: 29, label: "九州そら — あまあま" },
 ];
 
+const FALLBACK_MODELS: NativeModel[] = [
+  {
+    id: "qwen35-4b-uncensored-q4km",
+    name: "Qwen3.5 4B Uncensored",
+    subtitle: "Q4_K_M · cepat · rekomendasi harian",
+    expectedBytes: 2_707_513_696,
+    recommended: true,
+  },
+  {
+    id: "qwen35-9b-uncensored-q4km",
+    name: "Qwen3.5 9B Uncensored",
+    subtitle: "Q4_K_M · kualitas lebih tinggi · lebih berat",
+    expectedBytes: 5_627_044_224,
+    recommended: false,
+  },
+];
+
 function parseJson<T>(raw: string | undefined, fallback: T): T {
   try { return raw ? JSON.parse(raw) as T : fallback; } catch { return fallback; }
 }
@@ -165,7 +182,7 @@ function FurinaNativeApp() {
   const tts = useServerFn(speakVoicevoxUrl);
   const ttsClone = useServerFn(speakClone);
   const [nativeReady, setNativeReady] = useState(false);
-  const [models, setModels] = useState<NativeModel[]>([]);
+  const [models, setModels] = useState<NativeModel[]>(FALLBACK_MODELS);
   const [statuses, setStatuses] = useState<Record<string, ModelStatus>>({});
   const [selectedModel, setSelectedModel] = useState("");
   const [runtimeState, setRuntimeState] = useState("idle");
