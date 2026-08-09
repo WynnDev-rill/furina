@@ -9,6 +9,7 @@
 
     <application
         android:allowBackup="false"
+        android:extractNativeLibs="true"
         android:hardwareAccelerated="true"
         android:icon="@drawable/furina_icon"
         android:label="Furina"
