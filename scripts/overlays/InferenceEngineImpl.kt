@@ -299,15 +299,16 @@ internal class InferenceEngineImpl private constructor(
      * budget is retained for requests where analysis materially helps.
      */
     private fun reasoningBudgetFor(message: String): Int {
-        if (message.contains("/no_think", ignoreCase = true)) return 0
-        if (message.contains("/think", ignoreCase = true)) return 96
+        val instruction = message.substringAfter("[END PRIVATE RELEVANT CONTINUITY]", message).trim()
+        if (instruction.contains("/no_think", ignoreCase = true)) return 0
+        if (instruction.contains("/think", ignoreCase = true)) return 96
         val deepRequest = Regex(
             "(?i)\\b(analisis|analisa|bandingkan|evaluasi|strategi|hitung|matematika|debug|" +
                 "kode|arsitektur|rencanakan|mengapa|kenapa|analyze|compare|reason|calculate|debug)\\b"
         )
         return when {
-            message.length >= 120 && deepRequest.containsMatchIn(message) -> 64
-            message.length > 600 -> 48
+            instruction.length >= 120 && deepRequest.containsMatchIn(instruction) -> 64
+            instruction.length > 600 -> 48
             else -> 0
         }
     }
