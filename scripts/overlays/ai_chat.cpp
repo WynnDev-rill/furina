@@ -31,7 +31,8 @@ constexpr int   N_THREADS_HEADROOM      = 2;
 
 constexpr int   DEFAULT_CONTEXT_SIZE    = 4096;
 constexpr int   OVERFLOW_HEADROOM       = 4;
-constexpr int   BATCH_SIZE              = 256;
+constexpr int   BATCH_SIZE              = 512;
+constexpr int   UBATCH_SIZE             = 256;
 constexpr float DEFAULT_SAMPLER_TEMP    = 0.3f;
 
 static llama_model                      * g_model;
@@ -93,13 +94,11 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_load(JNIEnv *env, jobject, jstr
 
     clear_native_log();
 
-    // Furina is CPU-only. The Android sample enables KleidiAI repacked weight
-    // buffers by default; those buffers add a large transient allocation and
-    // can reject newer hybrid Qwen3.5 tensors on some ARM variants. Force the
-    // portable CPU buffer path. It is slower only during model load and keeps
-    // inference fully accelerated by the selected CPU backend.
+    // Furina is CPU-only. Keep optimized ARM/KleidiAI weight buffers enabled;
+    // the Poco F6 has enough memory and the actual loader failure was missing
+    // extracted backend libraries, not repacking.
     model_params.n_gpu_layers = 0;
-    model_params.use_extra_bufts = false;
+    model_params.use_extra_bufts = true;
 
     const auto *model_path = env->GetStringUTFChars(jmodel_path, 0);
     LOGd("%s: Loading model from: \n%s\n", __func__, model_path);
@@ -135,10 +134,13 @@ static llama_context *init_context(llama_model *model, const int n_ctx = DEFAULT
     }
 
     // Multi-threading setup
-    const int n_threads = std::max(N_THREADS_MIN, std::min(N_THREADS_MAX,
+    const int n_threads_batch = std::max(N_THREADS_MIN, std::min(N_THREADS_MAX,
                                                      (int) sysconf(_SC_NPROCESSORS_ONLN) -
                                                      N_THREADS_HEADROOM));
-    LOGi("%s: Using %d threads", __func__, n_threads);
+    // Token generation is memory-bandwidth bound and tends to slow down when
+    // Snapdragon efficiency cores join it. Prompt ingestion still uses six.
+    const int n_threads = std::min(4, n_threads_batch);
+    LOGi("%s: Using %d generation / %d prompt threads", __func__, n_threads, n_threads_batch);
 
     // Context parameters setup
     llama_context_params ctx_params = llama_context_default_params();
@@ -149,9 +151,9 @@ static llama_context *init_context(llama_model *model, const int n_ctx = DEFAULT
     }
     ctx_params.n_ctx = n_ctx;
     ctx_params.n_batch = BATCH_SIZE;
-    ctx_params.n_ubatch = BATCH_SIZE;
+    ctx_params.n_ubatch = UBATCH_SIZE;
     ctx_params.n_threads = n_threads;
-    ctx_params.n_threads_batch = n_threads;
+    ctx_params.n_threads_batch = n_threads_batch;
     auto *context = llama_init_from_model(g_model, ctx_params);
     if (context == nullptr) {
         LOGe("%s: llama_new_context_with_model() returned null)", __func__);
@@ -161,10 +163,24 @@ static llama_context *init_context(llama_model *model, const int n_ctx = DEFAULT
     return context;
 }
 
-static common_sampler *new_sampler(float temp) {
+static common_sampler *new_sampler(float temp, int reasoning_budget = 0) {
     common_params_sampling sparams;
     sparams.temp = temp;
+    const llama_vocab *vocab = llama_model_get_vocab(g_model);
+    sparams.reasoning_budget_tokens = std::max(0, reasoning_budget);
+    sparams.reasoning_budget_start = common_tokenize(vocab, "<think>", false, true);
+    auto reasoning_end = common_tokenize(vocab, "</think>", false, true);
+    sparams.reasoning_budget_end = { reasoning_end };
+    sparams.reasoning_budget_forced = reasoning_end;
     return common_sampler_init(g_model, sparams);
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_arm_aichat_internal_InferenceEngineImpl_configureReasoningBudget(
+        JNIEnv * /*env*/, jobject /*unused*/, jint token_budget) {
+    if (g_sampler) common_sampler_free(g_sampler);
+    g_sampler = new_sampler(DEFAULT_SAMPLER_TEMP, token_budget);
 }
 
 extern "C"
@@ -179,7 +195,7 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_prepare(JNIEnv * /*env*/, jobje
     g_context = context;
     g_batch = llama_batch_init(BATCH_SIZE, 0, 1);
     g_chat_templates = common_chat_templates_init(g_model, "");
-    g_sampler = new_sampler(DEFAULT_SAMPLER_TEMP);
+    g_sampler = new_sampler(DEFAULT_SAMPLER_TEMP, 0);
     return 0;
 }
 
@@ -562,6 +578,7 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_generateNextToken(
     // Stop if reaching the marked position
     if (generated_tokens_remaining <= 0) {
         LOGw("%s: STOP: generated-token limit reached", __func__);
+        chat_add_and_format(ROLE_ASSISTANT, assistant_ss.str());
         return nullptr;
     }
 

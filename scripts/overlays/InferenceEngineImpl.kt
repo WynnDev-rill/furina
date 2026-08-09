@@ -104,6 +104,9 @@ internal class InferenceEngineImpl private constructor(
     private external fun processUserPrompt(userPrompt: String, predictLength: Int): Int
 
     @FastNative
+    private external fun configureReasoningBudget(tokenBudget: Int)
+
+    @FastNative
     private external fun generateNextToken(): String?
 
     @FastNative
@@ -251,7 +254,16 @@ internal class InferenceEngineImpl private constructor(
             _readyForSystemPrompt = false
             _state.value = InferenceEngine.State.ProcessingUserPrompt
 
-            processUserPrompt(message, predictLength).let { result ->
+            val reasoningBudget = reasoningBudgetFor(message)
+            configureReasoningBudget(reasoningBudget)
+            val controlledMessage = when {
+                message.contains("/think", ignoreCase = true) ||
+                    message.contains("/no_think", ignoreCase = true) -> message
+                reasoningBudget > 0 -> "$message\n/think"
+                else -> "$message\n/no_think"
+            }
+
+            processUserPrompt(controlledMessage, predictLength).let { result ->
                 if (result != 0) {
                     Log.e(TAG, "Failed to process user prompt: $result")
                     throw IOException("llama.cpp gagal memproses prompt (kode $result)")
@@ -281,6 +293,25 @@ internal class InferenceEngineImpl private constructor(
             throw e
         }
     }.flowOn(llamaDispatcher)
+
+    /**
+     * Most companion chat should answer directly. A small hidden reasoning
+     * budget is retained for requests where analysis materially helps.
+     */
+    private fun reasoningBudgetFor(message: String): Int {
+        val instruction = message.substringAfter("[END PRIVATE RELEVANT CONTINUITY]", message).trim()
+        if (instruction.contains("/no_think", ignoreCase = true)) return 0
+        if (instruction.contains("/think", ignoreCase = true)) return 96
+        val deepRequest = Regex(
+            "(?i)\\b(analisis|analisa|bandingkan|evaluasi|strategi|hitung|matematika|debug|" +
+                "kode|arsitektur|rencanakan|mengapa|kenapa|analyze|compare|reason|calculate|debug)\\b"
+        )
+        return when {
+            instruction.length >= 120 && deepRequest.containsMatchIn(instruction) -> 64
+            instruction.length > 600 -> 48
+            else -> 0
+        }
+    }
 
     /**
      * Benchmark the model

@@ -6,10 +6,10 @@ package com.wynndev.furina
  */
 class ContextEngine(private val store: MemoryStore) {
     companion object {
-        private const val SUMMARY_BUDGET = 1_200
-        private const val MEMORY_BUDGET = 900
-        private const val OLD_HISTORY_BUDGET = 800
-        private const val RECENT_HISTORY_BUDGET = 1_800
+        private const val SUMMARY_BUDGET = 800
+        private const val MEMORY_BUDGET = 600
+        private const val OLD_HISTORY_BUDGET = 500
+        private const val RECENT_HISTORY_BUDGET = 1_200
     }
 
     fun build(sessionId: String, query: String, customPersona: String): AiContext {
@@ -19,7 +19,7 @@ class ContextEngine(private val store: MemoryStore) {
             summary = store.sessionSummary(sessionId).boundedSummary(SUMMARY_BUDGET),
             relevantMemories = store.relevantMemories(query, 6).bounded(MEMORY_BUDGET),
             relevantHistory = store.relevantOldContext(query, sessionId, 6).bounded(OLD_HISTORY_BUDGET),
-            recentHistory = store.recentContext(sessionId, 10).bounded(RECENT_HISTORY_BUDGET, keepEnd = true),
+            recentHistory = store.recentContext(sessionId, 8).bounded(RECENT_HISTORY_BUDGET, keepEnd = true),
         )
     }
 
@@ -35,6 +35,7 @@ class ContextEngine(private val store: MemoryStore) {
             New conversation sessions are visual groupings; the relationship and long-term memories continue across sessions.
             Match the user's language unless they request another language. Prefer concise natural replies unless depth is useful.
             Never claim an event happened if it is not supported by the current conversation or supplied memory.
+            Answer directly. Do not expose chain-of-thought, analysis notes, or <think> blocks. /no_think
             ${if (custom.isNotBlank()) "\nUser-defined persona instructions:\n$custom" else ""}
         """.trimIndent()
     }
