@@ -52,8 +52,9 @@ class UnifiedAiEngine(
                 onToken(token)
             }
         } catch (cancelled: CancellationException) {
-            val partial = reply.toString().trim()
-            if (partial.isBlank()) throw cancelled
+            // Cancellation has one owner: FurinaBridge. Propagating it avoids
+            // emitting both "done" and "cancelled" for the same request.
+            throw cancelled
         }
 
         val finalText = reply.toString().trim()
