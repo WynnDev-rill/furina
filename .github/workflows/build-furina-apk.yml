@@ -50,7 +50,7 @@ jobs:
 
       - name: Validate web companion route
         run: |
-          npm ci --no-audit --no-fund
+          npm install --no-audit --no-fund
           npm run build
           grep -q 'Qwen3.5 4B Uncensored' src/routes/native.tsx
           grep -q 'Qwen3.5 9B Uncensored' src/routes/native.tsx
