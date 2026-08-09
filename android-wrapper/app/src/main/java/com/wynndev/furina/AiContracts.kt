@@ -23,6 +23,7 @@ data class AiContext(
     val relevantMemories: String,
     val relevantHistory: String,
     val recentHistory: String,
+    val runtimeContext: String,
 ) {
     val systemPrompt: String = buildString {
         appendLine(identityPrompt.trim())
@@ -43,6 +44,11 @@ data class AiContext(
     val retrievalPrompt: String = buildString {
         if (relevantMemories.isNotBlank()) appendLine("Relevant long-term memory:\n${relevantMemories.trim()}")
         if (relevantHistory.isNotBlank()) appendLine("Relevant older conversations:\n${relevantHistory.trim()}")
+    }.trim()
+
+    val turnContext: String = buildString {
+        if (runtimeContext.isNotBlank()) appendLine(runtimeContext.trim())
+        if (retrievalPrompt.isNotBlank()) appendLine(retrievalPrompt)
     }.trim()
 }
 

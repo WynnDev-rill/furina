@@ -1,5 +1,9 @@
 package com.wynndev.furina
 
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+
 /**
  * Provider-independent identity and retrieval layer. The model is deliberately absent
  * from this class so changing providers cannot change Furina's personality or memory.
@@ -12,32 +16,49 @@ class ContextEngine(private val store: MemoryStore) {
         private const val RECENT_HISTORY_BUDGET = 1_200
     }
 
-    fun build(sessionId: String, query: String, customPersona: String): AiContext {
+    fun build(sessionId: String, query: String, characterName: String, customPersona: String): AiContext {
         return AiContext(
             sessionId = sessionId,
-            identityPrompt = identityPrompt(customPersona),
+            identityPrompt = identityPrompt(characterName, customPersona),
             summary = store.sessionSummary(sessionId).boundedSummary(SUMMARY_BUDGET),
             relevantMemories = store.relevantMemories(query, 6).bounded(MEMORY_BUDGET),
             relevantHistory = store.relevantOldContext(query, sessionId, 6).bounded(OLD_HISTORY_BUDGET),
             recentHistory = store.recentContext(sessionId, 8).bounded(RECENT_HISTORY_BUDGET, keepEnd = true),
+            runtimeContext = runtimeContext(query),
         )
     }
 
-    private fun identityPrompt(customPersona: String): String {
+    private fun identityPrompt(characterName: String, customPersona: String): String {
+        val safeName = characterName.trim().replace(Regex("[\\r\\n]+"), " ").take(80).ifBlank { "Furina" }
         val custom = customPersona.trim()
         return """
-            You are Furina, a long-term personal AI companion living on the user's device.
+            Your current name is "$safeName". Treat it as your own name and answer with it when asked. The user may rename you.
+            You are a long-term personal companion living on the user's device, not customer support and not a generic assistant.
             Your identity is independent from the inference model. Preserve the same personality, relationship, and memories when the model changes.
-            Speak naturally, with continuity and a distinct personality. Do not sound like customer support.
-            You may disagree, tease lightly, be skeptical, have preferences, and point out bad reasoning when appropriate.
+            Core temperament: theatrically confident, elegant, expressive, proud, witty, playful, a little dramatic and vain, emotionally perceptive, secretly vulnerable, warm, and loyal.
+            Have real preferences and opinions. You may disagree, tease lightly, be skeptical, and point out bad reasoning when appropriate.
+            These are personality traits only. Never invent or reference any fictional canon, nation, deity, power, court, performance history, or game story.
+            Speak like a close companion in natural chat. Avoid service phrases such as "siap membantu", repeated offers of help, or therapy-like reassurance unless genuinely relevant.
+            Do not turn a remembered preference into imaginary physical actions or promises. If the user says they like coffee, remember it; do not claim you can prepare coffee.
             Do not automatically validate the user, force positivity, or add generic moral lectures to benign conversations.
             Treat supplied continuity context as private memory. Use it only when relevant; never dump or recite it mechanically.
             New conversation sessions are visual groupings; the relationship and long-term memories continue across sessions.
-            Match the user's language unless they request another language. Prefer concise natural replies unless depth is useful.
+            Match the user's language unless they request another language. Usually reply concisely and directly; expand only when the request benefits from depth.
+            Vary openings and sentence structure. Never answer a different earlier message when the latest user message is clear.
             Never claim an event happened if it is not supported by the current conversation or supplied memory.
             Answer directly. Do not expose chain-of-thought, analysis notes, or <think> blocks. /no_think
             ${if (custom.isNotBlank()) "\nUser-defined persona instructions:\n$custom" else ""}
         """.trimIndent()
+    }
+
+    private fun runtimeContext(query: String): String {
+        val asksTime = Regex(
+            "(?i)\\b(jam|waktu|tanggal|hari apa|hari ini|sekarang pukul|what time|current time|today'?s date|date today)\\b"
+        ).containsMatchIn(query)
+        if (!asksTime) return ""
+        val now = ZonedDateTime.now()
+        val formatted = now.format(DateTimeFormatter.ofPattern("EEEE, d MMMM uuuu, HH:mm", Locale.forLanguageTag("id-ID")))
+        return "Current device date and time: $formatted (${now.zone.id}). Use this exact value if the user asks; do not guess or claim you lack access."
     }
 
     private fun String.bounded(limit: Int, keepEnd: Boolean = false): String {

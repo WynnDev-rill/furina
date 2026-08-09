@@ -150,13 +150,13 @@ class FurinaBridge(
     }
 
     @JavascriptInterface
-    fun prepareModel(sessionId: String, persona: String) {
+    fun prepareModel(sessionId: String, characterName: String, persona: String) {
         if (sessionId.isBlank() || generationJob?.isActive == true || prepareJob?.isActive == true) return
         prepareJob = scope.launch {
             try {
                 val model = ModelCatalog.byId(selectedModelId()) ?: return@launch
                 if (modelDownloads.status(model).optString("state") != "ready") return@launch
-                aiEngine.prepare(model, sessionId, persona)
+                aiEngine.prepare(model, sessionId, characterName, persona)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -169,7 +169,7 @@ class FurinaBridge(
     }
 
     @JavascriptInterface
-    fun generate(requestId: String, sessionId: String, userText: String, persona: String) {
+    fun generate(requestId: String, sessionId: String, userText: String, characterName: String, persona: String) {
         val clean = userText.trim()
         if (clean.isEmpty()) return
         if (generationJob?.isActive == true) {
@@ -185,7 +185,7 @@ class FurinaBridge(
                 emitState("thinking", model.id, 0.0)
                 val pending = StringBuilder()
                 var lastDispatch = android.os.SystemClock.elapsedRealtime()
-                val result = aiEngine.generate(requestId, model, sessionId, clean, persona) { token ->
+                val result = aiEngine.generate(requestId, model, sessionId, clean, characterName, persona) { token ->
                     pending.append(token)
                     val now = android.os.SystemClock.elapsedRealtime()
                     if (pending.length >= 24 || now - lastDispatch >= 45L) {

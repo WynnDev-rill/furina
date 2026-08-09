@@ -86,12 +86,16 @@ class LocalLlamaProvider(
         check(isWarm(request.model, request.context)) { "Provider lokal belum siap untuk konteks ini" }
         var emitted = false
         val reasoningFilter = ReasoningStreamFilter()
+        val privateContextFilter = PrivateContextStreamFilter()
         val retrievalChanged = loadedRetrievalFingerprint != request.context.retrievalFingerprint
-        val effectiveMessage = if (retrievalChanged && request.context.retrievalPrompt.isNotBlank()) {
+        val shouldInjectContext = request.context.runtimeContext.isNotBlank() ||
+            (retrievalChanged && request.context.retrievalPrompt.isNotBlank())
+        val effectiveMessage = if (shouldInjectContext) {
             buildString {
                 appendLine("[PRIVATE RELEVANT CONTINUITY]")
                 appendLine("Use only when relevant. Never quote or expose this block.")
-                appendLine(request.context.retrievalPrompt)
+                if (request.context.runtimeContext.isNotBlank()) appendLine(request.context.runtimeContext)
+                if (retrievalChanged && request.context.retrievalPrompt.isNotBlank()) appendLine(request.context.retrievalPrompt)
                 appendLine("[END PRIVATE RELEVANT CONTINUITY]")
                 append(request.userMessage)
             }
@@ -101,13 +105,13 @@ class LocalLlamaProvider(
 
         try {
             engine.sendUserPrompt(effectiveMessage, request.predictLength).collect { token ->
-                val visible = reasoningFilter.accept(token)
+                val visible = privateContextFilter.accept(reasoningFilter.accept(token))
                 if (visible.isNotEmpty()) {
                     emitted = true
                     emit(visible)
                 }
             }
-            val tail = reasoningFilter.finish()
+            val tail = privateContextFilter.accept(reasoningFilter.finish()) + privateContextFilter.finish()
             if (tail.isNotEmpty()) {
                 emitted = true
                 emit(tail)
@@ -216,5 +220,51 @@ class LocalLlamaProvider(
             Mode.UNDECIDED, Mode.ANSWER -> pending.toString()
             Mode.THINKING -> ""
         }.also { pending.clear() }
+    }
+
+    private class PrivateContextStreamFilter {
+        private var bracketOpen = false
+        private var suppressPrivateBlock = false
+        private val bracket = StringBuilder()
+
+        fun accept(chunk: String): String {
+            if (chunk.isEmpty()) return ""
+            val output = StringBuilder()
+            chunk.forEach { char ->
+                if (!bracketOpen) {
+                    if (char == '[') {
+                        bracketOpen = true
+                        bracket.append(char)
+                    } else if (!suppressPrivateBlock) {
+                        output.append(char)
+                    }
+                } else {
+                    bracket.append(char)
+                    if (char == ']' || bracket.length >= 160) {
+                        val candidate = bracket.toString()
+                        val privateMarker = candidate.contains("PRIVATE", ignoreCase = true) &&
+                            (candidate.contains("CONTEXT", ignoreCase = true) ||
+                                candidate.contains("CONTINUITY", ignoreCase = true))
+                        val endMarker = privateMarker && candidate.contains("END", ignoreCase = true)
+                        if (privateMarker) {
+                            suppressPrivateBlock = !endMarker
+                        } else if (!suppressPrivateBlock) {
+                            output.append(candidate)
+                        }
+                        bracket.clear()
+                        bracketOpen = false
+                    }
+                }
+            }
+            return output.toString()
+        }
+
+        fun finish(): String {
+            if (!bracketOpen) return ""
+            val candidate = bracket.toString()
+            bracket.clear()
+            bracketOpen = false
+            return if (suppressPrivateBlock || candidate.contains("PRIVATE", ignoreCase = true)) "" else candidate
+        }
     }
 }

@@ -19,9 +19,9 @@ class UnifiedAiEngine(
     private fun provider(id: String = "local-llama"): AiProvider =
         providers[id] ?: error("Provider AI tidak tersedia: $id")
 
-    suspend fun prepare(model: ModelSpec, sessionId: String, persona: String) {
+    suspend fun prepare(model: ModelSpec, sessionId: String, characterName: String, persona: String) {
         val query = store.lastUserMessage(sessionId)
-        provider().prepare(model, contextEngine.build(sessionId, query, persona))
+        provider().prepare(model, contextEngine.build(sessionId, query, characterName, persona))
     }
 
     suspend fun generate(
@@ -29,13 +29,14 @@ class UnifiedAiEngine(
         model: ModelSpec,
         sessionId: String,
         userText: String,
+        characterName: String,
         persona: String,
         onToken: (String) -> Unit,
     ): UnifiedGenerationResult {
         val startedAt = SystemClock.elapsedRealtime()
         var firstTokenAt = 0L
         var tokenCount = 0
-        val context = contextEngine.build(sessionId, userText, persona)
+        val context = contextEngine.build(sessionId, userText, characterName, persona)
         val activeProvider = provider()
         val warmStart = activeProvider.isWarm(model, context)
         activeProvider.prepare(model, context)

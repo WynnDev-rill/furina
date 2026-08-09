@@ -2,9 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertCircle, Brain, Check, Cloud, Copy, Download, HardDrive, Image as ImageIcon, Loader2,
+  AlertCircle, Brain, Check, ChevronDown, Cloud, Copy, Download, HardDrive, Image as ImageIcon, Loader2,
   MessageSquarePlus, MessagesSquare, Moon, Play, Plus, RotateCcw, Send,
-  Settings, ShieldCheck, Sparkles, Square, Sun, Trash2, Volume2, X, Zap,
+  Settings, Sparkles, Square, Sun, Trash2, Volume2, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,8 +78,8 @@ type NativeBridge = {
   appSettings(): string;
   saveAppSettings(settingsJson: string): void;
   setSystemTheme(dark: boolean): void;
-  prepareModel(sessionId: string, persona: string): void;
-  generate(requestId: string, sessionId: string, userText: string, persona: string): void;
+  prepareModel(sessionId: string, characterName: string, persona: string): void;
+  generate(requestId: string, sessionId: string, userText: string, characterName: string, persona: string): void;
   stopGeneration(): void;
   backupInfo(): string;
   chooseBackupFolder(): void;
@@ -198,6 +198,8 @@ function FurinaNativeApp() {
   const [openSessions, setOpenSessions] = useState(false);
   const [name, setName] = useState("Furina");
   const [persona, setPersona] = useState("");
+  const [nameDraft, setNameDraft] = useState("Furina");
+  const [personaDraft, setPersonaDraft] = useState("");
   const [autoVoice, setAutoVoice] = useState(false);
   const [voiceSpeed, setVoiceSpeed] = useState(1.0);
   const [theme, setTheme] = useState<ThemeMode>("dark");
@@ -285,8 +287,8 @@ function FurinaNativeApp() {
     const b = bridge();
     if (!b) return;
     const saved = parseJson<CompanionSettings>(b.appSettings(), {});
-    if (saved.name) setName(saved.name);
-    if (typeof saved.persona === "string") setPersona(saved.persona);
+    if (saved.name) { setName(saved.name); setNameDraft(saved.name); }
+    if (typeof saved.persona === "string") { setPersona(saved.persona); setPersonaDraft(saved.persona); }
     if (typeof saved.autoVoice === "boolean") setAutoVoice(saved.autoVoice);
     if (typeof saved.voiceSpeed === "number") setVoiceSpeed(saved.voiceSpeed);
     if (saved.theme === "dark" || saved.theme === "light") setTheme(saved.theme);
@@ -304,8 +306,12 @@ function FurinaNativeApp() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    setName(localStorage.getItem(PREF.name) || "Furina");
-    setPersona(localStorage.getItem(PREF.persona) || "");
+    const localName = localStorage.getItem(PREF.name) || "Furina";
+    const localPersona = localStorage.getItem(PREF.persona) || "";
+    setName(localName);
+    setNameDraft(localName);
+    setPersona(localPersona);
+    setPersonaDraft(localPersona);
     setAutoVoice(localStorage.getItem(PREF.autoVoice) === "1");
     setVoiceSpeed(Number(localStorage.getItem(PREF.speed) || 1));
     setTheme((localStorage.getItem(PREF.theme) as ThemeMode) || "dark");
@@ -353,8 +359,8 @@ function FurinaNativeApp() {
     };
     window.__furinaNativeRestored = () => {
       const restored = parseJson<CompanionSettings>(bridge()?.appSettings(), {});
-      if (restored.name) setName(restored.name);
-      if (typeof restored.persona === "string") setPersona(restored.persona);
+      if (restored.name) { setName(restored.name); setNameDraft(restored.name); }
+      if (typeof restored.persona === "string") { setPersona(restored.persona); setPersonaDraft(restored.persona); }
       if (typeof restored.autoVoice === "boolean") setAutoVoice(restored.autoVoice);
       if (typeof restored.voiceSpeed === "number") setVoiceSpeed(restored.voiceSpeed);
       if (restored.theme) setTheme(restored.theme);
@@ -423,9 +429,9 @@ function FurinaNativeApp() {
 
   useEffect(() => {
     if (!nativeReady || !activeSessionId || selectedStatus?.state !== "ready" || sending) return;
-    const timer = window.setTimeout(() => bridge()?.prepareModel(activeSessionId, effectivePersona), 700);
+    const timer = window.setTimeout(() => bridge()?.prepareModel(activeSessionId, name, effectivePersona), 450);
     return () => window.clearTimeout(timer);
-  }, [nativeReady, activeSessionId, selectedModel, selectedStatus?.state, effectivePersona, sending]);
+  }, [nativeReady, activeSessionId, selectedModel, selectedStatus?.state, name, effectivePersona, sending]);
 
   useEffect(() => {
     preparedAudioRef.current.clear();
@@ -451,7 +457,30 @@ function FurinaNativeApp() {
       { id: `pending:${requestId}`, role: "assistant", content: "", createdAt: now + 1 },
     ]);
     setRuntimeError("");
-    b.generate(requestId, activeSessionId, text, effectivePersona);
+    b.generate(requestId, activeSessionId, text, name, effectivePersona);
+  }
+
+  const identityDirty = nameDraft.trim() !== name || personaDraft.trim() !== persona;
+
+  function saveIdentity() {
+    const nextName = nameDraft.trim() || "Furina";
+    const nextPersona = personaDraft.trim();
+    setName(nextName);
+    setNameDraft(nextName);
+    setPersona(nextPersona);
+    setPersonaDraft(nextPersona);
+    toast.success("Nama dan kepribadian disimpan");
+  }
+
+  function handleSettingsOpenChange(next: boolean) {
+    if (next) {
+      setOpenSettings(true);
+      return;
+    }
+    if (identityDirty && !confirm("Perubahan nama atau kepribadian belum disimpan. Tutup tanpa menyimpan?")) return;
+    setNameDraft(name);
+    setPersonaDraft(persona);
+    setOpenSettings(false);
   }
 
   function newSession() {
@@ -634,7 +663,7 @@ function FurinaNativeApp() {
       <img src={background} alt={`${name} background`} className="absolute inset-0 h-full w-full object-cover" draggable={false} />
       <div className={`absolute inset-0 ${theme === "dark" ? "bg-gradient-to-b from-[#050712]/25 via-[#050712]/35 to-[#050712]/90" : "bg-gradient-to-b from-white/20 via-white/20 to-white/75"}`} />
 
-      <header className={`absolute inset-x-0 top-0 z-30 flex h-[72px] items-center justify-between border-b px-3 shadow-[0_8px_30px_rgba(0,0,0,.18)] backdrop-blur-2xl ${theme === "dark" ? "border-white/[.08] bg-[#070b18]/90 text-white" : "border-slate-200/80 bg-white/90 text-slate-950"}`}>
+      <header className={`absolute inset-x-0 top-0 z-30 grid h-[72px] grid-cols-[96px_minmax(0,1fr)_96px] items-center border-b px-2 shadow-[0_8px_30px_rgba(0,0,0,.18)] backdrop-blur-2xl ${theme === "dark" ? "border-white/[.08] bg-[#070b18]/90 text-white" : "border-slate-200/80 bg-white/90 text-slate-950"}`}>
         <Button variant="ghost" size="icon" className="h-12 w-12 rounded-2xl transition-transform duration-150 active:scale-95 motion-reduce:transition-none" aria-label="Buka daftar percakapan" onClick={() => setOpenSessions(true)}>
           <MessagesSquare className="h-[21px] w-[21px]" />
         </Button>
@@ -645,9 +674,14 @@ function FurinaNativeApp() {
             <span className="truncate">{statusText}</span>
           </div>
         </div>
-        <Button variant="ghost" size="icon" className="h-12 w-12 rounded-2xl transition-transform duration-150 active:scale-95 motion-reduce:transition-none" aria-label="Buka pengaturan" onClick={() => { setOpenSettings(true); refreshMemories(); }}>
-          <Settings className="h-[21px] w-[21px]" />
-        </Button>
+        <div className="flex items-center justify-end">
+          <Button variant="ghost" size="icon" className="h-11 w-11 rounded-2xl transition-transform duration-150 active:scale-95 motion-reduce:transition-none" aria-label={theme === "dark" ? "Gunakan tema terang" : "Gunakan tema gelap"} onClick={() => setTheme((value) => value === "dark" ? "light" : "dark")}>
+            {theme === "dark" ? <Sun className="h-[19px] w-[19px]" /> : <Moon className="h-[19px] w-[19px]" />}
+          </Button>
+          <Button variant="ghost" size="icon" className="h-11 w-11 rounded-2xl transition-transform duration-150 active:scale-95 motion-reduce:transition-none" aria-label="Buka pengaturan" onClick={() => { setNameDraft(name); setPersonaDraft(persona); setOpenSettings(true); refreshMemories(); }}>
+            <Settings className="h-[21px] w-[21px]" />
+          </Button>
+        </div>
       </header>
 
       <main ref={scrollRef} className="absolute inset-0 z-10 overflow-y-auto px-4 pb-32 pt-[88px]">
@@ -734,36 +768,28 @@ function FurinaNativeApp() {
         </SheetContent>
       </Sheet>
 
-      <Sheet open={openSettings} onOpenChange={setOpenSettings}>
+      <Sheet open={openSettings} onOpenChange={handleSettingsOpenChange}>
         <SheetContent side="right" className={`flex h-full w-full max-w-md flex-col gap-0 overflow-hidden border-l p-0 ${theme === "dark" ? "border-slate-800 bg-[#050712] text-slate-100" : "border-slate-200 bg-white text-slate-950"}`}>
           <SheetHeader className={`relative z-20 shrink-0 border-b px-5 pb-4 pt-5 text-left shadow-sm backdrop-blur-xl ${theme === "dark" ? "border-slate-800 bg-[#050712]/96" : "border-slate-200 bg-white/96"}`}>
             <SheetTitle className="pr-10 text-xl">Pengaturan</SheetTitle>
-            <SheetDescription className="max-w-sm text-xs leading-relaxed">Personalisasi karakter, mesin AI lokal, suara, memori, dan backup.</SheetDescription>
+            <SheetDescription className="max-w-sm text-xs leading-relaxed">Identitas, AI lokal, suara, memori, dan backup.</SheetDescription>
           </SheetHeader>
 
           <div ref={settingsScrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-smooth px-4 py-5 touch-manipulation sm:px-6">
           <div className="space-y-6 pb-8 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-300">
-            <section className="space-y-3 rounded-xl border bg-muted/30 p-4">
-              <Label className="text-xs font-semibold uppercase tracking-wider">Tampilan</Label>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-sm">Tema</span>
-                <Button size="sm" variant="outline" onClick={() => setTheme((value) => value === "dark" ? "light" : "dark")}>
-                  {theme === "dark" ? <><Sun className="mr-2 h-4 w-4" />Terang</> : <><Moon className="mr-2 h-4 w-4" />Gelap</>}
-                </Button>
+            <section className="space-y-4 rounded-2xl border bg-muted/10 p-4 shadow-sm">
+              <div className="space-y-2">
+                <Label>Nama karakter</Label>
+                <Input value={nameDraft} maxLength={80} onChange={(e) => setNameDraft(e.target.value)} />
               </div>
-            </section>
-
-            <section className="space-y-2">
-              <Label>Nama karakter</Label>
-              <Input value={name} onChange={(e) => { setName(e.target.value); localStorage.setItem(PREF.name, e.target.value); }} />
-            </section>
-
-            <section className="space-y-2">
+              <div className="space-y-2">
               <Label>Kepribadian / system prompt (opsional)</Label>
-              <Textarea rows={5} value={persona} placeholder="Kosongkan untuk kepribadian Furina default…" onChange={(e) => {
-                setPersona(e.target.value); localStorage.setItem(PREF.persona, e.target.value);
-              }} />
-              <p className="text-[11px] leading-relaxed text-muted-foreground">Nama, kepribadian, bahasa, memori, dan riwayat yang sama dipakai oleh model 4B maupun 9B. Mengganti model tidak mereset hubunganmu dengan Furina.</p>
+                <Textarea rows={4} value={personaDraft} placeholder="Kosongkan untuk kepribadian default…" onChange={(e) => setPersonaDraft(e.target.value)} />
+              </div>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">Nama dan kepribadian berlaku untuk semua model. Memori dan riwayat tidak berubah saat model diganti.</p>
+              <Button className="min-h-11 w-full rounded-xl" disabled={!identityDirty} onClick={saveIdentity}>
+                <Check className="mr-2 h-4 w-4" />Simpan identitas
+              </Button>
             </section>
 
             <section className="space-y-4 rounded-2xl border bg-muted/10 p-4 shadow-sm">
@@ -773,11 +799,6 @@ function FurinaNativeApp() {
                   <Label>Mesin AI lokal</Label>
                   <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">Pilih 4B untuk respons lebih cepat atau 9B untuk kualitas lebih tinggi. Keduanya sepenuhnya lokal.</p>
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-xl border bg-background/45 p-3"><ShieldCheck className="mb-2 h-4 w-4 text-emerald-500" /><p className="text-[11px] font-semibold">Satu identitas</p><p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">Persona dan memori konsisten di semua model.</p></div>
-                <div className="rounded-xl border bg-background/45 p-3"><Zap className="mb-2 h-4 w-4 text-amber-500" /><p className="text-[11px] font-semibold">Siap lebih cepat</p><p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">Model dipanaskan sebelum pesan pertama.</p></div>
               </div>
 
               {!nativeReady && <div className="rounded-lg bg-destructive/10 p-2 text-xs text-destructive">Menu download hanya aktif di APK Furina.</div>}
@@ -834,9 +855,7 @@ function FurinaNativeApp() {
                 );
               })}
 
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Runtime memakai llama.cpp native Android dengan konteks aktif 4K. Model dipertahankan hangat selama proses aplikasi hidup, sementara memori jangka panjang tetap di SQLite dan diambil hanya saat relevan.
-              </p>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">Model tetap hangat selama aplikasi aktif. Hanya memori relevan yang masuk ke konteks agar respons lebih cepat.</p>
               {lastMetrics && (
                 <div className="grid grid-cols-3 gap-2 text-center">
                   <div className="rounded-lg bg-muted p-2"><p className="text-sm font-semibold">{(lastMetrics.firstTokenMs / 1000).toFixed(1)} dtk</p><p className="text-[9px] text-muted-foreground">token pertama</p></div>
@@ -846,8 +865,12 @@ function FurinaNativeApp() {
               )}
             </section>
 
-            <section className="space-y-3">
-              <Label>Mesin suara (TTS)</Label>
+            <details className="group rounded-2xl border bg-muted/10 shadow-sm">
+              <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                <span className="flex items-center gap-2 text-sm font-semibold"><Volume2 className="h-4 w-4 text-primary" />Suara</span>
+                <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" />
+              </summary>
+              <div className="space-y-3 border-t px-4 pb-4 pt-3">
               <Select value={ttsProvider} onValueChange={(value) => setTtsProvider(value as TTSProvider)}>
                 <SelectTrigger className="min-h-12"><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -901,7 +924,8 @@ function FurinaNativeApp() {
                   const next = v[0] ?? 1; setVoiceSpeed(next); localStorage.setItem(PREF.speed, String(next));
                 }} />
               </div>
-            </section>
+              </div>
+            </details>
 
             <section className="space-y-2">
               <Label>Bahasa balasan</Label>
@@ -916,23 +940,29 @@ function FurinaNativeApp() {
               </Select>
             </section>
 
-            <Separator />
-
-            <section className="space-y-3">
-              <Label className="flex items-center gap-2"><ImageIcon className="h-4 w-4" />Background karakter</Label>
+            <details className="group rounded-2xl border bg-muted/10 shadow-sm">
+              <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                <span className="flex items-center gap-2 text-sm font-semibold"><ImageIcon className="h-4 w-4 text-primary" />Tampilan karakter</span>
+                <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" />
+              </summary>
+              <div className="space-y-3 border-t px-4 pb-4 pt-3">
+              <Label>Background karakter</Label>
               <input ref={backgroundInputRef} type="file" accept="image/*" onChange={handleBackgroundUpload} className="block w-full text-sm" />
               <Button variant="outline" size="sm" onClick={() => {
                 setBackground(furinaDefault);
                 localStorage.removeItem(PREF.background);
                 if (backgroundInputRef.current) backgroundInputRef.current.value = "";
               }}><RotateCcw className="mr-2 h-4 w-4" />Kembalikan Furina default</Button>
-            </section>
+              </div>
+            </details>
 
-            <Separator />
-
-            <section className="space-y-3 rounded-xl border p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2"><HardDrive className="h-4 w-4" /><Label>Memori (lintas-percakapan)</Label></div>
+            <details className="group rounded-2xl border bg-muted/10 shadow-sm">
+              <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                <span className="flex items-center gap-2 text-sm font-semibold"><HardDrive className="h-4 w-4 text-primary" />Memori <span className="text-xs font-normal text-muted-foreground">{stats.memories}</span></span>
+                <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" />
+              </summary>
+              <div className="space-y-3 border-t px-4 pb-4 pt-3">
+              <div className="flex items-center justify-end">
                 <Button variant="ghost" size="sm" onClick={() => {
                   if (!confirm("Hapus semua memori fakta? Riwayat percakapan tidak ikut dihapus.")) return;
                   bridge()?.clearMemories();
@@ -972,11 +1002,16 @@ function FurinaNativeApp() {
                 ))}
               </div>
               {stats.firstSeen > 0 && <p className="text-[11px]">Mengenalmu sejak <span className="font-medium">{new Date(stats.firstSeen).toLocaleDateString()}</span></p>}
-            </section>
+              </div>
+            </details>
 
-            <section className="space-y-3 rounded-xl border p-3">
-              <div className="flex items-center gap-2"><Cloud className="h-4 w-4" /><Label>Backup Google / Cloud</Label></div>
-              <p className="text-[11px] leading-relaxed text-muted-foreground">Pilih folder melalui pemilih file Android. Kamu bisa memilih Google Drive jika tersedia. Backup SQLite dienkripsi dan dibuat otomatis berkala setelah percakapan.</p>
+            <details className="group rounded-2xl border bg-muted/10 shadow-sm">
+              <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                <span className="flex items-center gap-2 text-sm font-semibold"><Cloud className="h-4 w-4 text-primary" />Backup lokal</span>
+                <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" />
+              </summary>
+              <div className="space-y-3 border-t px-4 pb-4 pt-3">
+              <p className="text-[11px] leading-relaxed text-muted-foreground">Pilih folder Android atau Google Drive. Backup SQLite tetap terenkripsi.</p>
               <Button variant="outline" className="w-full" onClick={() => bridge()?.chooseBackupFolder()}>
                 <Cloud className="mr-2 h-4 w-4" /> {backup.folderSelected ? "Ganti folder backup" : "Pilih folder Google Drive"}
               </Button>
@@ -996,7 +1031,8 @@ function FurinaNativeApp() {
                 <Button variant="outline" onClick={() => bridge()?.chooseRestoreFile()}>Restore backup</Button>
               </div>
               {backup.lastBackup > 0 && <p className="text-[10px] text-muted-foreground">Backup terakhir: {new Date(backup.lastBackup).toLocaleString()}</p>}
-            </section>
+              </div>
+            </details>
 
             <Separator />
 

@@ -490,42 +490,57 @@ const EMOTION_PROFILES: Record<Emotion, { pitch: number; intonation: number; spe
   angry:    { pitch: -0.02, intonation: 1.70, speedMul: 1.08 },
 };
 
-async function detectEmotionAndTranslate(srcText: string): Promise<{ ja: string; emotion: Emotion }> {
-  const res = await fetch(`${GATEWAY}/chat/completions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
-    body: JSON.stringify({
-      model: "google/gemini-2.5-flash-lite",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You convert text into natural spoken Japanese for an anime-style female voice AND classify the dominant emotion.\n" +
-            "Allowed emotions: neutral, happy, sad, angry, excited, shy, tender, playful.\n" +
-            "Output STRICT JSON only: {\"emotion\":\"<one>\",\"ja\":\"<japanese text>\"}\n" +
-            "- ja must be ONLY natural spoken Japanese (no romaji, no quotes, no explanation).\n" +
-            "- Strip stage directions / sticker tags like [stiker: ...].\n" +
-            "- Add small expressive interjections (ふふっ, あら~, もう!, はぁ…) sparingly matching emotion.\n" +
-            "- Convert numbers/symbols to Japanese reading.",
-        },
-        { role: "user", content: srcText },
-      ],
-    }),
+function containsJapanese(text: string): boolean {
+  return /[\u3040-\u30ff\u3400-\u9fff]/u.test(text);
+}
+
+function inferEmotion(text: string): Emotion {
+  const value = text.toLocaleLowerCase("id-ID");
+  if (/[!！]{2,}|senang|seru|hebat|keren|yay|hore/.test(value)) return "excited";
+  if (/haha|wkwk|hehe|goda|jahil/.test(value)) return "playful";
+  if (/marah|kesal|jengkel|benci|menyebalkan/.test(value)) return "angry";
+  if (/sedih|kecewa|menangis|sepi|kehilangan/.test(value)) return "sad";
+  if (/malu|deg-degan|gugup/.test(value)) return "shy";
+  if (/sayang|hangat|tenang|peduli|rindu/.test(value)) return "tender";
+  if (/senang|bahagia|suka|bagus/.test(value)) return "happy";
+  return "neutral";
+}
+
+async function translateChunkToJapanese(text: string): Promise<string> {
+  const looksIndonesian = /\b(aku|kamu|saya|anda|yang|dan|atau|tidak|bisa|sudah|belum|dengan|untuk|ini|itu|apa|kenapa|bagaimana)\b/i.test(text);
+  const params = new URLSearchParams({ q: text, langpair: `${looksIndonesian ? "id" : "en"}|ja` });
+  const response = await fetch(`https://api.mymemory.translated.net/get?${params.toString()}`, {
+    headers: { Accept: "application/json" },
   });
-  if (!res.ok) return { ja: srcText, emotion: "neutral" };
-  const j = await res.json();
-  const raw: string = j.choices?.[0]?.message?.content?.trim() ?? "";
-  const m = raw.match(/\{[\s\S]*\}/);
-  if (!m) return { ja: srcText, emotion: "neutral" };
-  try {
-    const parsed = JSON.parse(m[0]);
-    const emotion = (["neutral","happy","sad","angry","excited","shy","tender","playful"].includes(parsed.emotion)
-      ? parsed.emotion : "neutral") as Emotion;
-    const ja = typeof parsed.ja === "string" ? parsed.ja.replace(/^["「『]+|["」』]+$/g, "").trim() : srcText;
-    return { ja: ja || srcText, emotion };
-  } catch {
-    return { ja: srcText, emotion: "neutral" };
+  if (!response.ok) throw new Error(`Terjemahan Jepang gagal (${response.status})`);
+  const payload = await response.json();
+  const translated = String(payload?.responseData?.translatedText ?? "").trim();
+  if (!translated || !containsJapanese(translated)) {
+    throw new Error("Layanan terjemahan tidak menghasilkan teks Jepang");
   }
+  return translated;
+}
+
+async function detectEmotionAndTranslate(srcText: string): Promise<{ ja: string; emotion: Emotion }> {
+  const clean = srcText.replace(/\[[^\]]{0,120}\]/g, " ").replace(/\s+/g, " ").trim();
+  if (!clean) throw new Error("Teks suara kosong setelah dibersihkan");
+  if (containsJapanese(clean)) return { ja: clean, emotion: inferEmotion(clean) };
+
+  // MyMemory's anonymous endpoint accepts at most 500 bytes per query. Keep
+  // chunks comfortably below that boundary and preserve sentence order.
+  const chunks: string[] = [];
+  let remaining = clean;
+  while (remaining.length > 340) {
+    const window = remaining.slice(0, 341);
+    const sentenceBreak = Math.max(window.lastIndexOf(". "), window.lastIndexOf("? "), window.lastIndexOf("! "));
+    const wordBreak = window.lastIndexOf(" ");
+    const cut = sentenceBreak > 160 ? sentenceBreak + 1 : wordBreak > 160 ? wordBreak : 340;
+    chunks.push(remaining.slice(0, cut).trim());
+    remaining = remaining.slice(cut).trim();
+  }
+  if (remaining) chunks.push(remaining);
+  const translated = await Promise.all(chunks.map((chunk) => translateChunkToJapanese(chunk.trim())));
+  return { ja: translated.join(" ").trim(), emotion: inferEmotion(clean) };
 }
 
 export const speakVoicevoxUrl = createServerFn({ method: "POST" })
@@ -535,13 +550,9 @@ export const speakVoicevoxUrl = createServerFn({ method: "POST" })
     let emotion: Emotion = "neutral";
 
     if (data.translateToJa) {
-      try {
-        const r = await detectEmotionAndTranslate(data.text);
-        jaText = r.ja;
-        emotion = r.emotion;
-      } catch (e) {
-        console.error("Translate+emotion failed:", e);
-      }
+      const r = await detectEmotionAndTranslate(data.text);
+      jaText = r.ja;
+      emotion = r.emotion;
     }
 
     const profile = EMOTION_PROFILES[emotion];
@@ -670,10 +681,8 @@ export const speakClone = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     let text = data.text;
     if (data.translateToJa && data.language === "ja") {
-      try {
-        const r = await detectEmotionAndTranslate(data.text);
-        text = r.ja;
-      } catch {}
+      const r = await detectEmotionAndTranslate(data.text);
+      text = r.ja;
     }
 
     try {
@@ -858,4 +867,3 @@ export const getStyleProfile = createServerFn({ method: "POST" })
       .limit(1);
     return { profile: rows?.[0]?.content ?? "" };
   });
-
