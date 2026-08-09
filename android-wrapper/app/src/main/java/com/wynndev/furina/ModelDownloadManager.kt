@@ -27,10 +27,13 @@ class ModelDownloadManager(private val context: Context) {
         if (existingId > 0L) {
             val s = status(spec)
             if (s.optString("state") == "downloading" || s.optString("state") == "paused") return s
+            downloads.remove(existingId)
         }
 
         val target = modelFile(spec)
-        if (target.exists()) target.delete()
+        require(!target.exists() || target.delete()) {
+            "File model lama tidak dapat dibersihkan. Coba hapus model lalu ulangi."
+        }
         val available = StatFs(modelDir.absolutePath).availableBytes
         require(available >= spec.expectedBytes + DOWNLOAD_HEADROOM_BYTES) {
             "Penyimpanan tidak cukup. Sisakan setidaknya ${formatGiB(spec.expectedBytes + DOWNLOAD_HEADROOM_BYTES)}."
@@ -42,6 +45,8 @@ class ModelDownloadManager(private val context: Context) {
             .setDescription("Mengunduh model AI Furina di latar belakang")
             .setAllowedOverMetered(true)
             .setAllowedOverRoaming(false)
+            .addRequestHeader("Accept", "application/octet-stream")
+            .addRequestHeader("User-Agent", "FurinaAndroid/4.0")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "models/${spec.fileName}")
 
@@ -100,8 +105,10 @@ class ModelDownloadManager(private val context: Context) {
 
         val sizeMatches = !file.exists() || file.length() == spec.expectedBytes
         val verificationError = prefs.getString("verification_error:${spec.id}", null)
-        if (file.exists() && !sizeMatches) state = "corrupt"
-        if (verificationError != null) state = "corrupt"
+        val transferActive = state == "downloading" || state == "paused"
+        val transferFailed = state == "failed"
+        if (!transferActive && !transferFailed && file.exists() && !sizeMatches) state = "corrupt"
+        if (!transferActive && !transferFailed && verificationError != null) state = "corrupt"
         val verified = sizeMatches && prefs.getString("verified:${spec.id}", null) == spec.sha256
         return JSONObject()
             .put("id", spec.id)
