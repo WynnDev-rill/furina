@@ -1,40 +1,67 @@
-name: Build Furina APK
+name: Build Furina Offline Qwen APK
 
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - main
     paths:
+      - 'src/**'
+      - 'android-wrapper/**'
+      - 'scripts/**'
+      - '.agents/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/build-furina-apk.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'android-wrapper/**'
+      - 'scripts/**'
+      - '.agents/**'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/build-furina-apk.yml'
 
 permissions:
   contents: read
 
 concurrency:
-  group: furina-apk-${{ github.ref }}
+  group: furina-offline-qwen-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 60
 
     steps:
-      - name: Checkout repository history
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - name: Restore proven Android shell
-        run: |
-          git restore --source=615fc4633f11d52ff47ac7c80b21b81e03033aa3 -- android-wrapper
-          sed -i 's/android:label="Mirei"/android:label="Furina"/' android-wrapper/app/src/main/AndroidManifest.xml
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
 
-      - name: Verify Furina identity and production URL
+      - name: Validate web companion route
         run: |
-          grep -q 'applicationId '\''com.wynndev.furina'\''' android-wrapper/app/build.gradle
-          grep -q 'android:label="Furina"' android-wrapper/app/src/main/AndroidManifest.xml
-          grep -q 'https://furina-pi.vercel.app/' android-wrapper/app/src/main/java/com/wynndev/furina/MainActivity.java
+          npm install --no-audit --no-fund
+          npm run build
+          test -s src/routes/native.tsx
+          grep -q 'Qwen3.5 4B Uncensored' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
+          grep -q 'Qwen3.5 9B Uncensored' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
+          ! grep -qi 'gemma' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
+          grep -q '55e05aba5a4e1e2d6c4919753a68941c4ad4cb11' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
+          grep -q 'a5ebf434dfbf9646d1bb97a469c1d8f69e4feb2e' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
+          grep -q 'generationJob = null' android-wrapper/app/src/main/java/com/wynndev/furina/FurinaBridge.kt
+          grep -q 'DB_VERSION = 2' android-wrapper/app/src/main/java/com/wynndev/furina/MemoryStore.kt
+          grep -q 'furina-before-restore' android-wrapper/app/src/main/java/com/wynndev/furina/MemoryStore.kt
+          grep -q 'saveAppSettings' src/routes/native.tsx
+          grep -q 'tokensPerSecond' android-wrapper/app/src/main/java/com/wynndev/furina/FurinaBridge.kt
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -46,30 +73,85 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install Android build tools
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            "platforms;android-36" \
+            "build-tools;36.0.0"
 
-      - name: Set up Gradle
+      - name: Restore pinned llama.cpp Android AAR cache
+        id: llama-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: android-wrapper/app/libs/llama-android.aar
+          key: llama-android-aar-${{ runner.os }}-ndk29-${{ hashFiles('scripts/bootstrap-llama-android.sh') }}
+
+      - name: Install Android native toolchain
+        if: steps.llama-cache.outputs.cache-hit != 'true'
+        run: |
+          sdkmanager \
+            "ndk;29.0.13113456" \
+            "cmake;3.31.6"
+
+      - name: Build pinned llama.cpp Android AAR
+        if: steps.llama-cache.outputs.cache-hit != 'true'
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/29.0.13113456
+        run: |
+          bash scripts/bootstrap-llama-android.sh
+          test -s android-wrapper/app/libs/llama-android.aar
+
+      - name: Save pinned llama.cpp Android AAR cache
+        if: steps.llama-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: android-wrapper/app/libs/llama-android.aar
+          key: llama-android-aar-${{ runner.os }}-ndk29-${{ hashFiles('scripts/bootstrap-llama-android.sh') }}
+
+      - name: Verify llama.cpp Android AAR
+        run: test -s android-wrapper/app/libs/llama-android.aar
+
+      - name: Set up Gradle 8.14.3
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: '8.14.3'
 
-      - name: Build installable APK
+      - name: Build installable Furina APK
         working-directory: android-wrapper
-        run: gradle --no-daemon --stacktrace clean assembleDebug
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p app/src/main/res/drawable
+          cp ../public/icon-192.png app/src/main/res/drawable/furina_icon.png
+          gradle --no-daemon --stacktrace clean assembleDebug 2>&1 | tee ../gradle-build.log
 
-      - name: Verify APK
+      - name: Upload Gradle diagnostic log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Furina-Gradle-Log-${{ github.run_number }}
+          path: gradle-build.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Verify APK identity and permissions
         run: |
           APK=android-wrapper/app/build/outputs/apk/debug/app-debug.apk
-          $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose "$APK"
-          $ANDROID_HOME/build-tools/35.0.0/aapt dump badging "$APK" | tee apk-badging.txt
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | tee apk-badging.txt
           grep -q "package: name='com.wynndev.furina'" apk-badging.txt
           grep -q "application-label:'Furina'" apk-badging.txt
-          cp "$APK" Furina.apk
+          grep -Eq "application-icon-[0-9]+:'res/.+\\.png'" apk-badging.txt
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump permissions "$APK" | tee apk-permissions.txt
+          grep -q 'android.permission.INTERNET' apk-permissions.txt
+          cp "$APK" Furina-Offline-Qwen.apk
+          ls -lh Furina-Offline-Qwen.apk
 
       - name: Upload Furina APK
         uses: actions/upload-artifact@v4
         with:
-          name: Furina-${{ github.run_number }}
-          path: Furina.apk
+          name: Furina-Offline-Qwen-${{ github.run_number }}
+          path: Furina-Offline-Qwen.apk
           if-no-files-found: error
           retention-days: 90
