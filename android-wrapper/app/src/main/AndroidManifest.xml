@@ -9,6 +9,7 @@
 
     <application
         android:allowBackup="false"
+        android:extractNativeLibs="true"
         android:hardwareAccelerated="true"
         android:icon="@drawable/furina_icon"
         android:label="Furina"
@@ -19,6 +20,9 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
+        <receiver
+            android:name=".ModelDownloadCancelReceiver"
+            android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|keyboardHidden|uiMode"

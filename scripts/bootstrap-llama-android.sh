@@ -9,13 +9,15 @@ rm -rf "$WORK"
 git clone --filter=blob:none https://github.com/ggml-org/llama.cpp.git "$WORK"
 git -C "$WORK" checkout "$LLAMA_COMMIT"
 
-# Tune the official Android sample for modern 8-core phones. Four active KiB threads
-# left performance on the table, while an 8K KV cache delayed model preparation and
-# consumed memory that is more valuable to Android. Long-term memory stays in SQLite
-# retrieval; the hot llama.cpp context is deliberately kept at 4K.
-AI_CHAT_CPP="$WORK/examples/llama.android/lib/src/main/cpp/ai_chat.cpp"
-sed -i 's/constexpr int   N_THREADS_MAX           = 4;/constexpr int   N_THREADS_MAX           = 6;/' "$AI_CHAT_CPP"
-sed -i 's/constexpr int   DEFAULT_CONTEXT_SIZE    = 8192;/constexpr int   DEFAULT_CONTEXT_SIZE    = 4096;/' "$AI_CHAT_CPP"
+# Overlay two audited sample-runtime files on the pinned upstream. This keeps the
+# dependency reproducible without adopting a fork or a heavyweight server runtime.
+cp "$ROOT/scripts/overlays/ai_chat.cpp" "$WORK/examples/llama.android/lib/src/main/cpp/ai_chat.cpp"
+cp "$ROOT/scripts/overlays/InferenceEngineImpl.kt" "$WORK/examples/llama.android/lib/src/main/java/com/arm/aichat/internal/InferenceEngineImpl.kt"
+
+# Furina targets physical Android phones. Do not spend CI time or APK space on
+# the x86_64 emulator backend; every supported Play Store device here is arm64.
+sed -i 's/listOf("arm64-v8a", "x86_64")/listOf("arm64-v8a")/' \
+    "$WORK/examples/llama.android/lib/build.gradle.kts"
 
 pushd "$WORK/examples/llama.android" >/dev/null
 chmod +x gradlew

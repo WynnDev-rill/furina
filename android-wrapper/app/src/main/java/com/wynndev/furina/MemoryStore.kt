@@ -14,7 +14,7 @@ import kotlin.math.min
 class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
     companion object {
         private const val DB_NAME = "furina_memory.db"
-        private const val DB_VERSION = 2
+        private const val DB_VERSION = 3
     }
 
     override fun onConfigure(db: SQLiteDatabase) {
@@ -60,14 +60,29 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
             // Raw history remains available even on devices where FTS4 is unavailable.
         }
         createSettingsTable(db)
+        createSummaryTable(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) createSettingsTable(db)
+        if (oldVersion < 3) createSummaryTable(db)
     }
 
     private fun createSettingsTable(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)")
+    }
+
+    private fun createSummaryTable(db: SQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS session_summaries (
+                session_id TEXT PRIMARY KEY,
+                summary TEXT NOT NULL,
+                through_created_at INTEGER NOT NULL,
+                message_count INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            )
+        """.trimIndent())
     }
 
     @Synchronized
@@ -136,6 +151,7 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
         db.beginTransaction()
         try {
             db.delete("messages", "session_id=?", arrayOf(id))
+            db.delete("session_summaries", "session_id=?", arrayOf(id))
             try { db.delete("message_fts", "session_id=?", arrayOf(id)) } catch (_: Throwable) {}
             db.execSQL("UPDATE sessions SET title='Percakapan baru', updated_at=? WHERE id=?", arrayOf<Any>(System.currentTimeMillis(), id))
             db.setTransactionSuccessful()
@@ -182,6 +198,64 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
     }
 
     @Synchronized
+    fun lastUserMessage(sessionId: String): String {
+        readableDatabase.rawQuery(
+            "SELECT content FROM messages WHERE session_id=? AND role='user' ORDER BY created_at DESC LIMIT 1",
+            arrayOf(sessionId),
+        ).use { c -> return if (c.moveToFirst()) c.getString(0) else "" }
+    }
+
+    @Synchronized
+    fun sessionSummary(sessionId: String): String {
+        readableDatabase.rawQuery(
+            "SELECT summary FROM session_summaries WHERE session_id=?",
+            arrayOf(sessionId),
+        ).use { c -> return if (c.moveToFirst()) c.getString(0) else "" }
+    }
+
+    /**
+     * Offline deterministic compaction. It deliberately makes no second model call,
+     * so memory maintenance remains reliable even on slow or unavailable providers.
+     */
+    @Synchronized
+    fun updateSessionSummary(sessionId: String, keepRecent: Int = 10) {
+        val total = readableDatabase.rawQuery(
+            "SELECT COUNT(*) FROM messages WHERE session_id=?",
+            arrayOf(sessionId),
+        ).use { c -> c.moveToFirst(); c.getInt(0) }
+        if (total <= keepRecent) return
+
+        val compactable = total - keepRecent
+        val rows = mutableListOf<Triple<String, String, Long>>()
+        readableDatabase.rawQuery(
+            "SELECT role,content,created_at FROM messages WHERE session_id=? ORDER BY created_at ASC LIMIT ?",
+            arrayOf(sessionId, compactable.toString()),
+        ).use { c ->
+            while (c.moveToNext()) rows += Triple(c.getString(0), c.getString(1), c.getLong(2))
+        }
+        if (rows.isEmpty()) return
+
+        // Preserve the beginning plus the most recent compacted turns. Learned facts
+        // live independently in memories, so provider switching never loses them.
+        val selected = if (rows.size <= 28) rows else rows.take(6) + rows.takeLast(22)
+        val summary = buildString {
+            appendLine("Ringkasan percakapan terdahulu:")
+            selected.forEach { (role, content, _) ->
+                val clean = content.replace(Regex("\\s+"), " ").trim().take(220)
+                if (clean.isNotBlank()) appendLine("- ${if (role == "user") "Pengguna" else "Furina"}: $clean")
+            }
+        }.trim().take(5_600)
+        val now = System.currentTimeMillis()
+        writableDatabase.insertWithOnConflict("session_summaries", null, ContentValues().apply {
+            put("session_id", sessionId)
+            put("summary", summary)
+            put("through_created_at", rows.last().third)
+            put("message_count", compactable)
+            put("updated_at", now)
+        }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    @Synchronized
     fun relevantOldContext(query: String, currentSessionId: String, limit: Int = 8): String {
         val terms = query.lowercase().split(Regex("[^\\p{L}\\p{N}_]+"))
             .filter { it.length >= 3 }.distinct().take(8)
@@ -208,15 +282,17 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
     @Synchronized
     fun relevantMemories(query: String, limit: Int = 6): String {
         val terms = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+" )).filter { it.length >= 3 }.toSet()
-        val candidates = mutableListOf<Pair<Int, String>>()
-        readableDatabase.rawQuery("SELECT content,importance FROM memories ORDER BY updated_at DESC LIMIT 300", null).use { c ->
+        if (terms.isEmpty()) return ""
+        val candidates = mutableListOf<Triple<Int, Int, String>>()
+        readableDatabase.rawQuery("SELECT content,importance,updated_at FROM memories ORDER BY updated_at DESC LIMIT 300", null).use { c ->
             while (c.moveToNext()) {
                 val content = c.getString(0)
                 val overlap = content.lowercase().split(Regex("[^\\p{L}\\p{N}]+" )).count { it in terms }
-                candidates += (overlap * 10 + c.getInt(1)) to content
+                if (overlap > 0) candidates += Triple(overlap * 10 + c.getInt(1), c.getInt(1), content)
             }
         }
-        return candidates.sortedByDescending { it.first }.take(limit).filter { it.first > 0 }.joinToString("\n") { "- ${it.second}" }
+        return candidates.sortedWith(compareByDescending<Triple<Int, Int, String>> { it.first }.thenByDescending { it.second })
+            .take(limit).joinToString("\n") { "- ${it.third}" }
     }
 
     @Synchronized
@@ -254,7 +330,8 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
         var firstSeen = 0L
         readableDatabase.rawQuery("SELECT MIN(created_at) FROM messages", null).use { c -> if (c.moveToFirst() && !c.isNull(0)) firstSeen = c.getLong(0) }
         return JSONObject().put("sessions", count("sessions")).put("messages", count("messages"))
-            .put("memories", count("memories")).put("firstSeen", firstSeen).put("relationship", relationshipSummary()).toString()
+            .put("memories", count("memories")).put("summaries", count("session_summaries"))
+            .put("firstSeen", firstSeen).put("relationship", relationshipSummary()).toString()
     }
 
     @Synchronized

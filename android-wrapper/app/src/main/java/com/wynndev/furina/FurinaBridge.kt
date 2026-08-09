@@ -3,19 +3,13 @@ package com.wynndev.furina
 import android.net.Uri
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
-import com.arm.aichat.AiChat
-import com.arm.aichat.InferenceEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -26,17 +20,11 @@ class FurinaBridge(
     private val modelDownloads: ModelDownloadManager,
     private val backupManager: BackupManager,
 ) {
-    companion object {
-        @Volatile private var processLoadedModelId: String? = null
-        @Volatile private var processLoadedSessionId: String? = null
-        @Volatile private var processLoadedPersonaHash: Int? = null
-        @Volatile private var processSessionBootstrapped = false
-    }
-
     private val scope = kotlinx.coroutines.CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val prefs = activity.getSharedPreferences("furina_native", 0)
-    private val engine: InferenceEngine = AiChat.getInferenceEngine(activity.applicationContext)
-    private val loadMutex = Mutex()
+    private val contextEngine = ContextEngine(store)
+    private val localProvider = LocalLlamaProvider(activity.applicationContext, modelDownloads, ::emitState)
+    private val aiEngine = UnifiedAiEngine(store, contextEngine, mapOf(localProvider.id to localProvider))
     private var generationJob: Job? = null
     private var prepareJob: Job? = null
     private val verificationJobs = mutableMapOf<String, Job>()
@@ -48,7 +36,10 @@ class FurinaBridge(
         .put("version", "4.0")
         .put("selectedModelId", selectedModelId())
         .put("runtime", "llama.cpp Android native")
-        .put("contextStrategy", "4K active + long-term retrieval")
+        .put("aiEngine", "unified-provider-v1")
+        .put("provider", localProvider.id)
+        .put("contextStrategy", "identity + summary + relevant memory + recent history")
+        .put("offline", localProvider.capabilities.offline)
         .toString()
 
     @JavascriptInterface
@@ -94,7 +85,7 @@ class FurinaBridge(
         scope.launch {
             try {
                 synchronized(verificationJobs) { verificationJobs.remove(modelId)?.cancel(); verificationProgress.remove(modelId) }
-                if (processLoadedModelId == modelId) unloadEngine()
+                aiEngine.unload()
                 modelDownloads.delete(spec)
                 emitState("model_deleted", modelId, 0.0)
             } catch (e: Throwable) { emitError("model-delete", e.message ?: "Gagal menghapus model") }
@@ -123,16 +114,13 @@ class FurinaBridge(
     @JavascriptInterface
     fun deleteSession(sessionId: String) {
         store.deleteSession(sessionId)
-        if (processLoadedSessionId == sessionId) {
-            processLoadedSessionId = null
-            processSessionBootstrapped = false
-        }
+        scope.launch { aiEngine.unload() }
     }
 
     @JavascriptInterface
     fun clearSession(sessionId: String) {
         store.clearSession(sessionId)
-        if (processLoadedSessionId == sessionId) processSessionBootstrapped = false
+        scope.launch { aiEngine.unload() }
     }
 
     @JavascriptInterface
@@ -168,7 +156,7 @@ class FurinaBridge(
             try {
                 val model = ModelCatalog.byId(selectedModelId()) ?: return@launch
                 if (modelDownloads.status(model).optString("state") != "ready") return@launch
-                ensureModelLoaded(model, sessionId, persona)
+                aiEngine.prepare(model, sessionId, persona)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -190,41 +178,14 @@ class FurinaBridge(
         }
 
         generationJob = scope.launch {
-            val reply = StringBuilder()
-            var userId = ""
-            val startedAt = android.os.SystemClock.elapsedRealtime()
-            var firstTokenAt = 0L
-            var tokenCount = 0
-            var warmStart = false
             try {
                 val model = ModelCatalog.byId(selectedModelId()) ?: error("Model AI tidak dikenal")
                 val modelState = modelDownloads.status(model).optString("state")
                 if (modelState != "ready") error("Unduh ${model.displayName} terlebih dahulu")
-
-                val bootstrapContext = store.buildBootstrapContext(clean, sessionId)
-                warmStart = processLoadedModelId == model.id && processLoadedSessionId == sessionId &&
-                    processLoadedPersonaHash == persona.hashCode() && engine.state.value is InferenceEngine.State.ModelReady
-                ensureModelLoaded(model, sessionId, persona)
-                userId = store.addMessage(sessionId, "user", clean)
                 emitState("thinking", model.id, 0.0)
-
-                val prompt = if (!processSessionBootstrapped) {
-                    buildString {
-                        appendLine("[INTERNAL LONG-TERM CONTEXT]")
-                        appendLine("Use this only to preserve continuity. Do not announce that you retrieved memory.")
-                        if (bootstrapContext.isNotBlank()) appendLine(bootstrapContext)
-                        appendLine("[END INTERNAL CONTEXT]")
-                        appendLine()
-                        append(clean)
-                    }
-                } else clean
-
                 val pending = StringBuilder()
                 var lastDispatch = android.os.SystemClock.elapsedRealtime()
-                engine.sendUserPrompt(prompt, predictLength = 384).collect { token ->
-                    if (firstTokenAt == 0L) firstTokenAt = android.os.SystemClock.elapsedRealtime()
-                    tokenCount += 1
-                    reply.append(token)
+                val result = aiEngine.generate(requestId, model, sessionId, clean, persona) { token ->
                     pending.append(token)
                     val now = android.os.SystemClock.elapsedRealtime()
                     if (pending.length >= 24 || now - lastDispatch >= 45L) {
@@ -234,23 +195,13 @@ class FurinaBridge(
                     }
                 }
                 if (pending.isNotEmpty()) dispatchToken(requestId, pending.toString())
-                val finalText = reply.toString().trim()
-                if (finalText.isBlank()) error("Model tidak menghasilkan jawaban")
-                val assistantId = store.addMessage(sessionId, "assistant", finalText)
-                processSessionBootstrapped = true
-                emitDone(requestId, userId, assistantId, generationMetrics(startedAt, firstTokenAt, tokenCount, warmStart))
+                emitDone(requestId, result.userId, result.assistantId, result.metrics)
                 emitState("ready", model.id, 1.0)
                 withContext(Dispatchers.IO) {
                     try { backupManager.autoBackupIfDue() } catch (_: Throwable) {}
                 }
             } catch (e: CancellationException) {
-                val partial = reply.toString().trim()
-                if (partial.isNotBlank() && userId.isNotBlank()) {
-                    val assistantId = store.addMessage(sessionId, "assistant", partial)
-                    emitDone(requestId, userId, assistantId, generationMetrics(startedAt, firstTokenAt, tokenCount, warmStart))
-                } else {
-                    emitError(requestId, "Respons dihentikan")
-                }
+                emitError(requestId, "Respons dihentikan")
                 emitState("cancelled", selectedModelId(), 0.0)
             } catch (e: Throwable) {
                 emitState("error", selectedModelId(), 0.0)
@@ -307,7 +258,7 @@ class FurinaBridge(
         scope.launch(Dispatchers.IO) {
             try {
                 generationJob?.cancel()
-                unloadEngine()
+                aiEngine.unload()
                 backupManager.restoreFrom(uri)
                 emitBackup(true, "Restore selesai. Memori Furina sudah dipulihkan.")
                 eval("window.__furinaNativeRestored && window.__furinaNativeRestored()")
@@ -322,8 +273,7 @@ class FurinaBridge(
     fun destroy() {
         generationJob?.cancel()
         prepareJob?.cancel()
-        // AiChat owns a process-wide singleton that cannot be recreated after destroy().
-        // Keep it warm across Activity recreation; Android frees native memory with the process.
+        // The llama runtime is process-wide; Android frees native memory with the process.
         scope.cancel()
         store.close()
     }
@@ -358,115 +308,23 @@ class FurinaBridge(
         }
     }
 
-    private suspend fun ensureModelLoaded(spec: ModelSpec, sessionId: String, persona: String) = loadMutex.withLock {
-        val personaHash = persona.hashCode()
-        if (processLoadedModelId == spec.id && processLoadedSessionId == sessionId && processLoadedPersonaHash == personaHash &&
-            engine.state.value is InferenceEngine.State.ModelReady) return@withLock
-
-        if (engine.state.value is InferenceEngine.State.Generating) {
-            withTimeout(10_000L) {
-                engine.state.first { it is InferenceEngine.State.ModelReady || it is InferenceEngine.State.Error }
-            }
-        }
-        if (processLoadedModelId == spec.id && processLoadedSessionId == sessionId && processLoadedPersonaHash == personaHash &&
-            engine.state.value is InferenceEngine.State.ModelReady) return@withLock
-
-        emitState("preparing", spec.id, 0.0)
-        withContext(Dispatchers.IO) {
-            if (!modelDownloads.verify(spec) { done, total ->
-                    if (total > 0L) emitState("verifying", spec.id, done.toDouble() / total.toDouble())
-                }) {
-                throw IllegalStateException("Checksum model tidak cocok. Hapus lalu unduh ulang model.")
-            }
-        }
-
-        waitForEngineInitialization()
-        val state = engine.state.value
-        if (state is InferenceEngine.State.ModelReady || state is InferenceEngine.State.Error) unloadEngine()
-
-        emitState("loading", spec.id, 0.0)
-        engine.loadModel(modelDownloads.modelFile(spec).absolutePath)
-        emitState("prompting", spec.id, 0.85)
-        engine.setSystemPrompt(buildSystemPrompt(persona))
-        processLoadedModelId = spec.id
-        processLoadedSessionId = sessionId
-        processLoadedPersonaHash = personaHash
-        processSessionBootstrapped = false
-        emitState("ready", spec.id, 1.0)
-    }
-
-    private suspend fun waitForEngineInitialization() {
-        when (engine.state.value) {
-            is InferenceEngine.State.Uninitialized, is InferenceEngine.State.Initializing -> {
-                withTimeout(30_000L) {
-                    engine.state.first { it is InferenceEngine.State.Initialized || it is InferenceEngine.State.Error }
-                }
-            }
-            else -> Unit
-        }
-        if (engine.state.value is InferenceEngine.State.Error) unloadEngine()
-    }
-
-    private suspend fun unloadEngine() = withContext(Dispatchers.IO) {
-        try {
-            when (engine.state.value) {
-                is InferenceEngine.State.ModelReady, is InferenceEngine.State.Error -> engine.cleanUp()
-                is InferenceEngine.State.Generating -> {
-                    generationJob?.cancel()
-                    engine.state.first { it is InferenceEngine.State.ModelReady || it is InferenceEngine.State.Error }
-                    engine.cleanUp()
-                }
-                else -> Unit
-            }
-        } finally {
-            processLoadedModelId = null
-            processLoadedSessionId = null
-            processLoadedPersonaHash = null
-            processSessionBootstrapped = false
-        }
-    }
-
-    private fun buildSystemPrompt(customPersona: String): String {
-        val custom = customPersona.trim()
-        return """
-            You are Furina, a long-term personal AI companion living on the user's device.
-            Speak naturally, with continuity and a distinct personality. Do not sound like customer support.
-            You may disagree, tease lightly, be skeptical, have preferences, and point out bad reasoning when appropriate.
-            Do not automatically validate the user, force positivity, or add generic moral lectures to benign conversations.
-            Treat supplied long-term context as private memory. Use it when relevant, but never dump or recite it mechanically.
-            New conversation sessions are only visual groupings; your relationship and memories continue across sessions.
-            Match the user's language unless they request another language. Prefer concise natural replies unless depth is useful.
-            Never claim an event happened if it is not supported by the current conversation or supplied memory.
-            ${if (custom.isNotBlank()) "\nUser-defined persona instructions:\n$custom" else ""}
-        """.trimIndent()
-    }
-
     private fun friendlyEngineError(error: Throwable): String {
         val raw = error.message.orEmpty()
+        val type = error::class.java.simpleName
         return when {
             error is kotlinx.coroutines.TimeoutCancellationException -> "Mesin AI terlalu lama disiapkan. Tutup aplikasi lain lalu coba lagi."
+            raw.startsWith("llama.cpp:", ignoreCase = true) -> "Mesin AI gagal memuat model. $raw"
             raw.contains("memory", ignoreCase = true) || raw.contains("allocate", ignoreCase = true) ->
                 "RAM tidak cukup untuk model ini. Tutup aplikasi lain atau gunakan model 4B."
-            raw.contains("UnsupportedArchitecture", ignoreCase = true) ->
-                "Format model belum didukung oleh runtime ini."
+            type.contains("UnsupportedArchitecture", ignoreCase = true) || raw.contains("architecture", ignoreCase = true) ->
+                "Runtime native gagal memuat model. Build ini akan mencoba mode kompatibilitas; jika tetap gagal, kirim detail diagnostik dari Pengaturan."
             raw.isNotBlank() -> "Mesin AI gagal: $raw"
-            else -> "Mesin AI gagal merespons. Coba lagi atau muat ulang model."
+            else -> "Mesin AI gagal ($type). Muat ulang model atau lihat diagnostik di Pengaturan."
         }
     }
 
     private fun dispatchToken(requestId: String, chunk: String) {
         eval("window.__furinaNativeToken && window.__furinaNativeToken(${JSONObject.quote(requestId)}, ${JSONObject.quote(chunk)})")
-    }
-
-    private fun generationMetrics(startedAt: Long, firstTokenAt: Long, tokenCount: Int, warmStart: Boolean): JSONObject {
-        val finishedAt = android.os.SystemClock.elapsedRealtime()
-        val firstTokenMs = if (firstTokenAt > 0L) firstTokenAt - startedAt else finishedAt - startedAt
-        val decodeMs = if (firstTokenAt > 0L) (finishedAt - firstTokenAt).coerceAtLeast(1L) else 1L
-        return JSONObject()
-            .put("firstTokenMs", firstTokenMs)
-            .put("tokensPerSecond", tokenCount * 1000.0 / decodeMs)
-            .put("tokenCount", tokenCount)
-            .put("warmStart", warmStart)
     }
 
     private fun emitDone(requestId: String, userId: String, assistantId: String, metrics: JSONObject) {

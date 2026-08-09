@@ -9,7 +9,6 @@ import android.content.pm.ServiceInfo
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
-import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.CancellationException
 import java.io.File
@@ -97,6 +96,9 @@ class ModelDownloadWorker(
             target.delete()
             existing = 0L
         }
+        // A previous worker may have written the last byte before Android stopped it.
+        // Promote that complete .part in doWork instead of issuing Range at EOF (416).
+        if (existing == expectedBytes) return
 
         val connection = (URL(downloadUrl).openConnection() as HttpURLConnection).apply {
             connectTimeout = 30_000
@@ -163,7 +165,14 @@ class ModelDownloadWorker(
             Intent(applicationContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val cancel = WorkManager.getInstance(applicationContext).createCancelPendingIntent(id)
+        val cancel = PendingIntent.getBroadcast(
+            applicationContext,
+            modelId.hashCode(),
+            Intent(applicationContext, ModelDownloadCancelReceiver::class.java)
+                .setAction(ModelDownloadCancelReceiver.ACTION_CANCEL)
+                .putExtra(ModelDownloadCancelReceiver.EXTRA_MODEL_ID, modelId),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         return NotificationCompat.Builder(applicationContext, ModelDownloadKeys.CHANNEL_ID)
             .setSmallIcon(R.drawable.furina_icon)
             .setContentTitle("Mengunduh $name")
