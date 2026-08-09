@@ -313,6 +313,7 @@ class FurinaBridge(
         val type = error::class.java.simpleName
         return when {
             error is kotlinx.coroutines.TimeoutCancellationException -> "Mesin AI terlalu lama disiapkan. Tutup aplikasi lain lalu coba lagi."
+            raw.startsWith("llama.cpp:", ignoreCase = true) -> "Mesin AI gagal memuat model. $raw"
             raw.contains("memory", ignoreCase = true) || raw.contains("allocate", ignoreCase = true) ->
                 "RAM tidak cukup untuk model ini. Tutup aplikasi lain atau gunakan model 4B."
             type.contains("UnsupportedArchitecture", ignoreCase = true) || raw.contains("architecture", ignoreCase = true) ->
