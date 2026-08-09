@@ -2,8 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Brain, Check, ChevronLeft, Cloud, Copy, Download, HardDrive, Loader2,
-  MessageSquarePlus, MessagesSquare, Play, Send, Settings, Square, Trash2, X,
+  Brain, Check, Cloud, Copy, Download, HardDrive, Image as ImageIcon, Loader2,
+  MessageSquarePlus, MessagesSquare, Moon, Play, Plus, RotateCcw, Send,
+  Settings, Sparkles, Square, Sun, Trash2, Volume2, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,9 +13,11 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import furinaDefault from "@/assets/furina.jpg";
-import { speakVoicevoxUrl } from "@/lib/furina.functions";
+import { speakClone, speakVoicevoxUrl } from "@/lib/furina.functions";
 
 export const Route = createFileRoute("/native")({
   head: () => ({
@@ -48,6 +51,10 @@ type NativeSession = { id: string; title: string; createdAt: number; updatedAt?:
 type MemoryStats = { sessions: number; messages: number; memories: number; firstSeen: number; relationship?: string };
 type BackupInfo = { folderSelected: boolean; folderUri?: string; recoveryKey: string; lastBackup: number };
 type GenerationMetrics = { firstTokenMs: number; tokensPerSecond: number; tokenCount: number; warmStart: boolean };
+type MemoryItem = { id: string; content: string; kind?: string; importance?: number; createdAt?: number; updatedAt?: number };
+type ThemeMode = "dark" | "light";
+type ReplyLanguage = "auto" | "ja" | "en" | "id";
+type TTSProvider = "voicevox" | "clone";
 
 type NativeBridge = {
   nativeInfo(): string;
@@ -61,9 +68,15 @@ type NativeBridge = {
   listSessions(): string;
   loadSession(sessionId: string): string;
   deleteSession(sessionId: string): void;
+  clearSession(sessionId: string): void;
   memoryStats(): string;
+  listMemories(): string;
+  addMemory(content: string): string;
+  deleteMemory(memoryId: string): void;
+  clearMemories(): void;
   appSettings(): string;
   saveAppSettings(settingsJson: string): void;
+  setSystemTheme(dark: boolean): void;
   generate(requestId: string, sessionId: string, userText: string, persona: string): void;
   stopGeneration(): void;
   backupInfo(): string;
@@ -91,9 +104,46 @@ const PREF = {
   persona: "furina:native:persona",
   autoVoice: "furina:native:autoVoice",
   speed: "furina:native:voiceSpeed",
+  theme: "furina:native:theme",
+  language: "furina:native:language",
+  provider: "furina:native:ttsProvider",
+  vvSpeaker: "furina:native:vvSpeaker",
+  vvTranslate: "furina:native:vvTranslate",
+  preGen: "furina:native:preGenAudio",
+  background: "furina:native:background",
+  cloneSample: "furina:native:cloneSample",
+  cloneSampleMime: "furina:native:cloneSampleMime",
+  cloneSampleName: "furina:native:cloneSampleName",
 };
 
-type CompanionSettings = { name?: string; persona?: string; autoVoice?: boolean; voiceSpeed?: number };
+type CompanionSettings = {
+  name?: string;
+  persona?: string;
+  autoVoice?: boolean;
+  voiceSpeed?: number;
+  theme?: ThemeMode;
+  language?: ReplyLanguage;
+  ttsProvider?: TTSProvider;
+  vvSpeaker?: number;
+  vvTranslate?: boolean;
+  preGenAudio?: boolean;
+};
+
+const VV_SPEAKERS = [
+  { id: 14, label: "★ Rekomendasi Furina — 冥鳴ひまり (ノーマル, anggun)" },
+  { id: 8, label: "春日部つむぎ — ノーマル (cerah, energik)" },
+  { id: 20, label: "もち子さん — ノーマル (hangat lembut)" },
+  { id: 2, label: "四国めたん — ノーマル (manis muda)" },
+  { id: 0, label: "四国めたん — あまあま (manja)" },
+  { id: 6, label: "四国めたん — ツンツン (tsundere)" },
+  { id: 9, label: "波音リツ — ノーマル (dewasa kalem)" },
+  { id: 10, label: "雨晴はう — ノーマル (lembut tenang)" },
+  { id: 3, label: "ずんだもん — ノーマル (imut ceria)" },
+  { id: 7, label: "ずんだもん — ツンツン" },
+  { id: 23, label: "WhiteCUL — ノーマル (manis polos)" },
+  { id: 27, label: "九州そら — ノーマル (anggun dewasa)" },
+  { id: 29, label: "九州そら — あまあま" },
+];
 
 function parseJson<T>(raw: string | undefined, fallback: T): T {
   try { return raw ? JSON.parse(raw) as T : fallback; } catch { return fallback; }
@@ -112,6 +162,7 @@ function fmtTime(ts: number) {
 
 function FurinaNativeApp() {
   const tts = useServerFn(speakVoicevoxUrl);
+  const ttsClone = useServerFn(speakClone);
   const [nativeReady, setNativeReady] = useState(false);
   const [models, setModels] = useState<NativeModel[]>([]);
   const [statuses, setStatuses] = useState<Record<string, ModelStatus>>({});
@@ -129,6 +180,17 @@ function FurinaNativeApp() {
   const [persona, setPersona] = useState("");
   const [autoVoice, setAutoVoice] = useState(false);
   const [voiceSpeed, setVoiceSpeed] = useState(1.0);
+  const [theme, setTheme] = useState<ThemeMode>("dark");
+  const [language, setLanguage] = useState<ReplyLanguage>("auto");
+  const [ttsProvider, setTtsProvider] = useState<TTSProvider>("voicevox");
+  const [vvSpeaker, setVvSpeaker] = useState(14);
+  const [vvTranslate, setVvTranslate] = useState(true);
+  const [preGenAudio, setPreGenAudio] = useState(true);
+  const [background, setBackground] = useState<string>(furinaDefault);
+  const [cloneSampleName, setCloneSampleName] = useState("");
+  const [hasCloneSample, setHasCloneSample] = useState(false);
+  const [memories, setMemories] = useState<MemoryItem[]>([]);
+  const [newMemory, setNewMemory] = useState("");
   const [stats, setStats] = useState<MemoryStats>({ sessions: 0, messages: 0, memories: 0, firstSeen: 0 });
   const [backup, setBackup] = useState<BackupInfo>({ folderSelected: false, recoveryKey: "", lastBackup: 0 });
   const [recoveryDraft, setRecoveryDraft] = useState("");
@@ -137,6 +199,9 @@ function FurinaNativeApp() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const requestRef = useRef<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const backgroundInputRef = useRef<HTMLInputElement | null>(null);
+  const preparedAudioRef = useRef<Map<string, string>>(new Map());
+  const preparingAudioRef = useRef<Set<string>>(new Set());
   const activeSessionRef = useRef("");
 
   const bridge = () => typeof window !== "undefined" ? window.FurinaNative : undefined;
@@ -148,6 +213,12 @@ function FurinaNativeApp() {
     const bi = parseJson<BackupInfo>(b.backupInfo(), { folderSelected: false, recoveryKey: "", lastBackup: 0 });
     setBackup(bi);
     setRecoveryDraft(bi.recoveryKey || "");
+  }, []);
+
+  const refreshMemories = useCallback(() => {
+    const b = bridge();
+    if (!b) return;
+    setMemories(parseJson<MemoryItem[]>(b.listMemories(), []));
   }, []);
 
   const refreshSessions = useCallback((preferred?: string) => {
@@ -187,11 +258,18 @@ function FurinaNativeApp() {
     if (typeof saved.persona === "string") setPersona(saved.persona);
     if (typeof saved.autoVoice === "boolean") setAutoVoice(saved.autoVoice);
     if (typeof saved.voiceSpeed === "number") setVoiceSpeed(saved.voiceSpeed);
+    if (saved.theme === "dark" || saved.theme === "light") setTheme(saved.theme);
+    if (saved.language) setLanguage(saved.language);
+    if (saved.ttsProvider) setTtsProvider(saved.ttsProvider);
+    if (typeof saved.vvSpeaker === "number") setVvSpeaker(saved.vvSpeaker);
+    if (typeof saved.vvTranslate === "boolean") setVvTranslate(saved.vvTranslate);
+    if (typeof saved.preGenAudio === "boolean") setPreGenAudio(saved.preGenAudio);
     setNativeReady(true);
     refreshModels();
     refreshSessions();
     refreshStats();
-  }, [refreshModels, refreshSessions, refreshStats]);
+    refreshMemories();
+  }, [refreshMemories, refreshModels, refreshSessions, refreshStats]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -199,6 +277,15 @@ function FurinaNativeApp() {
     setPersona(localStorage.getItem(PREF.persona) || "");
     setAutoVoice(localStorage.getItem(PREF.autoVoice) === "1");
     setVoiceSpeed(Number(localStorage.getItem(PREF.speed) || 1));
+    setTheme((localStorage.getItem(PREF.theme) as ThemeMode) || "dark");
+    setLanguage((localStorage.getItem(PREF.language) as ReplyLanguage) || "auto");
+    setTtsProvider((localStorage.getItem(PREF.provider) as TTSProvider) || "voicevox");
+    setVvSpeaker(Number(localStorage.getItem(PREF.vvSpeaker) || 14));
+    setVvTranslate(localStorage.getItem(PREF.vvTranslate) !== "0");
+    setPreGenAudio(localStorage.getItem(PREF.preGen) !== "0");
+    setBackground(localStorage.getItem(PREF.background) || furinaDefault);
+    setCloneSampleName(localStorage.getItem(PREF.cloneSampleName) || "");
+    setHasCloneSample(Boolean(localStorage.getItem(PREF.cloneSample)));
 
     window.__furinaNativeReady = initialize;
     window.__furinaNativeToken = (requestId, chunk) => {
@@ -236,8 +323,15 @@ function FurinaNativeApp() {
       if (typeof restored.persona === "string") setPersona(restored.persona);
       if (typeof restored.autoVoice === "boolean") setAutoVoice(restored.autoVoice);
       if (typeof restored.voiceSpeed === "number") setVoiceSpeed(restored.voiceSpeed);
+      if (restored.theme) setTheme(restored.theme);
+      if (restored.language) setLanguage(restored.language);
+      if (restored.ttsProvider) setTtsProvider(restored.ttsProvider);
+      if (typeof restored.vvSpeaker === "number") setVvSpeaker(restored.vvSpeaker);
+      if (typeof restored.vvTranslate === "boolean") setVvTranslate(restored.vvTranslate);
+      if (typeof restored.preGenAudio === "boolean") setPreGenAudio(restored.preGenAudio);
       refreshSessions();
       refreshStats();
+      refreshMemories();
     };
 
     initialize();
@@ -250,17 +344,29 @@ function FurinaNativeApp() {
       delete window.__furinaNativeBackup;
       delete window.__furinaNativeRestored;
     };
-  }, [initialize, refreshSessions, refreshStats]);
+  }, [initialize, refreshMemories, refreshSessions, refreshStats]);
 
   useEffect(() => {
     if (!nativeReady) return;
-    const settings = { name, persona, autoVoice, voiceSpeed };
+    const settings = { name, persona, autoVoice, voiceSpeed, theme, language, ttsProvider, vvSpeaker, vvTranslate, preGenAudio };
     localStorage.setItem(PREF.name, name);
     localStorage.setItem(PREF.persona, persona);
     localStorage.setItem(PREF.autoVoice, autoVoice ? "1" : "0");
     localStorage.setItem(PREF.speed, String(voiceSpeed));
+    localStorage.setItem(PREF.theme, theme);
+    localStorage.setItem(PREF.language, language);
+    localStorage.setItem(PREF.provider, ttsProvider);
+    localStorage.setItem(PREF.vvSpeaker, String(vvSpeaker));
+    localStorage.setItem(PREF.vvTranslate, vvTranslate ? "1" : "0");
+    localStorage.setItem(PREF.preGen, preGenAudio ? "1" : "0");
     bridge()?.saveAppSettings(JSON.stringify(settings));
-  }, [nativeReady, name, persona, autoVoice, voiceSpeed]);
+  }, [nativeReady, name, persona, autoVoice, voiceSpeed, theme, language, ttsProvider, vvSpeaker, vvTranslate, preGenAudio]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    document.documentElement.style.colorScheme = theme;
+    bridge()?.setSystemTheme(theme === "dark");
+  }, [theme, nativeReady]);
 
   useEffect(() => {
     if (!nativeReady || !models.length) return;
@@ -274,6 +380,10 @@ function FurinaNativeApp() {
 
   const selectedStatus = statuses[selectedModel];
   const canSend = nativeReady && selectedStatus?.state === "ready" && !sending && input.trim().length > 0;
+
+  useEffect(() => {
+    preparedAudioRef.current.clear();
+  }, [ttsProvider, voiceSpeed, vvSpeaker, vvTranslate]);
 
   async function send() {
     const text = input.trim();
@@ -294,7 +404,13 @@ function FurinaNativeApp() {
       { id: `local-user:${requestId}`, role: "user", content: text, createdAt: now },
       { id: `pending:${requestId}`, role: "assistant", content: "", createdAt: now + 1 },
     ]);
-    b.generate(requestId, activeSessionId, text, persona);
+    const languageInstruction: Record<ReplyLanguage, string> = {
+      auto: "",
+      ja: "Always reply in Japanese unless the user explicitly requests another language.",
+      en: "Always reply in English unless the user explicitly requests another language.",
+      id: "Selalu balas dalam bahasa Indonesia kecuali pengguna secara eksplisit meminta bahasa lain.",
+    };
+    b.generate(requestId, activeSessionId, text, [persona, languageInstruction[language]].filter(Boolean).join("\n\n"));
   }
 
   function newSession() {
@@ -319,6 +435,36 @@ function FurinaNativeApp() {
     setOpenSessions(false);
   }
 
+  const prepareVoice = useCallback(async (message: NativeMessage) => {
+    const cached = preparedAudioRef.current.get(message.id);
+    if (cached) return cached;
+    if (preparingAudioRef.current.has(message.id)) return null;
+    const clean = message.content.replace(/\*[^*]+\*/g, "").trim();
+    if (!clean) return null;
+    preparingAudioRef.current.add(message.id);
+    try {
+      let source: string;
+      if (ttsProvider === "voicevox") {
+        const { mp3Url } = await tts({
+          data: { text: clean.slice(0, 1000), speaker: vvSpeaker, speed: voiceSpeed, translateToJa: vvTranslate },
+        });
+        source = mp3Url;
+      } else {
+        const sampleBase64 = localStorage.getItem(PREF.cloneSample);
+        const sampleMime = localStorage.getItem(PREF.cloneSampleMime) || "audio/wav";
+        if (!sampleBase64) throw new Error("Belum ada sampel suara. Upload sampel di Pengaturan.");
+        const { audio, mime } = await ttsClone({
+          data: { text: clean.slice(0, 600), sampleBase64, sampleMime, language: "ja", translateToJa: vvTranslate },
+        });
+        source = `data:${mime};base64,${audio}`;
+      }
+      preparedAudioRef.current.set(message.id, source);
+      return source;
+    } finally {
+      preparingAudioRef.current.delete(message.id);
+    }
+  }, [tts, ttsClone, ttsProvider, voiceSpeed, vvSpeaker, vvTranslate]);
+
   async function playVoice(message: NativeMessage) {
     if (playingId === message.id) {
       audioRef.current?.pause();
@@ -327,11 +473,10 @@ function FurinaNativeApp() {
       return;
     }
     try {
-      const clean = message.content.replace(/\*[^*]+\*/g, "").trim();
-      if (!clean) return;
       setPlayingId(message.id);
-      const { mp3Url } = await tts({ data: { text: clean.slice(0, 1000), speaker: 14, speed: voiceSpeed, translateToJa: true } });
-      const audio = new Audio(mp3Url);
+      const source = await prepareVoice(message);
+      if (!source) { setPlayingId(null); return; }
+      const audio = new Audio(source);
       audioRef.current = audio;
       audio.onended = () => { setPlayingId(null); audioRef.current = null; };
       audio.onerror = () => { setPlayingId(null); audioRef.current = null; };
@@ -343,11 +488,62 @@ function FurinaNativeApp() {
   }
 
   useEffect(() => {
-    if (!autoVoice || sending) return;
+    if (sending) return;
     const last = messages[messages.length - 1];
-    if (last?.role === "assistant" && last.content && !last.id.startsWith("pending:")) playVoice(last);
+    if (!last || last.role !== "assistant" || !last.content || last.id.startsWith("pending:")) return;
+    if (autoVoice) playVoice(last);
+    else if (preGenAudio) prepareVoice(last).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages.length, sending, autoVoice]);
+  }, [messages.length, sending, autoVoice, preGenAudio]);
+
+  function handleBackgroundUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { toast.error("File harus berupa gambar."); return; }
+    if (file.size > 8 * 1024 * 1024) { toast.error("Gambar terlalu besar. Maksimal 8 MB."); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const source = String(reader.result);
+      try {
+        localStorage.setItem(PREF.background, source);
+        setBackground(source);
+        toast.success("Background karakter diperbarui");
+      } catch {
+        toast.error("Gambar terlalu besar untuk disimpan. Pilih gambar yang lebih kecil.");
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleCloneSampleUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { toast.error("Sampel terlalu besar. Maksimal 5 MB."); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const data = String(reader.result);
+      const base64 = data.slice(data.indexOf(",") + 1);
+      try {
+        localStorage.setItem(PREF.cloneSample, base64);
+        localStorage.setItem(PREF.cloneSampleMime, file.type || "audio/wav");
+        localStorage.setItem(PREF.cloneSampleName, file.name);
+        setCloneSampleName(file.name);
+        setHasCloneSample(true);
+        preparedAudioRef.current.clear();
+        toast.success("Sampel suara tersimpan");
+      } catch { toast.error("Sampel gagal disimpan."); }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function clearCloneSample() {
+    localStorage.removeItem(PREF.cloneSample);
+    localStorage.removeItem(PREF.cloneSampleMime);
+    localStorage.removeItem(PREF.cloneSampleName);
+    preparedAudioRef.current.clear();
+    setCloneSampleName("");
+    setHasCloneSample(false);
+  }
 
   const statusText = useMemo(() => {
     if (!nativeReady) return "Buka halaman ini melalui APK Furina untuk AI lokal.";
@@ -359,19 +555,19 @@ function FurinaNativeApp() {
   }, [nativeReady, runtimeState, runtimeProgress, selectedStatus?.state, name]);
 
   return (
-    <div className="relative h-[100dvh] w-full overflow-hidden bg-[#050712] text-white">
-      <img src={furinaDefault} alt="Furina" className="absolute inset-0 h-full w-full object-cover" draggable={false} />
-      <div className="absolute inset-0 bg-gradient-to-b from-[#050712]/25 via-[#050712]/35 to-[#050712]/90" />
+    <div className={`relative h-[100dvh] w-full overflow-hidden ${theme === "dark" ? "bg-[#050712] text-white" : "bg-slate-100 text-slate-950"}`}>
+      <img src={background} alt={`${name} background`} className="absolute inset-0 h-full w-full object-cover" draggable={false} />
+      <div className={`absolute inset-0 ${theme === "dark" ? "bg-gradient-to-b from-[#050712]/25 via-[#050712]/35 to-[#050712]/90" : "bg-gradient-to-b from-white/20 via-white/20 to-white/75"}`} />
 
-      <header className="absolute inset-x-0 top-0 z-30 flex h-16 items-center justify-between border-b border-white/10 bg-[#050712]/65 px-3 backdrop-blur-xl">
-        <Button variant="ghost" size="icon" className="h-11 w-11 text-white" aria-label="Buka daftar percakapan" onClick={() => setOpenSessions(true)}>
+      <header className={`absolute inset-x-0 top-0 z-30 flex h-16 items-center justify-between border-b px-3 shadow-sm backdrop-blur-xl ${theme === "dark" ? "border-white/10 bg-[#080c1b]/88 text-white" : "border-slate-200/80 bg-white/88 text-slate-950"}`}>
+        <Button variant="ghost" size="icon" className="h-12 w-12 rounded-full" aria-label="Buka daftar percakapan" onClick={() => setOpenSessions(true)}>
           <MessagesSquare className="h-5 w-5" />
         </Button>
         <div className="min-w-0 text-center">
           <p className="truncate text-sm font-semibold">{name}</p>
-          <p className="text-[10px] text-white/60">{statusText}</p>
+          <p className={`text-[10px] ${theme === "dark" ? "text-white/60" : "text-slate-500"}`}>{statusText}</p>
         </div>
-        <Button variant="ghost" size="icon" className="h-11 w-11 text-white" aria-label="Buka pengaturan" onClick={() => setOpenSettings(true)}>
+        <Button variant="ghost" size="icon" className="h-12 w-12 rounded-full" aria-label="Buka pengaturan" onClick={() => { setOpenSettings(true); refreshMemories(); }}>
           <Settings className="h-5 w-5" />
         </Button>
       </header>
@@ -379,7 +575,7 @@ function FurinaNativeApp() {
       <main ref={scrollRef} className="absolute inset-0 z-10 overflow-y-auto px-3 pb-32 pt-20">
         <div className="mx-auto flex min-h-full max-w-3xl flex-col gap-3">
           {messages.length === 0 && (
-            <div className="mt-auto mb-3 max-w-[88%] rounded-2xl border border-white/10 bg-[#0c1022]/85 px-4 py-3 text-sm shadow-xl backdrop-blur-md">
+            <div className={`mt-auto mb-3 max-w-[88%] rounded-2xl border px-4 py-3 text-sm shadow-xl backdrop-blur-md ${theme === "dark" ? "border-white/10 bg-[#0c1022]/88 text-white" : "border-white/80 bg-white/88 text-slate-950"}`}>
               Halo… akhirnya kamu datang juga. Aku {name}. Sesi boleh baru, tapi aku tidak perlu melupakan yang lama.
             </div>
           )}
@@ -389,10 +585,10 @@ function FurinaNativeApp() {
             const pending = m.id.startsWith("pending:");
             return (
               <div key={m.id} className={`flex flex-col ${user ? "items-end" : "items-start"}`}>
-                <div className={`max-w-[90%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-lg ${user ? "bg-sky-600/90 text-white" : "border border-white/10 bg-[#0c1022]/88 text-white backdrop-blur-md"}`}>
-                  {pending && !m.content ? <Loader2 className="h-4 w-4 animate-spin text-white/60" /> : <div className="whitespace-pre-wrap break-words">{m.content}</div>}
+                <div className={`max-w-[90%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-lg ${user ? "bg-sky-600/95 text-white" : theme === "dark" ? "border border-white/10 bg-[#0c1022]/88 text-white backdrop-blur-md" : "border border-white/80 bg-white/90 text-slate-950 backdrop-blur-md"}`}>
+                  {pending && !m.content ? <Loader2 className="h-4 w-4 animate-spin opacity-60" /> : <div className="whitespace-pre-wrap break-words">{m.content}</div>}
                 </div>
-                <div className="mt-1 flex items-center gap-1.5 px-1 text-[10px] text-white/55">
+                <div className={`mt-1 flex items-center gap-1.5 px-1 text-[10px] ${theme === "dark" ? "text-white/55" : "text-slate-600"}`}>
                   <span>{fmtTime(m.createdAt)}</span>
                   {!user && !pending && (
                     <button className="rounded-full p-1 hover:bg-white/10" onClick={() => playVoice(m)} aria-label="Putar suara">
@@ -406,7 +602,7 @@ function FurinaNativeApp() {
         </div>
       </main>
 
-      <div className="absolute inset-x-0 bottom-0 z-30 border-t border-white/10 bg-[#050712]/80 p-3 pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur-xl">
+      <div className={`absolute inset-x-0 bottom-0 z-30 border-t p-3 backdrop-blur-xl ${theme === "dark" ? "border-white/10 bg-[#080c1b]/92" : "border-slate-200/80 bg-white/92"}`}>
         <div className="mx-auto flex max-w-3xl items-end gap-2">
           <Textarea
             value={input}
@@ -414,7 +610,7 @@ function FurinaNativeApp() {
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (canSend) send(); } }}
             placeholder={selectedStatus?.state === "ready" ? "Ketik pesan…" : "Unduh model AI dari Pengaturan…"}
             rows={1}
-            className="max-h-32 min-h-11 resize-none border-white/15 bg-white/8 text-white placeholder:text-white/45"
+            className={`max-h-32 min-h-12 resize-none rounded-2xl ${theme === "dark" ? "border-white/15 bg-white/8 text-white placeholder:text-white/45" : "border-slate-300 bg-white/80 text-slate-950 placeholder:text-slate-500"}`}
           />
           {sending ? (
             <Button size="icon" variant="secondary" className="h-11 w-11 shrink-0" aria-label="Hentikan jawaban" onClick={() => bridge()?.stopGeneration()}><Square className="h-4 w-4" /></Button>
@@ -425,7 +621,7 @@ function FurinaNativeApp() {
       </div>
 
       <Sheet open={openSessions} onOpenChange={setOpenSessions}>
-        <SheetContent side="left" className="w-[88vw] max-w-sm overflow-y-auto">
+        <SheetContent side="left" className={`w-full max-w-sm overflow-y-auto border-r ${theme === "dark" ? "border-slate-800 bg-[#050712] text-slate-100" : "border-slate-200 bg-white text-slate-950"}`}>
           <SheetHeader>
             <SheetTitle>Percakapan</SheetTitle>
             <SheetDescription>Sesi hanya mengelompokkan tampilan. Memori Furina tetap global.</SheetDescription>
@@ -451,13 +647,23 @@ function FurinaNativeApp() {
       </Sheet>
 
       <Sheet open={openSettings} onOpenChange={setOpenSettings}>
-        <SheetContent side="right" className="w-[94vw] max-w-lg overflow-y-auto">
-          <SheetHeader>
+        <SheetContent side="right" className={`w-full max-w-md overflow-y-auto border-l ${theme === "dark" ? "border-slate-800 bg-[#050712] text-slate-100" : "border-slate-200 bg-white text-slate-950"}`}>
+          <SheetHeader className={`sticky top-0 z-20 -mx-6 -mt-6 border-b px-6 pb-4 pt-6 backdrop-blur-xl ${theme === "dark" ? "border-slate-800 bg-[#050712]/92" : "border-slate-200 bg-white/92"}`}>
             <SheetTitle>Pengaturan</SheetTitle>
-            <SheetDescription>Karakter, mesin AI lokal, suara, memori, dan backup.</SheetDescription>
+            <SheetDescription>Personalisasi karakter, mesin AI lokal, suara, memori, dan backup.</SheetDescription>
           </SheetHeader>
 
           <div className="mt-5 space-y-6 pb-10">
+            <section className="space-y-3 rounded-xl border bg-muted/30 p-4">
+              <Label className="text-xs font-semibold uppercase tracking-wider">Tampilan</Label>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm">Tema</span>
+                <Button size="sm" variant="outline" onClick={() => setTheme((value) => value === "dark" ? "light" : "dark")}>
+                  {theme === "dark" ? <><Sun className="mr-2 h-4 w-4" />Terang</> : <><Moon className="mr-2 h-4 w-4" />Gelap</>}
+                </Button>
+              </div>
+            </section>
+
             <section className="space-y-2">
               <Label>Nama karakter</Label>
               <Input value={name} onChange={(e) => { setName(e.target.value); localStorage.setItem(PREF.name, e.target.value); }} />
@@ -543,10 +749,49 @@ function FurinaNativeApp() {
 
             <section className="space-y-3">
               <Label>Mesin suara (TTS)</Label>
-              <div className="rounded-lg border p-3 text-xs">
-                <p className="font-medium">VOICEVOX — 冥鳴ひまり</p>
-                <p className="mt-1 text-muted-foreground">TTS tetap online; otak percakapan Qwen berjalan lokal.</p>
-              </div>
+              <Select value={ttsProvider} onValueChange={(value) => setTtsProvider(value as TTSProvider)}>
+                <SelectTrigger className="min-h-12"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="voicevox">VOICEVOX — anime Jepang (gratis, stabil)</SelectItem>
+                  <SelectItem value="clone">Voice Clone — suara karakter custom</SelectItem>
+                </SelectContent>
+              </Select>
+
+              {ttsProvider === "voicevox" ? (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Karakter VOICEVOX</Label>
+                    <Select value={String(vvSpeaker)} onValueChange={(value) => setVvSpeaker(Number(value))}>
+                      <SelectTrigger className="min-h-12"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {VV_SPEAKERS.map((speaker) => <SelectItem key={speaker.id} value={String(speaker.id)}>{speaker.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex min-h-11 items-center justify-between gap-4">
+                    <Label className="text-xs">Auto-terjemah ke Jepang</Label>
+                    <Switch checked={vvTranslate} onCheckedChange={setVvTranslate} />
+                  </div>
+                  <div className="flex min-h-11 items-center justify-between gap-4">
+                    <Label className="text-xs">Pre-generate audio (instant play)</Label>
+                    <Switch checked={preGenAudio} onCheckedChange={setPreGenAudio} />
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3 rounded-xl border bg-muted/30 p-3">
+                  <Label className="flex items-center gap-2 text-xs font-semibold"><Sparkles className="h-3.5 w-3.5" />Sampel suara karakter</Label>
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">Upload MP3/WAV jernih selama 6–15 detik, satu suara, tanpa musik. Voice Clone tetap online.</p>
+                  <input type="file" accept="audio/*" onChange={handleCloneSampleUpload} className="block w-full text-xs" />
+                  {hasCloneSample && (
+                    <div className="flex items-center justify-between rounded-lg border bg-background/60 p-2 text-xs">
+                      <span className="min-w-0 truncate">{cloneSampleName || "Sampel tersimpan"}</span>
+                      <Button size="icon" variant="ghost" className="h-9 w-9" onClick={clearCloneSample} aria-label="Hapus sampel suara"><Trash2 className="h-4 w-4" /></Button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <p className="text-[11px] leading-relaxed text-muted-foreground"><Volume2 className="mr-1 inline h-3.5 w-3.5" />Tombol putar pada balon Furina menggunakan suara pilihanmu.</p>
               <div className="flex items-center justify-between">
                 <Label className="text-xs">Putar suara otomatis</Label>
                 <Switch checked={autoVoice} onCheckedChange={(v) => { setAutoVoice(v); localStorage.setItem(PREF.autoVoice, v ? "1" : "0"); }} />
@@ -559,14 +804,74 @@ function FurinaNativeApp() {
               </div>
             </section>
 
+            <section className="space-y-2">
+              <Label>Bahasa balasan</Label>
+              <Select value={language} onValueChange={(value) => setLanguage(value as ReplyLanguage)}>
+                <SelectTrigger className="min-h-12"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto (mengikuti kamu)</SelectItem>
+                  <SelectItem value="ja">日本語</SelectItem>
+                  <SelectItem value="en">English</SelectItem>
+                  <SelectItem value="id">Indonesia</SelectItem>
+                </SelectContent>
+              </Select>
+            </section>
+
+            <Separator />
+
+            <section className="space-y-3">
+              <Label className="flex items-center gap-2"><ImageIcon className="h-4 w-4" />Background karakter</Label>
+              <input ref={backgroundInputRef} type="file" accept="image/*" onChange={handleBackgroundUpload} className="block w-full text-sm" />
+              <Button variant="outline" size="sm" onClick={() => {
+                setBackground(furinaDefault);
+                localStorage.removeItem(PREF.background);
+                if (backgroundInputRef.current) backgroundInputRef.current.value = "";
+              }}><RotateCcw className="mr-2 h-4 w-4" />Kembalikan Furina default</Button>
+            </section>
+
+            <Separator />
+
             <section className="space-y-3 rounded-xl border p-3">
-              <div className="flex items-center gap-2"><HardDrive className="h-4 w-4" /><Label>Memory & Data</Label></div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2"><HardDrive className="h-4 w-4" /><Label>Memori (lintas-percakapan)</Label></div>
+                <Button variant="ghost" size="sm" onClick={() => {
+                  if (!confirm("Hapus semua memori fakta? Riwayat percakapan tidak ikut dihapus.")) return;
+                  bridge()?.clearMemories();
+                  refreshMemories();
+                  refreshStats();
+                  toast.success("Memori fakta dibersihkan");
+                }}>Hapus semua</Button>
+              </div>
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="rounded-lg bg-muted p-2"><p className="text-lg font-semibold">{stats.messages}</p><p className="text-[10px] text-muted-foreground">pesan</p></div>
                 <div className="rounded-lg bg-muted p-2"><p className="text-lg font-semibold">{stats.sessions}</p><p className="text-[10px] text-muted-foreground">sesi</p></div>
                 <div className="rounded-lg bg-muted p-2"><p className="text-lg font-semibold">{stats.memories}</p><p className="text-[10px] text-muted-foreground">memori fakta</p></div>
               </div>
-              <p className="text-[11px] leading-relaxed text-muted-foreground">Semua pesan disimpan utuh di SQLite. Sesi baru tidak mereset hubungan. Saat model dimuat ulang, Furina mengambil percakapan lama yang relevan tanpa memasukkan seluruh arsip ke context.</p>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">Fakta tentang kamu dipelajari otomatis dan dapat ditambah manual. Semua pesan tetap tersimpan utuh di SQLite; sesi baru tidak mereset hubungan.</p>
+              <div className="flex gap-2">
+                <Input value={newMemory} onChange={(event) => setNewMemory(event.target.value)} placeholder="Tambah fakta tentang dirimu…" />
+                <Button size="icon" className="h-11 w-11 shrink-0" aria-label="Tambah memori" onClick={() => {
+                  const clean = newMemory.trim();
+                  if (clean.length < 3) return;
+                  bridge()?.addMemory(clean);
+                  setNewMemory("");
+                  refreshMemories();
+                  refreshStats();
+                }}><Plus className="h-4 w-4" /></Button>
+              </div>
+              <div className="max-h-72 space-y-1 overflow-y-auto rounded-lg border p-2">
+                {memories.length === 0 ? <p className="p-2 text-sm text-muted-foreground">Belum ada memori.</p> : memories.map((memory) => (
+                  <div key={memory.id} className="flex items-start gap-2 rounded-lg p-2 text-sm hover:bg-muted/50">
+                    <span className="min-w-0 flex-1 break-words">{memory.content}</span>
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">{memory.importance ?? 5}</span>
+                    <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" aria-label="Hapus memori" onClick={() => {
+                      bridge()?.deleteMemory(memory.id);
+                      refreshMemories();
+                      refreshStats();
+                    }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                  </div>
+                ))}
+              </div>
               {stats.firstSeen > 0 && <p className="text-[11px]">Mengenalmu sejak <span className="font-medium">{new Date(stats.firstSeen).toLocaleDateString()}</span></p>}
             </section>
 
@@ -593,6 +898,16 @@ function FurinaNativeApp() {
               </div>
               {backup.lastBackup > 0 && <p className="text-[10px] text-muted-foreground">Backup terakhir: {new Date(backup.lastBackup).toLocaleString()}</p>}
             </section>
+
+            <Separator />
+
+            <Button variant="outline" className="min-h-12 w-full" onClick={() => {
+              if (!activeSessionId || !confirm("Bersihkan seluruh pesan dalam percakapan ini?")) return;
+              bridge()?.clearSession(activeSessionId);
+              setMessages([]);
+              refreshSessions(activeSessionId);
+              refreshStats();
+            }}><Trash2 className="mr-2 h-4 w-4" />Bersihkan percakapan ini</Button>
           </div>
         </SheetContent>
       </Sheet>

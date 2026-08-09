@@ -125,13 +125,36 @@ class FurinaBridge(
     }
 
     @JavascriptInterface
+    fun clearSession(sessionId: String) {
+        store.clearSession(sessionId)
+        if (loadedSessionId == sessionId) sessionBootstrapped = false
+    }
+
+    @JavascriptInterface
     fun memoryStats(): String = store.statsJson()
+
+    @JavascriptInterface
+    fun listMemories(): String = store.memoriesJson()
+
+    @JavascriptInterface
+    fun addMemory(content: String): String = store.addMemory(content)
+
+    @JavascriptInterface
+    fun deleteMemory(memoryId: String) = store.deleteMemory(memoryId)
+
+    @JavascriptInterface
+    fun clearMemories() = store.clearMemories()
 
     @JavascriptInterface
     fun appSettings(): String = store.appSettingsJson()
 
     @JavascriptInterface
     fun saveAppSettings(settingsJson: String) = store.saveAppSettingsJson(settingsJson)
+
+    @JavascriptInterface
+    fun setSystemTheme(dark: Boolean) {
+        activity.runOnUiThread { activity.applySystemTheme(dark) }
+    }
 
     @JavascriptInterface
     fun generate(requestId: String, sessionId: String, userText: String, persona: String) {

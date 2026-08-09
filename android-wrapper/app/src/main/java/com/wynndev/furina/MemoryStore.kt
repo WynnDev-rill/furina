@@ -131,6 +131,20 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
     }
 
     @Synchronized
+    fun clearSession(id: String) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete("messages", "session_id=?", arrayOf(id))
+            try { db.delete("message_fts", "session_id=?", arrayOf(id)) } catch (_: Throwable) {}
+            db.execSQL("UPDATE sessions SET title='Percakapan baru', updated_at=? WHERE id=?", arrayOf<Any>(System.currentTimeMillis(), id))
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    @Synchronized
     fun sessionsJson(): String {
         val out = JSONArray()
         readableDatabase.rawQuery(
@@ -241,6 +255,45 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
         readableDatabase.rawQuery("SELECT MIN(created_at) FROM messages", null).use { c -> if (c.moveToFirst() && !c.isNull(0)) firstSeen = c.getLong(0) }
         return JSONObject().put("sessions", count("sessions")).put("messages", count("messages"))
             .put("memories", count("memories")).put("firstSeen", firstSeen).put("relationship", relationshipSummary()).toString()
+    }
+
+    @Synchronized
+    fun memoriesJson(): String {
+        val out = JSONArray()
+        readableDatabase.rawQuery(
+            "SELECT id,content,kind,importance,created_at,updated_at FROM memories ORDER BY importance DESC, updated_at DESC",
+            null,
+        ).use { c ->
+            while (c.moveToNext()) out.put(JSONObject()
+                .put("id", c.getString(0)).put("content", c.getString(1)).put("kind", c.getString(2))
+                .put("importance", c.getInt(3)).put("createdAt", c.getLong(4)).put("updatedAt", c.getLong(5)))
+        }
+        return out.toString()
+    }
+
+    @Synchronized
+    fun addMemory(content: String): String {
+        val clean = content.replace(Regex("\\s+"), " ").trim()
+        require(clean.length in 3..500) { "Memori harus berisi 3–500 karakter" }
+        val now = System.currentTimeMillis()
+        val id = UUID.randomUUID().toString()
+        writableDatabase.insertWithOnConflict("memories", null, ContentValues().apply {
+            put("id", id); put("content", clean); put("kind", "user_fact"); put("importance", 7)
+            put("created_at", now); put("updated_at", now)
+        }, SQLiteDatabase.CONFLICT_IGNORE)
+        readableDatabase.rawQuery("SELECT id FROM memories WHERE content=?", arrayOf(clean)).use { c ->
+            return if (c.moveToFirst()) c.getString(0) else id
+        }
+    }
+
+    @Synchronized
+    fun deleteMemory(id: String) {
+        writableDatabase.delete("memories", "id=?", arrayOf(id))
+    }
+
+    @Synchronized
+    fun clearMemories() {
+        writableDatabase.delete("memories", null, null)
     }
 
     @Synchronized

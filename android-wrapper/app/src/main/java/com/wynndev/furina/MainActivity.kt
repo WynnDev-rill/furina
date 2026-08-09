@@ -40,10 +40,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        WindowCompat.getInsetsController(window, window.decorView).apply {
-            isAppearanceLightStatusBars = false
-            isAppearanceLightNavigationBars = false
-        }
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        window.isStatusBarContrastEnforced = false
+        window.isNavigationBarContrastEnforced = false
 
         webView = WebView(this).apply {
             setBackgroundColor(Color.rgb(5, 7, 18))
@@ -57,6 +57,7 @@ class MainActivity : ComponentActivity() {
             settings.safeBrowsingEnabled = true
             settings.userAgentString = settings.userAgentString + " FurinaAndroid/4.0"
         }
+        applySystemTheme(true)
         WebView.setWebContentsDebuggingEnabled(false)
         ViewCompat.setOnApplyWindowInsetsListener(webView) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
@@ -109,6 +110,15 @@ class MainActivity : ComponentActivity() {
 
     fun launchBackupFolderPicker() = folderPicker.launch(null)
     fun launchRestorePicker() = restorePicker.launch(arrayOf("application/octet-stream", "application/zip", "*/*"))
+
+    fun applySystemTheme(dark: Boolean) {
+        val color = if (dark) Color.rgb(5, 7, 18) else Color.rgb(248, 250, 252)
+        webView.setBackgroundColor(color)
+        WindowCompat.getInsetsController(window, webView).apply {
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = !dark
+        }
+    }
 
     private fun showLoadError(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
