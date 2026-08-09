@@ -36,6 +36,7 @@ class UnifiedAiEngine(
         val startedAt = SystemClock.elapsedRealtime()
         var firstTokenAt = 0L
         var tokenCount = 0
+        store.observeUserTurn(userText)
         val context = contextEngine.build(sessionId, userText, characterName, persona)
         val activeProvider = provider()
         val warmStart = activeProvider.isWarm(model, context)

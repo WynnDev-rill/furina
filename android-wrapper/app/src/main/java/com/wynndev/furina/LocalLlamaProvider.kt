@@ -1,7 +1,6 @@
 package com.wynndev.furina
 
 import android.content.Context
-import android.app.ActivityManager
 import com.arm.aichat.AiChat
 import com.arm.aichat.InferenceEngine
 import kotlinx.coroutines.Dispatchers
@@ -13,8 +12,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.delay
-import java.util.Locale
 
 class LocalLlamaProvider(
     context: Context,
@@ -73,15 +70,6 @@ class LocalLlamaProvider(
             unload()
         }
 
-        if (model.id.contains("9b", ignoreCase = true)) {
-            // Give the kernel a short reclaim window after hashing the entire
-            // GGUF, then reject unsafe loads before Android starts killing
-            // unrelated background apps under severe pressure.
-            System.gc()
-            delay(250L)
-            ensureNineBMemoryHeadroom(model)
-        }
-
         val file = modelDownloads.modelFile(model)
         require(file.exists() && file.canRead()) { "File model tidak dapat dibaca: ${file.absolutePath}" }
         onState("loading", model.id, 0.15)
@@ -93,26 +81,6 @@ class LocalLlamaProvider(
         loadedIdentityFingerprint = context.identityFingerprint
         loadedRetrievalFingerprint = context.retrievalFingerprint
         onState("ready", model.id, 1.0)
-    }
-
-    private fun ensureNineBMemoryHeadroom(model: ModelSpec) {
-        val manager = appContext.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        val info = ActivityManager.MemoryInfo()
-        manager.getMemoryInfo(info)
-        val safetyHeadroom = 1_280L * 1024L * 1024L
-        val required = model.expectedBytes + safetyHeadroom
-        if (info.lowMemory || info.availMem < required) {
-            val availableGiB = info.availMem / 1024.0 / 1024.0 / 1024.0
-            val requiredGiB = required / 1024.0 / 1024.0 / 1024.0
-            throw IllegalStateException(
-                String.format(
-                    Locale.US,
-                    "RAM aman untuk model 9B belum cukup (tersedia %.1f GB, perlu sekitar %.1f GB). Tutup aplikasi berat atau gunakan model 4B.",
-                    availableGiB,
-                    requiredGiB,
-                )
-            )
-        }
     }
 
     override fun stream(request: AiGenerationRequest): Flow<String> = flow {

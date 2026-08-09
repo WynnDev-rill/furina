@@ -14,24 +14,14 @@ data class ModelSpec(
 object ModelCatalog {
     val models = listOf(
         ModelSpec(
-            id = "qwen35-4b-uncensored-q4km",
-            displayName = "Qwen3.5 4B Uncensored",
-            subtitle = "Q4_K_M · cepat · rekomendasi harian",
-            fileName = "Qwen3.5-4B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
-            downloadUrl = "https://huggingface.co/HauhauCS/Qwen3.5-4B-Uncensored-HauhauCS-Aggressive/resolve/55e05aba5a4e1e2d6c4919753a68941c4ad4cb11/Qwen3.5-4B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf?download=true",
-            expectedBytes = 2_707_513_696L,
-            sha256 = "79e28ecacf84e75b6056cf4059636d435aa9eb67795780f7b7dbc7d32a962741",
+            id = "qwen35-4b-deckard-heretic-q4km",
+            displayName = "Qwen3.5 4B Deckard Heretic",
+            subtitle = "Uncensored · natural companion · Q4_K_M",
+            fileName = "Qwen3.5-4B-Deckard-HERETIC-UNCENSORED-Thinking.i1-Q4_K_M.gguf",
+            downloadUrl = "https://huggingface.co/mradermacher/Qwen3.5-4B-Deckard-HERETIC-UNCENSORED-Thinking-i1-GGUF/resolve/main/Qwen3.5-4B-Deckard-HERETIC-UNCENSORED-Thinking.i1-Q4_K_M.gguf?download=true",
+            expectedBytes = 2_708_805_792L,
+            sha256 = "dda8f686b793f189a84c854832bb8b4db59c381a60275a567513d5ebb4d92906",
             recommended = true,
-        ),
-        ModelSpec(
-            id = "qwen35-9b-uncensored-q4km",
-            displayName = "Qwen3.5 9B Uncensored",
-            subtitle = "Q4_K_M · kualitas lebih tinggi · mode RAM aman",
-            fileName = "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
-            downloadUrl = "https://huggingface.co/HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive/resolve/a5ebf434dfbf9646d1bb97a469c1d8f69e4feb2e/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf?download=true",
-            expectedBytes = 5_627_044_224L,
-            sha256 = "2ca636d9e81d3d23ca9b60c234fe185d30ec082eeba69ce770fdb0c76559a4f5",
-            recommended = false,
         ),
     )
 

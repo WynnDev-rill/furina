@@ -30,6 +30,10 @@ class ModelDownloadManager(private val context: Context) {
     private val modelDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "models").apply { mkdirs() }
     private val verificationLocks = ConcurrentHashMap<String, Mutex>()
 
+    init {
+        cleanupRetiredModels()
+    }
+
     fun modelFile(spec: ModelSpec): File = File(modelDir, spec.fileName)
     private fun partialFile(spec: ModelSpec): File = File(modelDir, "${spec.fileName}.part")
     private fun uniqueWork(spec: ModelSpec) = "furina-model-${spec.id}"
@@ -146,6 +150,24 @@ class ModelDownloadManager(private val context: Context) {
         val legacyTarget = modelFile(spec)
         if (legacyTarget.exists() && legacyTarget.length() in 1 until spec.expectedBytes) {
             legacyTarget.renameTo(partialFile(spec))
+        }
+    }
+
+    /** Remove only Furina's two retired GGUF files so an update cannot leave 8 GB unused. */
+    private fun cleanupRetiredModels() {
+        val retired = listOf(
+            "qwen35-4b-uncensored-q4km" to "Qwen3.5-4B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
+            "qwen35-9b-uncensored-q4km" to "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
+        )
+        retired.forEach { (id, fileName) ->
+            workManager.cancelUniqueWork("furina-model-$id")
+            File(modelDir, fileName).delete()
+            File(modelDir, "$fileName.part").delete()
+            prefs.edit()
+                .remove("cancelled:$id").remove("verified:$id").remove("verification_error:$id")
+                .remove("error:$id").remove("state:$id").remove("downloaded:$id")
+                .remove("total:$id").remove("worker:$id").remove("download:$id")
+                .apply()
         }
     }
 

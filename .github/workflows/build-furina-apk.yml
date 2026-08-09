@@ -52,8 +52,8 @@ jobs:
           npm ci --no-audit --no-fund --prefer-offline
           npm run build
           test -s src/routes/native.tsx
-          grep -q 'Qwen3.5 4B Uncensored' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
-          grep -q 'Qwen3.5 9B Uncensored' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
+          grep -q 'Qwen3.5 4B Deckard Heretic' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
+          ! grep -q 'Qwen3.5 9B' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
           ! grep -qi 'gemma' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
           grep -q 'generationJob = null' android-wrapper/app/src/main/java/com/wynndev/furina/FurinaBridge.kt
           grep -q 'DB_VERSION = 3' android-wrapper/app/src/main/java/com/wynndev/furina/MemoryStore.kt
@@ -83,9 +83,9 @@ jobs:
           grep -q 'loadedIdentityFingerprint' android-wrapper/app/src/main/java/com/wynndev/furina/LocalLlamaProvider.kt
           grep -q 'ReasoningStreamFilter' android-wrapper/app/src/main/java/com/wynndev/furina/LocalLlamaProvider.kt
           grep -q 'verifySerialized' android-wrapper/app/src/main/java/com/wynndev/furina/ModelDownloadManager.kt
-          grep -q 'ensureNineBMemoryHeadroom' android-wrapper/app/src/main/java/com/wynndev/furina/LocalLlamaProvider.kt
-          grep -q 'g_memory_saver_model' scripts/overlays/ai_chat.cpp
-          grep -q 'ctx_params.type_k = GGML_TYPE_Q8_0' scripts/overlays/ai_chat.cpp
+          grep -q 'observeUserTurn' android-wrapper/app/src/main/java/com/wynndev/furina/UnifiedAiEngine.kt
+          grep -q 'companionStateContext' android-wrapper/app/src/main/java/com/wynndev/furina/ContextEngine.kt
+          grep -q 'MessageMarkdown' src/routes/native.tsx
           grep -q 'PrivateContextStreamFilter' android-wrapper/app/src/main/java/com/wynndev/furina/LocalLlamaProvider.kt
           grep -q 'prepareModel(activeSessionId, name, effectivePersona)' src/routes/native.tsx
           grep -q 'api.mymemory.translated.net/get' src/lib/furina.functions.ts

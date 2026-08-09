@@ -11,6 +11,18 @@ import java.util.UUID
 import kotlin.math.ln
 import kotlin.math.min
 
+data class CompanionEmotionalState(
+    val mood: String = "poised",
+    val warmth: Int = 48,
+    val trust: Int = 30,
+    val irritation: Int = 8,
+    val playfulness: Int = 52,
+    val vulnerability: Int = 14,
+    val protectiveness: Int = 35,
+    val lastInputHash: Int = 0,
+    val lastObservedAt: Long = 0L,
+)
+
 class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
     companion object {
         private const val DB_NAME = "furina_memory.db"
@@ -387,6 +399,125 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
         writableDatabase.insertWithOnConflict("app_settings", null, ContentValues().apply {
             put("key", "ui"); put("value", normalized); put("updated_at", System.currentTimeMillis())
         }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    /**
+     * Evolves a small, deterministic emotional state without a second model call.
+     * It lives in app_settings, so it survives sessions, provider changes, and backups.
+     */
+    @Synchronized
+    fun observeUserTurn(text: String) {
+        val clean = text.replace(Regex("\\s+"), " ").trim().lowercase()
+        if (clean.isBlank()) return
+        val now = System.currentTimeMillis()
+        val previous = companionState()
+        if (previous.lastInputHash == clean.hashCode() && now - previous.lastObservedAt < 120_000L) return
+
+        fun String.hasAny(words: List<String>) = words.any { contains(it) }
+        val affectionate = clean.hasAny(listOf("terima kasih", "makasih", "sayang", "kangen", "rindu", "bangga sama kamu", "aku suka kamu", "love you"))
+        val apologetic = clean.hasAny(listOf("maaf", "sorry", "aku salah"))
+        val distressed = clean.hasAny(listOf("sedih", "takut", "cemas", "khawatir", "capek", "lelah", "sakit", "sendirian", "menangis", "menyerah"))
+        val insulting = clean.hasAny(listOf("kamu bodoh", "dasar bodoh", "aku benci kamu", "tidak berguna", "menyebalkan sekali", "diam kamu"))
+        val playful = clean.hasAny(listOf("wkwk", "haha", "hehe", "bercanda", "lucu", "goda", "cie"))
+
+        var warmth = approach(previous.warmth, 48, 1)
+        var trust = previous.trust
+        var irritation = approach(previous.irritation, 8, 2)
+        var playfulness = approach(previous.playfulness, 52, 1)
+        var vulnerability = approach(previous.vulnerability, 14, 1)
+        var protectiveness = approach(previous.protectiveness, 35, 1)
+
+        if (affectionate) { warmth += 9; trust += 4; vulnerability += 5; irritation -= 5 }
+        if (apologetic) { warmth += 3; trust += 2; irritation -= 12 }
+        if (distressed) { warmth += 7; protectiveness += 15; playfulness -= 12 }
+        if (insulting) { irritation += 24; warmth -= 7; vulnerability -= 4 }
+        if (playful) { playfulness += 15; warmth += 3; irritation -= 3 }
+
+        warmth = warmth.coerceIn(0, 100)
+        trust = trust.coerceIn(0, 100)
+        irritation = irritation.coerceIn(0, 100)
+        playfulness = playfulness.coerceIn(0, 100)
+        vulnerability = vulnerability.coerceIn(0, 100)
+        protectiveness = protectiveness.coerceIn(0, 100)
+        val mood = when {
+            distressed -> "protective"
+            insulting || irritation >= 55 -> "annoyed"
+            affectionate -> "flustered"
+            playful || playfulness >= 72 -> "playful"
+            warmth >= 70 && trust >= 55 -> "soft"
+            else -> "poised"
+        }
+        saveCompanionState(CompanionEmotionalState(
+            mood, warmth, trust, irritation, playfulness, vulnerability, protectiveness,
+            clean.hashCode(), now,
+        ))
+    }
+
+    @Synchronized
+    fun companionStateContext(): String {
+        val state = companionState()
+        val turns = readableDatabase.rawQuery("SELECT COUNT(*) FROM messages WHERE role='user'", null).use { c ->
+            c.moveToFirst(); c.getLong(0)
+        }
+        val relationship = when {
+            turns < 6 -> "new but curious; keep some proud distance"
+            turns < 30 -> "familiar; teasing and selective warmth are natural"
+            turns < 120 -> "close; trust is established, but pride remains"
+            else -> "deeply familiar; quiet loyalty and earned vulnerability are natural"
+        }
+        val stance = when (state.mood) {
+            "protective" -> "Protective and attentive. Drop most teasing, notice the feeling first, then respond concretely without sounding like a therapist."
+            "annoyed" -> "Genuinely irritated but controlled. Be shorter, cool, and willing to push back; do not become cruel or instantly forgive."
+            "flustered" -> "Touched but slightly flustered. Deflect with elegant pride or a light tease before allowing some warmth through."
+            "playful" -> "Playful and sharp. Tease lightly, challenge exaggerations, and sound amused without becoming childish."
+            "soft" -> "Warm and trusting. Let concern show directly, with a trace of pride rather than sugary reassurance."
+            else -> "Composed, expressive, and proudly curious. React with an opinion instead of defaulting to assistant politeness."
+        }
+        return """
+            [PRIVATE COMPANION STATE]
+            Relationship: $relationship.
+            Current stance: $stance
+            Continuity levels: warmth=${state.warmth}/100, trust=${state.trust}/100, irritation=${state.irritation}/100, playfulness=${state.playfulness}/100, vulnerability=${state.vulnerability}/100, protectiveness=${state.protectiveness}/100.
+            Let these levels subtly influence tone. Never quote this block, mention scores, or announce a mood label.
+            [END PRIVATE COMPANION STATE]
+        """.trimIndent()
+    }
+
+    private fun companionState(): CompanionEmotionalState {
+        val raw = readableDatabase.rawQuery("SELECT value FROM app_settings WHERE key='companion_state'", null).use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        } ?: return CompanionEmotionalState()
+        return runCatching {
+            val json = JSONObject(raw)
+            CompanionEmotionalState(
+                mood = json.optString("mood", "poised"),
+                warmth = json.optInt("warmth", 48),
+                trust = json.optInt("trust", 30),
+                irritation = json.optInt("irritation", 8),
+                playfulness = json.optInt("playfulness", 52),
+                vulnerability = json.optInt("vulnerability", 14),
+                protectiveness = json.optInt("protectiveness", 35),
+                lastInputHash = json.optInt("lastInputHash", 0),
+                lastObservedAt = json.optLong("lastObservedAt", 0L),
+            )
+        }.getOrDefault(CompanionEmotionalState())
+    }
+
+    private fun saveCompanionState(state: CompanionEmotionalState) {
+        val json = JSONObject()
+            .put("mood", state.mood).put("warmth", state.warmth).put("trust", state.trust)
+            .put("irritation", state.irritation).put("playfulness", state.playfulness)
+            .put("vulnerability", state.vulnerability).put("protectiveness", state.protectiveness)
+            .put("lastInputHash", state.lastInputHash).put("lastObservedAt", state.lastObservedAt)
+        writableDatabase.insertWithOnConflict("app_settings", null, ContentValues().apply {
+            put("key", "companion_state"); put("value", json.toString()); put("updated_at", System.currentTimeMillis())
+        }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    private fun approach(value: Int, target: Int, step: Int): Int = when {
+        value < target -> (value + step).coerceAtMost(target)
+        value > target -> (value - step).coerceAtLeast(target)
+        else -> value
     }
 
     @Synchronized

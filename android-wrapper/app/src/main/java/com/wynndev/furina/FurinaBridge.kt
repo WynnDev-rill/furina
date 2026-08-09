@@ -278,8 +278,13 @@ class FurinaBridge(
         store.close()
     }
 
-    private fun selectedModelId(): String = prefs.getString("selected_model", ModelCatalog.models.first().id)
-        ?: ModelCatalog.models.first().id
+    private fun selectedModelId(): String {
+        val fallback = ModelCatalog.models.first().id
+        val stored = prefs.getString("selected_model", fallback)
+        val selected = ModelCatalog.byId(stored)?.id ?: fallback
+        if (stored != selected) prefs.edit().putString("selected_model", selected).apply()
+        return selected
+    }
 
     private fun beginVerification(spec: ModelSpec) {
         synchronized(verificationJobs) {

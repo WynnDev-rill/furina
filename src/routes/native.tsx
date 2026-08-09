@@ -149,18 +149,11 @@ const VV_SPEAKERS = [
 
 const FALLBACK_MODELS: NativeModel[] = [
   {
-    id: "qwen35-4b-uncensored-q4km",
-    name: "Qwen3.5 4B Uncensored",
-    subtitle: "Q4_K_M · cepat · rekomendasi harian",
-    expectedBytes: 2_707_513_696,
+    id: "qwen35-4b-deckard-heretic-q4km",
+    name: "Qwen3.5 4B Deckard Heretic",
+    subtitle: "Uncensored · natural companion · Q4_K_M",
+    expectedBytes: 2_708_805_792,
     recommended: true,
-  },
-  {
-    id: "qwen35-9b-uncensored-q4km",
-    name: "Qwen3.5 9B Uncensored",
-    subtitle: "Q4_K_M · kualitas lebih tinggi · lebih berat",
-    expectedBytes: 5_627_044_224,
-    recommended: false,
   },
 ];
 
@@ -177,6 +170,26 @@ function formatBytes(bytes = 0) {
 
 function fmtTime(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function MessageMarkdown({ content }: { content: string }) {
+  const parts = content.split(/(\*\*[\s\S]*?\*\*)/g);
+  return (
+    <div className="whitespace-pre-wrap break-words">
+      {parts.map((part, index) => part.startsWith("**") && part.endsWith("**") && part.length > 4
+        ? <strong key={index} className="font-semibold">{part.slice(2, -2)}</strong>
+        : part)}
+    </div>
+  );
+}
+
+function plainTextFromMarkdown(content: string) {
+  return content
+    .replace(/\*\*([\s\S]*?)\*\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^[-*+]\s+/gm, "")
+    .trim();
 }
 
 function FurinaNativeApp() {
@@ -536,7 +549,7 @@ function FurinaNativeApp() {
     const cached = preparedAudioRef.current.get(message.id);
     if (cached) return cached;
     if (preparingAudioRef.current.has(message.id)) return null;
-    const clean = message.content.replace(/\*[^*]+\*/g, "").trim();
+    const clean = plainTextFromMarkdown(message.content);
     if (!clean) return null;
     preparingAudioRef.current.add(message.id);
     try {
@@ -707,7 +720,7 @@ function FurinaNativeApp() {
                 <div className={`max-w-[90%] rounded-[22px] px-4 py-3 text-[15px] leading-6 shadow-lg ${user ? "rounded-br-md bg-sky-500 text-white shadow-sky-950/20" : theme === "dark" ? "rounded-bl-md border border-white/10 bg-[#0b1124]/90 text-white backdrop-blur-xl" : "rounded-bl-md border border-white/80 bg-white/92 text-slate-950 backdrop-blur-xl"}`}>
                   {pending && !m.content ? (
                     <div className="flex items-center gap-2 pr-1 text-xs opacity-70"><Loader2 className="h-4 w-4 animate-spin" /><span>{statusText}</span></div>
-                  ) : <div className="whitespace-pre-wrap break-words">{m.content}</div>}
+                  ) : <MessageMarkdown content={m.content} />}
                 </div>
                 <div className={`mt-1 flex items-center gap-1.5 px-1 text-[10px] ${theme === "dark" ? "text-white/55" : "text-slate-600"}`}>
                   <span>{fmtTime(m.createdAt)}</span>
@@ -797,7 +810,7 @@ function FurinaNativeApp() {
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Brain className="h-[18px] w-[18px]" /></span>
                 <div className="min-w-0">
                   <Label>Mesin AI lokal</Label>
-                  <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">Pilih 4B untuk respons lebih cepat atau 9B untuk kualitas lebih tinggi. Keduanya sepenuhnya lokal.</p>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">Deckard Heretic 4B dipilih untuk percakapan harian yang natural, uncensored, dan ringan. Seluruh inferensi tetap lokal.</p>
                 </div>
               </div>
 
@@ -850,7 +863,6 @@ function FurinaNativeApp() {
                     </div>
                     {st.state === "failed" && <p role="alert" className="mt-3 flex items-start gap-1.5 rounded-lg bg-destructive/10 p-2.5 text-[11px] leading-relaxed text-destructive"><AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{st.error || "Unduhan gagal."} Tekan Unduh ulang; bagian file yang sudah valid akan digunakan kembali.</p>}
                     {st.state === "corrupt" && <p role="alert" className="mt-3 flex items-start gap-1.5 rounded-lg bg-destructive/10 p-2.5 text-[11px] leading-relaxed text-destructive"><AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />File belum utuh atau gagal diverifikasi. Tekan Unduh ulang; file sementara akan dibersihkan otomatis.</p>}
-                    {model.id.includes("9b") && <p className="mt-2 text-[10px] text-muted-foreground">9B memakai profil RAM aman: konteks 2K, KV Q8, dan pemeriksaan memori sebelum dimuat. Jika ruang aman tidak cukup, Furina akan membatalkan load alih-alih membuat aplikasi lain tertutup.</p>}
                   </div>
                 );
               })}
