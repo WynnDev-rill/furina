@@ -67,11 +67,11 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_load(JNIEnv *env, jobject, jstr
 
     // App-specific external storage is FUSE-backed on many Android devices. Retry
     // without mmap when a valid GGUF cannot be mapped from that filesystem.
-    model_params.use_mmap = true;
+    model_params.load_mode = LLAMA_LOAD_MODE_MMAP;
     auto *model = llama_model_load_from_file(model_path, model_params);
     if (!model) {
         LOGw("%s: mmap load failed; retrying without mmap", __func__);
-        model_params.use_mmap = false;
+        model_params.load_mode = LLAMA_LOAD_MODE_NONE;
         model = llama_model_load_from_file(model_path, model_params);
     }
     env->ReleaseStringUTFChars(jmodel_path, model_path);

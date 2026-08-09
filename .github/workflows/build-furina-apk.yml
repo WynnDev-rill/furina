@@ -68,6 +68,7 @@ jobs:
           grep -q 'fun prepareModel' android-wrapper/app/src/main/java/com/wynndev/furina/FurinaBridge.kt
           grep -q 'DEFAULT_CONTEXT_SIZE    = 4096' scripts/overlays/ai_chat.cpp
           grep -q 'mmap load failed; retrying without mmap' scripts/overlays/ai_chat.cpp
+          grep -q 'load_mode = LLAMA_LOAD_MODE_NONE' scripts/overlays/ai_chat.cpp
           grep -q 'throw IOException("llama.cpp gagal memproses prompt' scripts/overlays/InferenceEngineImpl.kt
           grep -q 'if (existing == expectedBytes) return' android-wrapper/app/src/main/java/com/wynndev/furina/ModelDownloadWorker.kt
           grep -q 'ModelDownloadCancelReceiver' android-wrapper/app/src/main/AndroidManifest.xml
