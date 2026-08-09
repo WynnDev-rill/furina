@@ -94,23 +94,26 @@ class BackupManager(
     fun restoreFrom(uri: Uri) {
         val key = decodeKey(getOrCreateRecoveryKey())
         val temp = File(context.cacheDir, "furina-restore-${System.currentTimeMillis()}.db")
-        context.contentResolver.openInputStream(uri)!!.use { rawIn ->
-            val header = ByteArray(MAGIC.size)
-            require(rawIn.read(header) == header.size && header.contentEquals(MAGIC)) { "Bukan backup Furina yang didukung" }
-            val iv = ByteArray(12)
-            require(rawIn.read(iv) == iv.size) { "Backup rusak" }
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
-            CipherInputStream(rawIn, cipher).use { decrypted -> temp.outputStream().use { decrypted.copyTo(it, 1024 * 1024) } }
-        }
-        temp.inputStream().use { input ->
-            val sqliteHeader = ByteArray(16)
-            require(input.read(sqliteHeader) == 16 && String(sqliteHeader, Charsets.US_ASCII).startsWith("SQLite format 3")) {
-                "Recovery key salah atau backup tidak valid"
+        try {
+            context.contentResolver.openInputStream(uri)!!.use { rawIn ->
+                val header = ByteArray(MAGIC.size)
+                require(rawIn.read(header) == header.size && header.contentEquals(MAGIC)) { "Bukan backup Furina yang didukung" }
+                val iv = ByteArray(12)
+                require(rawIn.read(iv) == iv.size) { "Backup rusak" }
+                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
+                CipherInputStream(rawIn, cipher).use { decrypted -> temp.outputStream().use { decrypted.copyTo(it, 1024 * 1024) } }
             }
+            temp.inputStream().use { input ->
+                val sqliteHeader = ByteArray(16)
+                require(input.read(sqliteHeader) == 16 && String(sqliteHeader, Charsets.US_ASCII).startsWith("SQLite format 3")) {
+                    "Recovery key salah atau backup tidak valid"
+                }
+            }
+            store.restoreFrom(temp)
+        } finally {
+            temp.delete()
         }
-        store.restoreFrom(temp)
-        temp.delete()
     }
 
     private fun prune(root: DocumentFile) {

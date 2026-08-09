@@ -14,7 +14,7 @@ import kotlin.math.min
 class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
     companion object {
         private const val DB_NAME = "furina_memory.db"
-        private const val DB_VERSION = 1
+        private const val DB_VERSION = 2
     }
 
     override fun onConfigure(db: SQLiteDatabase) {
@@ -59,9 +59,16 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
         } catch (_: Throwable) {
             // Raw history remains available even on devices where FTS4 is unavailable.
         }
+        createSettingsTable(db)
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) createSettingsTable(db)
+    }
+
+    private fun createSettingsTable(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)")
+    }
 
     @Synchronized
     fun createSession(title: String = "Percakapan baru"): String {
@@ -237,6 +244,22 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
     }
 
     @Synchronized
+    fun appSettingsJson(): String {
+        readableDatabase.rawQuery("SELECT value FROM app_settings WHERE key='ui'", null).use { c ->
+            if (c.moveToFirst()) return c.getString(0)
+        }
+        return "{}"
+    }
+
+    @Synchronized
+    fun saveAppSettingsJson(raw: String) {
+        val normalized = JSONObject(raw).toString()
+        writableDatabase.insertWithOnConflict("app_settings", null, ContentValues().apply {
+            put("key", "ui"); put("value", normalized); put("updated_at", System.currentTimeMillis())
+        }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    @Synchronized
     private fun maybeRemember(text: String) {
         val clean = text.replace(Regex("\\s+"), " ").trim()
         if (clean.length !in 15..360) return
@@ -259,14 +282,28 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
 
     @Synchronized
     fun restoreFrom(file: File) {
-        close()
+        checkpoint()
         val target = databaseFile()
+        val safety = File(context.cacheDir, "furina-before-restore-${System.currentTimeMillis()}.db")
+        if (target.exists()) target.copyTo(safety, overwrite = true)
+        close()
         target.parentFile?.mkdirs()
         File(target.absolutePath + "-wal").delete()
         File(target.absolutePath + "-shm").delete()
-        file.copyTo(target, overwrite = true)
-        readableDatabase.rawQuery("PRAGMA integrity_check", null).use { c ->
-            require(c.moveToFirst() && c.getString(0).equals("ok", ignoreCase = true)) { "Backup database tidak valid" }
+        try {
+            file.copyTo(target, overwrite = true)
+            readableDatabase.rawQuery("PRAGMA integrity_check", null).use { c ->
+                require(c.moveToFirst() && c.getString(0).equals("ok", ignoreCase = true)) { "Backup database tidak valid" }
+            }
+        } catch (e: Throwable) {
+            close()
+            File(target.absolutePath + "-wal").delete()
+            File(target.absolutePath + "-shm").delete()
+            if (safety.exists()) safety.copyTo(target, overwrite = true) else target.delete()
+            readableDatabase
+            throw e
+        } finally {
+            safety.delete()
         }
     }
 }

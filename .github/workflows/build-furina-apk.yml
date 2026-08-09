@@ -59,6 +59,9 @@ jobs:
           grep -q '55e05aba5a4e1e2d6c4919753a68941c4ad4cb11' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
           grep -q 'a5ebf434dfbf9646d1bb97a469c1d8f69e4feb2e' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
           grep -q 'generationJob = null' android-wrapper/app/src/main/java/com/wynndev/furina/FurinaBridge.kt
+          grep -q 'DB_VERSION = 2' android-wrapper/app/src/main/java/com/wynndev/furina/MemoryStore.kt
+          grep -q 'furina-before-restore' android-wrapper/app/src/main/java/com/wynndev/furina/MemoryStore.kt
+          grep -q 'saveAppSettings' src/routes/native.tsx
 
       - name: Set up Java 17
         uses: actions/setup-java@v4

@@ -61,6 +61,8 @@ type NativeBridge = {
   loadSession(sessionId: string): string;
   deleteSession(sessionId: string): void;
   memoryStats(): string;
+  appSettings(): string;
+  saveAppSettings(settingsJson: string): void;
   generate(requestId: string, sessionId: string, userText: string, persona: string): void;
   stopGeneration(): void;
   backupInfo(): string;
@@ -89,6 +91,8 @@ const PREF = {
   autoVoice: "furina:native:autoVoice",
   speed: "furina:native:voiceSpeed",
 };
+
+type CompanionSettings = { name?: string; persona?: string; autoVoice?: boolean; voiceSpeed?: number };
 
 function parseJson<T>(raw: string | undefined, fallback: T): T {
   try { return raw ? JSON.parse(raw) as T : fallback; } catch { return fallback; }
@@ -176,6 +180,11 @@ function FurinaNativeApp() {
   const initialize = useCallback(() => {
     const b = bridge();
     if (!b) return;
+    const saved = parseJson<CompanionSettings>(b.appSettings(), {});
+    if (saved.name) setName(saved.name);
+    if (typeof saved.persona === "string") setPersona(saved.persona);
+    if (typeof saved.autoVoice === "boolean") setAutoVoice(saved.autoVoice);
+    if (typeof saved.voiceSpeed === "number") setVoiceSpeed(saved.voiceSpeed);
     setNativeReady(true);
     refreshModels();
     refreshSessions();
@@ -219,6 +228,11 @@ function FurinaNativeApp() {
       refreshStats();
     };
     window.__furinaNativeRestored = () => {
+      const restored = parseJson<CompanionSettings>(bridge()?.appSettings(), {});
+      if (restored.name) setName(restored.name);
+      if (typeof restored.persona === "string") setPersona(restored.persona);
+      if (typeof restored.autoVoice === "boolean") setAutoVoice(restored.autoVoice);
+      if (typeof restored.voiceSpeed === "number") setVoiceSpeed(restored.voiceSpeed);
       refreshSessions();
       refreshStats();
     };
@@ -234,6 +248,16 @@ function FurinaNativeApp() {
       delete window.__furinaNativeRestored;
     };
   }, [initialize, refreshSessions, refreshStats]);
+
+  useEffect(() => {
+    if (!nativeReady) return;
+    const settings = { name, persona, autoVoice, voiceSpeed };
+    localStorage.setItem(PREF.name, name);
+    localStorage.setItem(PREF.persona, persona);
+    localStorage.setItem(PREF.autoVoice, autoVoice ? "1" : "0");
+    localStorage.setItem(PREF.speed, String(voiceSpeed));
+    bridge()?.saveAppSettings(JSON.stringify(settings));
+  }, [nativeReady, name, persona, autoVoice, voiceSpeed]);
 
   useEffect(() => {
     if (!nativeReady || !models.length) return;

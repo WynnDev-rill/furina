@@ -128,6 +128,12 @@ class FurinaBridge(
     fun memoryStats(): String = store.statsJson()
 
     @JavascriptInterface
+    fun appSettings(): String = store.appSettingsJson()
+
+    @JavascriptInterface
+    fun saveAppSettings(settingsJson: String) = store.saveAppSettingsJson(settingsJson)
+
+    @JavascriptInterface
     fun generate(requestId: String, sessionId: String, userText: String, persona: String) {
         val clean = userText.trim()
         if (clean.isEmpty()) return
