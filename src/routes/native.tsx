@@ -47,6 +47,7 @@ type NativeMessage = { id: string; role: "user" | "assistant"; content: string; 
 type NativeSession = { id: string; title: string; createdAt: number; updatedAt?: number; messageCount?: number };
 type MemoryStats = { sessions: number; messages: number; memories: number; firstSeen: number; relationship?: string };
 type BackupInfo = { folderSelected: boolean; folderUri?: string; recoveryKey: string; lastBackup: number };
+type GenerationMetrics = { firstTokenMs: number; tokensPerSecond: number; tokenCount: number; warmStart: boolean };
 
 type NativeBridge = {
   nativeInfo(): string;
@@ -77,7 +78,7 @@ declare global {
     FurinaNative?: NativeBridge;
     __furinaNativeReady?: () => void;
     __furinaNativeToken?: (requestId: string, chunk: string) => void;
-    __furinaNativeDone?: (requestId: string, userId: string, assistantId: string) => void;
+    __furinaNativeDone?: (requestId: string, userId: string, assistantId: string, metrics?: GenerationMetrics) => void;
     __furinaNativeError?: (requestId: string, message: string) => void;
     __furinaNativeState?: (state: string, modelId: string, progress: number) => void;
     __furinaNativeBackup?: (success: boolean, message: string) => void;
@@ -132,6 +133,7 @@ function FurinaNativeApp() {
   const [backup, setBackup] = useState<BackupInfo>({ folderSelected: false, recoveryKey: "", lastBackup: 0 });
   const [recoveryDraft, setRecoveryDraft] = useState("");
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [lastMetrics, setLastMetrics] = useState<GenerationMetrics | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const requestRef = useRef<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -204,10 +206,11 @@ function FurinaNativeApp() {
       const pendingId = `pending:${requestId}`;
       setMessages((prev) => prev.map((m) => m.id === pendingId ? { ...m, content: m.content + chunk } : m));
     };
-    window.__furinaNativeDone = (requestId) => {
+    window.__furinaNativeDone = (requestId, _userId, _assistantId, metrics) => {
       if (requestRef.current !== requestId) return;
       requestRef.current = null;
       setSending(false);
+      if (metrics) setLastMetrics(metrics);
       refreshSessions(activeSessionRef.current);
       refreshStats();
     };
@@ -529,6 +532,13 @@ function FurinaNativeApp() {
               <p className="text-[11px] leading-relaxed text-muted-foreground">
                 Runtime memakai llama.cpp native Android. Model tetap dimuat selama sesi aktif, token di-stream dan digabung sebelum update UI untuk mengurangi latency serta kedipan layar.
               </p>
+              {lastMetrics && (
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-lg bg-muted p-2"><p className="text-sm font-semibold">{(lastMetrics.firstTokenMs / 1000).toFixed(1)} dtk</p><p className="text-[9px] text-muted-foreground">token pertama</p></div>
+                  <div className="rounded-lg bg-muted p-2"><p className="text-sm font-semibold">{lastMetrics.tokensPerSecond.toFixed(1)}</p><p className="text-[9px] text-muted-foreground">token/detik</p></div>
+                  <div className="rounded-lg bg-muted p-2"><p className="text-sm font-semibold">{lastMetrics.warmStart ? "Hangat" : "Dingin"}</p><p className="text-[9px] text-muted-foreground">kondisi model</p></div>
+                </div>
+              )}
             </section>
 
             <section className="space-y-3">

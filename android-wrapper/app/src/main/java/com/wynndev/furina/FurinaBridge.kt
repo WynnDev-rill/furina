@@ -145,12 +145,18 @@ class FurinaBridge(
         generationJob = scope.launch {
             val reply = StringBuilder()
             var userId = ""
+            val startedAt = android.os.SystemClock.elapsedRealtime()
+            var firstTokenAt = 0L
+            var tokenCount = 0
+            var warmStart = false
             try {
                 val model = ModelCatalog.byId(selectedModelId()) ?: error("Model AI tidak dikenal")
                 val modelState = modelDownloads.status(model).optString("state")
                 if (modelState != "ready") error("Unduh ${model.displayName} terlebih dahulu")
 
                 val bootstrapContext = store.buildBootstrapContext(clean, sessionId)
+                warmStart = loadedModelId == model.id && loadedSessionId == sessionId &&
+                    loadedPersonaHash == persona.hashCode() && engine.state.value is InferenceEngine.State.ModelReady
                 ensureModelLoaded(model, sessionId, persona)
                 userId = store.addMessage(sessionId, "user", clean)
                 emitState("thinking", model.id, 0.0)
@@ -169,6 +175,8 @@ class FurinaBridge(
                 val pending = StringBuilder()
                 var lastDispatch = android.os.SystemClock.elapsedRealtime()
                 engine.sendUserPrompt(prompt, predictLength = 768).collect { token ->
+                    if (firstTokenAt == 0L) firstTokenAt = android.os.SystemClock.elapsedRealtime()
+                    tokenCount += 1
                     reply.append(token)
                     pending.append(token)
                     val now = android.os.SystemClock.elapsedRealtime()
@@ -183,7 +191,7 @@ class FurinaBridge(
                 if (finalText.isBlank()) error("Model tidak menghasilkan jawaban")
                 val assistantId = store.addMessage(sessionId, "assistant", finalText)
                 sessionBootstrapped = true
-                emitDone(requestId, userId, assistantId)
+                emitDone(requestId, userId, assistantId, generationMetrics(startedAt, firstTokenAt, tokenCount, warmStart))
                 withContext(Dispatchers.IO) {
                     try { backupManager.autoBackupIfDue() } catch (_: Throwable) {}
                 }
@@ -191,7 +199,7 @@ class FurinaBridge(
                 val partial = reply.toString().trim()
                 if (partial.isNotBlank() && userId.isNotBlank()) {
                     val assistantId = store.addMessage(sessionId, "assistant", partial)
-                    emitDone(requestId, userId, assistantId)
+                    emitDone(requestId, userId, assistantId, generationMetrics(startedAt, firstTokenAt, tokenCount, warmStart))
                 } else {
                     emitError(requestId, "Respons dihentikan")
                 }
@@ -377,8 +385,19 @@ class FurinaBridge(
         eval("window.__furinaNativeToken && window.__furinaNativeToken(${JSONObject.quote(requestId)}, ${JSONObject.quote(chunk)})")
     }
 
-    private fun emitDone(requestId: String, userId: String, assistantId: String) {
-        eval("window.__furinaNativeDone && window.__furinaNativeDone(${JSONObject.quote(requestId)}, ${JSONObject.quote(userId)}, ${JSONObject.quote(assistantId)})")
+    private fun generationMetrics(startedAt: Long, firstTokenAt: Long, tokenCount: Int, warmStart: Boolean): JSONObject {
+        val finishedAt = android.os.SystemClock.elapsedRealtime()
+        val firstTokenMs = if (firstTokenAt > 0L) firstTokenAt - startedAt else finishedAt - startedAt
+        val decodeMs = if (firstTokenAt > 0L) (finishedAt - firstTokenAt).coerceAtLeast(1L) else 1L
+        return JSONObject()
+            .put("firstTokenMs", firstTokenMs)
+            .put("tokensPerSecond", tokenCount * 1000.0 / decodeMs)
+            .put("tokenCount", tokenCount)
+            .put("warmStart", warmStart)
+    }
+
+    private fun emitDone(requestId: String, userId: String, assistantId: String, metrics: JSONObject) {
+        eval("window.__furinaNativeDone && window.__furinaNativeDone(${JSONObject.quote(requestId)}, ${JSONObject.quote(userId)}, ${JSONObject.quote(assistantId)}, $metrics)")
     }
 
     private fun emitError(requestId: String, message: String) {
