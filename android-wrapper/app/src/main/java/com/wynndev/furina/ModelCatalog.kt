@@ -26,7 +26,7 @@ object ModelCatalog {
         ModelSpec(
             id = "qwen35-9b-uncensored-q4km",
             displayName = "Qwen3.5 9B Uncensored",
-            subtitle = "Q4_K_M · kualitas lebih tinggi · lebih berat",
+            subtitle = "Q4_K_M · kualitas lebih tinggi · mode RAM aman",
             fileName = "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
             downloadUrl = "https://huggingface.co/HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive/resolve/a5ebf434dfbf9646d1bb97a469c1d8f69e4feb2e/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf?download=true",
             expectedBytes = 5_627_044_224L,

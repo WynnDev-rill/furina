@@ -287,7 +287,7 @@ class FurinaBridge(
             verificationProgress[spec.id] = 0.0
             verificationJobs[spec.id] = scope.launch(Dispatchers.IO) {
                 try {
-                    val ok = modelDownloads.verify(spec) { done, total ->
+                    val ok = modelDownloads.verifySerialized(spec) { done, total ->
                         val progress = if (total > 0L) done.toDouble() / total.toDouble() else 0.0
                         synchronized(verificationJobs) { verificationProgress[spec.id] = progress }
                         emitState("verifying", spec.id, progress)
@@ -313,6 +313,7 @@ class FurinaBridge(
         val type = error::class.java.simpleName
         return when {
             error is kotlinx.coroutines.TimeoutCancellationException -> "Mesin AI terlalu lama disiapkan. Tutup aplikasi lain lalu coba lagi."
+            raw.contains("RAM aman", ignoreCase = true) -> raw
             raw.startsWith("llama.cpp:", ignoreCase = true) -> "Mesin AI gagal memuat model. $raw"
             raw.contains("memory", ignoreCase = true) || raw.contains("allocate", ignoreCase = true) ->
                 "RAM tidak cukup untuk model ini. Tutup aplikasi lain atau gunakan model 4B."

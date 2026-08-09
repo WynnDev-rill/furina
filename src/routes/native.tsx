@@ -850,7 +850,7 @@ function FurinaNativeApp() {
                     </div>
                     {st.state === "failed" && <p role="alert" className="mt-3 flex items-start gap-1.5 rounded-lg bg-destructive/10 p-2.5 text-[11px] leading-relaxed text-destructive"><AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{st.error || "Unduhan gagal."} Tekan Unduh ulang; bagian file yang sudah valid akan digunakan kembali.</p>}
                     {st.state === "corrupt" && <p role="alert" className="mt-3 flex items-start gap-1.5 rounded-lg bg-destructive/10 p-2.5 text-[11px] leading-relaxed text-destructive"><AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />File belum utuh atau gagal diverifikasi. Tekan Unduh ulang; file sementara akan dibersihkan otomatis.</p>}
-                    {model.id.includes("9b") && <p className="mt-2 text-[10px] text-muted-foreground">9B memerlukan RAM jauh lebih besar. Jika Android menutup aplikasi atau respons terlalu lambat, kembali ke 4B.</p>}
+                    {model.id.includes("9b") && <p className="mt-2 text-[10px] text-muted-foreground">9B memakai profil RAM aman: konteks 2K, KV Q8, dan pemeriksaan memori sebelum dimuat. Jika ruang aman tidak cukup, Furina akan membatalkan load alih-alih membuat aplikasi lain tertutup.</p>}
                   </div>
                 );
               })}

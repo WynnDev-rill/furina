@@ -82,6 +82,10 @@ jobs:
           grep -q 'configureReasoningBudget' scripts/overlays/InferenceEngineImpl.kt
           grep -q 'loadedIdentityFingerprint' android-wrapper/app/src/main/java/com/wynndev/furina/LocalLlamaProvider.kt
           grep -q 'ReasoningStreamFilter' android-wrapper/app/src/main/java/com/wynndev/furina/LocalLlamaProvider.kt
+          grep -q 'verifySerialized' android-wrapper/app/src/main/java/com/wynndev/furina/ModelDownloadManager.kt
+          grep -q 'ensureNineBMemoryHeadroom' android-wrapper/app/src/main/java/com/wynndev/furina/LocalLlamaProvider.kt
+          grep -q 'g_memory_saver_model' scripts/overlays/ai_chat.cpp
+          grep -q 'ctx_params.type_k = GGML_TYPE_Q8_0' scripts/overlays/ai_chat.cpp
           grep -q 'PrivateContextStreamFilter' android-wrapper/app/src/main/java/com/wynndev/furina/LocalLlamaProvider.kt
           grep -q 'prepareModel(activeSessionId, name, effectivePersona)' src/routes/native.tsx
           grep -q 'api.mymemory.translated.net/get' src/lib/furina.functions.ts
@@ -116,14 +120,32 @@ jobs:
           sdkmanager \
             "ndk;29.0.13113456" \
             "cmake;3.31.6"
+          sudo apt-get update -qq
+          sudo apt-get install -y ccache
+
+      - name: Restore native compiler cache
+        if: steps.llama-cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: furina-llama-ccache-${{ runner.os }}-ndk29-${{ hashFiles('scripts/bootstrap-llama-android.sh', 'scripts/overlays/**') }}
+          restore-keys: |
+            furina-llama-ccache-${{ runner.os }}-ndk29-
 
       - name: Build pinned llama.cpp Android AAR
         if: steps.llama-cache.outputs.cache-hit != 'true'
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/29.0.13113456
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
+          CCACHE_MAXSIZE: 2G
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
         run: |
+          mkdir -p "$CCACHE_DIR"
+          ccache --zero-stats
           bash scripts/bootstrap-llama-android.sh
           test -s android-wrapper/app/libs/llama-android.aar
+          ccache --show-stats
 
       - name: Save pinned llama.cpp Android AAR cache
         if: steps.llama-cache.outputs.cache-hit != 'true'

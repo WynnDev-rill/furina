@@ -15,7 +15,10 @@ import java.io.File
 import java.io.FileInputStream
 import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class ModelDownloadManager(private val context: Context) {
     companion object {
@@ -25,6 +28,7 @@ class ModelDownloadManager(private val context: Context) {
     private val workManager = WorkManager.getInstance(context.applicationContext)
     private val prefs = context.getSharedPreferences(ModelDownloadKeys.PREFS, Context.MODE_PRIVATE)
     private val modelDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "models").apply { mkdirs() }
+    private val verificationLocks = ConcurrentHashMap<String, Mutex>()
 
     fun modelFile(spec: ModelSpec): File = File(modelDir, spec.fileName)
     private fun partialFile(spec: ModelSpec): File = File(modelDir, "${spec.fileName}.part")
@@ -174,6 +178,16 @@ class ModelDownloadManager(private val context: Context) {
             prefs.edit().putString("verification_error:${spec.id}", "Checksum model tidak cocok").apply()
         }
         return ok
+    }
+
+    /**
+     * Verification can be requested by both the settings status poller and the
+     * inference loader. Serializing per model prevents two full 5.6 GB scans
+     * from competing for I/O and page cache immediately before native load.
+     */
+    suspend fun verifySerialized(spec: ModelSpec, progress: ((Long, Long) -> Unit)? = null): Boolean {
+        val lock = verificationLocks.getOrPut(spec.id) { Mutex() }
+        return lock.withLock { verify(spec, progress) }
     }
 
     private fun formatGiB(bytes: Long): String = String.format(java.util.Locale.US, "%.1f GB", bytes / 1024.0 / 1024.0 / 1024.0)

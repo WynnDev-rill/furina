@@ -38,6 +38,8 @@ constexpr float DEFAULT_SAMPLER_TEMP    = 0.3f;
 static llama_model                      * g_model;
 static llama_context                    * g_context;
 static int                                g_active_context_size = DEFAULT_CONTEXT_SIZE;
+static int                                g_active_batch_size = BATCH_SIZE;
+static bool                               g_memory_saver_model = false;
 static llama_batch                        g_batch;
 static common_chat_templates_ptr          g_chat_templates;
 static common_sampler                   * g_sampler;
@@ -94,14 +96,20 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_load(JNIEnv *env, jobject, jstr
 
     clear_native_log();
 
-    // Furina is CPU-only. Keep optimized ARM/KleidiAI weight buffers enabled;
-    // the Poco F6 has enough memory and the actual loader failure was missing
-    // extracted backend libraries, not repacking.
-    model_params.n_gpu_layers = 0;
-    model_params.use_extra_bufts = true;
-
     const auto *model_path = env->GetStringUTFChars(jmodel_path, 0);
+    const std::string model_path_value(model_path);
+    g_memory_saver_model = model_path_value.find("9B") != std::string::npos ||
+                           model_path_value.find("9b") != std::string::npos;
+    g_active_batch_size = g_memory_saver_model ? 256 : BATCH_SIZE;
+
+    // Furina is CPU-only. Keep optimized ARM/KleidiAI weight buffers enabled;
+    // for 4B. The 9B profile disables additional packed weight buffers because
+    // their speed benefit is not worth pushing a 12 GB phone into LMKD pressure.
+    model_params.n_gpu_layers = 0;
+    model_params.use_extra_bufts = !g_memory_saver_model;
+
     LOGd("%s: Loading model from: \n%s\n", __func__, model_path);
+    LOGi("%s: Runtime profile: %s", __func__, g_memory_saver_model ? "9B memory-saver" : "4B performance");
 
     // App-specific external storage is FUSE-backed on many Android devices. Retry
     // without mmap when a valid GGUF cannot be mapped from that filesystem.
@@ -150,8 +158,14 @@ static llama_context *init_context(llama_model *model, const int n_ctx = DEFAULT
              __func__, trained_context_size, n_ctx);
     }
     ctx_params.n_ctx = n_ctx;
-    ctx_params.n_batch = BATCH_SIZE;
-    ctx_params.n_ubatch = UBATCH_SIZE;
+    ctx_params.n_batch = g_active_batch_size;
+    ctx_params.n_ubatch = g_memory_saver_model ? 128 : UBATCH_SIZE;
+    if (g_memory_saver_model) {
+        // Q8 KV halves cache memory relative to F16 with negligible quality
+        // impact for chat, and is supported by this CPU-only backend.
+        ctx_params.type_k = GGML_TYPE_Q8_0;
+        ctx_params.type_v = GGML_TYPE_Q8_0;
+    }
     ctx_params.n_threads = n_threads;
     ctx_params.n_threads_batch = n_threads_batch;
     auto *context = llama_init_from_model(g_model, ctx_params);
@@ -186,14 +200,16 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_configureReasoningBudget(
 extern "C"
 JNIEXPORT jint JNICALL
 Java_com_arm_aichat_internal_InferenceEngineImpl_prepare(JNIEnv * /*env*/, jobject /*unused*/) {
-    auto *context = init_context(g_model);
+    const int target_context = g_memory_saver_model ? DEFAULT_CONTEXT_SIZE / 2 : DEFAULT_CONTEXT_SIZE;
+    auto *context = init_context(g_model, target_context);
     if (!context) {
-        LOGw("%s: 4K context failed; retrying with 2K low-memory context", __func__);
-        context = init_context(g_model, DEFAULT_CONTEXT_SIZE / 2);
+        const int fallback_context = g_memory_saver_model ? DEFAULT_CONTEXT_SIZE / 4 : DEFAULT_CONTEXT_SIZE / 2;
+        LOGw("%s: Context allocation failed; retrying with %d tokens", __func__, fallback_context);
+        context = init_context(g_model, fallback_context);
     }
     if (!context) { return 1; }
     g_context = context;
-    g_batch = llama_batch_init(BATCH_SIZE, 0, 1);
+    g_batch = llama_batch_init(g_active_batch_size, 0, 1);
     g_chat_templates = common_chat_templates_init(g_model, "");
     g_sampler = new_sampler(DEFAULT_SAMPLER_TEMP, 0);
     return 0;
@@ -400,8 +416,8 @@ static int decode_tokens_in_batches(
         const bool compute_last_logit = false) {
     // Process tokens in batches using the global batch
     LOGd("%s: Decode %d tokens starting at position %d", __func__, (int) tokens.size(), start_pos);
-    for (int i = 0; i < (int) tokens.size(); i += BATCH_SIZE) {
-        const int cur_batch_size = std::min((int) tokens.size() - i, BATCH_SIZE);
+    for (int i = 0; i < (int) tokens.size(); i += g_active_batch_size) {
+        const int cur_batch_size = std::min((int) tokens.size() - i, g_active_batch_size);
         common_batch_clear(batch);
         LOGv("%s: Preparing a batch size of %d starting at: %d", __func__, cur_batch_size, i);
 
@@ -642,6 +658,8 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_unload(JNIEnv * /*unused*/, job
     g_context = nullptr;
     g_model = nullptr;
     g_active_context_size = DEFAULT_CONTEXT_SIZE;
+    g_active_batch_size = BATCH_SIZE;
+    g_memory_saver_model = false;
 }
 
 extern "C"
