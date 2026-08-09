@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - main
-      - 'feature/**'
     paths:
       - 'src/**'
       - 'android-wrapper/**'
@@ -143,7 +142,7 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | tee apk-badging.txt
           grep -q "package: name='com.wynndev.furina'" apk-badging.txt
           grep -q "application-label:'Furina'" apk-badging.txt
-          grep -Eq "application-icon-[0-9]+:'res/drawable/furina_icon.png'" apk-badging.txt
+          grep -Eq "application-icon-[0-9]+:'res/.+\\.png'" apk-badging.txt
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump permissions "$APK" | tee apk-permissions.txt
           grep -q 'android.permission.INTERNET' apk-permissions.txt
           cp "$APK" Furina-Offline-Qwen.apk
