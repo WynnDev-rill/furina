@@ -1,5 +1,18 @@
 # Furina Native Settings — Design QA
 
+## 2026-08-09 — Model download recovery and settings motion
+
+- Failure evidence: user screenshot `/workspace/scratch/2bb5d7990f38/upload/01-1000081092.jpg` showed both model cards reporting a corrupt checksum immediately after Download was pressed, plus Settings content visually crossing the title area.
+- Root cause (download): the native status poll compared the growing partial file against the final byte count and overwrote an active `downloading` state with `corrupt`.
+- Root cause (layout): the sheet header and form shared the same scroll surface; sticky positioning and compensating negative margins allowed content to appear above the header during restoration/scroll.
+- Implemented: integrity checks now run only after transfer activity ends, stale DownloadManager records and partial targets are cleaned before a retry, and binary/User-Agent request headers are explicit.
+- Implemented: the Settings sheet is a fixed-height flex surface with a non-scrolling header and a dedicated inner scroll region. The model progress indicator animates with `transform: scaleX()` rather than width changes.
+- Motion/accessibility: 150–300 ms transform/opacity transitions, 44 px close/download targets, clear inline recovery actions, `role="alert"`, and `prefers-reduced-motion` fallbacks.
+- Latest preview: `https://furina-da7w15vjd-indonesiafilmku-2721s-projects.vercel.app/native` at commit `8d97c7a32616dcdf6150ebfa7744e45da5d254e0`.
+- Browser evidence: both 4B and 9B cards are visible without the Android bridge; after the inner region was scrolled 620 CSS px, the dialog remained at `top: 0`, header at `top: 0` with height `112`, content viewport at `top: 112`, and page/dialog scroll remained `0`.
+- Console evidence: no application-origin warnings/errors; only unrelated cloud-browser extension metadata warnings.
+- Native validation boundary: the cloud preview cannot complete a multi-gigabyte Android DownloadManager transfer. CI compiles the native manager and regression-checks the active-transfer guard; the final 4B end-to-end download remains a physical-device smoke test.
+
 ## 2026-08-09 — Native Android system bars
 
 - Source target: user-provided MemoCard screenshot `/workspace/scratch/2bb5d7990f38/upload/02-1000081085.jpg`.
