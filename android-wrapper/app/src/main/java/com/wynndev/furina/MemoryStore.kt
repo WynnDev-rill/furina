@@ -100,7 +100,7 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
                     put("content", content); put("message_id", id); put("session_id", sessionId); put("role", role); put("created_at", createdAt.toString())
                 })
             } catch (_: Throwable) {}
-            db.execSQL("UPDATE sessions SET updated_at=? WHERE id=?", arrayOf(createdAt, sessionId))
+            db.execSQL("UPDATE sessions SET updated_at=? WHERE id=?", arrayOf<Any>(createdAt, sessionId))
             if (role == "user") {
                 db.rawQuery("SELECT title FROM sessions WHERE id=?", arrayOf(sessionId)).use { c ->
                     if (c.moveToFirst() && c.getString(0) == "Percakapan baru") {
