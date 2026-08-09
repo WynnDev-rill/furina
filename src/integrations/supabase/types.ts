@@ -130,7 +130,6 @@ export type Database = {
       }
       memories: {
         Row: {
-          access_count: number
           character_id: string
           compressed: boolean
           content: string
@@ -146,7 +145,6 @@ export type Database = {
           user_id: string
         }
         Insert: {
-          access_count?: number
           character_id?: string
           compressed?: boolean
           content: string
@@ -162,7 +160,6 @@ export type Database = {
           user_id: string
         }
         Update: {
-          access_count?: number
           character_id?: string
           compressed?: boolean
           content?: string

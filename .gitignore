@@ -16,22 +16,9 @@ dist-ssr
 .nitro
 *.local
 
-# Environment and secrets
-.env
-.env.*
-!.env.example
-*.jks
-*.keystore
-*.jks.b64
-*.keystore.b64
-
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars
-
-# Android build output
-android-wrapper/.gradle/
-android-wrapper/app/build/
 
 # Editor directories and files
 .vscode/*

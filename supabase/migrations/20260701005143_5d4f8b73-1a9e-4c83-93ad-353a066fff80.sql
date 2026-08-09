@@ -1,1 +1,0 @@
-ALTER TABLE public.memories ADD COLUMN IF NOT EXISTS access_count int NOT NULL DEFAULT 0;
