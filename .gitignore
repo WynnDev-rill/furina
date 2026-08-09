@@ -11,10 +11,12 @@ node_modules
 dist
 dist-ssr
 .output
-.vinxi
-.tanstack/**
+.vinxi/**
 .nitro
 *.local
+
+# Generated Android signing material
+android-wrapper/app/furina-release.jks
 
 # Wrangler / Cloudflare
 .wrangler/
