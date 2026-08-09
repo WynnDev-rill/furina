@@ -14,6 +14,11 @@ git -C "$WORK" checkout "$LLAMA_COMMIT"
 cp "$ROOT/scripts/overlays/ai_chat.cpp" "$WORK/examples/llama.android/lib/src/main/cpp/ai_chat.cpp"
 cp "$ROOT/scripts/overlays/InferenceEngineImpl.kt" "$WORK/examples/llama.android/lib/src/main/java/com/arm/aichat/internal/InferenceEngineImpl.kt"
 
+# Furina targets physical Android phones. Do not spend CI time or APK space on
+# the x86_64 emulator backend; every supported Play Store device here is arm64.
+sed -i 's/listOf("arm64-v8a", "x86_64")/listOf("arm64-v8a")/' \
+    "$WORK/examples/llama.android/lib/build.gradle.kts"
+
 pushd "$WORK/examples/llama.android" >/dev/null
 chmod +x gradlew
 ./gradlew :lib:assembleRelease --no-daemon --stacktrace
