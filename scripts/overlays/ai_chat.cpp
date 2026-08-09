@@ -2,6 +2,7 @@
 #include <jni.h>
 #include <iomanip>
 #include <cmath>
+#include <mutex>
 #include <string>
 #include <unistd.h>
 #include <sampling.h>
@@ -40,11 +41,39 @@ static llama_batch                        g_batch;
 static common_chat_templates_ptr          g_chat_templates;
 static common_sampler                   * g_sampler;
 
+// Keep a small in-process copy of llama.cpp's native log. Logcat is not useful
+// to an end user, and reducing every loader failure to "code 1" hid the actual
+// cause on real devices.
+static std::mutex                         g_log_mutex;
+static std::string                        g_native_log;
+constexpr size_t                          NATIVE_LOG_LIMIT = 16 * 1024;
+
+static void furina_log_callback(enum ggml_log_level level, const char *text, void *user) {
+    aichat_android_log_callback(level, text, user);
+    if (!text) return;
+    std::lock_guard<std::mutex> lock(g_log_mutex);
+    g_native_log.append(text);
+    if (g_native_log.size() > NATIVE_LOG_LIMIT) {
+        g_native_log.erase(0, g_native_log.size() - NATIVE_LOG_LIMIT);
+    }
+}
+
+static void clear_native_log() {
+    std::lock_guard<std::mutex> lock(g_log_mutex);
+    g_native_log.clear();
+}
+
+static std::string native_log_tail() {
+    std::lock_guard<std::mutex> lock(g_log_mutex);
+    constexpr size_t tail_size = 1800;
+    return g_native_log.substr(g_native_log.size() > tail_size ? g_native_log.size() - tail_size : 0);
+}
+
 extern "C"
 JNIEXPORT void JNICALL
 Java_com_arm_aichat_internal_InferenceEngineImpl_init(JNIEnv *env, jobject /*unused*/, jstring nativeLibDir) {
     // Set llama log handler to Android
-    llama_log_set(aichat_android_log_callback, nullptr);
+    llama_log_set(furina_log_callback, nullptr);
 
     // Loading all CPU backend variants
     const auto *path_to_backend = env->GetStringUTFChars(nativeLibDir, 0);
@@ -61,6 +90,16 @@ extern "C"
 JNIEXPORT jint JNICALL
 Java_com_arm_aichat_internal_InferenceEngineImpl_load(JNIEnv *env, jobject, jstring jmodel_path) {
     llama_model_params model_params = llama_model_default_params();
+
+    clear_native_log();
+
+    // Furina is CPU-only. The Android sample enables KleidiAI repacked weight
+    // buffers by default; those buffers add a large transient allocation and
+    // can reject newer hybrid Qwen3.5 tensors on some ARM variants. Force the
+    // portable CPU buffer path. It is slower only during model load and keeps
+    // inference fully accelerated by the selected CPU backend.
+    model_params.n_gpu_layers = 0;
+    model_params.use_extra_bufts = false;
 
     const auto *model_path = env->GetStringUTFChars(jmodel_path, 0);
     LOGd("%s: Loading model from: \n%s\n", __func__, model_path);
@@ -80,6 +119,13 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_load(JNIEnv *env, jobject, jstr
     }
     g_model = model;
     return 0;
+}
+
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_com_arm_aichat_internal_InferenceEngineImpl_lastError(JNIEnv *env, jobject /*unused*/) {
+    const std::string detail = native_log_tail();
+    return env->NewStringUTF(detail.c_str());
 }
 
 static llama_context *init_context(llama_model *model, const int n_ctx = DEFAULT_CONTEXT_SIZE) {
@@ -320,12 +366,12 @@ static std::string chat_add_and_format(const std::string &role, const std::strin
  * - token chars caching
  * - current assistant message being generated
  */
-static llama_pos stop_generation_position;
+static int generated_tokens_remaining;
 static std::string cached_token_chars;
 static std::ostringstream assistant_ss;
 
 static void reset_short_term_states() {
-    stop_generation_position = 0;
+    generated_tokens_remaining = 0;
     cached_token_chars.clear();
     assistant_ss.str("");
 }
@@ -343,8 +389,9 @@ static int decode_tokens_in_batches(
         common_batch_clear(batch);
         LOGv("%s: Preparing a batch size of %d starting at: %d", __func__, cur_batch_size, i);
 
-        // Shift context if current batch cannot fit into the context
-        if (start_pos + i + cur_batch_size >= g_active_context_size - OVERFLOW_HEADROOM) {
+        // current_position is the end of the actual KV cache. Keep it updated
+        // after every batch so a context shift rebases the following positions.
+        if (current_position + cur_batch_size >= g_active_context_size - OVERFLOW_HEADROOM) {
             LOGw("%s: Current batch won't fit into context! Shifting...", __func__);
             shift_context();
         }
@@ -352,7 +399,7 @@ static int decode_tokens_in_batches(
         // Add tokens to the batch with proper positions
         for (int j = 0; j < cur_batch_size; j++) {
             const llama_token token_id = tokens[i + j];
-            const llama_pos position = start_pos + i + j;
+            const llama_pos position = current_position + j;
             const bool want_logit = compute_last_logit && (i + j == tokens.size() - 1);
             common_batch_add(batch, token_id, position, {0}, want_logit);
         }
@@ -363,6 +410,7 @@ static int decode_tokens_in_batches(
             LOGe("%s: llama_decode failed w/ %d", __func__, decode_result);
             return 1;
         }
+        current_position += cur_batch_size;
     }
     return 0;
 }
@@ -412,7 +460,7 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_processSystemPrompt(
     }
 
     // Update position
-    system_prompt_position = current_position = (int) system_tokens.size();
+    system_prompt_position = current_position;
     return 0;
 }
 
@@ -461,8 +509,7 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_processUserPrompt(
     }
 
     // Update position
-    current_position += (int) user_tokens.size();
-    stop_generation_position = current_position + n_predict;
+    generated_tokens_remaining = std::max(0, (int) n_predict);
     return 0;
 }
 
@@ -513,8 +560,8 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_generateNextToken(
     }
 
     // Stop if reaching the marked position
-    if (current_position >= stop_generation_position) {
-        LOGw("%s: STOP: hitting stop position: %d", __func__, stop_generation_position);
+    if (generated_tokens_remaining <= 0) {
+        LOGw("%s: STOP: generated-token limit reached", __func__);
         return nullptr;
     }
 
@@ -532,6 +579,7 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_generateNextToken(
 
     // Update position
     current_position++;
+    generated_tokens_remaining--;
 
     // Stop if next token is EOG
     if (llama_vocab_is_eog(llama_model_get_vocab(g_model), new_token_id)) {
