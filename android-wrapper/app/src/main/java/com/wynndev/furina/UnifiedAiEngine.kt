@@ -83,9 +83,28 @@ class UnifiedAiEngine(
 
     suspend fun unload() = providers.values.forEach { it.unload() }
 
-    private fun responseBudgetFor(message: String): Int = when {
-        message.length <= 40 -> 96
-        message.length <= 180 -> 192
-        else -> 384
+    private fun responseBudgetFor(message: String): Int {
+        val normalized = message.trim().lowercase()
+        val requestedWords = Regex("\\b(\\d{2,4})\\s*(kata|words?)\\b")
+            .find(normalized)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+        if (requestedWords != null) return (requestedWords * 3 / 2).coerceIn(256, 1024)
+
+        val greeting = Regex(
+            "^(hi+|hai+|halo+|hello+|hey+|pagi|siang|sore|malam|apa kabar)[!?. ,]*$"
+        )
+        val longForm = Regex(
+            "\\b(esai|essay|artikel|article|cerita|story|surat|letter|email|laporan|report|" +
+                "rinci|mendetail|detailed|panjang|long-form)\\b"
+        )
+        return when {
+            greeting.matches(normalized) -> 96
+            longForm.containsMatchIn(normalized) -> 512
+            message.length <= 40 -> 192
+            message.length <= 180 -> 256
+            else -> 384
+        }
     }
 }
