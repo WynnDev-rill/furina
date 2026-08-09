@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileInputStream
 import java.io.IOException
 
 /**
@@ -83,6 +84,9 @@ internal class InferenceEngineImpl private constructor(
 
     @FastNative
     private external fun load(modelPath: String): Int
+
+    @FastNative
+    private external fun lastError(): String
 
     @FastNative
     private external fun prepare(): Int
@@ -159,15 +163,34 @@ internal class InferenceEngineImpl private constructor(
                     require(it.exists()) { "File not found" }
                     require(it.isFile) { "Not a valid file" }
                     require(it.canRead()) { "Cannot read file" }
+                    require(it.length() >= 24L) { "File GGUF terlalu kecil (${it.length()} byte)" }
+                    val magic = ByteArray(4)
+                    FileInputStream(it).use { input ->
+                        require(input.read(magic) == magic.size) { "Header GGUF tidak dapat dibaca" }
+                    }
+                    require(magic.contentEquals(byteArrayOf(0x47, 0x47, 0x55, 0x46))) {
+                        "Header model bukan GGUF"
+                    }
                 }
 
                 Log.i(TAG, "Loading model... \n$pathToModel")
                 _readyForSystemPrompt = false
                 _state.value = InferenceEngine.State.LoadingModel
                 load(pathToModel).let {
-                    if (it != 0) throw IOException(
-                        "llama.cpp gagal memuat GGUF (kode $it). Kemungkinan RAM tidak cukup, storage tidak kompatibel, atau format model rusak."
-                    )
+                    if (it != 0) {
+                        val detail = lastError()
+                            .lineSequence()
+                            .map(String::trim)
+                            .filter(String::isNotBlank)
+                            .toList()
+                            .takeLast(8)
+                            .joinToString(" ")
+                            .take(1200)
+                        throw IOException(
+                            if (detail.isBlank()) "llama.cpp gagal memuat GGUF (kode $it)"
+                            else "llama.cpp: $detail"
+                        )
+                    }
                 }
                 prepare().let {
                     if (it != 0) throw IOException("Failed to prepare resources")
