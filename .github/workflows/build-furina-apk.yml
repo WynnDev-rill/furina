@@ -118,6 +118,8 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          mkdir -p app/src/main/res/drawable
+          cp ../public/icon-192.png app/src/main/res/drawable/furina_icon.png
           gradle --no-daemon --stacktrace clean assembleDebug 2>&1 | tee ../gradle-build.log
 
       - name: Upload Gradle diagnostic log
@@ -137,6 +139,7 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | tee apk-badging.txt
           grep -q "package: name='com.wynndev.furina'" apk-badging.txt
           grep -q "application-label:'Furina'" apk-badging.txt
+          grep -Eq "application-icon-[0-9]+:'res/drawable/furina_icon.png'" apk-badging.txt
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump permissions "$APK" | tee apk-permissions.txt
           grep -q 'android.permission.INTERNET' apk-permissions.txt
           cp "$APK" Furina-Offline-Qwen.apk

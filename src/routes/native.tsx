@@ -337,14 +337,14 @@ function FurinaNativeApp() {
       <div className="absolute inset-0 bg-gradient-to-b from-[#050712]/25 via-[#050712]/35 to-[#050712]/90" />
 
       <header className="absolute inset-x-0 top-0 z-30 flex h-16 items-center justify-between border-b border-white/10 bg-[#050712]/65 px-3 backdrop-blur-xl">
-        <Button variant="ghost" size="icon" className="text-white" onClick={() => setOpenSessions(true)}>
+        <Button variant="ghost" size="icon" className="h-11 w-11 text-white" aria-label="Buka daftar percakapan" onClick={() => setOpenSessions(true)}>
           <MessagesSquare className="h-5 w-5" />
         </Button>
         <div className="min-w-0 text-center">
           <p className="truncate text-sm font-semibold">{name}</p>
           <p className="text-[10px] text-white/60">{statusText}</p>
         </div>
-        <Button variant="ghost" size="icon" className="text-white" onClick={() => setOpenSettings(true)}>
+        <Button variant="ghost" size="icon" className="h-11 w-11 text-white" aria-label="Buka pengaturan" onClick={() => setOpenSettings(true)}>
           <Settings className="h-5 w-5" />
         </Button>
       </header>
@@ -390,9 +390,9 @@ function FurinaNativeApp() {
             className="max-h-32 min-h-11 resize-none border-white/15 bg-white/8 text-white placeholder:text-white/45"
           />
           {sending ? (
-            <Button size="icon" variant="secondary" className="shrink-0" aria-label="Hentikan jawaban" onClick={() => bridge()?.stopGeneration()}><Square className="h-4 w-4" /></Button>
+            <Button size="icon" variant="secondary" className="h-11 w-11 shrink-0" aria-label="Hentikan jawaban" onClick={() => bridge()?.stopGeneration()}><Square className="h-4 w-4" /></Button>
           ) : (
-            <Button size="icon" className="shrink-0" disabled={!canSend} onClick={send}><Send className="h-4 w-4" /></Button>
+            <Button size="icon" className="h-11 w-11 shrink-0" aria-label="Kirim pesan" disabled={!canSend} onClick={send}><Send className="h-4 w-4" /></Button>
           )}
         </div>
       </div>

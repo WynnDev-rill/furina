@@ -6,8 +6,10 @@
     <application
         android:allowBackup="false"
         android:hardwareAccelerated="true"
+        android:icon="@drawable/furina_icon"
         android:label="Furina"
-        android:theme="@android:style/Theme.Material.NoActionBar"
+        android:roundIcon="@drawable/furina_icon"
+        android:theme="@style/Theme.Furina"
         android:usesCleartextTraffic="false">
         <activity
             android:name=".MainActivity"

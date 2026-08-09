@@ -5,9 +5,11 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
@@ -49,8 +51,12 @@ class MainActivity : ComponentActivity() {
             settings.allowContentAccess = false
             settings.mediaPlaybackRequiresUserGesture = false
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            settings.safeBrowsingEnabled = true
+            settings.allowFileAccessFromFileURLs = false
+            settings.allowUniversalAccessFromFileURLs = false
             settings.userAgentString = settings.userAgentString + " FurinaAndroid/4.0"
         }
+        WebView.setWebContentsDebuggingEnabled(false)
 
         val store = MemoryStore(this)
         val modelDownloads = ModelDownloadManager(this)
@@ -71,6 +77,16 @@ class MainActivity : ComponentActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 bridge.notifyNativeReady()
             }
+
+            override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
+                if (request?.isForMainFrame == true && (errorResponse?.statusCode ?: 0) >= 400) {
+                    showLoadError("Server Furina mengembalikan ${errorResponse?.statusCode ?: "error"}.")
+                }
+            }
+
+            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: android.webkit.WebResourceError?) {
+                if (request?.isForMainFrame == true) showLoadError("Antarmuka Furina belum dapat dimuat. Periksa koneksi lalu coba lagi.")
+            }
         }
 
         setContentView(webView)
@@ -87,6 +103,16 @@ class MainActivity : ComponentActivity() {
 
     fun launchBackupFolderPicker() = folderPicker.launch(null)
     fun launchRestorePicker() = restorePicker.launch(arrayOf("application/octet-stream", "application/zip", "*/*"))
+
+    private fun showLoadError(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        val html = """
+            <!doctype html><html lang="id"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+            <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#050712;color:#fff;font-family:system-ui;padding:24px;box-sizing:border-box}.card{max-width:360px;text-align:center;background:#0c1022;border:1px solid #26304d;border-radius:20px;padding:24px}h1{font-size:22px;margin:0 0 10px}p{color:#b8c2d9;line-height:1.55}button{min-height:48px;border:0;border-radius:14px;padding:0 22px;background:#38bdf8;color:#03111b;font-weight:700}</style>
+            <body><main class="card"><h1>Furina belum bisa dibuka</h1><p>${message.replace("<", "&lt;")}</p><button onclick="location.href='$APP_URL'">Coba lagi</button></main></body></html>
+        """.trimIndent()
+        webView.loadDataWithBaseURL(APP_URL, html, "text/html", "UTF-8", null)
+    }
 
     override fun onSaveInstanceState(outState: Bundle) {
         webView.saveState(outState)
