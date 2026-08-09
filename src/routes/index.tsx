@@ -650,12 +650,13 @@ function FurinaApp() {
     try {
       const currentMsgs = (conversations.find((c) => c.id === activeId)?.messages ?? []);
       const ctxMsgs = currentMsgs
-        .filter((m) => m.status !== "failed")
+        .filter((m) => m.status !== "failed" && (m.content ?? "").trim().length > 0)
         .slice(-12)
-        .map((m) => ({ role: m.role, content: m.content || "" }));
+        .map((m) => ({ role: m.role, content: m.content.trim() }));
       if (!ctxMsgs.length || ctxMsgs[ctxMsgs.length - 1]?.content !== messageContent) {
         ctxMsgs.push({ role: "user", content: messageContent });
       }
+
 
       const lastAssistant = [...currentMsgs].reverse().find((m) => m.role === "assistant");
       const millisSinceLastAssistant = lastAssistant ? Math.max(0, Date.now() - lastAssistant.at) : undefined;

@@ -243,47 +243,79 @@ ${langHint}
 
 KONTEKS WAKTU: ${realtimeContextString()}${gapNote}${memoryContext}${styleNote}`;
 
-    const built: Array<{ role: string; content: unknown }> = data.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
-    const lastIdx = data.messages.length - 1;
-    const last = data.messages[lastIdx];
-    if (data.imageDataUrl && last.role === "user") {
-      built.push({
-        role: "user",
-        content: [
-          { type: "text", text: last.content || "(lihat gambar)" },
-          { type: "image_url", image_url: { url: data.imageDataUrl } },
-        ],
-      });
-    } else {
-      built.push({ role: last.role, content: last.content });
+    // Sanitasi riwayat: buang pesan kosong (balasan gagal/kosong bikin provider 400),
+    // dan gabungkan role berurutan yang sama.
+    const cleaned = data.messages
+      .map((m) => ({ role: m.role, content: (m.content ?? "").trim() }))
+      .filter((m) => m.content.length > 0);
+
+    const history: Array<{ role: string; content: unknown }> = [];
+    for (const m of cleaned) {
+      const prev = history[history.length - 1];
+      if (prev && prev.role === m.role) {
+        prev.content = `${prev.content}\n${m.content}`;
+      } else {
+        history.push({ role: m.role, content: m.content });
+      }
     }
 
+    // Gemini menolak request yang diakhiri giliran assistant.
+    if (!history.length || history[history.length - 1].role !== "user") {
+      history.push({ role: "user", content: userText.trim() || "(lanjut)" });
+    }
 
-    const res = await fetch(`${GATEWAY}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Lovable-API-Key": apiKey(),
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [{ role: "system", content: system }, ...built],
-      }),
-    });
+    if (data.imageDataUrl) {
+      const lastEntry = history[history.length - 1];
+      lastEntry.content = [
+        { type: "text", text: String(lastEntry.content) || "(lihat gambar)" },
+        { type: "image_url", image_url: { url: data.imageDataUrl } },
+      ];
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 90_000);
+    let res: Response;
+    try {
+      res = await fetch(`${GATEWAY}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Lovable-API-Key": apiKey(),
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [{ role: "system", content: system }, ...history],
+        }),
+        signal: controller.signal,
+      });
+    } catch (e) {
+      clearTimeout(timer);
+      if (e instanceof Error && e.name === "AbortError") {
+        throw new Error("Balasan terlalu lama. Coba kirim ulang.");
+      }
+      throw new Error("Koneksi ke AI gagal. Coba kirim ulang.");
+    }
+    clearTimeout(timer);
     if (!res.ok) {
       const txt = await res.text();
+      console.error("Gateway error", res.status, txt.slice(0, 500));
       if (res.status === 429) throw new Error("Rate limit. Coba lagi sebentar.");
       if (res.status === 402) throw new Error("Kredit AI habis. Tambah kredit di Lovable Cloud.");
-      throw new Error(`Chat failed: ${res.status} ${txt}`);
+      throw new Error(`Chat gagal (${res.status}). Coba kirim ulang.`);
     }
     const json = await res.json();
-    const reply: string = json.choices?.[0]?.message?.content ?? "";
+    const reply: string = (json.choices?.[0]?.message?.content ?? "").trim();
+    if (!reply) {
+      console.error("Empty reply from gateway", JSON.stringify(json).slice(0, 500));
+      throw new Error("Balasan kosong dari AI. Coba kirim ulang.");
+    }
 
     extractAndStoreMemory(data.userId, userText, reply).catch((e) =>
       console.error("Memory extraction failed:", e),
     );
 
     return { reply };
+
   });
 
 function humanizeOccurredAt(iso: string): string {
