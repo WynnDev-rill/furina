@@ -1,107 +1,115 @@
 package com.wynndev.furina
 
-import android.app.DownloadManager
 import android.content.Context
-import android.net.Uri
 import android.os.Environment
 import android.os.StatFs
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
 import java.security.MessageDigest
+import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 class ModelDownloadManager(private val context: Context) {
     companion object {
         private const val DOWNLOAD_HEADROOM_BYTES = 512L * 1024L * 1024L
     }
 
-    private val downloads = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-    private val prefs = context.getSharedPreferences("furina_models", Context.MODE_PRIVATE)
+    private val workManager = WorkManager.getInstance(context.applicationContext)
+    private val prefs = context.getSharedPreferences(ModelDownloadKeys.PREFS, Context.MODE_PRIVATE)
     private val modelDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "models").apply { mkdirs() }
 
     fun modelFile(spec: ModelSpec): File = File(modelDir, spec.fileName)
+    private fun partialFile(spec: ModelSpec): File = File(modelDir, "${spec.fileName}.part")
+    private fun uniqueWork(spec: ModelSpec) = "furina-model-${spec.id}"
 
     @Synchronized
     fun start(spec: ModelSpec): JSONObject {
-        val existingId = prefs.getLong("download:${spec.id}", -1L)
-        if (existingId > 0L) {
-            val s = status(spec)
-            if (s.optString("state") == "downloading" || s.optString("state") == "paused") return s
-            downloads.remove(existingId)
-        }
+        migrateLegacyDownload(spec)
+        val current = status(spec)
+        if (current.optString("state") == "downloading") return current
 
         val target = modelFile(spec)
         require(!target.exists() || target.delete()) {
             "File model lama tidak dapat dibersihkan. Coba hapus model lalu ulangi."
         }
         val available = StatFs(modelDir.absolutePath).availableBytes
-        require(available >= spec.expectedBytes + DOWNLOAD_HEADROOM_BYTES) {
+        val reusablePartial = partialFile(spec).length().coerceAtMost(spec.expectedBytes)
+        require(available + reusablePartial >= spec.expectedBytes + DOWNLOAD_HEADROOM_BYTES) {
             "Penyimpanan tidak cukup. Sisakan setidaknya ${formatGiB(spec.expectedBytes + DOWNLOAD_HEADROOM_BYTES)}."
         }
-        prefs.edit().remove("verified:${spec.id}").remove("verification_error:${spec.id}").apply()
+        prefs.edit()
+            .remove("cancelled:${spec.id}")
+            .remove("verified:${spec.id}")
+            .remove("verification_error:${spec.id}")
+            .remove("error:${spec.id}")
+            .putString("state:${spec.id}", "downloading")
+            .putLong("downloaded:${spec.id}", partialFile(spec).length())
+            .putLong("total:${spec.id}", spec.expectedBytes)
+            .apply()
 
-        val request = DownloadManager.Request(Uri.parse(spec.downloadUrl))
-            .setTitle(spec.displayName)
-            .setDescription("Mengunduh model AI Furina di latar belakang")
-            .setAllowedOverMetered(true)
-            .setAllowedOverRoaming(false)
-            .addRequestHeader("Accept", "application/octet-stream")
-            .addRequestHeader("User-Agent", "FurinaAndroid/4.0")
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "models/${spec.fileName}")
-
-        val id = downloads.enqueue(request)
-        prefs.edit().putLong("download:${spec.id}", id).apply()
+        val request = OneTimeWorkRequestBuilder<ModelDownloadWorker>()
+            .setInputData(workDataOf(
+                ModelDownloadKeys.KEY_MODEL_ID to spec.id,
+                ModelDownloadKeys.KEY_MODEL_NAME to spec.displayName,
+                ModelDownloadKeys.KEY_URL to spec.downloadUrl,
+                ModelDownloadKeys.KEY_FILE_NAME to spec.fileName,
+                ModelDownloadKeys.KEY_EXPECTED_BYTES to spec.expectedBytes,
+            ))
+            .setConstraints(Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .setRequiresStorageNotLow(true)
+                .build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .addTag(uniqueWork(spec))
+            .build()
+        workManager.enqueueUniqueWork(uniqueWork(spec), ExistingWorkPolicy.REPLACE, request)
+        prefs.edit().putString("worker:${spec.id}", request.id.toString()).apply()
         return status(spec)
     }
 
     @Synchronized
     fun cancel(spec: ModelSpec): JSONObject {
-        val id = prefs.getLong("download:${spec.id}", -1L)
-        if (id > 0L) downloads.remove(id)
-        prefs.edit().remove("download:${spec.id}").remove("verified:${spec.id}").apply()
-        prefs.edit().remove("verification_error:${spec.id}").apply()
+        prefs.edit().putBoolean("cancelled:${spec.id}", true).apply()
+        workManager.cancelUniqueWork(uniqueWork(spec))
+        prefs.getString("worker:${spec.id}", null)?.let { runCatching { workManager.cancelWorkById(UUID.fromString(it)) } }
+        prefs.edit().remove("worker:${spec.id}").remove("download:${spec.id}").remove("verified:${spec.id}").apply()
+        prefs.edit()
+            .remove("verification_error:${spec.id}")
+            .remove("state:${spec.id}")
+            .remove("error:${spec.id}")
+            .remove("downloaded:${spec.id}")
+            .remove("total:${spec.id}")
+            .apply()
         modelFile(spec).delete()
+        partialFile(spec).delete()
         return status(spec)
     }
 
     @Synchronized
     fun delete(spec: ModelSpec): JSONObject {
-        val id = prefs.getLong("download:${spec.id}", -1L)
-        if (id > 0L) downloads.remove(id)
-        prefs.edit().remove("download:${spec.id}").remove("verified:${spec.id}").apply()
-        prefs.edit().remove("verification_error:${spec.id}").apply()
-        modelFile(spec).delete()
-        return status(spec)
+        return cancel(spec)
     }
 
     fun status(spec: ModelSpec): JSONObject {
         val file = modelFile(spec)
-        val id = prefs.getLong("download:${spec.id}", -1L)
-        var state = if (file.exists() && file.length() > 0) "ready" else "not_downloaded"
-        var downloaded = if (file.exists()) file.length() else 0L
-        var total = if (spec.expectedBytes > 0) spec.expectedBytes else 0L
-        var reason = 0
-
-        if (id > 0L) {
-            val cursor = downloads.query(DownloadManager.Query().setFilterById(id))
-            cursor?.use {
-                if (it.moveToFirst()) {
-                    val status = it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-                    downloaded = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)).coerceAtLeast(0L)
-                    val reportedTotal = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-                    if (reportedTotal > 0L) total = reportedTotal
-                    reason = it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
-                    state = when (status) {
-                        DownloadManager.STATUS_PENDING, DownloadManager.STATUS_RUNNING -> "downloading"
-                        DownloadManager.STATUS_PAUSED -> "paused"
-                        DownloadManager.STATUS_SUCCESSFUL -> if (file.exists()) "ready" else "missing"
-                        DownloadManager.STATUS_FAILED -> "failed"
-                        else -> state
-                    }
-                }
-            }
+        val partial = partialFile(spec)
+        var state = prefs.getString("state:${spec.id}", null)
+            ?: if (file.exists() && file.length() > 0) "ready" else if (partial.exists()) "paused" else "not_downloaded"
+        val downloaded = when {
+            file.exists() -> file.length()
+            partial.exists() -> partial.length()
+            else -> prefs.getLong("downloaded:${spec.id}", 0L)
         }
+        val total = prefs.getLong("total:${spec.id}", spec.expectedBytes).coerceAtLeast(spec.expectedBytes)
+        val reason = 0
 
         val sizeMatches = !file.exists() || file.length() == spec.expectedBytes
         val verificationError = prefs.getString("verification_error:${spec.id}", null)
@@ -119,8 +127,22 @@ class ModelDownloadManager(private val context: Context) {
             .put("verified", verified)
             .put("reason", reason)
             .put("availableBytes", StatFs(modelDir.absolutePath).availableBytes)
-            .put("error", verificationError ?: "")
+            .put("error", verificationError ?: prefs.getString("error:${spec.id}", "") ?: "")
             .put("path", if (file.exists()) file.absolutePath else "")
+    }
+
+    private fun migrateLegacyDownload(spec: ModelSpec) {
+        val legacyId = prefs.getLong("download:${spec.id}", -1L)
+        if (legacyId <= 0L) return
+        runCatching {
+            val service = context.getSystemService(Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+            service.remove(legacyId)
+        }
+        prefs.edit().remove("download:${spec.id}").apply()
+        val legacyTarget = modelFile(spec)
+        if (legacyTarget.exists() && legacyTarget.length() in 1 until spec.expectedBytes) {
+            legacyTarget.renameTo(partialFile(spec))
+        }
     }
 
     fun verify(spec: ModelSpec, progress: ((Long, Long) -> Unit)? = null): Boolean {

@@ -59,6 +59,12 @@ jobs:
           grep -q 'DB_VERSION = 2' android-wrapper/app/src/main/java/com/wynndev/furina/MemoryStore.kt
           grep -q 'saveAppSettings' src/routes/native.tsx
           grep -q 'val transferActive = state == "downloading" || state == "paused"' android-wrapper/app/src/main/java/com/wynndev/furina/ModelDownloadManager.kt
+          grep -q 'OneTimeWorkRequestBuilder<ModelDownloadWorker>' android-wrapper/app/src/main/java/com/wynndev/furina/ModelDownloadManager.kt
+          grep -q 'setForeground(createForegroundInfo' android-wrapper/app/src/main/java/com/wynndev/furina/ModelDownloadWorker.kt
+          grep -q 'setRequestProperty("Range"' android-wrapper/app/src/main/java/com/wynndev/furina/ModelDownloadWorker.kt
+          grep -q 'fun prepareModel' android-wrapper/app/src/main/java/com/wynndev/furina/FurinaBridge.kt
+          grep -q 'DEFAULT_CONTEXT_SIZE    = 4096' scripts/bootstrap-llama-android.sh
+          ! grep -q 'engine.destroy()' android-wrapper/app/src/main/java/com/wynndev/furina/FurinaBridge.kt
           grep -q 'transition-transform duration-300 ease-out' src/routes/native.tsx
           grep -q 'setDecorFitsSystemWindows(window, true)' android-wrapper/app/src/main/java/com/wynndev/furina/MainActivity.kt
           grep -q 'windowOptOutEdgeToEdgeEnforcement' android-wrapper/app/src/main/res/values/styles.xml
@@ -152,6 +158,7 @@ jobs:
           grep -Eq "application-icon-[0-9]+:'res/.+\\.png'" apk-badging.txt
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump permissions "$APK" | tee apk-permissions.txt
           grep -q 'android.permission.INTERNET' apk-permissions.txt
+          grep -q 'android.permission.FOREGROUND_SERVICE_DATA_SYNC' apk-permissions.txt
           cp "$APK" Furina-Stable.apk
           ls -lh Furina-Stable.apk
 

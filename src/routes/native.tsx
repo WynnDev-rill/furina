@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle, Brain, Check, Cloud, Copy, Download, HardDrive, Image as ImageIcon, Loader2,
   MessageSquarePlus, MessagesSquare, Moon, Play, Plus, RotateCcw, Send,
-  Settings, Sparkles, Square, Sun, Trash2, Volume2, X,
+  Settings, ShieldCheck, Sparkles, Square, Sun, Trash2, Volume2, X, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,6 +78,7 @@ type NativeBridge = {
   appSettings(): string;
   saveAppSettings(settingsJson: string): void;
   setSystemTheme(dark: boolean): void;
+  prepareModel(sessionId: string, persona: string): void;
   generate(requestId: string, sessionId: string, userText: string, persona: string): void;
   stopGeneration(): void;
   backupInfo(): string;
@@ -187,6 +188,7 @@ function FurinaNativeApp() {
   const [selectedModel, setSelectedModel] = useState("");
   const [runtimeState, setRuntimeState] = useState("idle");
   const [runtimeProgress, setRuntimeProgress] = useState(0);
+  const [runtimeError, setRuntimeError] = useState("");
   const [sessions, setSessions] = useState<NativeSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState("");
   const [messages, setMessages] = useState<NativeMessage[]>([]);
@@ -222,6 +224,16 @@ function FurinaNativeApp() {
   const preparedAudioRef = useRef<Map<string, string>>(new Map());
   const preparingAudioRef = useRef<Set<string>>(new Set());
   const activeSessionRef = useRef("");
+
+  const effectivePersona = useMemo(() => {
+    const languageInstruction: Record<ReplyLanguage, string> = {
+      auto: "",
+      ja: "Always reply in Japanese unless the user explicitly requests another language.",
+      en: "Always reply in English unless the user explicitly requests another language.",
+      id: "Selalu balas dalam bahasa Indonesia kecuali pengguna secara eksplisit meminta bahasa lain.",
+    };
+    return [persona, languageInstruction[language]].filter(Boolean).join("\n\n");
+  }, [persona, language]);
 
   const bridge = () => typeof window !== "undefined" ? window.FurinaNative : undefined;
 
@@ -321,16 +333,19 @@ function FurinaNativeApp() {
       refreshStats();
     };
     window.__furinaNativeError = (requestId, message) => {
-      if (requestRef.current === requestId) {
+      const activeRequest = requestRef.current === requestId;
+      if (activeRequest) {
         requestRef.current = null;
         setSending(false);
         setMessages((prev) => prev.filter((m) => m.id !== `pending:${requestId}`));
       }
+      if (requestId === "model-prepare" || activeRequest) setRuntimeError(message);
       toast.error(message);
     };
     window.__furinaNativeState = (state, _modelId, progress) => {
       setRuntimeState(state);
       setRuntimeProgress(progress || 0);
+      if (state !== "error") setRuntimeError("");
     };
     window.__furinaNativeBackup = (success, message) => {
       success ? toast.success(message) : toast.error(message);
@@ -407,6 +422,12 @@ function FurinaNativeApp() {
   const canSend = nativeReady && selectedStatus?.state === "ready" && !sending && input.trim().length > 0;
 
   useEffect(() => {
+    if (!nativeReady || !activeSessionId || selectedStatus?.state !== "ready" || sending) return;
+    const timer = window.setTimeout(() => bridge()?.prepareModel(activeSessionId, effectivePersona), 700);
+    return () => window.clearTimeout(timer);
+  }, [nativeReady, activeSessionId, selectedModel, selectedStatus?.state, effectivePersona, sending]);
+
+  useEffect(() => {
     preparedAudioRef.current.clear();
   }, [ttsProvider, voiceSpeed, vvSpeaker, vvTranslate]);
 
@@ -429,13 +450,8 @@ function FurinaNativeApp() {
       { id: `local-user:${requestId}`, role: "user", content: text, createdAt: now },
       { id: `pending:${requestId}`, role: "assistant", content: "", createdAt: now + 1 },
     ]);
-    const languageInstruction: Record<ReplyLanguage, string> = {
-      auto: "",
-      ja: "Always reply in Japanese unless the user explicitly requests another language.",
-      en: "Always reply in English unless the user explicitly requests another language.",
-      id: "Selalu balas dalam bahasa Indonesia kecuali pengguna secara eksplisit meminta bahasa lain.",
-    };
-    b.generate(requestId, activeSessionId, text, [persona, languageInstruction[language]].filter(Boolean).join("\n\n"));
+    setRuntimeError("");
+    b.generate(requestId, activeSessionId, text, effectivePersona);
   }
 
   function newSession() {
@@ -472,9 +488,9 @@ function FurinaNativeApp() {
         ...(current[model.id] ?? {}),
         id: model.id,
         state: "downloading",
-        downloadedBytes: 0,
+        downloadedBytes: current[model.id]?.downloadedBytes ?? 0,
         totalBytes: model.expectedBytes,
-        progress: 0,
+        progress: current[model.id]?.progress ?? 0,
       },
     }));
     try {
@@ -600,34 +616,51 @@ function FurinaNativeApp() {
   const statusText = useMemo(() => {
     if (!nativeReady) return "Buka halaman ini melalui APK Furina untuk AI lokal.";
     if (runtimeState === "verifying" || selectedStatus?.state === "verifying") return `Memverifikasi model… ${Math.round((selectedStatus?.progress ?? runtimeProgress) * 100)}%`;
-    if (runtimeState === "loading" || runtimeState === "preparing") return "Menyiapkan model lokal…";
+    if (runtimeState === "loading") return "Memuat model ke RAM…";
+    if (runtimeState === "prompting") return "Menerapkan kepribadian…";
+    if (runtimeState === "preparing") return "Menyiapkan mesin AI…";
     if (runtimeState === "thinking") return `${name} sedang berpikir…`;
+    if (runtimeState === "error") return "Mesin AI perlu perhatian";
     if (selectedStatus?.state === "ready") return "AI lokal siap";
     return "Model belum diunduh";
   }, [nativeReady, runtimeState, runtimeProgress, selectedStatus?.state, name]);
+
+  const runtimeBusy = ["verifying", "loading", "prompting", "preparing", "thinking"].includes(runtimeState)
+    || selectedStatus?.state === "verifying";
+  const runtimeReady = selectedStatus?.state === "ready" && runtimeState !== "error";
 
   return (
     <div className={`relative h-[100dvh] w-full overflow-hidden ${theme === "dark" ? "bg-[#050712] text-white" : "bg-slate-100 text-slate-950"}`}>
       <img src={background} alt={`${name} background`} className="absolute inset-0 h-full w-full object-cover" draggable={false} />
       <div className={`absolute inset-0 ${theme === "dark" ? "bg-gradient-to-b from-[#050712]/25 via-[#050712]/35 to-[#050712]/90" : "bg-gradient-to-b from-white/20 via-white/20 to-white/75"}`} />
 
-      <header className={`absolute inset-x-0 top-0 z-30 flex h-16 items-center justify-between border-b px-3 shadow-sm backdrop-blur-xl ${theme === "dark" ? "border-white/10 bg-[#080c1b]/88 text-white" : "border-slate-200/80 bg-white/88 text-slate-950"}`}>
-        <Button variant="ghost" size="icon" className="h-12 w-12 rounded-full" aria-label="Buka daftar percakapan" onClick={() => setOpenSessions(true)}>
-          <MessagesSquare className="h-5 w-5" />
+      <header className={`absolute inset-x-0 top-0 z-30 flex h-[72px] items-center justify-between border-b px-3 shadow-[0_8px_30px_rgba(0,0,0,.18)] backdrop-blur-2xl ${theme === "dark" ? "border-white/[.08] bg-[#070b18]/90 text-white" : "border-slate-200/80 bg-white/90 text-slate-950"}`}>
+        <Button variant="ghost" size="icon" className="h-12 w-12 rounded-2xl transition-transform duration-150 active:scale-95 motion-reduce:transition-none" aria-label="Buka daftar percakapan" onClick={() => setOpenSessions(true)}>
+          <MessagesSquare className="h-[21px] w-[21px]" />
         </Button>
-        <div className="min-w-0 text-center">
-          <p className="truncate text-sm font-semibold">{name}</p>
-          <p className={`text-[10px] ${theme === "dark" ? "text-white/60" : "text-slate-500"}`}>{statusText}</p>
+        <div className="min-w-0 px-2 text-center">
+          <p className="truncate text-[15px] font-semibold tracking-tight">{name}</p>
+          <div className={`mt-1 inline-flex max-w-[66vw] items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-medium ${theme === "dark" ? "border-white/10 bg-white/[.06] text-white/70" : "border-slate-200 bg-slate-100/90 text-slate-600"}`}>
+            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${runtimeState === "error" ? "bg-rose-400" : runtimeBusy ? "animate-pulse bg-amber-300" : runtimeReady ? "bg-emerald-400" : "bg-slate-400"}`} />
+            <span className="truncate">{statusText}</span>
+          </div>
         </div>
-        <Button variant="ghost" size="icon" className="h-12 w-12 rounded-full" aria-label="Buka pengaturan" onClick={() => { setOpenSettings(true); refreshMemories(); }}>
-          <Settings className="h-5 w-5" />
+        <Button variant="ghost" size="icon" className="h-12 w-12 rounded-2xl transition-transform duration-150 active:scale-95 motion-reduce:transition-none" aria-label="Buka pengaturan" onClick={() => { setOpenSettings(true); refreshMemories(); }}>
+          <Settings className="h-[21px] w-[21px]" />
         </Button>
       </header>
 
-      <main ref={scrollRef} className="absolute inset-0 z-10 overflow-y-auto px-3 pb-32 pt-20">
-        <div className="mx-auto flex min-h-full max-w-3xl flex-col gap-3">
+      <main ref={scrollRef} className="absolute inset-0 z-10 overflow-y-auto px-4 pb-32 pt-[88px]">
+        <div className="mx-auto flex min-h-full max-w-3xl flex-col gap-3.5">
+          {runtimeError && (
+            <button type="button" onClick={() => { setRuntimeError(""); setOpenSettings(true); }} className={`flex w-full items-start gap-2.5 rounded-2xl border p-3 text-left text-xs shadow-lg backdrop-blur-xl transition-transform active:scale-[.99] ${theme === "dark" ? "border-rose-300/20 bg-rose-950/70 text-rose-100" : "border-rose-200 bg-rose-50/95 text-rose-900"}`}>
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span className="min-w-0 flex-1"><strong className="block font-semibold">Mesin AI belum siap</strong><span className="mt-0.5 block opacity-80">{runtimeError}</span></span>
+              <span className="shrink-0 font-semibold">Periksa</span>
+            </button>
+          )}
           {messages.length === 0 && (
-            <div className={`mt-auto mb-3 max-w-[88%] rounded-2xl border px-4 py-3 text-sm shadow-xl backdrop-blur-md ${theme === "dark" ? "border-white/10 bg-[#0c1022]/88 text-white" : "border-white/80 bg-white/88 text-slate-950"}`}>
+            <div className={`mt-auto mb-3 max-w-[88%] rounded-[22px] rounded-bl-md border px-4 py-3.5 text-[15px] leading-6 shadow-xl backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-300 ${theme === "dark" ? "border-white/10 bg-[#0b1124]/90 text-white" : "border-white/80 bg-white/92 text-slate-950"}`}>
               Halo… akhirnya kamu datang juga. Aku {name}. Sesi boleh baru, tapi aku tidak perlu melupakan yang lama.
             </div>
           )}
@@ -636,9 +669,11 @@ function FurinaNativeApp() {
             const user = m.role === "user";
             const pending = m.id.startsWith("pending:");
             return (
-              <div key={m.id} className={`flex flex-col ${user ? "items-end" : "items-start"}`}>
-                <div className={`max-w-[90%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-lg ${user ? "bg-sky-600/95 text-white" : theme === "dark" ? "border border-white/10 bg-[#0c1022]/88 text-white backdrop-blur-md" : "border border-white/80 bg-white/90 text-slate-950 backdrop-blur-md"}`}>
-                  {pending && !m.content ? <Loader2 className="h-4 w-4 animate-spin opacity-60" /> : <div className="whitespace-pre-wrap break-words">{m.content}</div>}
+              <div key={m.id} className={`flex flex-col motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-200 ${user ? "items-end" : "items-start"}`}>
+                <div className={`max-w-[90%] rounded-[22px] px-4 py-3 text-[15px] leading-6 shadow-lg ${user ? "rounded-br-md bg-sky-500 text-white shadow-sky-950/20" : theme === "dark" ? "rounded-bl-md border border-white/10 bg-[#0b1124]/90 text-white backdrop-blur-xl" : "rounded-bl-md border border-white/80 bg-white/92 text-slate-950 backdrop-blur-xl"}`}>
+                  {pending && !m.content ? (
+                    <div className="flex items-center gap-2 pr-1 text-xs opacity-70"><Loader2 className="h-4 w-4 animate-spin" /><span>{statusText}</span></div>
+                  ) : <div className="whitespace-pre-wrap break-words">{m.content}</div>}
                 </div>
                 <div className={`mt-1 flex items-center gap-1.5 px-1 text-[10px] ${theme === "dark" ? "text-white/55" : "text-slate-600"}`}>
                   <span>{fmtTime(m.createdAt)}</span>
@@ -654,20 +689,21 @@ function FurinaNativeApp() {
         </div>
       </main>
 
-      <div className={`absolute inset-x-0 bottom-0 z-30 border-t p-3 backdrop-blur-xl ${theme === "dark" ? "border-white/10 bg-[#080c1b]/92" : "border-slate-200/80 bg-white/92"}`}>
-        <div className="mx-auto flex max-w-3xl items-end gap-2">
+      <div className={`absolute inset-x-0 bottom-0 z-30 border-t px-3 py-3 backdrop-blur-2xl ${theme === "dark" ? "border-white/[.08] bg-[#070b18]/94" : "border-slate-200/80 bg-white/94"}`}>
+        <div className={`mx-auto flex max-w-3xl items-end gap-2 rounded-[26px] border p-1.5 shadow-[0_8px_30px_rgba(0,0,0,.18)] ${theme === "dark" ? "border-white/15 bg-white/[.055]" : "border-slate-300 bg-slate-50"}`}>
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (canSend) send(); } }}
             placeholder={selectedStatus?.state === "ready" ? "Ketik pesan…" : "Unduh model AI dari Pengaturan…"}
+            aria-label="Pesan untuk Furina"
             rows={1}
-            className={`max-h-32 min-h-12 resize-none rounded-2xl ${theme === "dark" ? "border-white/15 bg-white/8 text-white placeholder:text-white/45" : "border-slate-300 bg-white/80 text-slate-950 placeholder:text-slate-500"}`}
+            className={`max-h-32 min-h-12 flex-1 resize-none border-0 bg-transparent px-3 py-3 text-base shadow-none outline-none focus-visible:ring-0 ${theme === "dark" ? "text-white placeholder:text-white/40" : "text-slate-950 placeholder:text-slate-500"}`}
           />
           {sending ? (
-            <Button size="icon" variant="secondary" className="h-11 w-11 shrink-0" aria-label="Hentikan jawaban" onClick={() => bridge()?.stopGeneration()}><Square className="h-4 w-4" /></Button>
+            <Button size="icon" variant="secondary" className="h-12 w-12 shrink-0 rounded-full transition-transform duration-150 active:scale-90 motion-reduce:transition-none" aria-label="Hentikan jawaban" onClick={() => bridge()?.stopGeneration()}><Square className="h-4 w-4" /></Button>
           ) : (
-            <Button size="icon" className="h-11 w-11 shrink-0" aria-label="Kirim pesan" disabled={!canSend} onClick={send}><Send className="h-4 w-4" /></Button>
+            <Button size="icon" className="h-12 w-12 shrink-0 rounded-full bg-sky-500 text-white shadow-lg shadow-sky-950/20 transition-[transform,opacity] duration-150 active:scale-90 motion-reduce:transition-none" aria-label="Kirim pesan" disabled={!canSend} onClick={send}><Send className="h-[18px] w-[18px]" /></Button>
           )}
         </div>
       </div>
@@ -727,16 +763,21 @@ function FurinaNativeApp() {
               <Textarea rows={5} value={persona} placeholder="Kosongkan untuk kepribadian Furina default…" onChange={(e) => {
                 setPersona(e.target.value); localStorage.setItem(PREF.persona, e.target.value);
               }} />
-              <p className="text-[11px] text-muted-foreground">Perubahan persona diterapkan saat model dimuat ulang. Persona, memori, dan riwayat dipisahkan dari file model.</p>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">Nama, kepribadian, bahasa, memori, dan riwayat yang sama dipakai oleh model 4B maupun 9B. Mengganti model tidak mereset hubunganmu dengan Furina.</p>
             </section>
 
             <section className="space-y-4 rounded-2xl border bg-muted/10 p-4 shadow-sm">
-              <div className="flex items-center gap-2">
-                <Brain className="h-4 w-4" />
-                <div>
+              <div className="flex items-start gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Brain className="h-[18px] w-[18px]" /></span>
+                <div className="min-w-0">
                   <Label>Mesin AI lokal</Label>
-                  <p className="text-[11px] text-muted-foreground">Dua model Qwen uncensored Q4_K_M. Gemma tidak digunakan.</p>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">Pilih 4B untuk respons lebih cepat atau 9B untuk kualitas lebih tinggi. Keduanya sepenuhnya lokal.</p>
                 </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-xl border bg-background/45 p-3"><ShieldCheck className="mb-2 h-4 w-4 text-emerald-500" /><p className="text-[11px] font-semibold">Satu identitas</p><p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">Persona dan memori konsisten di semua model.</p></div>
+                <div className="rounded-xl border bg-background/45 p-3"><Zap className="mb-2 h-4 w-4 text-amber-500" /><p className="text-[11px] font-semibold">Siap lebih cepat</p><p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">Model dipanaskan sebelum pesan pertama.</p></div>
               </div>
 
               {!nativeReady && <div className="rounded-lg bg-destructive/10 p-2 text-xs text-destructive">Menu download hanya aktif di APK Furina.</div>}
@@ -759,7 +800,7 @@ function FurinaNativeApp() {
                     {(st.state === "downloading" || st.state === "paused" || st.state === "verifying") && (
                       <div className="mt-3 space-y-1">
                         <div className="h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full origin-left scale-x-0 rounded-full bg-primary transition-transform duration-300 ease-out motion-reduce:transition-none" style={{ transform: `scaleX(${progress})` }} /></div>
-                        <p role="status" className="text-[10px] tabular-nums text-muted-foreground">{st.state === "verifying" ? `Memverifikasi integritas… ${Math.round(progress * 100)}%` : `${formatBytes(st.downloadedBytes)} / ${formatBytes(total)} · unduhan berjalan di latar belakang`}</p>
+                        <p role="status" className="text-[10px] tabular-nums text-muted-foreground">{st.state === "verifying" ? `Memverifikasi integritas… ${Math.round(progress * 100)}%` : st.state === "paused" ? `${formatBytes(st.downloadedBytes)} / ${formatBytes(total)} · dijeda, akan dilanjutkan saat jaringan siap` : `${formatBytes(st.downloadedBytes)} / ${formatBytes(total)} · tetap berjalan saat aplikasi ditinggalkan`}</p>
                       </div>
                     )}
 
@@ -771,8 +812,13 @@ function FurinaNativeApp() {
                           }}>{selected ? "Dipilih" : "Gunakan model"}</Button>
                           <Button size="sm" variant="outline" onClick={() => bridge()?.deleteModel(model.id)}><Trash2 className="mr-1 h-3.5 w-3.5" /> Hapus</Button>
                         </>
-                      ) : st.state === "downloading" || st.state === "paused" ? (
+                      ) : st.state === "downloading" ? (
                         <Button size="sm" variant="outline" onClick={() => bridge()?.cancelModelDownload(model.id)}><X className="mr-1 h-3.5 w-3.5" /> Batalkan</Button>
+                      ) : st.state === "paused" ? (
+                        <>
+                          <Button size="sm" onClick={() => startDownload(model)}><Download className="mr-1 h-3.5 w-3.5" /> Lanjutkan</Button>
+                          <Button size="sm" variant="outline" onClick={() => bridge()?.cancelModelDownload(model.id)}><X className="mr-1 h-3.5 w-3.5" /> Batalkan</Button>
+                        </>
                       ) : st.state === "verifying" ? (
                         <Button size="sm" variant="secondary" disabled><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> Memverifikasi</Button>
                       ) : (
@@ -781,7 +827,7 @@ function FurinaNativeApp() {
                         </Button>
                       )}
                     </div>
-                    {st.state === "failed" && <p role="alert" className="mt-3 flex items-start gap-1.5 rounded-lg bg-destructive/10 p-2.5 text-[11px] leading-relaxed text-destructive"><AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />Download terhenti (kode {st.reason ?? "?"}). Tekan Unduh ulang untuk membersihkan file sementara dan melanjutkan dari awal.</p>}
+                    {st.state === "failed" && <p role="alert" className="mt-3 flex items-start gap-1.5 rounded-lg bg-destructive/10 p-2.5 text-[11px] leading-relaxed text-destructive"><AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{st.error || "Unduhan gagal."} Tekan Unduh ulang; bagian file yang sudah valid akan digunakan kembali.</p>}
                     {st.state === "corrupt" && <p role="alert" className="mt-3 flex items-start gap-1.5 rounded-lg bg-destructive/10 p-2.5 text-[11px] leading-relaxed text-destructive"><AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />File belum utuh atau gagal diverifikasi. Tekan Unduh ulang; file sementara akan dibersihkan otomatis.</p>}
                     {model.id.includes("9b") && <p className="mt-2 text-[10px] text-muted-foreground">9B memerlukan RAM jauh lebih besar. Jika Android menutup aplikasi atau respons terlalu lambat, kembali ke 4B.</p>}
                   </div>
@@ -789,7 +835,7 @@ function FurinaNativeApp() {
               })}
 
               <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Runtime memakai llama.cpp native Android. Model tetap dimuat selama sesi aktif, token di-stream dan digabung sebelum update UI untuk mengurangi latency serta kedipan layar.
+                Runtime memakai llama.cpp native Android dengan konteks aktif 4K. Model dipertahankan hangat selama proses aplikasi hidup, sementara memori jangka panjang tetap di SQLite dan diambil hanya saat relevan.
               </p>
               {lastMetrics && (
                 <div className="grid grid-cols-3 gap-2 text-center">
