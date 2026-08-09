@@ -14,8 +14,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.WindowCompat
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
@@ -39,9 +37,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.statusBarColor = Color.TRANSPARENT
-        window.navigationBarColor = Color.TRANSPARENT
+        WindowCompat.setDecorFitsSystemWindows(window, true)
+        window.statusBarColor = STATUS_BAR_COLOR
+        window.navigationBarColor = NAVIGATION_BAR_COLOR
         window.isStatusBarContrastEnforced = false
         window.isNavigationBarContrastEnforced = false
 
@@ -59,11 +57,6 @@ class MainActivity : ComponentActivity() {
         }
         applySystemTheme(true)
         WebView.setWebContentsDebuggingEnabled(false)
-        ViewCompat.setOnApplyWindowInsetsListener(webView) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
 
         val store = MemoryStore(this)
         val modelDownloads = ModelDownloadManager(this)
@@ -114,9 +107,11 @@ class MainActivity : ComponentActivity() {
     fun applySystemTheme(dark: Boolean) {
         val color = if (dark) Color.rgb(5, 7, 18) else Color.rgb(248, 250, 252)
         webView.setBackgroundColor(color)
+        window.statusBarColor = STATUS_BAR_COLOR
+        window.navigationBarColor = NAVIGATION_BAR_COLOR
         WindowCompat.getInsetsController(window, webView).apply {
-            isAppearanceLightStatusBars = !dark
-            isAppearanceLightNavigationBars = !dark
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
         }
     }
 
@@ -145,5 +140,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val APP_HOST = "furina-pi.vercel.app"
         private const val APP_URL = "https://furina-pi.vercel.app/native"
+        private val STATUS_BAR_COLOR = Color.rgb(45, 45, 45)
+        private val NAVIGATION_BAR_COLOR = Color.rgb(213, 213, 213)
     }
 }
