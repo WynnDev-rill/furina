@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Brain, Check, Cloud, Copy, Download, HardDrive, Image as ImageIcon, Loader2,
+  AlertCircle, Brain, Check, Cloud, Copy, Download, HardDrive, Image as ImageIcon, Loader2,
   MessageSquarePlus, MessagesSquare, Moon, Play, Plus, RotateCcw, Send,
   Settings, Sparkles, Square, Sun, Trash2, Volume2, X,
 } from "lucide-react";
@@ -45,6 +45,7 @@ type ModelStatus = {
   verified?: boolean;
   selected?: boolean;
   reason?: number;
+  error?: string;
 };
 type NativeMessage = { id: string; role: "user" | "assistant"; content: string; createdAt: number };
 type NativeSession = { id: string; title: string; createdAt: number; updatedAt?: number; messageCount?: number };
@@ -197,6 +198,7 @@ function FurinaNativeApp() {
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [lastMetrics, setLastMetrics] = useState<GenerationMetrics | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const settingsScrollRef = useRef<HTMLDivElement | null>(null);
   const requestRef = useRef<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const backgroundInputRef = useRef<HTMLInputElement | null>(null);
@@ -375,6 +377,12 @@ function FurinaNativeApp() {
   }, [nativeReady, models.length, refreshModels]);
 
   useEffect(() => {
+    if (!openSettings) return;
+    const frame = window.requestAnimationFrame(() => settingsScrollRef.current?.scrollTo({ top: 0 }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [openSettings]);
+
+  useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
@@ -433,6 +441,33 @@ function FurinaNativeApp() {
     setActiveSessionId(id);
     setMessages(parseJson<NativeMessage[]>(b.loadSession(id), []));
     setOpenSessions(false);
+  }
+
+  function startDownload(model: NativeModel) {
+    const b = bridge();
+    if (!b) {
+      toast.error("Download model hanya tersedia di APK Furina.");
+      return;
+    }
+    setStatuses((current) => ({
+      ...current,
+      [model.id]: {
+        ...(current[model.id] ?? {}),
+        id: model.id,
+        state: "downloading",
+        downloadedBytes: 0,
+        totalBytes: model.expectedBytes,
+        progress: 0,
+      },
+    }));
+    try {
+      b.startModelDownload(model.id);
+      toast.success(`Download ${model.name} dimulai di latar belakang`);
+      window.setTimeout(refreshModels, 350);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Download model gagal dimulai.");
+      refreshModels();
+    }
   }
 
   const prepareVoice = useCallback(async (message: NativeMessage) => {
@@ -647,13 +682,14 @@ function FurinaNativeApp() {
       </Sheet>
 
       <Sheet open={openSettings} onOpenChange={setOpenSettings}>
-        <SheetContent side="right" className={`w-full max-w-md overflow-y-auto border-l ${theme === "dark" ? "border-slate-800 bg-[#050712] text-slate-100" : "border-slate-200 bg-white text-slate-950"}`}>
-          <SheetHeader className={`sticky top-0 z-20 -mx-6 -mt-6 border-b px-6 pb-4 pt-6 backdrop-blur-xl ${theme === "dark" ? "border-slate-800 bg-[#050712]/92" : "border-slate-200 bg-white/92"}`}>
-            <SheetTitle>Pengaturan</SheetTitle>
-            <SheetDescription>Personalisasi karakter, mesin AI lokal, suara, memori, dan backup.</SheetDescription>
+        <SheetContent side="right" className={`flex h-full w-full max-w-md flex-col gap-0 overflow-hidden border-l p-0 ${theme === "dark" ? "border-slate-800 bg-[#050712] text-slate-100" : "border-slate-200 bg-white text-slate-950"}`}>
+          <SheetHeader className={`relative z-20 shrink-0 border-b px-5 pb-4 pt-5 text-left shadow-sm backdrop-blur-xl ${theme === "dark" ? "border-slate-800 bg-[#050712]/96" : "border-slate-200 bg-white/96"}`}>
+            <SheetTitle className="pr-10 text-xl">Pengaturan</SheetTitle>
+            <SheetDescription className="max-w-sm text-xs leading-relaxed">Personalisasi karakter, mesin AI lokal, suara, memori, dan backup.</SheetDescription>
           </SheetHeader>
 
-          <div className="mt-5 space-y-6 pb-10">
+          <div ref={settingsScrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-smooth px-4 py-5 touch-manipulation sm:px-6">
+          <div className="space-y-6 pb-8 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-300">
             <section className="space-y-3 rounded-xl border bg-muted/30 p-4">
               <Label className="text-xs font-semibold uppercase tracking-wider">Tampilan</Label>
               <div className="flex items-center justify-between gap-3">
@@ -677,7 +713,7 @@ function FurinaNativeApp() {
               <p className="text-[11px] text-muted-foreground">Perubahan persona diterapkan saat model dimuat ulang. Persona, memori, dan riwayat dipisahkan dari file model.</p>
             </section>
 
-            <section className="space-y-3 rounded-xl border p-3">
+            <section className="space-y-4 rounded-2xl border bg-muted/10 p-4 shadow-sm">
               <div className="flex items-center gap-2">
                 <Brain className="h-4 w-4" />
                 <div>
@@ -694,19 +730,19 @@ function FurinaNativeApp() {
                 const progress = Math.max(0, Math.min(1, st.progress || 0));
                 const selected = selectedModel === model.id;
                 return (
-                  <div key={model.id} className={`rounded-xl border p-3 ${selected ? "border-primary bg-primary/5" : ""}`}>
+                  <div key={model.id} className={`rounded-2xl border bg-background/35 p-4 shadow-sm transition-[border-color,background-color,box-shadow,transform] duration-200 ease-out active:scale-[0.995] motion-reduce:transition-none ${selected ? "border-primary/80 bg-primary/5 shadow-primary/5" : "hover:border-foreground/20"}`}>
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold">{model.name} {model.recommended && <span className="ml-1 text-[10px] text-primary">REKOMENDASI</span>}</p>
-                        <p className="text-[11px] text-muted-foreground">{model.subtitle} · ±{formatBytes(model.expectedBytes)}</p>
+                        <p className="text-[15px] font-semibold leading-snug">{model.name} {model.recommended && <span className="ml-1 inline-flex rounded-full bg-primary/10 px-2 py-0.5 align-middle text-[9px] font-semibold tracking-wide text-primary">REKOMENDASI</span>}</p>
+                        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{model.subtitle} · ±{formatBytes(model.expectedBytes)}</p>
                       </div>
                       {selected && <Check className="h-4 w-4 shrink-0 text-primary" />}
                     </div>
 
                     {(st.state === "downloading" || st.state === "paused" || st.state === "verifying") && (
                       <div className="mt-3 space-y-1">
-                        <div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary transition-[width] duration-300" style={{ width: `${progress * 100}%` }} /></div>
-                        <p className="text-[10px] text-muted-foreground">{st.state === "verifying" ? `Memverifikasi integritas… ${Math.round(progress * 100)}%` : `${formatBytes(st.downloadedBytes)} / ${formatBytes(total)} · unduhan berjalan di latar belakang`}</p>
+                        <div className="h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full origin-left scale-x-0 rounded-full bg-primary transition-transform duration-300 ease-out motion-reduce:transition-none" style={{ transform: `scaleX(${progress})` }} /></div>
+                        <p role="status" className="text-[10px] tabular-nums text-muted-foreground">{st.state === "verifying" ? `Memverifikasi integritas… ${Math.round(progress * 100)}%` : `${formatBytes(st.downloadedBytes)} / ${formatBytes(total)} · unduhan berjalan di latar belakang`}</p>
                       </div>
                     )}
 
@@ -723,13 +759,13 @@ function FurinaNativeApp() {
                       ) : st.state === "verifying" ? (
                         <Button size="sm" variant="secondary" disabled><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> Memverifikasi</Button>
                       ) : (
-                        <Button size="sm" disabled={!nativeReady} onClick={() => { bridge()?.startModelDownload(model.id); refreshModels(); }}>
-                          <Download className="mr-1 h-3.5 w-3.5" /> Download
+                        <Button size="sm" className="min-h-11 rounded-xl px-4 transition-transform duration-150 active:scale-[0.97] motion-reduce:transition-none" disabled={!nativeReady} onClick={() => startDownload(model)}>
+                          <Download className="mr-1.5 h-4 w-4" /> {st.state === "corrupt" || st.state === "failed" ? "Unduh ulang" : "Download"}
                         </Button>
                       )}
                     </div>
-                    {st.state === "failed" && <p className="mt-2 text-[10px] text-destructive">Download gagal (kode {st.reason ?? "?"}). Coba unduh ulang.</p>}
-                    {st.state === "corrupt" && <p className="mt-2 text-[10px] text-destructive">File model tidak utuh atau checksum salah. Hapus lalu unduh ulang.</p>}
+                    {st.state === "failed" && <p role="alert" className="mt-3 flex items-start gap-1.5 rounded-lg bg-destructive/10 p-2.5 text-[11px] leading-relaxed text-destructive"><AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />Download terhenti (kode {st.reason ?? "?"}). Tekan Unduh ulang untuk membersihkan file sementara dan melanjutkan dari awal.</p>}
+                    {st.state === "corrupt" && <p role="alert" className="mt-3 flex items-start gap-1.5 rounded-lg bg-destructive/10 p-2.5 text-[11px] leading-relaxed text-destructive"><AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />File belum utuh atau gagal diverifikasi. Tekan Unduh ulang; file sementara akan dibersihkan otomatis.</p>}
                     {model.id.includes("9b") && <p className="mt-2 text-[10px] text-muted-foreground">9B memerlukan RAM jauh lebih besar. Jika Android menutup aplikasi atau respons terlalu lambat, kembali ke 4B.</p>}
                   </div>
                 );
@@ -908,6 +944,7 @@ function FurinaNativeApp() {
               refreshSessions(activeSessionId);
               refreshStats();
             }}><Trash2 className="mr-2 h-4 w-4" />Bersihkan percakapan ini</Button>
+          </div>
           </div>
         </SheetContent>
       </Sheet>
