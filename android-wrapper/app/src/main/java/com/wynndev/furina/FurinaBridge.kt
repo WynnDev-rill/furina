@@ -26,15 +26,19 @@ class FurinaBridge(
     private val modelDownloads: ModelDownloadManager,
     private val backupManager: BackupManager,
 ) {
+    companion object {
+        @Volatile private var processLoadedModelId: String? = null
+        @Volatile private var processLoadedSessionId: String? = null
+        @Volatile private var processLoadedPersonaHash: Int? = null
+        @Volatile private var processSessionBootstrapped = false
+    }
+
     private val scope = kotlinx.coroutines.CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val prefs = activity.getSharedPreferences("furina_native", 0)
     private val engine: InferenceEngine = AiChat.getInferenceEngine(activity.applicationContext)
     private val loadMutex = Mutex()
     private var generationJob: Job? = null
-    private var loadedModelId: String? = null
-    private var loadedSessionId: String? = null
-    private var loadedPersonaHash: Int? = null
-    private var sessionBootstrapped = false
+    private var prepareJob: Job? = null
     private val verificationJobs = mutableMapOf<String, Job>()
     private val verificationProgress = mutableMapOf<String, Double>()
 
@@ -44,7 +48,7 @@ class FurinaBridge(
         .put("version", "4.0")
         .put("selectedModelId", selectedModelId())
         .put("runtime", "llama.cpp Android native")
-        .put("contextStrategy", "8K active + long-term retrieval")
+        .put("contextStrategy", "4K active + long-term retrieval")
         .toString()
 
     @JavascriptInterface
@@ -74,6 +78,7 @@ class FurinaBridge(
     @JavascriptInterface
     fun startModelDownload(modelId: String): String {
         val spec = ModelCatalog.byId(modelId) ?: throw IllegalArgumentException("Model tidak dikenal")
+        activity.runOnUiThread { activity.requestDownloadNotificationPermission() }
         return modelDownloads.start(spec).put("selected", selectedModelId() == spec.id).toString()
     }
 
@@ -89,7 +94,7 @@ class FurinaBridge(
         scope.launch {
             try {
                 synchronized(verificationJobs) { verificationJobs.remove(modelId)?.cancel(); verificationProgress.remove(modelId) }
-                if (loadedModelId == modelId) unloadEngine()
+                if (processLoadedModelId == modelId) unloadEngine()
                 modelDownloads.delete(spec)
                 emitState("model_deleted", modelId, 0.0)
             } catch (e: Throwable) { emitError("model-delete", e.message ?: "Gagal menghapus model") }
@@ -118,16 +123,16 @@ class FurinaBridge(
     @JavascriptInterface
     fun deleteSession(sessionId: String) {
         store.deleteSession(sessionId)
-        if (loadedSessionId == sessionId) {
-            loadedSessionId = null
-            sessionBootstrapped = false
+        if (processLoadedSessionId == sessionId) {
+            processLoadedSessionId = null
+            processSessionBootstrapped = false
         }
     }
 
     @JavascriptInterface
     fun clearSession(sessionId: String) {
         store.clearSession(sessionId)
-        if (loadedSessionId == sessionId) sessionBootstrapped = false
+        if (processLoadedSessionId == sessionId) processSessionBootstrapped = false
     }
 
     @JavascriptInterface
@@ -157,6 +162,25 @@ class FurinaBridge(
     }
 
     @JavascriptInterface
+    fun prepareModel(sessionId: String, persona: String) {
+        if (sessionId.isBlank() || generationJob?.isActive == true || prepareJob?.isActive == true) return
+        prepareJob = scope.launch {
+            try {
+                val model = ModelCatalog.byId(selectedModelId()) ?: return@launch
+                if (modelDownloads.status(model).optString("state") != "ready") return@launch
+                ensureModelLoaded(model, sessionId, persona)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                emitState("error", selectedModelId(), 0.0)
+                emitError("model-prepare", friendlyEngineError(e))
+            } finally {
+                prepareJob = null
+            }
+        }
+    }
+
+    @JavascriptInterface
     fun generate(requestId: String, sessionId: String, userText: String, persona: String) {
         val clean = userText.trim()
         if (clean.isEmpty()) return
@@ -178,13 +202,13 @@ class FurinaBridge(
                 if (modelState != "ready") error("Unduh ${model.displayName} terlebih dahulu")
 
                 val bootstrapContext = store.buildBootstrapContext(clean, sessionId)
-                warmStart = loadedModelId == model.id && loadedSessionId == sessionId &&
-                    loadedPersonaHash == persona.hashCode() && engine.state.value is InferenceEngine.State.ModelReady
+                warmStart = processLoadedModelId == model.id && processLoadedSessionId == sessionId &&
+                    processLoadedPersonaHash == persona.hashCode() && engine.state.value is InferenceEngine.State.ModelReady
                 ensureModelLoaded(model, sessionId, persona)
                 userId = store.addMessage(sessionId, "user", clean)
                 emitState("thinking", model.id, 0.0)
 
-                val prompt = if (!sessionBootstrapped) {
+                val prompt = if (!processSessionBootstrapped) {
                     buildString {
                         appendLine("[INTERNAL LONG-TERM CONTEXT]")
                         appendLine("Use this only to preserve continuity. Do not announce that you retrieved memory.")
@@ -197,7 +221,7 @@ class FurinaBridge(
 
                 val pending = StringBuilder()
                 var lastDispatch = android.os.SystemClock.elapsedRealtime()
-                engine.sendUserPrompt(prompt, predictLength = 768).collect { token ->
+                engine.sendUserPrompt(prompt, predictLength = 384).collect { token ->
                     if (firstTokenAt == 0L) firstTokenAt = android.os.SystemClock.elapsedRealtime()
                     tokenCount += 1
                     reply.append(token)
@@ -213,8 +237,9 @@ class FurinaBridge(
                 val finalText = reply.toString().trim()
                 if (finalText.isBlank()) error("Model tidak menghasilkan jawaban")
                 val assistantId = store.addMessage(sessionId, "assistant", finalText)
-                sessionBootstrapped = true
+                processSessionBootstrapped = true
                 emitDone(requestId, userId, assistantId, generationMetrics(startedAt, firstTokenAt, tokenCount, warmStart))
+                emitState("ready", model.id, 1.0)
                 withContext(Dispatchers.IO) {
                     try { backupManager.autoBackupIfDue() } catch (_: Throwable) {}
                 }
@@ -228,7 +253,8 @@ class FurinaBridge(
                 }
                 emitState("cancelled", selectedModelId(), 0.0)
             } catch (e: Throwable) {
-                emitError(requestId, e.message ?: "Inference gagal")
+                emitState("error", selectedModelId(), 0.0)
+                emitError(requestId, friendlyEngineError(e))
             } finally {
                 generationJob = null
             }
@@ -295,7 +321,9 @@ class FurinaBridge(
 
     fun destroy() {
         generationJob?.cancel()
-        scope.launch { try { engine.destroy() } catch (_: Throwable) {} }
+        prepareJob?.cancel()
+        // AiChat owns a process-wide singleton that cannot be recreated after destroy().
+        // Keep it warm across Activity recreation; Android frees native memory with the process.
         scope.cancel()
         store.close()
     }
@@ -332,7 +360,15 @@ class FurinaBridge(
 
     private suspend fun ensureModelLoaded(spec: ModelSpec, sessionId: String, persona: String) = loadMutex.withLock {
         val personaHash = persona.hashCode()
-        if (loadedModelId == spec.id && loadedSessionId == sessionId && loadedPersonaHash == personaHash &&
+        if (processLoadedModelId == spec.id && processLoadedSessionId == sessionId && processLoadedPersonaHash == personaHash &&
+            engine.state.value is InferenceEngine.State.ModelReady) return@withLock
+
+        if (engine.state.value is InferenceEngine.State.Generating) {
+            withTimeout(10_000L) {
+                engine.state.first { it is InferenceEngine.State.ModelReady || it is InferenceEngine.State.Error }
+            }
+        }
+        if (processLoadedModelId == spec.id && processLoadedSessionId == sessionId && processLoadedPersonaHash == personaHash &&
             engine.state.value is InferenceEngine.State.ModelReady) return@withLock
 
         emitState("preparing", spec.id, 0.0)
@@ -350,11 +386,12 @@ class FurinaBridge(
 
         emitState("loading", spec.id, 0.0)
         engine.loadModel(modelDownloads.modelFile(spec).absolutePath)
+        emitState("prompting", spec.id, 0.85)
         engine.setSystemPrompt(buildSystemPrompt(persona))
-        loadedModelId = spec.id
-        loadedSessionId = sessionId
-        loadedPersonaHash = personaHash
-        sessionBootstrapped = false
+        processLoadedModelId = spec.id
+        processLoadedSessionId = sessionId
+        processLoadedPersonaHash = personaHash
+        processSessionBootstrapped = false
         emitState("ready", spec.id, 1.0)
     }
 
@@ -382,10 +419,10 @@ class FurinaBridge(
                 else -> Unit
             }
         } finally {
-            loadedModelId = null
-            loadedSessionId = null
-            loadedPersonaHash = null
-            sessionBootstrapped = false
+            processLoadedModelId = null
+            processLoadedSessionId = null
+            processLoadedPersonaHash = null
+            processSessionBootstrapped = false
         }
     }
 
@@ -402,6 +439,19 @@ class FurinaBridge(
             Never claim an event happened if it is not supported by the current conversation or supplied memory.
             ${if (custom.isNotBlank()) "\nUser-defined persona instructions:\n$custom" else ""}
         """.trimIndent()
+    }
+
+    private fun friendlyEngineError(error: Throwable): String {
+        val raw = error.message.orEmpty()
+        return when {
+            error is kotlinx.coroutines.TimeoutCancellationException -> "Mesin AI terlalu lama disiapkan. Tutup aplikasi lain lalu coba lagi."
+            raw.contains("memory", ignoreCase = true) || raw.contains("allocate", ignoreCase = true) ->
+                "RAM tidak cukup untuk model ini. Tutup aplikasi lain atau gunakan model 4B."
+            raw.contains("UnsupportedArchitecture", ignoreCase = true) ->
+                "Format model belum didukung oleh runtime ini."
+            raw.isNotBlank() -> "Mesin AI gagal: $raw"
+            else -> "Mesin AI gagal merespons. Coba lagi atau muat ulang model."
+        }
     }
 
     private fun dispatchToken(requestId: String, chunk: String) {

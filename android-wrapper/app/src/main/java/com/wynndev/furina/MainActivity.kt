@@ -1,8 +1,10 @@
 package com.wynndev.furina
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -14,6 +16,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.WindowCompat
+import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
@@ -34,6 +37,8 @@ class MainActivity : ComponentActivity() {
     private val restorePicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) bridge.onRestoreFileSelected(uri)
     }
+
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -103,6 +108,14 @@ class MainActivity : ComponentActivity() {
 
     fun launchBackupFolderPicker() = folderPicker.launch(null)
     fun launchRestorePicker() = restorePicker.launch(arrayOf("application/octet-stream", "application/zip", "*/*"))
+
+    fun requestDownloadNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     fun applySystemTheme(dark: Boolean) {
         val color = if (dark) Color.rgb(5, 7, 18) else Color.rgb(248, 250, 252)
