@@ -1,0 +1,52 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+def buildNumber = (System.getenv('GITHUB_RUN_NUMBER') ?: '1') as Integer
+
+android {
+    namespace 'com.wynndev.furina'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'com.wynndev.furina'
+        minSdk 33
+        targetSdk 35
+        versionCode buildNumber
+        versionName "4.0.${buildNumber}"
+        ndk { abiFilters 'arm64-v8a' }
+    }
+
+    buildTypes {
+        debug {
+            debuggable false
+            minifyEnabled false
+        }
+        release {
+            debuggable false
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions { jvmTarget = '17' }
+
+    packaging {
+        resources.excludes += ['/META-INF/{AL2.0,LGPL2.1}']
+    }
+}
+
+dependencies {
+    implementation files('libs/llama-android.aar')
+    implementation 'androidx.activity:activity-ktx:1.12.2'
+    implementation 'androidx.core:core-ktx:1.17.0'
+    implementation 'androidx.datastore:datastore-preferences:1.2.0'
+    implementation 'androidx.documentfile:documentfile:1.0.1'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'
+}
