@@ -35,7 +35,7 @@ type NativeModel = {
 };
 type ModelStatus = {
   id?: string;
-  state: "not_downloaded" | "downloading" | "paused" | "ready" | "failed" | "missing" | "unknown";
+  state: "not_downloaded" | "downloading" | "paused" | "verifying" | "ready" | "corrupt" | "failed" | "missing" | "unknown";
   downloadedBytes?: number;
   totalBytes?: number;
   progress?: number;
@@ -324,7 +324,7 @@ function FurinaNativeApp() {
 
   const statusText = useMemo(() => {
     if (!nativeReady) return "Buka halaman ini melalui APK Furina untuk AI lokal.";
-    if (runtimeState === "verifying") return `Memverifikasi model… ${Math.round(runtimeProgress * 100)}%`;
+    if (runtimeState === "verifying" || selectedStatus?.state === "verifying") return `Memverifikasi model… ${Math.round((selectedStatus?.progress ?? runtimeProgress) * 100)}%`;
     if (runtimeState === "loading" || runtimeState === "preparing") return "Menyiapkan model lokal…";
     if (runtimeState === "thinking") return `${name} sedang berpikir…`;
     if (selectedStatus?.state === "ready") return "AI lokal siap";
@@ -390,7 +390,7 @@ function FurinaNativeApp() {
             className="max-h-32 min-h-11 resize-none border-white/15 bg-white/8 text-white placeholder:text-white/45"
           />
           {sending ? (
-            <Button size="icon" variant="secondary" className="shrink-0" onClick={() => bridge()?.stopGeneration()}><Square className="h-4 w-4" /></Button>
+            <Button size="icon" variant="secondary" className="shrink-0" aria-label="Hentikan jawaban" onClick={() => bridge()?.stopGeneration()}><Square className="h-4 w-4" /></Button>
           ) : (
             <Button size="icon" className="shrink-0" disabled={!canSend} onClick={send}><Send className="h-4 w-4" /></Button>
           )}
@@ -470,10 +470,10 @@ function FurinaNativeApp() {
                       {selected && <Check className="h-4 w-4 shrink-0 text-primary" />}
                     </div>
 
-                    {(st.state === "downloading" || st.state === "paused") && (
+                    {(st.state === "downloading" || st.state === "paused" || st.state === "verifying") && (
                       <div className="mt-3 space-y-1">
                         <div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary transition-[width] duration-300" style={{ width: `${progress * 100}%` }} /></div>
-                        <p className="text-[10px] text-muted-foreground">{formatBytes(st.downloadedBytes)} / {formatBytes(total)} · unduhan berjalan di latar belakang</p>
+                        <p className="text-[10px] text-muted-foreground">{st.state === "verifying" ? `Memverifikasi integritas… ${Math.round(progress * 100)}%` : `${formatBytes(st.downloadedBytes)} / ${formatBytes(total)} · unduhan berjalan di latar belakang`}</p>
                       </div>
                     )}
 
@@ -487,6 +487,8 @@ function FurinaNativeApp() {
                         </>
                       ) : st.state === "downloading" || st.state === "paused" ? (
                         <Button size="sm" variant="outline" onClick={() => bridge()?.cancelModelDownload(model.id)}><X className="mr-1 h-3.5 w-3.5" /> Batalkan</Button>
+                      ) : st.state === "verifying" ? (
+                        <Button size="sm" variant="secondary" disabled><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> Memverifikasi</Button>
                       ) : (
                         <Button size="sm" disabled={!nativeReady} onClick={() => { bridge()?.startModelDownload(model.id); refreshModels(); }}>
                           <Download className="mr-1 h-3.5 w-3.5" /> Download
@@ -494,6 +496,7 @@ function FurinaNativeApp() {
                       )}
                     </div>
                     {st.state === "failed" && <p className="mt-2 text-[10px] text-destructive">Download gagal (kode {st.reason ?? "?"}). Coba unduh ulang.</p>}
+                    {st.state === "corrupt" && <p className="mt-2 text-[10px] text-destructive">File model tidak utuh atau checksum salah. Hapus lalu unduh ulang.</p>}
                     {model.id.includes("9b") && <p className="mt-2 text-[10px] text-muted-foreground">9B memerlukan RAM jauh lebih besar. Jika Android menutup aplikasi atau respons terlalu lambat, kembali ke 4B.</p>}
                   </div>
                 );

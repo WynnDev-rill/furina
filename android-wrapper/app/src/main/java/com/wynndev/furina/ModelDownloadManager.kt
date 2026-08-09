@@ -4,12 +4,17 @@ import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
+import android.os.StatFs
 import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
 import java.security.MessageDigest
 
 class ModelDownloadManager(private val context: Context) {
+    companion object {
+        private const val DOWNLOAD_HEADROOM_BYTES = 512L * 1024L * 1024L
+    }
+
     private val downloads = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
     private val prefs = context.getSharedPreferences("furina_models", Context.MODE_PRIVATE)
     private val modelDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "models").apply { mkdirs() }
@@ -26,7 +31,11 @@ class ModelDownloadManager(private val context: Context) {
 
         val target = modelFile(spec)
         if (target.exists()) target.delete()
-        prefs.edit().remove("verified:${spec.id}").apply()
+        val available = StatFs(modelDir.absolutePath).availableBytes
+        require(available >= spec.expectedBytes + DOWNLOAD_HEADROOM_BYTES) {
+            "Penyimpanan tidak cukup. Sisakan setidaknya ${formatGiB(spec.expectedBytes + DOWNLOAD_HEADROOM_BYTES)}."
+        }
+        prefs.edit().remove("verified:${spec.id}").remove("verification_error:${spec.id}").apply()
 
         val request = DownloadManager.Request(Uri.parse(spec.downloadUrl))
             .setTitle(spec.displayName)
@@ -46,6 +55,7 @@ class ModelDownloadManager(private val context: Context) {
         val id = prefs.getLong("download:${spec.id}", -1L)
         if (id > 0L) downloads.remove(id)
         prefs.edit().remove("download:${spec.id}").remove("verified:${spec.id}").apply()
+        prefs.edit().remove("verification_error:${spec.id}").apply()
         modelFile(spec).delete()
         return status(spec)
     }
@@ -55,6 +65,7 @@ class ModelDownloadManager(private val context: Context) {
         val id = prefs.getLong("download:${spec.id}", -1L)
         if (id > 0L) downloads.remove(id)
         prefs.edit().remove("download:${spec.id}").remove("verified:${spec.id}").apply()
+        prefs.edit().remove("verification_error:${spec.id}").apply()
         modelFile(spec).delete()
         return status(spec)
     }
@@ -87,7 +98,11 @@ class ModelDownloadManager(private val context: Context) {
             }
         }
 
-        val verified = prefs.getString("verified:${spec.id}", null) == spec.sha256
+        val sizeMatches = !file.exists() || file.length() == spec.expectedBytes
+        val verificationError = prefs.getString("verification_error:${spec.id}", null)
+        if (file.exists() && !sizeMatches) state = "corrupt"
+        if (verificationError != null) state = "corrupt"
+        val verified = sizeMatches && prefs.getString("verified:${spec.id}", null) == spec.sha256
         return JSONObject()
             .put("id", spec.id)
             .put("state", state)
@@ -96,12 +111,18 @@ class ModelDownloadManager(private val context: Context) {
             .put("progress", if (total > 0L) downloaded.toDouble() / total.toDouble() else 0.0)
             .put("verified", verified)
             .put("reason", reason)
+            .put("availableBytes", StatFs(modelDir.absolutePath).availableBytes)
+            .put("error", verificationError ?: "")
             .put("path", if (file.exists()) file.absolutePath else "")
     }
 
     fun verify(spec: ModelSpec, progress: ((Long, Long) -> Unit)? = null): Boolean {
         val file = modelFile(spec)
         if (!file.exists() || file.length() == 0L) return false
+        if (file.length() != spec.expectedBytes) {
+            prefs.edit().putString("verification_error:${spec.id}", "Ukuran file model tidak cocok").apply()
+            return false
+        }
         if (prefs.getString("verified:${spec.id}", null) == spec.sha256) return true
 
         val digest = MessageDigest.getInstance("SHA-256")
@@ -118,7 +139,13 @@ class ModelDownloadManager(private val context: Context) {
         }
         val actual = digest.digest().joinToString("") { "%02x".format(it) }
         val ok = actual.equals(spec.sha256, ignoreCase = true)
-        if (ok) prefs.edit().putString("verified:${spec.id}", spec.sha256).apply()
+        if (ok) {
+            prefs.edit().putString("verified:${spec.id}", spec.sha256).remove("verification_error:${spec.id}").apply()
+        } else {
+            prefs.edit().putString("verification_error:${spec.id}", "Checksum model tidak cocok").apply()
+        }
         return ok
     }
+
+    private fun formatGiB(bytes: Long): String = String.format(java.util.Locale.US, "%.1f GB", bytes / 1024.0 / 1024.0 / 1024.0)
 }

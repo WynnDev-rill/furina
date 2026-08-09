@@ -56,6 +56,9 @@ jobs:
           grep -q 'Qwen3.5 4B Uncensored' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
           grep -q 'Qwen3.5 9B Uncensored' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
           ! grep -qi 'gemma' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
+          grep -q '55e05aba5a4e1e2d6c4919753a68941c4ad4cb11' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
+          grep -q 'a5ebf434dfbf9646d1bb97a469c1d8f69e4feb2e' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
+          grep -q 'generationJob = null' android-wrapper/app/src/main/java/com/wynndev/furina/FurinaBridge.kt
 
       - name: Set up Java 17
         uses: actions/setup-java@v4

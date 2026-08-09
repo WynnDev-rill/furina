@@ -35,6 +35,8 @@ class FurinaBridge(
     private var loadedSessionId: String? = null
     private var loadedPersonaHash: Int? = null
     private var sessionBootstrapped = false
+    private val verificationJobs = mutableMapOf<String, Job>()
+    private val verificationProgress = mutableMapOf<String, Double>()
 
     @JavascriptInterface
     fun nativeInfo(): String = JSONObject()
@@ -59,7 +61,14 @@ class FurinaBridge(
     @JavascriptInterface
     fun modelStatus(modelId: String): String {
         val spec = ModelCatalog.byId(modelId) ?: return JSONObject().put("state", "unknown").toString()
-        return modelDownloads.status(spec).put("selected", selectedModelId() == spec.id).toString()
+        val status = modelDownloads.status(spec)
+        if (status.optString("state") == "ready" && !status.optBoolean("verified")) beginVerification(spec)
+        synchronized(verificationJobs) {
+            if (verificationJobs[spec.id]?.isActive == true) {
+                status.put("state", "verifying").put("progress", verificationProgress[spec.id] ?: 0.0)
+            }
+        }
+        return status.put("selected", selectedModelId() == spec.id).toString()
     }
 
     @JavascriptInterface
@@ -79,6 +88,7 @@ class FurinaBridge(
         val spec = ModelCatalog.byId(modelId) ?: return
         scope.launch {
             try {
+                synchronized(verificationJobs) { verificationJobs.remove(modelId)?.cancel(); verificationProgress.remove(modelId) }
                 if (loadedModelId == modelId) unloadEngine()
                 modelDownloads.delete(spec)
                 emitState("model_deleted", modelId, 0.0)
@@ -128,6 +138,7 @@ class FurinaBridge(
 
         generationJob = scope.launch {
             val reply = StringBuilder()
+            var userId = ""
             try {
                 val model = ModelCatalog.byId(selectedModelId()) ?: error("Model AI tidak dikenal")
                 val modelState = modelDownloads.status(model).optString("state")
@@ -135,7 +146,7 @@ class FurinaBridge(
 
                 val bootstrapContext = store.buildBootstrapContext(clean, sessionId)
                 ensureModelLoaded(model, sessionId, persona)
-                val userId = store.addMessage(sessionId, "user", clean)
+                userId = store.addMessage(sessionId, "user", clean)
                 emitState("thinking", model.id, 0.0)
 
                 val prompt = if (!sessionBootstrapped) {
@@ -171,9 +182,18 @@ class FurinaBridge(
                     try { backupManager.autoBackupIfDue() } catch (_: Throwable) {}
                 }
             } catch (e: CancellationException) {
+                val partial = reply.toString().trim()
+                if (partial.isNotBlank() && userId.isNotBlank()) {
+                    val assistantId = store.addMessage(sessionId, "assistant", partial)
+                    emitDone(requestId, userId, assistantId)
+                } else {
+                    emitError(requestId, "Respons dihentikan")
+                }
                 emitState("cancelled", selectedModelId(), 0.0)
             } catch (e: Throwable) {
                 emitError(requestId, e.message ?: "Inference gagal")
+            } finally {
+                generationJob = null
             }
         }
     }
@@ -245,6 +265,33 @@ class FurinaBridge(
 
     private fun selectedModelId(): String = prefs.getString("selected_model", ModelCatalog.models.first().id)
         ?: ModelCatalog.models.first().id
+
+    private fun beginVerification(spec: ModelSpec) {
+        synchronized(verificationJobs) {
+            if (verificationJobs[spec.id]?.isActive == true) return
+            verificationProgress[spec.id] = 0.0
+            verificationJobs[spec.id] = scope.launch(Dispatchers.IO) {
+                try {
+                    val ok = modelDownloads.verify(spec) { done, total ->
+                        val progress = if (total > 0L) done.toDouble() / total.toDouble() else 0.0
+                        synchronized(verificationJobs) { verificationProgress[spec.id] = progress }
+                        emitState("verifying", spec.id, progress)
+                    }
+                    if (ok) emitState("model_verified", spec.id, 1.0)
+                    else emitError("model-verify", "File ${spec.displayName} rusak. Hapus lalu unduh ulang.")
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    emitError("model-verify", e.message ?: "Verifikasi model gagal")
+                } finally {
+                    synchronized(verificationJobs) {
+                        verificationJobs.remove(spec.id)
+                        verificationProgress.remove(spec.id)
+                    }
+                }
+            }
+        }
+    }
 
     private suspend fun ensureModelLoaded(spec: ModelSpec, sessionId: String, persona: String) = loadMutex.withLock {
         val personaHash = persona.hashCode()
