@@ -43,7 +43,14 @@ class UnifiedAiEngine(
         // Persist the user turn even if native generation fails; retries then retain intent.
         val userId = store.addMessage(sessionId, "user", userText)
         val reply = StringBuilder()
-        val request = AiGenerationRequest(requestId, sessionId, model, context, userText)
+        val request = AiGenerationRequest(
+            requestId = requestId,
+            sessionId = sessionId,
+            model = model,
+            context = context,
+            userMessage = userText,
+            predictLength = responseBudgetFor(userText),
+        )
         try {
             activeProvider.stream(request).collect { token ->
                 if (firstTokenAt == 0L) firstTokenAt = SystemClock.elapsedRealtime()
@@ -75,4 +82,10 @@ class UnifiedAiEngine(
     }
 
     suspend fun unload() = providers.values.forEach { it.unload() }
+
+    private fun responseBudgetFor(message: String): Int = when {
+        message.length <= 40 -> 96
+        message.length <= 180 -> 192
+        else -> 384
+    }
 }
