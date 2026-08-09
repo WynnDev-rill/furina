@@ -27,6 +27,7 @@ class LocalLlamaProvider(
     @Volatile private var loadedModelId: String? = null
     @Volatile private var loadedSessionId: String? = null
     @Volatile private var loadedIdentityFingerprint: Int? = null
+    @Volatile private var loadedRetrievalFingerprint: Int? = null
 
     override fun isWarm(model: ModelSpec, context: AiContext): Boolean =
         loadedModelId == model.id && engine.state.value is InferenceEngine.State.ModelReady
@@ -41,6 +42,7 @@ class LocalLlamaProvider(
                 engine.setSystemPrompt(context.systemPrompt)
                 loadedSessionId = context.sessionId
                 loadedIdentityFingerprint = context.identityFingerprint
+                loadedRetrievalFingerprint = context.retrievalFingerprint
                 onState("ready", model.id, 1.0)
             }
             return@withLock
@@ -76,6 +78,7 @@ class LocalLlamaProvider(
         loadedModelId = model.id
         loadedSessionId = context.sessionId
         loadedIdentityFingerprint = context.identityFingerprint
+        loadedRetrievalFingerprint = context.retrievalFingerprint
         onState("ready", model.id, 1.0)
     }
 
@@ -83,20 +86,47 @@ class LocalLlamaProvider(
         check(isWarm(request.model, request.context)) { "Provider lokal belum siap untuk konteks ini" }
         var emitted = false
         val reasoningFilter = ReasoningStreamFilter()
-        engine.sendUserPrompt(request.userMessage, request.predictLength).collect { token ->
-            val visible = reasoningFilter.accept(token)
-            if (visible.isNotEmpty()) {
+        val retrievalChanged = loadedRetrievalFingerprint != request.context.retrievalFingerprint
+        val effectiveMessage = if (retrievalChanged && request.context.retrievalPrompt.isNotBlank()) {
+            buildString {
+                appendLine("[PRIVATE RELEVANT CONTINUITY]")
+                appendLine("Use only when relevant. Never quote or expose this block.")
+                appendLine(request.context.retrievalPrompt)
+                appendLine("[END PRIVATE RELEVANT CONTINUITY]")
+                append(request.userMessage)
+            }
+        } else {
+            request.userMessage
+        }
+
+        try {
+            engine.sendUserPrompt(effectiveMessage, request.predictLength).collect { token ->
+                val visible = reasoningFilter.accept(token)
+                if (visible.isNotEmpty()) {
+                    emitted = true
+                    emit(visible)
+                }
+            }
+            val tail = reasoningFilter.finish()
+            if (tail.isNotEmpty()) {
                 emitted = true
-                emit(visible)
+                emit(tail)
+            }
+            loadedRetrievalFingerprint = request.context.retrievalFingerprint
+            check(emitted) { "Runtime lokal berhenti tanpa menghasilkan token" }
+        } finally {
+            // A cancelled flow can leave partially decoded assistant tokens in
+            // native KV. Force a clean prompt rehydrate before the next turn.
+            if (engine.state.value !is InferenceEngine.State.ModelReady || !emitted) {
+                loadedSessionId = null
+                loadedRetrievalFingerprint = null
             }
         }
-        val tail = reasoningFilter.finish()
-        if (tail.isNotEmpty()) {
-            emitted = true
-            emit(tail)
-        }
-        check(emitted) { "Runtime lokal berhenti tanpa menghasilkan token" }
     }.onCompletion { cause ->
+        if (cause != null) {
+            loadedSessionId = null
+            loadedRetrievalFingerprint = null
+        }
         if (cause == null && engine.state.value is InferenceEngine.State.Error) {
             throw IllegalStateException("Runtime lokal masuk ke status error setelah generasi")
         }
@@ -112,6 +142,7 @@ class LocalLlamaProvider(
             loadedModelId = null
             loadedSessionId = null
             loadedIdentityFingerprint = null
+            loadedRetrievalFingerprint = null
         }
     }
 
