@@ -49,6 +49,10 @@ android {
 
     packaging {
         resources.excludes += ['/META-INF/{AL2.0,LGPL2.1}']
+        // llama.cpp discovers optimized CPU backends by enumerating
+        // applicationInfo.nativeLibraryDir. Legacy packaging extracts the
+        // bundled .so files there instead of leaving them inside the APK.
+        jniLibs.useLegacyPackaging = true
     }
 }
 
