@@ -38,6 +38,12 @@ data class AiContext(
 
     val fingerprint: Int = systemPrompt.hashCode()
     val identityFingerprint: Int = identityPrompt.hashCode()
+    val retrievalFingerprint: Int = listOf(relevantMemories, relevantHistory).hashCode()
+
+    val retrievalPrompt: String = buildString {
+        if (relevantMemories.isNotBlank()) appendLine("Relevant long-term memory:\n${relevantMemories.trim()}")
+        if (relevantHistory.isNotBlank()) appendLine("Relevant older conversations:\n${relevantHistory.trim()}")
+    }.trim()
 }
 
 data class AiGenerationRequest(
