@@ -52,8 +52,9 @@ jobs:
         run: |
           npm install --no-audit --no-fund
           npm run build
-          grep -q 'Qwen3.5 4B Uncensored' src/routes/native.tsx
-          grep -q 'Qwen3.5 9B Uncensored' src/routes/native.tsx
+          test -s src/routes/native.tsx
+          grep -q 'Qwen3.5 4B Uncensored' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
+          grep -q 'Qwen3.5 9B Uncensored' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
           ! grep -qi 'gemma' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
 
       - name: Set up Java 17
