@@ -58,6 +58,8 @@ jobs:
           grep -q 'generationJob = null' android-wrapper/app/src/main/java/com/wynndev/furina/FurinaBridge.kt
           grep -q 'DB_VERSION = 2' android-wrapper/app/src/main/java/com/wynndev/furina/MemoryStore.kt
           grep -q 'saveAppSettings' src/routes/native.tsx
+          grep -q 'val transferActive = state == "downloading" || state == "paused"' android-wrapper/app/src/main/java/com/wynndev/furina/ModelDownloadManager.kt
+          grep -q 'transition-transform duration-300 ease-out' src/routes/native.tsx
           grep -q 'setDecorFitsSystemWindows(window, true)' android-wrapper/app/src/main/java/com/wynndev/furina/MainActivity.kt
           grep -q 'windowOptOutEdgeToEdgeEnforcement' android-wrapper/app/src/main/res/values/styles.xml
 
@@ -160,4 +162,3 @@ jobs:
           path: Furina-Stable.apk
           if-no-files-found: error
           retention-days: 90
-
