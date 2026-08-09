@@ -78,6 +78,10 @@ jobs:
           grep -q 'windowOptOutEdgeToEdgeEnforcement' android-wrapper/app/src/main/res/values/styles.xml
           grep -q 'android:extractNativeLibs="true"' android-wrapper/app/src/main/AndroidManifest.xml
           grep -q 'jniLibs.useLegacyPackaging = true' android-wrapper/app/build.gradle
+          grep -q 'reasoning_budget_tokens' scripts/overlays/ai_chat.cpp
+          grep -q 'configureReasoningBudget' scripts/overlays/InferenceEngineImpl.kt
+          grep -q 'loadedIdentityFingerprint' android-wrapper/app/src/main/java/com/wynndev/furina/LocalLlamaProvider.kt
+          grep -q 'ReasoningStreamFilter' android-wrapper/app/src/main/java/com/wynndev/furina/LocalLlamaProvider.kt
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
