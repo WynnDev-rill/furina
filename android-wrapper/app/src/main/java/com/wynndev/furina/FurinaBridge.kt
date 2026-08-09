@@ -27,7 +27,7 @@ class FurinaBridge(
     private val backupManager: BackupManager,
 ) {
     private val scope = kotlinx.coroutines.CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val prefs = activity.getSharedPreferences("furina_native", MainActivity.MODE_PRIVATE)
+    private val prefs = activity.getSharedPreferences("furina_native", 0)
     private val engine: InferenceEngine = AiChat.getInferenceEngine(activity.applicationContext)
     private val loadMutex = Mutex()
     private var generationJob: Job? = null
