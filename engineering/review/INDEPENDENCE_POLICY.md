@@ -21,9 +21,11 @@ Reviewer and Boss decisions are valid only for the exact PR head SHA they inspec
 
 The separation is about fresh execution context, not elapsed wall-clock time. Hourly cadence naturally provides this without artificial delays.
 
-## Reviewer output
-The Reviewer record must include:
+## Machine-readable Reviewer record
+Reviewer output must conform to `engineering/review/decision.schema.json` and include:
+- `pullRequest`
 - `reviewCycleId`
+- `engineerCycleId`
 - `reviewedHeadSha`
 - `verdict`
 - `evidenceLevel`
@@ -31,13 +33,20 @@ The Reviewer record must include:
 - `scopeCoherence`
 - `simplerAlternative`
 - `reason`
+- `reviewedAt`
+
+The Reviewer should submit its review as a distinct PR review/comment. The Boss decision is a separate record/comment created in a later execution.
 
 ## Boss prerequisite
 The Boss must refuse to decide and leave the PR in `testing` when:
 - no independent Reviewer record exists;
+- the Reviewer record does not conform to `engineering/review/decision.schema.json`;
 - the Reviewer inspected a different head SHA;
-- the Reviewer was produced by the Engineer cycle;
+- `reviewCycleId == engineerCycleId`;
+- the Boss is running in either the Engineer or Reviewer cycle;
 - required evidence for the product claim is missing.
 
+Boss output must conform to `engineering/boss/decision.schema.json`, including `engineerCycleId`, `reviewCycleId`, `bossCycleId`, and `reviewedHeadSha`.
+
 ## Anti-rubber-stamp rule
-Role labels inside one model response are not independent review. Independence requires separate scheduled executions and SHA-bound records.
+Role labels inside one model response are not independent review. Independence requires separate scheduled executions, separate machine-readable decisions, and SHA-bound records.
