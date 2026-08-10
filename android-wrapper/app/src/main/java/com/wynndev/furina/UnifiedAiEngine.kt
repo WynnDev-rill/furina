@@ -40,6 +40,11 @@ class UnifiedAiEngine(
         var tokenCount = 0
         store.observeUserTurn(userText)
 
+        // Build every provider/model context before persisting the current user turn.
+        // Otherwise recentHistory would contain this turn and the provider would receive it twice.
+        val contexts = route.models.associateWith { model ->
+            contextEngine.build(sessionId, userText, characterName, persona, model.contextWindow)
+        }
         val userId = store.addMessage(sessionId, "user", userText)
         var chosen: AiModelRef? = null
         var selectedWarmStart = false
@@ -52,7 +57,7 @@ class UnifiedAiEngine(
             val reply = StringBuilder()
             try {
                 val active = activateProvider(model.providerId)
-                val context = contextEngine.build(sessionId, userText, characterName, persona, model.contextWindow)
+                val context = contexts.getValue(model)
                 val warmStart = active.isWarm(model, context)
                 active.prepare(model, context)
                 val request = AiGenerationRequest(
@@ -71,7 +76,15 @@ class UnifiedAiEngine(
                     onToken(token)
                 }
                 val candidate = reply.toString().trim()
-                check(candidate.isNotBlank()) { "Model tidak menghasilkan jawaban" }
+                if (candidate.isBlank()) {
+                    throw AiProviderException(
+                        providerId = model.providerId,
+                        modelId = model.id,
+                        statusCode = 502,
+                        recoverable = true,
+                        message = "Model tidak menghasilkan jawaban",
+                    )
+                }
                 chosen = model
                 selectedWarmStart = warmStart
                 finalText = candidate
