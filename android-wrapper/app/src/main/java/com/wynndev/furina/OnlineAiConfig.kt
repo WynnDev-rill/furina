@@ -86,10 +86,9 @@ object OnlineProviderCatalog {
                     !id.contains("image") && !id.contains("live") && !id.contains("tts")
             }
             "groq" -> id in setOf(
-                "groq/compound",
-                "groq/compound-mini",
-                "llama-3.1-8b-instant",
-                "llama-3.3-70b-versatile",
+                // Keep automatic fallback on plain chat models only. Compound systems
+                // can invoke separately billed built-in tools, so they are never
+                // selected by Furina's "free model" automation.
                 "openai/gpt-oss-120b",
                 "openai/gpt-oss-20b",
                 "qwen/qwen3.6-27b",
