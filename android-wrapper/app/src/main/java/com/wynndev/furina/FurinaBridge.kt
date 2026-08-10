@@ -269,7 +269,7 @@ class FurinaBridge(
                 val result = aiEngine.generate(requestId, providerId, model, sessionId, clean, characterName, persona) { token ->
                     pending.append(token)
                     val now = android.os.SystemClock.elapsedRealtime()
-                    if (pending.length >= 24 || now - lastDispatch >= 45L) {
+                    if (pending.length >= STREAM_DISPATCH_MIN_CHARS || now - lastDispatch >= STREAM_DISPATCH_MAX_DELAY_MS) {
                         dispatchToken(requestId, pending.toString())
                         pending.clear()
                         lastDispatch = now
@@ -437,5 +437,12 @@ class FurinaBridge(
 
     private fun eval(script: String) {
         webView.post { if (!webView.isDestroyed) webView.evaluateJavascript(script, null) }
+    }
+
+    private companion object {
+        // Keep streaming visually live while avoiding a WebView/React render for every
+        // tiny native token chunk. This caps idle cadence near one dispatch per frame.
+        const val STREAM_DISPATCH_MIN_CHARS = 48
+        const val STREAM_DISPATCH_MAX_DELAY_MS = 72L
     }
 }
