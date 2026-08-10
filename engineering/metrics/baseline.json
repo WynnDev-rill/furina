@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-08-10T18:06:00+07:00",
+  "source": "initial engineering audit",
+  "scores": {
+    "architecture": 8.0,
+    "personaObserved": 6.0,
+    "memoryContinuity": 6.5,
+    "learningDepth": 5.0,
+    "agencySimulation": 3.5,
+    "localLatencyArchitecture": 7.0,
+    "privateAppReadiness": 8.0
+  },
+  "knownSignals": {
+    "duplicateCompanionStateImplementations": true,
+    "automaticMemoryExtraction": true,
+    "memoryExtractionPrimarilyRegexBased": true,
+    "behavioralModelEvalPresent": false,
+    "localInferenceCpuOnly": true
+  }
+}

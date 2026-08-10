@@ -1,0 +1,39 @@
+name: Furina Engineering OS
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'android-wrapper/**'
+      - 'scripts/**'
+      - 'engineering/**'
+      - 'furina-lab/**'
+      - '.github/workflows/furina-engineering-os.yml'
+
+jobs:
+  validate-company:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Engineering OS JSON
+        run: |
+          python3 -m json.tool engineering/metrics/baseline.json >/dev/null
+          python3 -m json.tool engineering/evals/companion-scenarios.json >/dev/null
+
+      - name: Run deterministic architecture audit
+        run: python3 scripts/furina-company-audit.py | tee furina-company-audit.json
+
+      - name: Run existing companion quality gate
+        run: python3 scripts/companion-quality-gate.py
+
+      - name: Validate Furina Lab JavaScript syntax
+        run: |
+          node --check furina-lab/app.js
+          node --check furina-lab/api/status.js
+
+      - name: Upload audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: furina-company-audit
+          path: furina-company-audit.json
