@@ -20,6 +20,10 @@ jobs:
         run: |
           python3 -m json.tool engineering/metrics/baseline.json >/dev/null
           python3 -m json.tool engineering/evals/companion-scenarios.json >/dev/null
+          python3 -m json.tool engineering/evidence/device-report.schema.json >/dev/null
+
+      - name: Validate Engineering Company v2 policy
+        run: python3 scripts/furina-company-policy-gate.py
 
       - name: Run deterministic architecture audit
         run: python3 scripts/furina-company-audit.py | tee furina-company-audit.json
