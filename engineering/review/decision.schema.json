@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://furina.local/engineering/review/decision.schema.json",
+  "title": "Furina Independent Reviewer Decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "pullRequest",
+    "reviewCycleId",
+    "engineerCycleId",
+    "reviewedHeadSha",
+    "verdict",
+    "evidenceLevel",
+    "regressionRisk",
+    "scopeCoherence",
+    "simplerAlternative",
+    "reason",
+    "reviewedAt"
+  ],
+  "properties": {
+    "pullRequest": {"type": "integer", "minimum": 1},
+    "reviewCycleId": {"type": "string", "minLength": 1},
+    "engineerCycleId": {"type": "string", "minLength": 1},
+    "reviewedHeadSha": {
+      "type": "string",
+      "minLength": 7,
+      "maxLength": 40,
+      "pattern": "^[0-9a-fA-F]+$"
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["APPROVE", "REQUEST_CHANGES", "BLOCKED_HUMAN", "NO_CHANGE_RECOMMENDED"]
+    },
+    "evidenceLevel": {"type": "string", "enum": ["STATIC", "CI", "BEHAVIORAL", "DEVICE"]},
+    "regressionRisk": {"type": "number", "minimum": 0, "maximum": 10},
+    "scopeCoherence": {"type": "number", "minimum": 0, "maximum": 10},
+    "simplerAlternative": {"type": ["string", "null"], "maxLength": 1000},
+    "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "reviewedAt": {"type": "string", "format": "date-time"}
+  },
+  "allOf": [
+    {
+      "not": {
+        "properties": {
+          "reviewCycleId": {"const": ""}
+        }
+      }
+    }
+  ]
+}

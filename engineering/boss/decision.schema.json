@@ -8,7 +8,12 @@
     "decision",
     "pullRequest",
     "headSha",
+    "engineerCycleId",
+    "reviewCycleId",
+    "bossCycleId",
+    "reviewedHeadSha",
     "evidenceLevel",
+    "autonomyClass",
     "productValue",
     "regressionRisk",
     "complexityCost",
@@ -20,10 +25,36 @@
   "properties": {
     "decision": {
       "type": "string",
-      "enum": ["APPROVE_MERGE", "REJECT_CLOSE", "REQUEST_REVISION", "BLOCKED_HUMAN"]
+      "enum": [
+        "APPROVE_MERGE",
+        "REJECT_CLOSE",
+        "REQUEST_REVISION",
+        "BLOCKED_HUMAN"
+      ]
     },
-    "pullRequest": {"type": "integer", "minimum": 1},
+    "pullRequest": {
+      "type": "integer",
+      "minimum": 1
+    },
     "headSha": {
+      "type": "string",
+      "minLength": 7,
+      "maxLength": 40,
+      "pattern": "^[0-9a-fA-F]+$"
+    },
+    "engineerCycleId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reviewCycleId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "bossCycleId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reviewedHeadSha": {
       "type": "string",
       "minLength": 7,
       "maxLength": 40,
@@ -31,14 +62,54 @@
     },
     "evidenceLevel": {
       "type": "string",
-      "enum": ["STATIC", "CI", "BEHAVIORAL", "DEVICE"]
+      "enum": [
+        "STATIC",
+        "CI",
+        "BEHAVIORAL",
+        "DEVICE"
+      ]
     },
-    "productValue": {"type": "number", "minimum": 0, "maximum": 10},
-    "regressionRisk": {"type": "number", "minimum": 0, "maximum": 10},
-    "complexityCost": {"type": "number", "minimum": 0, "maximum": 10},
-    "confidence": {"type": "number", "minimum": 0, "maximum": 10},
-    "reason": {"type": "string", "minLength": 1, "maxLength": 1200},
-    "requiredNextAction": {"type": "string", "minLength": 1, "maxLength": 600},
-    "decidedAt": {"type": "string", "format": "date-time"}
+    "autonomyClass": {
+      "type": "string",
+      "enum": [
+        "GREEN",
+        "YELLOW",
+        "RED"
+      ]
+    },
+    "productValue": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 10
+    },
+    "regressionRisk": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 10
+    },
+    "complexityCost": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 10
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 10
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1600
+    },
+    "requiredNextAction": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 800
+    },
+    "decidedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
   }
 }

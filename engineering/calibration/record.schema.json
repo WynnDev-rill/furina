@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://furina.local/engineering/calibration/record.schema.json",
+  "title": "Furina Engineering Prediction Calibration Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "workId",
+    "category",
+    "strategicTier",
+    "prediction",
+    "status"
+  ],
+  "properties": {
+    "schemaVersion": {"type": "integer", "const": 1},
+    "workId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "pullRequest": {"type": "integer", "minimum": 1},
+    "category": {"type": "string", "minLength": 1, "maxLength": 120},
+    "strategicTier": {
+      "type": "string",
+      "enum": ["P0_PRODUCT", "P0_UNBLOCKER", "P1_PRODUCT", "P2_PRODUCT", "META_ENGINEERING"]
+    },
+    "prediction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cycleId", "recordedAt", "impact", "confidence", "expectedMetric", "expectedDelta", "verificationWindow"],
+      "properties": {
+        "cycleId": {"type": "string", "minLength": 1},
+        "recordedAt": {"type": "string", "format": "date-time"},
+        "impact": {"type": "number", "minimum": 0, "maximum": 10},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 10},
+        "expectedMetric": {"type": "string", "minLength": 1, "maxLength": 240},
+        "expectedDelta": {"type": ["number", "string"]},
+        "verificationWindow": {"type": "string", "minLength": 1, "maxLength": 240},
+        "reason": {"type": "string", "maxLength": 1200}
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cycleId", "recordedAt", "outcome", "calibration"],
+      "properties": {
+        "cycleId": {"type": "string", "minLength": 1},
+        "recordedAt": {"type": "string", "format": "date-time"},
+        "observedMetric": {"type": "string", "maxLength": 240},
+        "observedDelta": {"type": ["number", "string", "null"]},
+        "outcome": {"type": "string", "enum": ["better", "neutral", "worse", "inconclusive"]},
+        "calibration": {"type": "string", "enum": ["overestimated", "calibrated", "underestimated", "inconclusive"]},
+        "evidenceLevel": {"type": "string", "enum": ["STATIC", "CI", "BEHAVIORAL", "DEVICE"]},
+        "reason": {"type": "string", "maxLength": 1200}
+      }
+    },
+    "status": {"type": "string", "enum": ["prediction_only", "observed"]}
+  }
+}
