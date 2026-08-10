@@ -4,23 +4,35 @@ import android.content.Context
 import android.net.Uri
 import android.util.Base64
 import androidx.documentfile.provider.DocumentFile
-import org.json.JSONObject
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
 import java.security.SecureRandom
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 import javax.crypto.Cipher
 import javax.crypto.CipherInputStream
 import javax.crypto.CipherOutputStream
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import org.json.JSONObject
 
 class BackupManager(
     private val context: Context,
     private val store: MemoryStore,
 ) {
     companion object {
-        private val MAGIC = "FURINA1".toByteArray(Charsets.US_ASCII)
+        private val MAGIC_V1 = "FURINA1".toByteArray(Charsets.US_ASCII)
+        private val MAGIC_V2 = "FURINA2".toByteArray(Charsets.US_ASCII)
         private const val KEEP_BACKUPS = 10
         private const val AUTO_INTERVAL_MS = 6L * 60L * 60L * 1000L
+        private const val DB_ENTRY = "furina_memory.db"
+        private const val COMPANION_ENTRY = "companion_intelligence.json"
+        private const val COMPANION_PREFS = "furina_companion_intelligence_v2"
+        private const val MAX_COMPANION_BYTES = 2 * 1024 * 1024
     }
 
     private val prefs = context.getSharedPreferences("furina_backup", Context.MODE_PRIVATE)
@@ -51,6 +63,7 @@ class BackupManager(
         .put("folderUri", prefs.getString("tree_uri", ""))
         .put("recoveryKey", getOrCreateRecoveryKey())
         .put("lastBackup", prefs.getLong("last_backup", 0L))
+        .put("format", "FURINA2")
         .toString()
 
     fun backupNow(): String {
@@ -60,25 +73,12 @@ class BackupManager(
             ?: throw IllegalStateException("Folder backup tidak dapat dibuka")
         require(root.canWrite()) { "Folder backup tidak dapat ditulis" }
 
-        store.checkpoint()
-        val dbFile = store.databaseFile()
-        require(dbFile.exists()) { "Database Furina belum tersedia" }
-
         val now = System.currentTimeMillis()
         val fileName = "Furina-${now}.furina"
         val doc = root.createFile("application/octet-stream", fileName)
             ?: throw IllegalStateException("Gagal membuat file backup")
 
-        val key = decodeKey(getOrCreateRecoveryKey())
-        val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
-        context.contentResolver.openOutputStream(doc.uri, "w")!!.use { rawOut ->
-            rawOut.write(MAGIC)
-            rawOut.write(iv)
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
-            CipherOutputStream(rawOut, cipher).use { encrypted -> dbFile.inputStream().use { it.copyTo(encrypted, 1024 * 1024) } }
-        }
-
+        context.contentResolver.openOutputStream(doc.uri, "w")!!.use(::writeEncryptedSnapshot)
         prefs.edit().putLong("last_backup", now).apply()
         prune(root)
         return fileName
@@ -92,28 +92,149 @@ class BackupManager(
     }
 
     fun restoreFrom(uri: Uri) {
+        context.contentResolver.openInputStream(uri)!!.use(::restoreEncryptedSnapshot)
+    }
+
+    /** Shared by local-folder and cloud backup so both preserve the same companion state. */
+    fun createEncryptedSnapshotBytes(maxBytes: Long = Long.MAX_VALUE): ByteArray {
+        val dbSize = store.databaseFile().length().coerceAtLeast(0L)
+        val initialCapacity = (dbSize + 256 * 1024L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val out = ByteArrayOutputStream(initialCapacity)
+        writeEncryptedSnapshot(out)
+        val bytes = out.toByteArray()
+        require(bytes.size.toLong() <= maxBytes) { "Backup melebihi batas ukuran" }
+        return bytes
+    }
+
+    fun restoreEncryptedSnapshotBytes(bytes: ByteArray) {
+        require(bytes.isNotEmpty()) { "Backup kosong" }
+        ByteArrayInputStream(bytes).use(::restoreEncryptedSnapshot)
+    }
+
+    private fun writeEncryptedSnapshot(rawOut: OutputStream) {
+        store.checkpoint()
+        val dbFile = store.databaseFile()
+        require(dbFile.isFile) { "Database Furina belum tersedia" }
+
         val key = decodeKey(getOrCreateRecoveryKey())
-        val temp = File(context.cacheDir, "furina-restore-${System.currentTimeMillis()}.db")
-        try {
-            context.contentResolver.openInputStream(uri)!!.use { rawIn ->
-                val header = ByteArray(MAGIC.size)
-                require(rawIn.read(header) == header.size && header.contentEquals(MAGIC)) { "Bukan backup Furina yang didukung" }
-                val iv = ByteArray(12)
-                require(rawIn.read(iv) == iv.size) { "Backup rusak" }
-                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-                cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
-                CipherInputStream(rawIn, cipher).use { decrypted -> temp.outputStream().use { decrypted.copyTo(it, 1024 * 1024) } }
+        val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
+        rawOut.write(MAGIC_V2)
+        rawOut.write(iv)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
+
+        CipherOutputStream(rawOut, cipher).use { encrypted ->
+            ZipOutputStream(encrypted.buffered()).use { zip ->
+                zip.putNextEntry(ZipEntry(DB_ENTRY))
+                dbFile.inputStream().use { it.copyTo(zip, 1024 * 1024) }
+                zip.closeEntry()
+
+                zip.putNextEntry(ZipEntry(COMPANION_ENTRY))
+                zip.write(companionSnapshot().toString().toByteArray(Charsets.UTF_8))
+                zip.closeEntry()
             }
-            temp.inputStream().use { input ->
-                val sqliteHeader = ByteArray(16)
-                require(input.read(sqliteHeader) == 16 && String(sqliteHeader, Charsets.US_ASCII).startsWith("SQLite format 3")) {
-                    "Recovery key salah atau backup tidak valid"
+        }
+    }
+
+    private fun restoreEncryptedSnapshot(rawIn: InputStream) {
+        val header = ByteArray(MAGIC_V2.size)
+        require(rawIn.read(header) == header.size) { "Backup rusak" }
+        when {
+            header.contentEquals(MAGIC_V2) -> restoreV2(rawIn)
+            header.contentEquals(MAGIC_V1) -> restoreV1(rawIn)
+            else -> throw IllegalArgumentException("Bukan backup Furina yang didukung")
+        }
+    }
+
+    /** Current portable format: encrypted ZIP containing DB plus learned companion state. */
+    private fun restoreV2(rawIn: InputStream) {
+        val key = decodeKey(getOrCreateRecoveryKey())
+        val iv = ByteArray(12)
+        require(rawIn.read(iv) == iv.size) { "Backup rusak" }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
+
+        val tempDb = File(context.cacheDir, "furina-restore-${System.currentTimeMillis()}.db")
+        var companion: JSONObject? = null
+        try {
+            CipherInputStream(rawIn, cipher).use { decrypted ->
+                ZipInputStream(decrypted.buffered()).use { zip ->
+                    while (true) {
+                        val entry = zip.nextEntry ?: break
+                        when (entry.name) {
+                            DB_ENTRY -> tempDb.outputStream().use { zip.copyTo(it, 1024 * 1024) }
+                            COMPANION_ENTRY -> {
+                                val buffer = ByteArrayOutputStream()
+                                val chunk = ByteArray(32 * 1024)
+                                while (true) {
+                                    val count = zip.read(chunk)
+                                    if (count <= 0) break
+                                    require(buffer.size() + count <= MAX_COMPANION_BYTES) { "State companion backup terlalu besar" }
+                                    buffer.write(chunk, 0, count)
+                                }
+                                companion = JSONObject(buffer.toString(Charsets.UTF_8.name()))
+                            }
+                        }
+                        zip.closeEntry()
+                    }
                 }
             }
+            validateDatabase(tempDb)
+            store.restoreFrom(tempDb)
+            restoreCompanionSnapshot(companion ?: JSONObject())
+        } finally {
+            tempDb.delete()
+        }
+    }
+
+    /** Backward compatibility for existing FURINA1 encrypted raw-SQLite backups. */
+    private fun restoreV1(rawIn: InputStream) {
+        val key = decodeKey(getOrCreateRecoveryKey())
+        val iv = ByteArray(12)
+        require(rawIn.read(iv) == iv.size) { "Backup rusak" }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
+        val temp = File(context.cacheDir, "furina-legacy-restore-${System.currentTimeMillis()}.db")
+        try {
+            CipherInputStream(rawIn, cipher).use { decrypted ->
+                temp.outputStream().use { decrypted.copyTo(it, 1024 * 1024) }
+            }
+            validateDatabase(temp)
             store.restoreFrom(temp)
+            // Old backups did not carry these fields. Clearing avoids mixing a restored DB
+            // with newer learned patterns that happened after the backup was created.
+            context.getSharedPreferences(COMPANION_PREFS, Context.MODE_PRIVATE).edit().clear().apply()
         } finally {
             temp.delete()
         }
+    }
+
+    private fun validateDatabase(file: File) {
+        require(file.isFile && file.length() >= 16L) { "Recovery key salah atau backup tidak valid" }
+        file.inputStream().use { input ->
+            val sqliteHeader = ByteArray(16)
+            require(input.read(sqliteHeader) == 16 && String(sqliteHeader, Charsets.US_ASCII).startsWith("SQLite format 3")) {
+                "Recovery key salah atau backup tidak valid"
+            }
+        }
+    }
+
+    private fun companionSnapshot(): JSONObject {
+        val source = context.getSharedPreferences(COMPANION_PREFS, Context.MODE_PRIVATE)
+        return JSONObject()
+            .put("state", source.getString("state", ""))
+            .put("experiences", source.getString("experiences", "[]"))
+            .put("reflections", source.getString("reflections", "[]"))
+            .put("memory_meta", source.getString("memory_meta", "{}"))
+    }
+
+    private fun restoreCompanionSnapshot(snapshot: JSONObject) {
+        val editor = context.getSharedPreferences(COMPANION_PREFS, Context.MODE_PRIVATE).edit().clear()
+        listOf("state", "experiences", "reflections", "memory_meta").forEach { key ->
+            val value = snapshot.optString(key, "")
+            if (value.isNotBlank()) editor.putString(key, value)
+        }
+        editor.apply()
     }
 
     private fun prune(root: DocumentFile) {

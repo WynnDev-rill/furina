@@ -79,7 +79,7 @@ class MainActivity : ComponentActivity() {
             settings.mediaPlaybackRequiresUserGesture = false
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             settings.safeBrowsingEnabled = true
-            settings.userAgentString = settings.userAgentString + " FurinaAndroid/4.2"
+            settings.userAgentString = settings.userAgentString + " FurinaAndroid/4.3"
         }
         applySystemTheme(true)
         WebView.setWebContentsDebuggingEnabled(false)
@@ -88,7 +88,7 @@ class MainActivity : ComponentActivity() {
         val modelDownloads = ModelDownloadManager(this)
         val backupManager = BackupManager(this, store)
         bridge = FurinaBridge(this, webView, store, modelDownloads, backupManager)
-        cloudBridge = CloudBackupBridge(this, webView, store, backupManager)
+        cloudBridge = CloudBackupBridge(this, webView, backupManager, bridge::withAiPaused)
         webView.addJavascriptInterface(bridge, "FurinaNative")
         webView.addJavascriptInterface(cloudBridge, "FurinaCloud")
 
@@ -334,8 +334,9 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        bridge.destroy()
+        // Stop cloud jobs first because FurinaBridge owns the shared MemoryStore lifecycle.
         cloudBridge.destroy()
+        bridge.destroy()
         webView.removeJavascriptInterface("FurinaNative")
         webView.removeJavascriptInterface("FurinaCloud")
         webView.destroy()

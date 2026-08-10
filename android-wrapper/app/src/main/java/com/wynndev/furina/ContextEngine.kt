@@ -11,8 +11,8 @@ import java.util.Locale
  * Hot-path retrieval stays deterministic and SQLite-backed. Heavier companion reflection
  * and memory reconciliation are retained for idle maintenance rather than blocking TTFT.
  */
-class ContextEngine(private val store: MemoryStore) {
-    private val companion = CompanionIntelligence(storeContext(), store)
+class ContextEngine(context: Context, private val store: MemoryStore) {
+    private val companion = CompanionIntelligence(context.applicationContext, store)
 
     /** Fast state update used before inference. Heavy reflection work is intentionally absent. */
     fun observeUserTurn(sessionId: String, text: String) {
@@ -186,12 +186,6 @@ class ContextEngine(private val store: MemoryStore) {
         val now = ZonedDateTime.now()
         val formatted = now.format(DateTimeFormatter.ofPattern("EEEE, d MMMM uuuu, HH:mm", Locale.forLanguageTag("id-ID")))
         return "Current device date and time: $formatted (${now.zone.id}). Use this exact value if asked."
-    }
-
-    private fun storeContext(): Context {
-        val field = MemoryStore::class.java.getDeclaredField("context")
-        field.isAccessible = true
-        return (field.get(store) as Context).applicationContext
     }
 
     private fun String.bounded(limit: Int, keepEnd: Boolean = false): String {
