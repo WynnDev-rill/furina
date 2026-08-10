@@ -7,6 +7,7 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
+import { FurinaCloudBackupCard } from "@/components/FurinaCloudBackupCard";
 
 import appCss from "../styles.css?url";
 
@@ -120,6 +121,7 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
+      <FurinaCloudBackupCard />
     </QueryClientProvider>
   );
 }
