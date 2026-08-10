@@ -51,6 +51,22 @@ def main() -> None:
     require("user_tokens.erase(user_tokens.begin(), user_tokens.begin() + skipped_tokens)" in native,
             "overflow handling must preserve the newest user message")
 
+    # Qwen3.5's Jinja template throws when rendered with system-only messages. The
+    # Android prewarm path must therefore use deterministic text markers that are
+    # exactly equivalent to the model's text-only, enable_thinking=false template.
+    require("common_chat_templates_apply(g_chat_templates.get(), inputs).prompt" not in native,
+            "system/user prewarm path must not render the full Qwen Jinja template")
+    require('std::string("<|im_start|>system\\n") + content + "<|im_end|>\\n"' in native,
+            "system prompt must use Qwen3.5 text-only system markers")
+    require('"<|im_end|>\\n<|im_start|>assistant\\n<think>\\n\\n</think>\\n\\n"' in native,
+            "user turn must include Qwen3.5 non-thinking assistant prefix")
+    require("formatted_system_prompt = chat_add_and_format(ROLE_SYSTEM, system_prompt);" in native,
+            "system prewarm must always use deterministic Qwen formatting")
+    require("formatted_user_prompt = chat_add_and_format(ROLE_USER, user_prompt);" in native,
+            "user prompts must always use deterministic Qwen formatting")
+    require("false, true" in native,
+            "manual Qwen markers must be tokenized with special-token parsing enabled")
+
     require("private external fun load(modelPath: String, lowMemoryMode: Boolean): Int" in kotlin,
             "Kotlin/JNI adaptive load signatures must match")
     require("ActivityManager.MemoryInfo" in kotlin and "multiGigabyteModel" in kotlin,
@@ -61,6 +77,8 @@ def main() -> None:
             "hard crash diagnostics must distinguish context/KV allocation")
     require('markProcessStage("native-model-ready")' in kotlin,
             "successful native load must clear the vulnerable load stage")
+    require('("furina:" + stage)' in kotlin,
+            "native load stage summaries must be namespaced to Furina")
 
     manager = (ROOT / "android-wrapper/app/src/main/java/com/wynndev/furina/ModelDownloadManager.kt").read_text(encoding="utf-8")
     provider = (ROOT / "android-wrapper/app/src/main/java/com/wynndev/furina/LocalLlamaProvider.kt").read_text(encoding="utf-8")
@@ -77,10 +95,12 @@ def main() -> None:
             "provider must mark the coarse engine-load stage")
     require("getHistoricalProcessExitReasons" in diagnostics and "setProcessStateSummary" in diagnostics,
             "Android process-exit diagnostics must survive hard native/LMKD process death")
+    require("it.processName == mainProcess" in diagnostics and "STAGE_PREFIX = \"furina:\"" in diagnostics,
+            "exit diagnostics must ignore WebView renderer summaries and untrusted binary stage data")
     require("apply-offline-stability-policy.py" in bootstrap,
             "native build must apply the second-stage stability patch")
 
-    print("Furina offline load safety gate passed: private mmap + deterministic low-peak 4K profile + exit-stage diagnostics")
+    print("Furina offline load safety gate passed: private mmap + low-peak 4K + system-safe Qwen3.5 prompt + main-process diagnostics")
 
 
 if __name__ == "__main__":
