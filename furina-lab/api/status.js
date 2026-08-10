@@ -46,7 +46,7 @@ function fallbackState() {
   };
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
   const token = process.env.GITHUB_TOKEN;
   const repo = process.env.FURINA_REPO || DEFAULT_REPO;
@@ -107,4 +107,4 @@ module.exports = async function handler(req, res) {
       pullRequests: [], commits: [], workflows: []
     });
   }
-};
+}
