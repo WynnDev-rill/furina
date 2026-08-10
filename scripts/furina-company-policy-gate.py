@@ -41,13 +41,14 @@ def main() -> int:
     boss_policy = read(BOSS_POLICY)
     boss_schema_text = read(BOSS_SCHEMA)
 
+    lifecycle = ["active", "testing", "ready_for_merge", "blocked_human", "completed", "superseded"]
+
     require_all(
         "COMPANY.md",
         company,
         [
             "REVIEW_GATED",
-            "blocked_human",
-            "ready_for_merge",
+            *lifecycle,
             "Do not spend a new cycle re-reviewing a `blocked_human` PR unless there is new evidence",
             "STATIC",
             "CI",
@@ -60,13 +61,12 @@ def main() -> int:
         "HOURLY_PROMPT.md",
         worker,
         [
-            "blocked_human",
-            "awaiting_boss",
-            "boss_approved",
+            *lifecycle,
             "new commit, CI result, behavioral/model-output evidence, device report, Boss decision, or human decision",
             "A `blocked_human` PR with no new evidence must not consume another cycle",
             "Never auto-merge",
             "STATIC, CI, BEHAVIORAL, or DEVICE",
+            "Reviewer approval is not final company approval",
             "APPROVE_MERGE",
             "REJECT_CLOSE",
             "REQUEST_REVISION",
@@ -78,11 +78,13 @@ def main() -> int:
         boss_policy,
         [
             "The Boss does not write code",
+            "Reviewer approval is an input, not final company approval",
             "APPROVE_MERGE",
             "REJECT_CLOSE",
             "REQUEST_REVISION",
             "BLOCKED_HUMAN",
             "It does NOT merge automatically",
+            "existing PR lifecycle",
             "Anti-rubber-stamp rule",
         ],
     )
