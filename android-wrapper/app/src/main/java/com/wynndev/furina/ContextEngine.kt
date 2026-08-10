@@ -6,29 +6,62 @@ import java.util.Locale
 
 /**
  * Provider-independent identity and retrieval layer. The model is deliberately absent
- * from this class so changing providers cannot change Furina's personality or memory.
+ * from the stored memory itself, so changing providers cannot change Furina's identity.
  */
 class ContextEngine(private val store: MemoryStore) {
-    companion object {
-        private const val SUMMARY_BUDGET = 800
-        private const val MEMORY_BUDGET = 600
-        private const val OLD_HISTORY_BUDGET = 500
-        private const val RECENT_HISTORY_BUDGET = 1_200
-    }
-
-    fun build(sessionId: String, query: String, characterName: String, customPersona: String): AiContext {
+    fun build(
+        sessionId: String,
+        query: String,
+        characterName: String,
+        customPersona: String,
+        contextWindowTokens: Int = 4_096,
+    ): AiContext {
+        val budget = continuityBudget(contextWindowTokens)
         return AiContext(
             sessionId = sessionId,
             identityPrompt = identityPrompt(characterName, customPersona),
-            summary = store.sessionSummary(sessionId).boundedSummary(SUMMARY_BUDGET),
-            relevantMemories = store.relevantMemories(query, 6).bounded(MEMORY_BUDGET),
-            relevantHistory = store.relevantOldContext(query, sessionId, 6).bounded(OLD_HISTORY_BUDGET),
-            recentHistory = store.recentContext(sessionId, 8).bounded(RECENT_HISTORY_BUDGET, keepEnd = true),
+            summary = store.sessionSummary(sessionId).boundedSummary(budget.summaryChars),
+            relevantMemories = store.relevantMemories(query, budget.memoryItems).bounded(budget.memoryChars),
+            relevantHistory = store.relevantOldContext(query, sessionId, budget.historyItems).bounded(budget.historyChars),
+            recentHistory = store.recentContext(sessionId, budget.recentMessages).bounded(budget.recentChars, keepEnd = true),
             runtimeContext = listOf(store.companionStateContext(), runtimeContext(query))
                 .filter { it.isNotBlank() }
                 .joinToString("\n\n"),
         )
     }
+
+    /**
+     * Character budgets are intentionally conservative. Roughly 3 chars/token is used
+     * for multilingual chat, while most of the context window remains available for the
+     * identity prompt, the current user turn, provider wrappers, and generated output.
+     */
+    private fun continuityBudget(contextWindowTokens: Int): ContinuityBudget {
+        val safeTokens = contextWindowTokens.coerceIn(2_048, 1_000_000)
+        val totalChars = (safeTokens * 3L * 34L / 100L).coerceIn(3_100L, 18_000L).toInt()
+        return ContinuityBudget(
+            summaryChars = (totalChars * 0.24).toInt().coerceAtLeast(650),
+            memoryChars = (totalChars * 0.20).toInt().coerceAtLeast(500),
+            historyChars = (totalChars * 0.20).toInt().coerceAtLeast(450),
+            recentChars = (totalChars * 0.36).toInt().coerceAtLeast(1_050),
+            memoryItems = if (safeTokens >= 16_000) 10 else 6,
+            historyItems = if (safeTokens >= 16_000) 10 else 6,
+            recentMessages = when {
+                safeTokens >= 32_000 -> 18
+                safeTokens >= 8_000 -> 12
+                else -> 8
+            },
+        )
+    }
+
+    private data class ContinuityBudget(
+        val summaryChars: Int,
+        val memoryChars: Int,
+        val historyChars: Int,
+        val recentChars: Int,
+        val memoryItems: Int,
+        val historyItems: Int,
+        val recentMessages: Int,
+    )
 
     private fun identityPrompt(characterName: String, customPersona: String): String {
         val safeName = characterName.trim().replace(Regex("[\\r\\n]+"), " ").take(80).ifBlank { "Furina" }
