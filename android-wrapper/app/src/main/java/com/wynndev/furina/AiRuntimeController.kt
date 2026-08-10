@@ -26,17 +26,23 @@ class AiRuntimeController(context: Context) {
 
     fun saveKey(providerId: String, apiKey: String) {
         require(OnlineProviderCatalog.byId(providerId) != null) { "Provider tidak dikenal" }
+        config.clearValidation(providerId)
         keys.put(providerId, apiKey)
     }
 
     fun removeKey(providerId: String) {
+        config.clearValidation(providerId)
         keys.remove(providerId)
         config.setSelectedModel(providerId, null)
     }
 
     suspend fun test(providerId: String): ProviderProbeResult {
         val provider = onlineProviders[providerId] ?: return ProviderProbeResult(false, "Provider tidak dikenal")
-        return provider.testAndRefresh()
+        val result = provider.testAndRefresh()
+        val fingerprint = keys.fingerprint(providerId)
+        if (result.success && fingerprint != null) config.markValidated(providerId, fingerprint)
+        else config.clearValidation(providerId)
+        return result
     }
 
     suspend fun refresh(providerId: String): ProviderProbeResult {
@@ -65,7 +71,9 @@ class AiRuntimeController(context: Context) {
 
         val providerId = config.selectedProvider()
         val provider = onlineProviders[providerId] ?: error("Provider online tidak dikenal")
-        if (!keys.has(providerId)) error("Masukkan API key ${OnlineProviderCatalog.byId(providerId)?.displayName ?: providerId} terlebih dahulu")
+        val fingerprint = keys.fingerprint(providerId)
+        if (fingerprint == null) error("Masukkan API key ${OnlineProviderCatalog.byId(providerId)?.displayName ?: providerId} terlebih dahulu")
+        if (!config.isValidated(providerId, fingerprint)) error("Tes API key ${OnlineProviderCatalog.byId(providerId)?.displayName ?: providerId} terlebih dahulu")
         val models = provider.discoverFreeModels(force = false)
         if (models.isEmpty()) error("Tidak ada model gratis yang tersedia pada provider ini")
         val selectedId = config.selectedModel(providerId)
@@ -78,11 +86,12 @@ class AiRuntimeController(context: Context) {
         val mode = config.mode()
         val providerId = config.selectedProvider()
         val provider = OnlineProviderCatalog.byId(providerId)
+        val fingerprint = keys.fingerprint(providerId)
         return JSONObject()
             .put("mode", mode)
             .put("provider", if (mode == OnlineAiConfigStore.MODE_ONLINE) providerId else "local-llama")
             .put("providerName", if (mode == OnlineAiConfigStore.MODE_ONLINE) provider?.displayName ?: providerId else "Lokal")
-            .put("onlineReady", mode == OnlineAiConfigStore.MODE_ONLINE && keys.has(providerId))
+            .put("onlineReady", mode == OnlineAiConfigStore.MODE_ONLINE && config.isValidated(providerId, fingerprint))
             .put("autoFallback", config.autoFallback())
     }
 }

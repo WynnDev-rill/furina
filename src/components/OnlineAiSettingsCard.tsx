@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Brain, Check, Cloud, Loader2, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,7 @@ type OnlineProvider = {
   description: string;
   keyHint: string;
   keyConfigured: boolean;
+  keyValidated: boolean;
   selectedModel: string;
   models: OnlineModel[];
 };
@@ -80,6 +81,7 @@ export function OnlineAiSettingsCard({ nativeReady }: { nativeReady: boolean }) 
   const [keyDraft, setKeyDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const autoRefreshAttempted = useRef(new Set<string>());
 
   const refresh = useCallback(() => {
     const b = bridge();
@@ -116,11 +118,14 @@ export function OnlineAiSettingsCard({ nativeReady }: { nativeReady: boolean }) 
   const selectedModel = provider?.models.find((model) => model.id === provider.selectedModel) ?? provider?.models[0];
 
   useEffect(() => {
-    if (!nativeReady || !provider?.keyConfigured || provider.models.length > 0) return;
+    if (!nativeReady || !provider?.keyConfigured || provider.models.length > 0 || busy) return;
+    const refreshKey = `${provider.id}:${provider.keyValidated ? "validated" : "pending"}`;
+    if (autoRefreshAttempted.current.has(refreshKey)) return;
+    autoRefreshAttempted.current.add(refreshKey);
     setBusy(true);
     setMessage("Memuat katalog model gratis…");
     bridge()?.refreshOnlineModels(provider.id);
-  }, [nativeReady, provider?.id, provider?.keyConfigured, provider?.models.length]);
+  }, [nativeReady, provider?.id, provider?.keyConfigured, provider?.keyValidated, provider?.models.length, busy]);
 
   function chooseMode(mode: AiMode) {
     bridge()?.setAiMode(mode);
@@ -139,6 +144,8 @@ export function OnlineAiSettingsCard({ nativeReady }: { nativeReady: boolean }) 
   function saveAndTest() {
     const clean = keyDraft.trim();
     if (!provider || clean.length < 8 || busy) return;
+    autoRefreshAttempted.current.delete(`${provider.id}:validated`);
+    autoRefreshAttempted.current.delete(`${provider.id}:pending`);
     setBusy(true);
     setMessage("Menyimpan dan menguji API key…");
     bridge()?.saveOnlineApiKey(provider.id, clean);
@@ -162,6 +169,8 @@ export function OnlineAiSettingsCard({ nativeReady }: { nativeReady: boolean }) 
   function deleteKey() {
     if (!provider?.keyConfigured || busy) return;
     if (!confirm(`Hapus API key ${provider.name}?`)) return;
+    autoRefreshAttempted.current.delete(`${provider.id}:validated`);
+    autoRefreshAttempted.current.delete(`${provider.id}:pending`);
     bridge()?.deleteOnlineApiKey(provider.id);
     setKeyDraft("");
     setMessage("");
@@ -211,8 +220,9 @@ export function OnlineAiSettingsCard({ nativeReady }: { nativeReady: boolean }) 
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <Label className="text-xs">API key</Label>
-                  <span className={`inline-flex items-center gap-1 text-[10px] ${provider.keyConfigured ? "text-emerald-500" : "text-muted-foreground"}`}>
-                    {provider.keyConfigured && <Check className="h-3 w-3" />}{provider.keyConfigured ? "Tersimpan aman" : "Belum ada"}
+                  <span className={`inline-flex items-center gap-1 text-[10px] ${provider.keyValidated ? "text-emerald-500" : "text-muted-foreground"}`}>
+                    {provider.keyValidated && <Check className="h-3 w-3" />}
+                    {provider.keyValidated ? "Terverifikasi" : provider.keyConfigured ? "Tersimpan · belum lolos tes" : "Belum ada"}
                   </span>
                 </div>
                 <Input
@@ -259,7 +269,7 @@ export function OnlineAiSettingsCard({ nativeReady }: { nativeReady: boolean }) 
                     }));
                     announceChange();
                   }}
-                  disabled={!provider.keyConfigured || busy || provider.models.length === 0}
+                  disabled={!provider.keyValidated || busy || provider.models.length === 0}
                 >
                   <SelectTrigger className="min-h-11"><SelectValue placeholder={provider.keyConfigured ? "Tes key untuk memuat model gratis" : "Masukkan API key dulu"} /></SelectTrigger>
                   <SelectContent>
@@ -286,10 +296,10 @@ export function OnlineAiSettingsCard({ nativeReady }: { nativeReady: boolean }) 
                 />
               </div>
 
-              {!provider.keyConfigured && (
+              {!provider.keyValidated && (
                 <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 p-2.5 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
                   <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span>Mode online belum dapat dipakai sampai API key provider ini lolos tes.</span>
+                  <span>{provider.keyConfigured ? "API key sudah tersimpan tetapi belum lolos tes. Mode online tetap dikunci sampai tes berhasil." : "Mode online belum dapat dipakai sampai API key provider ini disimpan dan lolos tes."}</span>
                 </div>
               )}
             </>
