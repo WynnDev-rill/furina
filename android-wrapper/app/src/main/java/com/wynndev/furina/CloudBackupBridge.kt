@@ -13,6 +13,8 @@ import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.Cipher
@@ -107,19 +109,23 @@ class CloudBackupBridge(
 
     private fun createEncryptedBackup(): ByteArray {
         store.checkpoint()
-        val dbFile = store.databaseFile()
-        require(dbFile.exists()) { "Database Furina belum tersedia" }
-        require(dbFile.length() <= MAX_BACKUP_BYTES) { "Backup melebihi batas 50 MB" }
+        val dbFile: File = store.databaseFile()
+        require(dbFile.isFile) { "Database Furina belum tersedia" }
+        val dbSize = dbFile.length()
+        require(dbSize <= MAX_BACKUP_BYTES) { "Backup melebihi batas 50 MB" }
 
         val key = decodeKey(backupManager.getOrCreateRecoveryKey())
         val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
-        val raw = ByteArrayOutputStream((dbFile.length() + 64L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+        val initialCapacity = (dbSize + 64L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val raw = ByteArrayOutputStream(initialCapacity)
         raw.write(MAGIC)
         raw.write(iv)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
         CipherOutputStream(raw, cipher).use { encrypted ->
-            dbFile.inputStream().use { input -> input.copyTo(encrypted, 1024 * 1024) }
+            FileInputStream(dbFile).use { input ->
+                copyStream(input, encrypted)
+            }
         }
         return raw.toByteArray()
     }
@@ -138,10 +144,10 @@ class CloudBackupBridge(
                 val cipher = Cipher.getInstance("AES/GCM/NoPadding")
                 cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
                 CipherInputStream(rawIn, cipher).use { decrypted ->
-                    temp.outputStream().use { output -> decrypted.copyTo(output, 1024 * 1024) }
+                    FileOutputStream(temp).use { output -> copyStream(decrypted, output) }
                 }
             }
-            temp.inputStream().use { input ->
+            FileInputStream(temp).use { input ->
                 val sqliteHeader = ByteArray(16)
                 require(input.read(sqliteHeader) == 16 && String(sqliteHeader, Charsets.US_ASCII).startsWith("SQLite format 3")) {
                     "Recovery key salah atau backup tidak valid"
@@ -150,6 +156,15 @@ class CloudBackupBridge(
             store.restoreFrom(temp)
         } finally {
             temp.delete()
+        }
+    }
+
+    private fun copyStream(input: java.io.InputStream, output: java.io.OutputStream) {
+        val buffer = ByteArray(1024 * 1024)
+        while (true) {
+            val count = input.read(buffer)
+            if (count <= 0) break
+            output.write(buffer, 0, count)
         }
     }
 
