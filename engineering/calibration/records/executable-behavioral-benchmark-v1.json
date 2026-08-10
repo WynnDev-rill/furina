@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "workId": "executable-behavioral-benchmark-v1",
+  "category": "behavioral_evidence_unblocker",
+  "strategicTier": "P0_UNBLOCKER",
+  "prediction": {
+    "cycleId": "shift-2026-08-11-03-engineer-1",
+    "recordedAt": "2026-08-11T03:08:00+07:00",
+    "impact": 8,
+    "confidence": 8,
+    "expectedMetric": "behavioral benchmark scenarios executable without leaking judge expectations into model inputs",
+    "expectedDelta": "16/16 scenarios gain structured setup turns plus separate input/judge manifests; descriptive-only history stops being the blocker for a future actualModelRun harness",
+    "verificationWindow": "this shift CI plus first target-device behavioral capture",
+    "reason": "The existing benchmark was structurally enforced but its history field was prose for humans, not reproducible model input. Splitting executable input from judge expectations removes a concrete measurement bottleneck without changing runtime behavior."
+  },
+  "status": "prediction_only"
+}

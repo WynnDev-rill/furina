@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -125,7 +126,7 @@ def verify_backup_contract() -> None:
             "cloud jobs must stop before the shared MemoryStore closes")
 
 
-def verify_behavioral_scenarios_contract() -> int:
+def verify_behavioral_scenarios_contract() -> tuple[int, list[str]]:
     data = json.loads(read("engineering/evals/companion-scenarios.json"))
     require(data.get("schemaVersion") == 1, "behavioral scenario schemaVersion must be 1")
     rubric = data.get("rubric")
@@ -143,14 +144,33 @@ def verify_behavioral_scenarios_contract() -> int:
             "behavioral benchmark must contain 12–64 focused scenarios")
     ids = []
     categories = set()
+    executable_count = 0
     for index, scenario in enumerate(scenarios):
         require(isinstance(scenario, dict), f"behavioral scenario #{index + 1} must be an object")
         for field in ("id", "category", "history", "user", "expect"):
             value = scenario.get(field)
             require(isinstance(value, str) and value.strip(),
                     f"behavioral scenario #{index + 1} field {field} must be non-empty text")
+        setup = scenario.get("setup")
+        require(isinstance(setup, list), f"behavioral scenario {scenario['id']} setup must be a list")
+        previous_role = None
+        for turn_index, turn in enumerate(setup):
+            require(isinstance(turn, dict) and set(turn) == {"role", "content"},
+                    f"behavioral scenario {scenario['id']} setup turn #{turn_index + 1} must contain only role/content")
+            require(turn["role"] in {"user", "assistant"},
+                    f"behavioral scenario {scenario['id']} setup roles must be user/assistant only")
+            require(isinstance(turn["content"], str) and turn["content"].strip(),
+                    f"behavioral scenario {scenario['id']} setup content must be non-empty")
+            require(turn["role"] != previous_role,
+                    f"behavioral scenario {scenario['id']} setup roles must alternate")
+            previous_role = turn["role"]
+        if setup:
+            require(setup[0]["role"] == "user" and setup[-1]["role"] == "assistant",
+                    f"behavioral scenario {scenario['id']} setup must form complete user/assistant turns")
+        executable_count += 1
         ids.append(scenario["id"])
         categories.add(scenario["category"])
+    require(executable_count == len(scenarios), "every behavioral scenario must be executable")
     require(len(ids) == len(set(ids)), "behavioral scenario ids must be unique")
     required_categories = {
         "persona", "agency", "context", "memory", "learning", "emotion",
@@ -158,7 +178,32 @@ def verify_behavioral_scenarios_contract() -> int:
     }
     missing = sorted(required_categories - categories)
     require(not missing, f"behavioral benchmark lost required categories: {', '.join(missing)}")
-    return len(scenarios)
+    return len(scenarios), ids
+
+
+def verify_behavioral_run_manifests(expected_ids: list[str]) -> None:
+    runner = ROOT / "scripts/furina-behavioral-run-plan.py"
+    inputs = json.loads(subprocess.run(
+        [sys.executable, str(runner), "inputs"], check=True, capture_output=True, text=True,
+    ).stdout)
+    judge = json.loads(subprocess.run(
+        [sys.executable, str(runner), "judge"], check=True, capture_output=True, text=True,
+    ).stdout)
+
+    input_scenarios = inputs.get("scenarios", [])
+    judge_scenarios = judge.get("scenarios", [])
+    input_ids = [item.get("scenarioId") for item in input_scenarios]
+    judge_ids = [item.get("scenarioId") for item in judge_scenarios]
+    require(input_ids == expected_ids, "behavioral input manifest must preserve benchmark order and IDs")
+    require(judge_ids == expected_ids, "behavioral judge manifest must preserve benchmark order and IDs")
+    require(all(set(item) == {"scenarioId", "setup", "user"} for item in input_scenarios),
+            "model input manifest must contain only scenarioId/setup/user")
+    require("rubric" not in inputs and "expect" not in json.dumps(inputs, ensure_ascii=False),
+            "model input manifest must not leak judge rubric/expectations")
+    require(isinstance(judge.get("rubric"), list) and judge["rubric"],
+            "judge manifest must carry the scoring rubric")
+    require(all(set(item) == {"scenarioId", "category", "expect"} for item in judge_scenarios),
+            "judge manifest must contain scenarioId/category/expect only")
 
 
 def verify_scenario_matrix() -> int:
@@ -194,11 +239,12 @@ def main() -> None:
     verify_layered_context_contract()
     verify_lifecycle_contract()
     verify_backup_contract()
-    behavioral_count = verify_behavioral_scenarios_contract()
+    behavioral_count, behavioral_ids = verify_behavioral_scenarios_contract()
+    verify_behavioral_run_manifests(behavioral_ids)
     pipeline_count = verify_scenario_matrix()
     print(
         "Furina companion quality gate passed: "
-        f"{behavioral_count} behavioral benchmark scenarios + "
+        f"{behavioral_count} executable behavioral benchmark scenarios + "
         f"{pipeline_count} deterministic pipeline scenarios + lifecycle/backup invariants"
     )
 
