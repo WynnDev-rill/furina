@@ -268,7 +268,14 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
       bootMinDoneRef.current = true;
       maybeFinishBoot();
     }, 1400);
-    return () => clearTimeout(minTimer);
+    // Fallback: never keep the boot screen longer than 4 s even if auth stalls
+    const maxTimer = setTimeout(() => {
+      setIsBooting(false);
+    }, 4000);
+    return () => {
+      clearTimeout(minTimer);
+      clearTimeout(maxTimer);
+    };
   }, []);
 
   useEffect(() => {
