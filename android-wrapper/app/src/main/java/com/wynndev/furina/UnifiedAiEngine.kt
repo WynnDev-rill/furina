@@ -14,7 +14,6 @@ data class UnifiedGenerationResult(
 class UnifiedAiEngine(
     private val store: MemoryStore,
     private val contextEngine: ContextEngine,
-    private val companion: CompanionIntelligence,
     private val providers: Map<String, AiProvider>,
 ) {
     private fun provider(id: String): AiProvider =
@@ -54,7 +53,7 @@ class UnifiedAiEngine(
 
         // Relationship, emotional and temporal continuity are application-owned state.
         // Observe before building context so every provider receives the same Furina state.
-        companion.observeUserTurn(sessionId, userText)
+        contextEngine.observeUserTurn(sessionId, userText)
         val context = contextEngine.build(
             sessionId = sessionId,
             query = userText,
@@ -71,7 +70,7 @@ class UnifiedAiEngine(
         // Auto-memory extraction happens inside addMessage. Reconcile contradictions only
         // after that transaction, so the next turn sees one current preference rather than
         // mutually exclusive facts.
-        companion.reconcileMemories()
+        contextEngine.reconcileMemories()
 
         val reply = StringBuilder()
         val baseBudget = responseBudgetFor(userText)
