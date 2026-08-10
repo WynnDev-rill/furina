@@ -59,7 +59,18 @@ jobs:
           grep -q 'DB_VERSION = 3' android-wrapper/app/src/main/java/com/wynndev/furina/MemoryStore.kt
           grep -q 'class UnifiedAiEngine' android-wrapper/app/src/main/java/com/wynndev/furina/UnifiedAiEngine.kt
           grep -q 'interface AiProvider' android-wrapper/app/src/main/java/com/wynndev/furina/AiContracts.kt
+          grep -q 'data class AiModelRef' android-wrapper/app/src/main/java/com/wynndev/furina/AiContracts.kt
           grep -q 'fun updateSessionSummary' android-wrapper/app/src/main/java/com/wynndev/furina/MemoryStore.kt
+          grep -q 'contextWindowTokens' android-wrapper/app/src/main/java/com/wynndev/furina/ContextEngine.kt
+          grep -q 'class SecureApiKeyStore' android-wrapper/app/src/main/java/com/wynndev/furina/OnlineAiConfig.kt
+          grep -q 'AndroidKeyStore' android-wrapper/app/src/main/java/com/wynndev/furina/OnlineAiConfig.kt
+          grep -q 'AES/GCM/NoPadding' android-wrapper/app/src/main/java/com/wynndev/furina/OnlineAiConfig.kt
+          grep -q 'class OpenAiCompatibleProvider' android-wrapper/app/src/main/java/com/wynndev/furina/OpenAiCompatibleProvider.kt
+          grep -q 'openrouter/free' android-wrapper/app/src/main/java/com/wynndev/furina/OpenAiCompatibleProvider.kt
+          grep -q 'setAiMode' android-wrapper/app/src/main/java/com/wynndev/furina/FurinaBridge.kt
+          grep -q 'setOnlineAutoFallback' android-wrapper/app/src/main/java/com/wynndev/furina/FurinaBridge.kt
+          grep -q 'OnlineAiSettingsCard' src/routes/native.tsx
+          grep -q 'Fallback otomatis model gratis' src/components/OnlineAiSettingsCard.tsx
           grep -q 'saveAppSettings' src/routes/native.tsx
           grep -q 'val transferActive = state == "downloading" || state == "paused"' android-wrapper/app/src/main/java/com/wynndev/furina/ModelDownloadManager.kt
           grep -q 'OneTimeWorkRequestBuilder<ModelDownloadWorker>' android-wrapper/app/src/main/java/com/wynndev/furina/ModelDownloadManager.kt
