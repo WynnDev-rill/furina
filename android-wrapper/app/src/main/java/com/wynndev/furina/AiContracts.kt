@@ -16,6 +16,26 @@ data class AiAttachment(
     val displayName: String,
 )
 
+data class AiModelRef(
+    val providerId: String,
+    val id: String,
+    val displayName: String = id,
+    val contextWindow: Int = 8_192,
+    val maxOutputTokens: Int = 1_024,
+    val local: Boolean = false,
+    val vision: Boolean = false,
+    val tools: Boolean = false,
+    val reasoning: Boolean = false,
+)
+
+data class AiRoute(
+    val providerId: String,
+    val models: List<AiModelRef>,
+    val automaticFallback: Boolean = false,
+) {
+    init { require(models.isNotEmpty()) { "Rute AI tidak memiliki model" } }
+}
+
 data class AiContext(
     val sessionId: String,
     val identityPrompt: String,
@@ -45,17 +65,12 @@ data class AiContext(
         if (relevantMemories.isNotBlank()) appendLine("Relevant long-term memory:\n${relevantMemories.trim()}")
         if (relevantHistory.isNotBlank()) appendLine("Relevant older conversations:\n${relevantHistory.trim()}")
     }.trim()
-
-    val turnContext: String = buildString {
-        if (runtimeContext.isNotBlank()) appendLine(runtimeContext.trim())
-        if (retrievalPrompt.isNotBlank()) appendLine(retrievalPrompt)
-    }.trim()
 }
 
 data class AiGenerationRequest(
     val requestId: String,
     val sessionId: String,
-    val model: ModelSpec,
+    val model: AiModelRef,
     val context: AiContext,
     val userMessage: String,
     val attachments: List<AiAttachment> = emptyList(),
@@ -65,14 +80,26 @@ data class AiGenerationRequest(
 data class AiProviderCapabilities(
     val streaming: Boolean,
     val offline: Boolean,
-    val attachments: Set<String> = emptySet(),
+    val vision: Boolean = false,
+    val tools: Boolean = false,
+    val reasoning: Boolean = false,
 )
+
+class AiProviderException(
+    val providerId: String,
+    val modelId: String?,
+    val statusCode: Int?,
+    val recoverable: Boolean,
+    val retryAfterSeconds: Long? = null,
+    message: String,
+    cause: Throwable? = null,
+) : RuntimeException(message, cause)
 
 interface AiProvider {
     val id: String
     val capabilities: AiProviderCapabilities
-    suspend fun prepare(model: ModelSpec, context: AiContext)
+    suspend fun prepare(model: AiModelRef, context: AiContext)
     fun stream(request: AiGenerationRequest): Flow<String>
     suspend fun unload()
-    fun isWarm(model: ModelSpec, context: AiContext): Boolean
+    fun isWarm(model: AiModelRef, context: AiContext): Boolean
 }
