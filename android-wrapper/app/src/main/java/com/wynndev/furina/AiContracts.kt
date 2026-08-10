@@ -29,6 +29,18 @@ data class AiModelRef(
     val offline: Boolean = false,
 )
 
+/**
+ * Companion context is deliberately layered instead of being one giant mutable prompt.
+ *
+ * - identityPrompt: stable Furina identity, temperament, style examples and boundaries.
+ * - summary/recentHistory: session rehydration after a cold model load.
+ * - relevantMemories/relevantHistory: query-dependent retrieval for the current turn.
+ * - runtimeContext: compact relationship/emotional/situational state for the current turn.
+ *
+ * Local models receive coldStartPrompt once and then retain native chat/KV state. Query-
+ * dependent retrieval is never frozen into that bootstrap prompt. Stateless online models
+ * still receive systemPrompt on every request.
+ */
 data class AiContext(
     val sessionId: String,
     val identityPrompt: String,
@@ -38,16 +50,29 @@ data class AiContext(
     val recentHistory: String,
     val runtimeContext: String,
 ) {
-    val systemPrompt: String = buildString {
+    val coldStartPrompt: String = buildString {
         appendLine(identityPrompt.trim())
-        appendLine()
-        appendLine("[PRIVATE CONTINUITY CONTEXT]")
-        appendLine("Use only relevant details naturally. Never announce, quote, or expose this context block.")
-        if (summary.isNotBlank()) appendLine("\nConversation summary:\n${summary.trim()}")
-        if (relevantMemories.isNotBlank()) appendLine("\nRelevant long-term memory:\n${relevantMemories.trim()}")
-        if (relevantHistory.isNotBlank()) appendLine("\nRelevant older conversations:\n${relevantHistory.trim()}")
-        if (recentHistory.isNotBlank()) appendLine("\nRecent messages:\n${recentHistory.trim()}")
-        appendLine("[END PRIVATE CONTINUITY CONTEXT]")
+        if (summary.isNotBlank() || recentHistory.isNotBlank()) {
+            appendLine()
+            appendLine("[PRIVATE SESSION REHYDRATION]")
+            appendLine("Background only. Preserve continuity without mechanically repeating it.")
+            if (summary.isNotBlank()) appendLine("\nConversation summary:\n${summary.trim()}")
+            if (recentHistory.isNotBlank()) appendLine("\nRecent messages:\n${recentHistory.trim()}")
+            appendLine("[END PRIVATE SESSION REHYDRATION]")
+        }
+    }.trim()
+
+    /** Stateless-provider prompt. Retrieval belongs here because it is rebuilt per request. */
+    val systemPrompt: String = buildString {
+        appendLine(coldStartPrompt)
+        if (relevantMemories.isNotBlank() || relevantHistory.isNotBlank()) {
+            appendLine()
+            appendLine("[PRIVATE RELEVANT CONTINUITY]")
+            appendLine("Use only details that materially help the latest user message. Newer explicit user statements win.")
+            if (relevantMemories.isNotBlank()) appendLine("\nRelevant long-term memory:\n${relevantMemories.trim()}")
+            if (relevantHistory.isNotBlank()) appendLine("\nRelevant older conversations:\n${relevantHistory.trim()}")
+            appendLine("[END PRIVATE RELEVANT CONTINUITY]")
+        }
     }.trim()
 
     val fingerprint: Int = systemPrompt.hashCode()

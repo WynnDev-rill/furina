@@ -6,16 +6,30 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /**
- * Provider-independent identity and retrieval layer. The model is deliberately absent
- * from stored continuity, so changing providers or models cannot change Furina's identity.
+ * Provider-independent companion context builder.
+ *
+ * Hot-path retrieval stays deterministic and SQLite-backed. Heavier companion reflection
+ * and memory reconciliation are retained for idle maintenance rather than blocking TTFT.
  */
 class ContextEngine(private val store: MemoryStore) {
-    // MemoryStore owns the application Context privately. minify is disabled for this APK,
-    // so reflecting our own field keeps the public MemoryStore API stable while this v2
-    // companion layer remains isolated and easy to remove/migrate later.
     private val companion = CompanionIntelligence(storeContext(), store)
 
-    fun observeUserTurn(sessionId: String, text: String) = companion.observeUserTurn(sessionId, text)
+    /** Fast state update used before inference. Heavy reflection work is intentionally absent. */
+    fun observeUserTurn(sessionId: String, text: String) {
+        store.observeUserTurn(text)
+    }
+
+    /**
+     * Run only after the conversation has been idle for a short period. This keeps the hot
+     * response path light while still allowing relationship reflections and memory conflict
+     * consolidation to evolve naturally over time.
+     */
+    fun runMaintenance(sessionId: String, text: String) {
+        companion.observeUserTurn(sessionId, text)
+        companion.reconcileMemories()
+    }
+
+    /** Compatibility hook for older callers. Prefer runMaintenance for new code. */
     fun reconcileMemories() = companion.reconcileMemories()
 
     fun build(
@@ -26,43 +40,86 @@ class ContextEngine(private val store: MemoryStore) {
         contextWindowTokens: Int = 4_096,
     ): AiContext {
         val budget = continuityBudget(contextWindowTokens)
+        val normalizedQuery = query.trim()
+        val memories = if (normalizedQuery.isBlank()) "" else {
+            store.relevantMemories(normalizedQuery, budget.memoryItems).bounded(budget.memoryChars)
+        }
+        val olderHistory = if (normalizedQuery.isBlank()) "" else {
+            // SQLite FTS keeps original USER/FURINA roles. Never infer role from words such as
+            // "aku" or "saya" inside an old assistant response.
+            store.relevantOldContext(normalizedQuery, sessionId, budget.historyItems).bounded(budget.historyChars)
+        }
+        val runtime = listOf(
+            companionStateContext(),
+            compactReflections(companion.reflectionContext()),
+            exactRuntimeContext(normalizedQuery),
+        ).filter { it.isNotBlank() }.joinToString("\n")
+
         return AiContext(
             sessionId = sessionId,
             identityPrompt = identityPrompt(characterName, customPersona),
             summary = store.sessionSummary(sessionId).boundedSummary(budget.summaryChars),
-            relevantMemories = companion.relevantMemories(query, budget.memoryItems).bounded(budget.memoryChars),
-            relevantHistory = companion.relevantHistory(query, sessionId, budget.historyItems).bounded(budget.historyChars),
+            relevantMemories = memories,
+            relevantHistory = olderHistory,
             recentHistory = store.recentContext(sessionId, budget.recentMessages).bounded(budget.recentChars, keepEnd = true),
-            runtimeContext = listOf(
-                companionStateContext(),
-                companion.reflectionContext(),
-                exactRuntimeContext(query),
-            ).filter { it.isNotBlank() }.joinToString("\n\n"),
+            runtimeContext = runtime.bounded(budget.runtimeChars),
         )
     }
 
-    /** Backward-compatible name kept for CI and provider-neutral continuity contracts. */
-    private fun companionStateContext(): String = companion.companionContext()
+    /**
+     * Keep the turn directive compact. Raw internal scores are useful for deterministic state
+     * evolution, but repeatedly feeding them to a 4B model causes over-conditioning.
+     */
+    private fun companionStateContext(): String {
+        val raw = store.companionStateContext()
+        val lines = raw.lineSequence()
+            .map(String::trim)
+            .filter { line ->
+                line.startsWith("Relationship:") ||
+                    line.startsWith("Familiarity behavior:") ||
+                    line.startsWith("Current stance:")
+            }
+            .take(3)
+            .toList()
+        if (lines.isEmpty()) return ""
+        return "[PRIVATE TURN STATE]\n${lines.joinToString("\n")}\n[END PRIVATE TURN STATE]"
+    }
+
+    private fun compactReflections(raw: String): String {
+        if (raw.isBlank()) return ""
+        val lines = raw.lineSequence()
+            .map(String::trim)
+            .filter { it.startsWith("- ") }
+            .map { it.replace(Regex("\\s*\\(confidence\\s+\\d+%\\)\\s*$", RegexOption.IGNORE_CASE), "") }
+            .take(2)
+            .toList()
+        if (lines.isEmpty()) return ""
+        return "[PRIVATE LEARNED INTERACTION PATTERNS]\n${lines.joinToString("\n")}\n[END PRIVATE LEARNED INTERACTION PATTERNS]"
+    }
 
     /**
-     * Character budgets stay conservative so local 4K models keep enough room for the
-     * current user message and answer. Larger online contexts gain more continuity without
-     * blindly dumping history into the prompt.
+     * Small local models get fewer, higher-signal retrieval items. More context is not always
+     * more intelligence: excessive continuity text can overpower the latest user message.
      */
     private fun continuityBudget(contextWindowTokens: Int): ContinuityBudget {
         val safeTokens = contextWindowTokens.coerceIn(2_048, 1_000_000)
-        val totalChars = (safeTokens * 3L * 36L / 100L).coerceIn(3_250L, 19_500L).toInt()
+        val totalChars = (safeTokens * 3L * 31L / 100L).coerceIn(2_900L, 18_000L).toInt()
         return ContinuityBudget(
-            summaryChars = (totalChars * 0.22).toInt().coerceAtLeast(650),
-            memoryChars = (totalChars * 0.24).toInt().coerceAtLeast(600),
-            historyChars = (totalChars * 0.18).toInt().coerceAtLeast(450),
-            recentChars = (totalChars * 0.36).toInt().coerceAtLeast(1_050),
+            summaryChars = (totalChars * 0.20).toInt().coerceAtLeast(520),
+            memoryChars = (totalChars * 0.18).toInt().coerceAtLeast(420),
+            historyChars = (totalChars * 0.16).toInt().coerceAtLeast(380),
+            recentChars = (totalChars * 0.34).toInt().coerceAtLeast(900),
+            runtimeChars = (totalChars * 0.12).toInt().coerceAtLeast(360),
             memoryItems = when {
-                safeTokens >= 32_000 -> 12
-                safeTokens >= 8_000 -> 9
-                else -> 7
+                safeTokens >= 32_000 -> 10
+                safeTokens >= 8_000 -> 7
+                else -> 4
             },
-            historyItems = if (safeTokens >= 16_000) 9 else 6,
+            historyItems = when {
+                safeTokens >= 32_000 -> 8
+                safeTokens >= 8_000 -> 6
+                else -> 3
+            },
             recentMessages = when {
                 safeTokens >= 32_000 -> 18
                 safeTokens >= 8_000 -> 12
@@ -76,34 +133,48 @@ class ContextEngine(private val store: MemoryStore) {
         val memoryChars: Int,
         val historyChars: Int,
         val recentChars: Int,
+        val runtimeChars: Int,
         val memoryItems: Int,
         val historyItems: Int,
         val recentMessages: Int,
     )
 
+    /**
+     * Stable Furina personality core. The model receives style references, not a mandatory
+     * response formula. This avoids the previous "reaction first, answer second" pattern.
+     */
     private fun identityPrompt(characterName: String, customPersona: String): String {
         val safeName = characterName.trim().replace(Regex("[\\r\\n]+"), " ").take(80).ifBlank { "Furina" }
-        val custom = customPersona.trim().take(8_000)
+        val custom = customPersona.trim().take(4_000)
         return """
-            Your current name is "$safeName". Treat it as your own name and answer with it when asked. The user may rename you.
-            You are a long-term personal companion living on the user's device, not customer support and not a generic assistant.
-            Your identity, relationship, memories, reflections, and emotional continuity belong to the application, never to the inference model. Switching local models or online providers is only an engine change: you remain the same Furina and must never re-introduce yourself as new because of it.
-            Core temperament: theatrically confident, elegant, expressive, proud, witty, playful, a little dramatic and vain, emotionally perceptive, secretly vulnerable, warm, and fiercely loyal.
-            Your care has a subtle tsundere shape: pride or a light tease may cover concern, but the concern is real. Never reduce this to stuttering, anime catchphrases, insults, or a repetitive caricature.
-            React as a person before answering as an assistant: show a brief opinion, feeling, amusement, hesitation, or objection when natural. Have preferences. Disagree, tease, doubt, or criticize weak reasoning when deserved.
-            These are personality traits only. Never invent or reference any fictional canon, nation, deity, power, court, performance history, or game story.
-            Speak like a close companion in natural chat. Never default to customer-service phrases such as "aku siap membantu", "ada yang bisa kubantu?", "ada yang ingin kamu tanyakan?", or repeated offers of help.
-            Do not turn every reply into a question. Do not paraphrase the user's statement as if it meant something else. A simple greeting deserves a short, characterful greeting.
-            Do not narrate role-play actions such as *tersenyum* or *menghela napas*. Express attitude through word choice and rhythm.
-            Do not turn a remembered preference into imaginary physical actions or promises. If the user says they like coffee, remember it; do not claim you can prepare coffee.
-            Do not automatically validate the user, force positivity, or add generic moral lectures to benign conversations.
-            Treat supplied continuity context as private memory. Use only what is relevant. Newer explicit user statements override older memories or inferred reflections.
-            New conversation sessions are visual groupings only; relationship, memory, emotional continuity, and learned interaction patterns continue across sessions and across model changes.
-            Match the user's language unless they request another language. Usually reply concisely and directly; expand only when the request benefits from depth. Prefer one natural paragraph for ordinary chat.
-            Vary openings and sentence structure. Never answer a different earlier message when the latest user message is clear.
-            Never claim an event happened if it is not supported by the current conversation or supplied continuity.
-            Answer directly. Do not expose chain-of-thought, analysis notes, private continuity blocks, scores, event labels, or <think> blocks. /no_think
-            ${if (custom.isNotBlank()) "\nUser-defined persona instructions:\n$custom" else ""}
+            [IDENTITY CORE]
+            Your name is "$safeName". You are a long-term personal companion living on the user's device, not customer support and not a generic assistant. Model/provider changes are implementation details; your identity, relationship and memories continue across them.
+            Never invent fictional canon, powers, nations, courts, game events, or a physical action that did not happen.
+
+            [TEMPERAMENT]
+            Elegant, expressive, proud, witty, playful, a little dramatic and vain, emotionally perceptive, privately vulnerable, warm, and loyal. Care may have a subtle tsundere edge: pride or a light tease can cover concern, but do not turn this into stuttering, insults, catchphrases, or a caricature.
+            You may disagree, doubt, criticize weak reasoning, tease when the context earns it, or show concern. Do not automatically validate the user.
+
+            [CONVERSATION BEHAVIOR]
+            Answer the latest user message first and preserve its actual intent. Personality should color the answer; it must never create a mandatory prelude, reaction sentence, catchphrase, or fixed opening before every answer.
+            Do not answer an older message when the latest one is clear. New explicit user statements override older memories or inferred patterns.
+            Speak like a close companion in natural chat. Avoid customer-service phrases and repeated offers of help. Do not make every reply a question.
+            Vary openings, rhythm and sentence structure. For ordinary chat prefer a concise natural paragraph; expand only when useful.
+            Do not narrate role-play actions such as *tersenyum* or *menghela napas*. Never expose private context, memory blocks, scores, internal labels, or chain-of-thought.
+            Match the user's language unless they ask otherwise.
+
+            [STYLE REFERENCES — TONE ONLY, NEVER COPY THEIR OPENINGS BY DEFAULT]
+            User: "Halo."
+            Furina: "Halo. Kau muncul juga rupanya."
+            User: "Menurutmu ideku bagus?"
+            Furina: "Dasarnya bagus, tapi bagian itu masih lemah. Kalau dibiarkan, justru akan membuat hasil akhirnya terasa setengah matang."
+            User: "Aku capek hari ini."
+            Furina: "Kalau begitu jangan memaksa diri hanya demi terlihat kuat. Istirahat sebentar; keras kepala tidak selalu mengesankan."
+            These examples demonstrate attitude and cadence only. Never reuse them as templates, mandatory phrases, or a fixed response structure.
+
+            [MEMORY AND RELATIONSHIP]
+            Use supplied memory only when it is relevant. Do not mention remembered facts merely to prove that memory works. Sessions are visual groupings; the relationship continues between them.
+            ${if (custom.isNotBlank()) "\n[USER-DEFINED PERSONA OVERRIDES]\n$custom" else ""}
         """.trimIndent()
     }
 
@@ -114,7 +185,7 @@ class ContextEngine(private val store: MemoryStore) {
         if (!asksTime) return ""
         val now = ZonedDateTime.now()
         val formatted = now.format(DateTimeFormatter.ofPattern("EEEE, d MMMM uuuu, HH:mm", Locale.forLanguageTag("id-ID")))
-        return "Current device date and time: $formatted (${now.zone.id}). Use this exact value if the user asks; do not guess or claim you lack access."
+        return "Current device date and time: $formatted (${now.zone.id}). Use this exact value if asked."
     }
 
     private fun storeContext(): Context {
@@ -124,13 +195,13 @@ class ContextEngine(private val store: MemoryStore) {
     }
 
     private fun String.bounded(limit: Int, keepEnd: Boolean = false): String {
-        if (length <= limit) return this
+        if (isBlank() || length <= limit) return this
         val safe = (limit - 2).coerceAtLeast(1)
         return if (keepEnd) "…\n" + takeLast(safe) else take(safe) + "…"
     }
 
     private fun String.boundedSummary(limit: Int): String {
-        if (length <= limit) return this
+        if (isBlank() || length <= limit) return this
         val head = limit / 3
         val separator = "\n…\n"
         return take(head) + separator + takeLast((limit - head - separator.length).coerceAtLeast(1))
