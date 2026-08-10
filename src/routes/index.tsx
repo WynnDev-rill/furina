@@ -256,10 +256,26 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   }, [theme]);
 
   // ===== Auth listener =====
+  function maybeFinishBoot() {
+    if (!bootMinDoneRef.current) return;
+    if (!authReady) return;
+    if (!initialLoadDoneRef.current) return;
+    setIsBooting(false);
+  }
+
+  useEffect(() => {
+    const minTimer = setTimeout(() => {
+      bootMinDoneRef.current = true;
+      maybeFinishBoot();
+    }, 1400);
+    return () => clearTimeout(minTimer);
+  }, []);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session?.user) setAuthUser({ id: data.session.user.id, email: data.session.user.email ?? undefined });
       setAuthReady(true);
+      maybeFinishBoot();
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
       setAuthUser(session?.user ? { id: session.user.id, email: session.user.email ?? undefined } : null);
