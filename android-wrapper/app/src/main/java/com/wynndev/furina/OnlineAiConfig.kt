@@ -86,10 +86,9 @@ object OnlineProviderCatalog {
                     !id.contains("image") && !id.contains("live") && !id.contains("tts")
             }
             "groq" -> id in setOf(
-                "groq/compound",
-                "groq/compound-mini",
-                "llama-3.1-8b-instant",
-                "llama-3.3-70b-versatile",
+                // Keep automatic fallback on plain chat models only. Compound systems
+                // can invoke separately billed built-in tools, so they are never
+                // selected by Furina's "free model" automation.
                 "openai/gpt-oss-120b",
                 "openai/gpt-oss-20b",
                 "qwen/qwen3.6-27b",
@@ -153,6 +152,7 @@ class SecureApiKeyStore(context: Context) {
     }
 
     private val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private val fingerprintCache = mutableMapOf<String, String>()
 
     @Synchronized
     fun put(providerId: String, apiKey: String) {
@@ -165,6 +165,7 @@ class SecureApiKeyStore(context: Context) {
             .put("iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
             .put("data", Base64.encodeToString(encrypted, Base64.NO_WRAP))
         prefs.edit().putString(providerId, payload.toString()).apply()
+        fingerprintCache[providerId] = fingerprintOf(clean)
     }
 
     @Synchronized
@@ -178,6 +179,7 @@ class SecureApiKeyStore(context: Context) {
             cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, iv))
             String(cipher.doFinal(encrypted), Charsets.UTF_8)
         } catch (_: Throwable) {
+            fingerprintCache.remove(providerId)
             prefs.edit().remove(providerId).apply()
             null
         }
@@ -185,13 +187,23 @@ class SecureApiKeyStore(context: Context) {
 
     fun has(providerId: String): Boolean = get(providerId)?.isNotBlank() == true
 
+    @Synchronized
     fun fingerprint(providerId: String): String? {
+        fingerprintCache[providerId]?.let { return it }
         val value = get(providerId) ?: return null
+        return fingerprintOf(value).also { fingerprintCache[providerId] = it }
+    }
+
+    @Synchronized
+    fun remove(providerId: String) {
+        fingerprintCache.remove(providerId)
+        prefs.edit().remove(providerId).apply()
+    }
+
+    private fun fingerprintOf(value: String): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
         return digest.take(12).joinToString("") { "%02x".format(it) }
     }
-
-    fun remove(providerId: String) = prefs.edit().remove(providerId).apply()
 
     private fun key(): SecretKey {
         val store = KeyStore.getInstance(KEYSTORE).apply { load(null) }
