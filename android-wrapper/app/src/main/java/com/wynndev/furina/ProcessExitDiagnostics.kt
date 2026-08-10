@@ -41,6 +41,17 @@ object ProcessExitDiagnostics {
 
     fun mark(context: Context, stage: String) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+
+        // On the first prepare attempt after a hard process death, surface Android's
+        // historical exit reason instead of immediately entering the same crash loop.
+        // The timestamp is consumed once, so reopening Furina proceeds with the new
+        // recovery loader on the next attempt.
+        if (stage == "offline-verify") {
+            consumeHumanSummary(context)?.let { summary ->
+                throw IllegalStateException("$summary. Tutup lalu buka Furina sekali lagi untuk mencoba profil pemulihan.")
+            }
+        }
+
         runCatching {
             val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
             manager.setProcessStateSummary(stage.take(120).toByteArray(Charsets.UTF_8))
