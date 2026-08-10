@@ -2,15 +2,25 @@ package com.wynndev.furina
 
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -21,6 +31,9 @@ import androidx.core.view.WindowCompat
 class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
     private lateinit var bridge: FurinaBridge
+    private lateinit var loadingOverlay: View
+    private var loadingStartedAt = 0L
+    private var loadingDismissed = false
 
     private val folderPicker = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -49,6 +62,7 @@ class MainActivity : ComponentActivity() {
         window.isNavigationBarContrastEnforced = false
 
         webView = WebView(this).apply {
+            alpha = 0f
             setBackgroundColor(Color.rgb(5, 7, 18))
             settings.javaScriptEnabled = true
             settings.javaScriptCanOpenWindowsAutomatically = false
@@ -61,7 +75,7 @@ class MainActivity : ComponentActivity() {
             settings.mediaPlaybackRequiresUserGesture = false
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             settings.safeBrowsingEnabled = true
-            settings.userAgentString = settings.userAgentString + " FurinaAndroid/4.0"
+            settings.userAgentString = settings.userAgentString + " FurinaAndroid/4.1"
         }
         applySystemTheme(true)
         WebView.setWebContentsDebuggingEnabled(false)
@@ -86,7 +100,11 @@ class MainActivity : ComponentActivity() {
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 val uri = runCatching { Uri.parse(url) }.getOrNull()
-                if (uri != null && isTrustedAppUri(uri)) bridge.notifyNativeReady()
+                if (uri != null && isTrustedAppUri(uri)) {
+                    installNativeVisualPolish(view)
+                    bridge.notifyNativeReady()
+                    dismissLoadingOverlay()
+                }
             }
 
             override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
@@ -100,7 +118,19 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        setContentView(webView)
+        val root = FrameLayout(this)
+        root.addView(webView, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT,
+        ))
+        loadingOverlay = buildLoadingOverlay()
+        root.addView(loadingOverlay, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT,
+        ))
+        loadingStartedAt = SystemClock.elapsedRealtime()
+        setContentView(root)
+
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
             webView.loadUrl(APP_URL)
         }
@@ -110,6 +140,113 @@ class MainActivity : ComponentActivity() {
                 if (webView.canGoBack()) webView.goBack() else finish()
             }
         })
+    }
+
+    private fun buildLoadingOverlay(): View {
+        val overlay = FrameLayout(this).apply {
+            setBackgroundColor(Color.rgb(5, 7, 18))
+            isClickable = true
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(28), 0, dp(28), 0)
+        }
+        val title = TextView(this).apply {
+            text = "Furina"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 27f)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            letterSpacing = 0.045f
+            gravity = Gravity.CENTER
+        }
+        val subtitle = TextView(this).apply {
+            text = "Menyiapkan percakapan…"
+            setTextColor(Color.rgb(166, 177, 201))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+            gravity = Gravity.CENTER
+        }
+        val progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = true
+            indeterminateTintList = ColorStateList.valueOf(Color.rgb(56, 189, 248))
+        }
+        content.addView(title, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+        ))
+        content.addView(subtitle, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+        ).apply { topMargin = dp(10) })
+        content.addView(progress, LinearLayout.LayoutParams(dp(172), dp(3)).apply { topMargin = dp(24) })
+        overlay.addView(content, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER,
+        ))
+        content.alpha = 0f
+        content.translationY = dp(8).toFloat()
+        content.animate().alpha(1f).translationY(0f).setDuration(420L).start()
+        return overlay
+    }
+
+    private fun dismissLoadingOverlay() {
+        if (loadingDismissed) return
+        loadingDismissed = true
+        val elapsed = SystemClock.elapsedRealtime() - loadingStartedAt
+        val delay = (MIN_LOADING_MS - elapsed).coerceAtLeast(0L)
+        loadingOverlay.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
+            webView.animate().alpha(1f).setDuration(280L).start()
+            loadingOverlay.animate()
+                .alpha(0f)
+                .setDuration(340L)
+                .withEndAction { loadingOverlay.visibility = View.GONE }
+                .start()
+        }, delay)
+    }
+
+    private fun installNativeVisualPolish(view: WebView?) {
+        val css = """
+            html.dark header.absolute.inset-x-0.top-0 {
+              background: rgba(7,11,24,.44) !important;
+              border-bottom-color: rgba(255,255,255,.055) !important;
+              box-shadow: 0 8px 26px rgba(0,0,0,.08) !important;
+              -webkit-backdrop-filter: blur(22px) saturate(118%);
+              backdrop-filter: blur(22px) saturate(118%);
+            }
+            html.dark main .rounded-bl-md {
+              background: rgba(9,15,32,.58) !important;
+              border-color: rgba(255,255,255,.075) !important;
+              box-shadow: 0 8px 24px rgba(0,0,0,.12) !important;
+              -webkit-backdrop-filter: blur(18px) saturate(112%);
+              backdrop-filter: blur(18px) saturate(112%);
+            }
+            html.dark div.absolute.inset-x-0.bottom-0.z-30 {
+              background: rgba(7,11,24,.28) !important;
+              border-top-color: rgba(255,255,255,.035) !important;
+              box-shadow: none !important;
+              -webkit-backdrop-filter: blur(24px) saturate(120%);
+              backdrop-filter: blur(24px) saturate(120%);
+            }
+            html.dark div.absolute.inset-x-0.bottom-0.z-30 > div {
+              background: rgba(10,16,33,.42) !important;
+              border-color: rgba(255,255,255,.10) !important;
+              box-shadow: 0 8px 28px rgba(0,0,0,.10) !important;
+            }
+        """.trimIndent().replace("`", "\\`")
+        val script = """
+            (() => {
+              const old = document.getElementById('furina-native-polish');
+              if (old) old.remove();
+              const style = document.createElement('style');
+              style.id = 'furina-native-polish';
+              style.textContent = `$css`;
+              document.head.appendChild(style);
+            })();
+        """.trimIndent()
+        view?.evaluateJavascript(script, null)
     }
 
     fun launchBackupFolderPicker() = folderPicker.launch(null)
@@ -147,6 +284,8 @@ class MainActivity : ComponentActivity() {
         webView.loadDataWithBaseURL(APP_URL, html, "text/html", "UTF-8", null)
     }
 
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
     override fun onSaveInstanceState(outState: Bundle) {
         webView.saveState(outState)
         super.onSaveInstanceState(outState)
@@ -162,6 +301,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val APP_HOST = "furina-pi.vercel.app"
         private const val APP_URL = "https://furina-pi.vercel.app/native"
+        private const val MIN_LOADING_MS = 720L
         private val SAFE_EXTERNAL_SCHEMES = setOf("https", "http", "mailto", "tel")
         private val STATUS_BAR_COLOR = Color.rgb(45, 45, 45)
         private val NAVIGATION_BAR_COLOR = Color.rgb(213, 213, 213)

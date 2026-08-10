@@ -12,6 +12,6 @@
         <item name="android:windowLightNavigationBar">false</item>
         <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
         <item name="android:windowSplashScreenBackground">#050712</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/furina_icon</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_empty</item>
     </style>
 </resources>

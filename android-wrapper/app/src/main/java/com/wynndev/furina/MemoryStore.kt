@@ -26,8 +26,29 @@ data class CompanionEmotionalState(
 class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
     companion object {
         private const val DB_NAME = "furina_memory.db"
-        private const val DB_VERSION = 3
+        private const val DB_VERSION = 4
+        private val CORE_MEMORY_KINDS = setOf(
+            "profile_name",
+            "profile_location",
+            "profile_work",
+            "profile_birthday",
+            "profile_goal",
+        )
     }
+
+    private data class MemoryCandidate(
+        val content: String,
+        val kind: String,
+        val importance: Int,
+        val singleton: Boolean = false,
+    )
+
+    private data class ScoredMemory(
+        val score: Int,
+        val importance: Int,
+        val updatedAt: Long,
+        val content: String,
+    )
 
     override fun onConfigure(db: SQLiteDatabase) {
         super.onConfigure(db)
@@ -78,6 +99,7 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) createSettingsTable(db)
         if (oldVersion < 3) createSummaryTable(db)
+        if (oldVersion < 4) compactLegacyAutoMemories(db)
     }
 
     private fun createSettingsTable(db: SQLiteDatabase) {
@@ -247,8 +269,6 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
         }
         if (rows.isEmpty()) return
 
-        // Preserve the beginning plus the most recent compacted turns. Learned facts
-        // live independently in memories, so provider switching never loses them.
         val selected = if (rows.size <= 28) rows else rows.take(6) + rows.takeLast(22)
         val summary = buildString {
             appendLine("Ringkasan percakapan terdahulu:")
@@ -293,18 +313,34 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
 
     @Synchronized
     fun relevantMemories(query: String, limit: Int = 6): String {
-        val terms = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+" )).filter { it.length >= 3 }.toSet()
-        if (terms.isEmpty()) return ""
-        val candidates = mutableListOf<Triple<Int, Int, String>>()
-        readableDatabase.rawQuery("SELECT content,importance,updated_at FROM memories ORDER BY updated_at DESC LIMIT 300", null).use { c ->
+        val terms = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+"))
+            .filter { it.length >= 3 }.toSet()
+        val candidates = mutableListOf<ScoredMemory>()
+        readableDatabase.rawQuery(
+            "SELECT content,importance,kind,updated_at FROM memories ORDER BY updated_at DESC LIMIT 300",
+            null,
+        ).use { c ->
             while (c.moveToNext()) {
                 val content = c.getString(0)
-                val overlap = content.lowercase().split(Regex("[^\\p{L}\\p{N}]+" )).count { it in terms }
-                if (overlap > 0) candidates += Triple(overlap * 10 + c.getInt(1), c.getInt(1), content)
+                val importance = c.getInt(1)
+                val kind = c.getString(2)
+                val updatedAt = c.getLong(3)
+                val words = content.lowercase().split(Regex("[^\\p{L}\\p{N}]+"))
+                val overlap = if (terms.isEmpty()) 0 else words.count { it in terms }
+                val core = kind in CORE_MEMORY_KINDS || importance >= 9
+                if (core || overlap > 0) {
+                    val score = overlap * 20 + importance + if (core) 14 else 0
+                    candidates += ScoredMemory(score, importance, updatedAt, content)
+                }
             }
         }
-        return candidates.sortedWith(compareByDescending<Triple<Int, Int, String>> { it.first }.thenByDescending { it.second })
-            .take(limit).joinToString("\n") { "- ${it.third}" }
+        return candidates
+            .sortedWith(compareByDescending<ScoredMemory> { it.score }
+                .thenByDescending { it.importance }
+                .thenByDescending { it.updatedAt })
+            .distinctBy { it.content.lowercase() }
+            .take(limit)
+            .joinToString("\n") { "- ${it.content}" }
     }
 
     @Synchronized
@@ -362,17 +398,11 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
 
     @Synchronized
     fun addMemory(content: String): String {
-        val clean = content.replace(Regex("\\s+"), " ").trim()
+        val clean = normalizeText(content)
         require(clean.length in 3..500) { "Memori harus berisi 3–500 karakter" }
-        val now = System.currentTimeMillis()
-        val id = UUID.randomUUID().toString()
-        writableDatabase.insertWithOnConflict("memories", null, ContentValues().apply {
-            put("id", id); put("content", clean); put("kind", "user_fact"); put("importance", 7)
-            put("created_at", now); put("updated_at", now)
-        }, SQLiteDatabase.CONFLICT_IGNORE)
-        readableDatabase.rawQuery("SELECT id FROM memories WHERE content=?", arrayOf(clean)).use { c ->
-            return if (c.moveToFirst()) c.getString(0) else id
-        }
+        val extracted = extractMemoryCandidates(clean)
+        if (extracted.size == 1) return upsertMemory(writableDatabase, extracted.first().copy(importance = maxOf(8, extracted.first().importance)))
+        return upsertMemory(writableDatabase, MemoryCandidate(clean, "manual_fact", 8))
     }
 
     @Synchronized
@@ -407,7 +437,7 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
      */
     @Synchronized
     fun observeUserTurn(text: String) {
-        val clean = text.replace(Regex("\\s+"), " ").trim().lowercase()
+        val clean = normalizeText(text).lowercase()
         if (clean.isBlank()) return
         val now = System.currentTimeMillis()
         val previous = companionState()
@@ -421,7 +451,7 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
         val playful = clean.hasAny(listOf("wkwk", "haha", "hehe", "bercanda", "lucu", "goda", "cie"))
 
         var warmth = approach(previous.warmth, 48, 1)
-        var trust = previous.trust
+        var trust = if (!insulting && previous.trust < 82) previous.trust + 1 else previous.trust
         var irritation = approach(previous.irritation, 8, 2)
         var playfulness = approach(previous.playfulness, 52, 1)
         var vulnerability = approach(previous.vulnerability, 14, 1)
@@ -430,7 +460,7 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
         if (affectionate) { warmth += 9; trust += 4; vulnerability += 5; irritation -= 5 }
         if (apologetic) { warmth += 3; trust += 2; irritation -= 12 }
         if (distressed) { warmth += 7; protectiveness += 15; playfulness -= 12 }
-        if (insulting) { irritation += 24; warmth -= 7; vulnerability -= 4 }
+        if (insulting) { irritation += 24; warmth -= 7; trust -= 8; vulnerability -= 4 }
         if (playful) { playfulness += 15; warmth += 3; irritation -= 3 }
 
         warmth = warmth.coerceIn(0, 100)
@@ -460,10 +490,16 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
             c.moveToFirst(); c.getLong(0)
         }
         val relationship = when {
-            turns < 6 -> "new but curious; keep some proud distance"
-            turns < 30 -> "familiar; teasing and selective warmth are natural"
-            turns < 120 -> "close; trust is established, but pride remains"
-            else -> "deeply familiar; quiet loyalty and earned vulnerability are natural"
+            turns < 8 -> "new acquaintance; interested, observant, and still somewhat guarded"
+            turns < 40 -> "familiar; shared rhythm is forming and light teasing can happen naturally"
+            turns < 160 -> "close; trust is established, shorthand and playful jabs are earned"
+            else -> "deeply familiar; quiet loyalty, inside references, affection, and reciprocal teasing can feel ordinary"
+        }
+        val familiarityGuidance = when {
+            turns < 8 -> "Do not assume intimacy. Avoid automatic pet names unless the user initiated that tone. Learn their rhythm before acting close."
+            turns < 40 -> "Occasional callbacks and light teasing are welcome when relevant. Pet names should be contextual, not a default greeting."
+            turns < 160 -> "Use remembered preferences and shared context implicitly. Natural shorthand, mild mockery, and warmer concern may emerge without announcing why."
+            else -> "Sound like someone who has known the user a long time: relaxed continuity, occasional inside references, mild mutual teasing, and unforced affection. Never perform closeness every turn."
         }
         val stance = when (state.mood) {
             "protective" -> "Protective and attentive. Drop most teasing, notice the feeling first, then respond concretely without sounding like a therapist."
@@ -476,9 +512,10 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
         return """
             [PRIVATE COMPANION STATE]
             Relationship: $relationship.
+            Familiarity behavior: $familiarityGuidance
             Current stance: $stance
             Continuity levels: warmth=${state.warmth}/100, trust=${state.trust}/100, irritation=${state.irritation}/100, playfulness=${state.playfulness}/100, vulnerability=${state.vulnerability}/100, protectiveness=${state.protectiveness}/100.
-            Let these levels subtly influence tone. Never quote this block, mention scores, or announce a mood label.
+            Let these levels subtly influence tone. Never quote this block, mention scores, announce a mood label, or mention a remembered fact merely to prove memory works.
             [END PRIVATE COMPANION STATE]
         """.trimIndent()
     }
@@ -522,16 +559,160 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
 
     @Synchronized
     private fun maybeRemember(text: String) {
-        val clean = text.replace(Regex("\\s+"), " ").trim()
-        if (clean.length !in 15..360) return
-        val lower = clean.lowercase()
-        val triggers = listOf("aku ", "saya ", "suka ", "tidak suka", "favorit", "tinggal", "kerja", "pekerjaan", "target", "tujuan", "ingin ", "proyek", "project", "panggil aku", "ulang tahun")
-        if (triggers.none { lower.contains(it) }) return
+        val clean = normalizeText(text)
+        if (clean.length !in 5..600) return
+        val candidates = extractMemoryCandidates(clean)
+        if (candidates.isEmpty()) return
+        candidates.take(4).forEach { upsertMemory(writableDatabase, it) }
+    }
+
+    private fun extractMemoryCandidates(text: String): List<MemoryCandidate> {
+        val clean = normalizeText(text)
+        if (clean.isBlank()) return emptyList()
+        val out = mutableListOf<MemoryCandidate>()
+        val segments = clean.split(Regex("(?<=[.!?;])\\s+|[;\\n]+"))
+            .map(::normalizeText)
+            .filter { it.length >= 3 }
+            .take(8)
+
+        fun match(segment: String, pattern: String): String? =
+            Regex(pattern, RegexOption.IGNORE_CASE).find(segment)
+                ?.groupValues?.getOrNull(1)
+                ?.let(::cleanMemoryValue)
+                ?.takeIf { it.length >= 1 }
+
+        for (segment in segments) {
+            val name = match(segment, """\b(?:panggil(?:lah)? aku|panggil saya|namaku(?: adalah)?|nama saya(?: adalah)?|call me)\s+([^,.!?;]{1,60})""")
+            if (name != null) {
+                out += MemoryCandidate("Panggilan pengguna: $name", "profile_name", 10, singleton = true)
+                continue
+            }
+
+            val dislike = match(segment, """\b(?:aku|saya)\s+(?:sangat\s+)?(?:tidak suka|tidak menyukai|benci)\s+([^,.!?;]{2,120})""")
+            if (dislike != null) {
+                out += MemoryCandidate("Pengguna tidak menyukai $dislike", "preference_dislike", 7)
+                continue
+            }
+
+            val like = match(segment, """\b(?:aku|saya)\s+(?:sangat\s+)?(?:menyukai|suka)\s+([^,.!?;]{2,120})""")
+            if (like != null) {
+                out += MemoryCandidate("Pengguna menyukai $like", "preference_like", 7)
+                continue
+            }
+
+            val favorite = match(segment, """\b(?:favoritku|favorit saya)(?: adalah)?\s+([^,.!?;]{2,120})""")
+            if (favorite != null) {
+                out += MemoryCandidate("Favorit pengguna: $favorite", "preference_favorite", 8)
+                continue
+            }
+
+            val location = match(segment, """\b(?:aku|saya)\s+(?:tinggal|berdomisili)\s+(?:di\s+)?([^,.!?;]{2,120})""")
+            if (location != null) {
+                out += MemoryCandidate("Pengguna tinggal di $location", "profile_location", 9, singleton = true)
+                continue
+            }
+
+            val work = match(segment, """\b(?:aku|saya)\s+(?:bekerja sebagai|kerja sebagai|berprofesi sebagai|adalah seorang)\s+([^,.!?;]{2,120})""")
+            if (work != null) {
+                out += MemoryCandidate("Pekerjaan pengguna: $work", "profile_work", 9, singleton = true)
+                continue
+            }
+
+            val birthday = match(segment, """\b(?:ulang tahunku|ulang tahun saya)(?: adalah| tanggal)?\s+([^,.!?;]{2,100})""")
+            if (birthday != null) {
+                out += MemoryCandidate("Ulang tahun pengguna: $birthday", "profile_birthday", 10, singleton = true)
+                continue
+            }
+
+            val goal = match(segment, """\b(?:targetku|tujuanku|target saya|tujuan saya)(?: adalah)?\s+([^.!?;]{2,160})""")
+            if (goal != null) {
+                out += MemoryCandidate("Tujuan pengguna: $goal", "profile_goal", 8, singleton = true)
+                continue
+            }
+
+            val explicit = match(segment, """\b(?:tolong\s+ingat(?:lah)?|ingat(?:lah)?|simpan(?: ini)?(?: di memori(?:mu)?)?|remember(?: that)?)\s*[:,.-]?\s*(.+)""")
+            if (explicit != null && !explicit.equals("itu", ignoreCase = true) && explicit.length >= 3) {
+                out += MemoryCandidate("Catatan pengguna: $explicit", "explicit_memory", 9)
+            }
+        }
+        return out.distinctBy { "${it.kind}:${it.content.lowercase()}" }
+    }
+
+    private fun normalizeText(value: String): String = value.replace(Regex("\\s+"), " ").trim()
+
+    private fun cleanMemoryValue(value: String): String = normalizeText(value)
+        .trim(' ', ',', '.', '!', '?', ';', ':', '-', '—')
+        .replace(Regex("(?i)\\s*,?\\s*(?:coba|tolong)?\\s*(?:ingat|simpan)(?:lah)?(?: itu| ini)?(?: di memori(?:mu)?)?\\s*$"), "")
+        .trim()
+        .take(180)
+
+    private fun upsertMemory(db: SQLiteDatabase, candidate: MemoryCandidate): String {
+        val content = normalizeText(candidate.content).take(500)
+        if (content.length < 3) return ""
         val now = System.currentTimeMillis()
-        writableDatabase.insertWithOnConflict("memories", null, ContentValues().apply {
-            put("id", UUID.randomUUID().toString()); put("content", clean); put("kind", "user_fact")
-            put("importance", 6); put("created_at", now); put("updated_at", now)
+
+        db.rawQuery("SELECT id,importance FROM memories WHERE content=? LIMIT 1", arrayOf(content)).use { c ->
+            if (c.moveToFirst()) {
+                val id = c.getString(0)
+                val importance = maxOf(c.getInt(1), candidate.importance).coerceAtMost(10)
+                db.update("memories", ContentValues().apply {
+                    put("kind", candidate.kind)
+                    put("importance", importance)
+                    put("updated_at", now)
+                }, "id=?", arrayOf(id))
+                return id
+            }
+        }
+
+        if (candidate.singleton) {
+            db.rawQuery("SELECT id FROM memories WHERE kind=? ORDER BY updated_at DESC LIMIT 1", arrayOf(candidate.kind)).use { c ->
+                if (c.moveToFirst()) {
+                    val id = c.getString(0)
+                    db.delete("memories", "content=? AND id<>?", arrayOf(content, id))
+                    db.update("memories", ContentValues().apply {
+                        put("content", content)
+                        put("importance", candidate.importance.coerceIn(1, 10))
+                        put("updated_at", now)
+                    }, "id=?", arrayOf(id))
+                    return id
+                }
+            }
+        }
+
+        val id = UUID.randomUUID().toString()
+        db.insertWithOnConflict("memories", null, ContentValues().apply {
+            put("id", id)
+            put("content", content)
+            put("kind", candidate.kind)
+            put("importance", candidate.importance.coerceIn(1, 10))
+            put("created_at", now)
+            put("updated_at", now)
         }, SQLiteDatabase.CONFLICT_IGNORE)
+        db.rawQuery("SELECT id FROM memories WHERE content=? LIMIT 1", arrayOf(content)).use { c ->
+            return if (c.moveToFirst()) c.getString(0) else id
+        }
+    }
+
+    private fun compactLegacyAutoMemories(db: SQLiteDatabase) {
+        val legacy = mutableListOf<Pair<String, String>>()
+        db.rawQuery(
+            "SELECT id,content FROM memories WHERE kind='user_fact' AND importance<=6",
+            null,
+        ).use { c ->
+            while (c.moveToNext()) legacy += c.getString(0) to c.getString(1)
+        }
+        if (legacy.isEmpty()) return
+        db.beginTransaction()
+        try {
+            legacy.forEach { (id, raw) ->
+                val extracted = extractMemoryCandidates(raw)
+                db.delete("memories", "id=?", arrayOf(id))
+                extracted.take(4).forEach { upsertMemory(db, it) }
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
     }
 
     @Synchronized

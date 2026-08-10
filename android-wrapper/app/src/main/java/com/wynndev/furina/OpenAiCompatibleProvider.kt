@@ -146,6 +146,7 @@ class OpenAiCompatibleProvider(
                 }
                 put(JSONObject().put("role", "user").put("content", turn))
             })
+        applyReasoningPolicy(payload, model.id)
 
         val connection = openConnection("${spec.baseUrl}/chat/completions", "POST", key).apply {
             doOutput = true
@@ -160,7 +161,15 @@ class OpenAiCompatibleProvider(
         }
 
         val contentType = connection.contentType?.lowercase(Locale.US).orEmpty()
+        val reasoningFilter = HiddenReasoningFilter()
         var emitted = false
+        suspend fun emitVisible(raw: String) {
+            val visible = reasoningFilter.accept(raw)
+            if (visible.isNotEmpty()) {
+                emitted = true
+                onChunk(visible)
+            }
+        }
         try {
             if (contentType.contains("text/event-stream")) {
                 BufferedReader(InputStreamReader(connection.inputStream, StandardCharsets.UTF_8)).use { reader ->
@@ -170,24 +179,39 @@ class OpenAiCompatibleProvider(
                         val data = line.removePrefix("data:").trim()
                         if (data.isBlank() || data == "[DONE]") continue
                         val chunk = parseStreamChunk(data)
-                        if (chunk.isNotEmpty()) {
-                            emitted = true
-                            onChunk(chunk)
-                        }
+                        if (chunk.isNotEmpty()) emitVisible(chunk)
                     }
                 }
             } else {
                 val body = readAll(connection.inputStream)
                 val text = parseCompletion(body)
-                if (text.isNotBlank()) {
-                    emitted = true
-                    onChunk(text)
-                }
+                if (text.isNotBlank()) emitVisible(text)
+            }
+            val tail = reasoningFilter.finish()
+            if (tail.isNotEmpty()) {
+                emitted = true
+                onChunk(tail)
             }
         } finally {
             connection.disconnect()
         }
-        if (!emitted) throw OnlineProviderException(502, "${model.displayName} tidak menghasilkan jawaban", true)
+        if (!emitted) throw OnlineProviderException(502, "${model.displayName} tidak menghasilkan jawaban akhir", true)
+    }
+
+    private fun applyReasoningPolicy(payload: JSONObject, modelId: String) {
+        when (id) {
+            "openrouter" -> payload.put(
+                "reasoning",
+                JSONObject().put("effort", "none").put("exclude", true),
+            )
+            "groq" -> {
+                val normalized = modelId.lowercase(Locale.US)
+                if (normalized.contains("qwen3")) {
+                    payload.put("reasoning_effort", "none")
+                    payload.put("reasoning_format", "hidden")
+                }
+            }
+        }
     }
 
     private fun parseModels(raw: String): List<OnlineModel> {
@@ -323,5 +347,74 @@ class OpenAiCompatibleProvider(
     private fun readAll(stream: InputStream?): String {
         if (stream == null) return ""
         return stream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
+    }
+
+    /**
+     * Some reasoning models emit their private scratchpad inside content as
+     * <think>...</think>. Provider flags are preferred, but this streaming filter is a
+     * final guard so reasoning never reaches the chat UI even when tags are split across chunks.
+     */
+    private class HiddenReasoningFilter {
+        private enum class Mode { UNDECIDED, HIDDEN, ANSWER }
+        private var mode = Mode.UNDECIDED
+        private var activeCloseTag = "</think>"
+        private val pending = StringBuilder()
+        private val pairs = listOf(
+            "<think>" to "</think>",
+            "<analysis>" to "</analysis>",
+            "<reasoning>" to "</reasoning>",
+        )
+
+        fun accept(chunk: String): String {
+            if (chunk.isEmpty()) return ""
+            pending.append(chunk)
+            val output = StringBuilder()
+            while (true) {
+                when (mode) {
+                    Mode.UNDECIDED -> {
+                        val raw = pending.toString()
+                        val leading = raw.indexOfFirst { !it.isWhitespace() }.let { if (it < 0) raw.length else it }
+                        val candidate = raw.substring(leading)
+                        val exact = pairs.firstOrNull { candidate.startsWith(it.first, ignoreCase = true) }
+                        if (exact != null) {
+                            pending.delete(0, leading + exact.first.length)
+                            activeCloseTag = exact.second
+                            mode = Mode.HIDDEN
+                            continue
+                        }
+                        val couldBecomeTag = candidate.isNotEmpty() && pairs.any {
+                            it.first.startsWith(candidate, ignoreCase = true)
+                        }
+                        if (candidate.isEmpty() || couldBecomeTag) break
+                        mode = Mode.ANSWER
+                        continue
+                    }
+                    Mode.HIDDEN -> {
+                        val raw = pending.toString()
+                        val lower = raw.lowercase(Locale.US)
+                        val end = lower.indexOf(activeCloseTag.lowercase(Locale.US))
+                        if (end >= 0) {
+                            pending.delete(0, end + activeCloseTag.length)
+                            while (pending.isNotEmpty() && pending.first().isWhitespace()) pending.deleteCharAt(0)
+                            mode = Mode.ANSWER
+                            continue
+                        }
+                        if (pending.length > 40) pending.delete(0, pending.length - 40)
+                        break
+                    }
+                    Mode.ANSWER -> {
+                        output.append(pending)
+                        pending.clear()
+                        break
+                    }
+                }
+            }
+            return output.toString()
+        }
+
+        fun finish(): String = when (mode) {
+            Mode.UNDECIDED, Mode.ANSWER -> pending.toString()
+            Mode.HIDDEN -> ""
+        }.also { pending.clear() }
     }
 }

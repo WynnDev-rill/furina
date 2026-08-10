@@ -65,13 +65,18 @@ class UnifiedAiEngine(
         // Persist the user turn even if generation fails; a retry keeps the user's intent.
         val userId = store.addMessage(sessionId, "user", userText)
         val reply = StringBuilder()
+        val baseBudget = responseBudgetFor(userText)
+        // Online reasoning models can consume hidden tokens before the visible answer. A
+        // generous ceiling prevents the final sentence from being clipped, while local
+        // models keep the smaller latency-conscious budget.
+        val generationBudget = if (activeProvider.capabilities.offline) baseBudget else maxOf(baseBudget, 512)
         val request = AiGenerationRequest(
             requestId = requestId,
             sessionId = sessionId,
             model = model,
             context = context,
             userMessage = userText,
-            predictLength = responseBudgetFor(userText).coerceAtMost(model.maxOutputTokens),
+            predictLength = generationBudget.coerceAtMost(model.maxOutputTokens),
         )
         try {
             activeProvider.stream(request).collect { token ->
