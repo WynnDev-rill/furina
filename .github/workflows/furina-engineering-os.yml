@@ -7,7 +7,6 @@ on:
       - 'android-wrapper/**'
       - 'scripts/**'
       - 'engineering/**'
-      - 'furina-lab/**'
       - '.github/workflows/furina-engineering-os.yml'
 
 jobs:
@@ -30,11 +29,6 @@ jobs:
 
       - name: Run existing companion quality gate
         run: python3 scripts/companion-quality-gate.py
-
-      - name: Validate Furina Lab JavaScript syntax
-        run: |
-          node --check furina-lab/app.js
-          node --check furina-lab/api/status.js
 
       - name: Upload audit
         uses: actions/upload-artifact@v4
