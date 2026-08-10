@@ -13,6 +13,8 @@ import androidx.work.workDataOf
 import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.io.IOException
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -23,19 +25,35 @@ import kotlinx.coroutines.sync.withLock
 class ModelDownloadManager(private val context: Context) {
     companion object {
         private const val DOWNLOAD_HEADROOM_BYTES = 512L * 1024L * 1024L
+        private const val MIGRATION_HEADROOM_BYTES = 256L * 1024L * 1024L
+        private const val COPY_BUFFER_BYTES = 8 * 1024 * 1024
     }
 
     private val workManager = WorkManager.getInstance(context.applicationContext)
     private val prefs = context.getSharedPreferences(ModelDownloadKeys.PREFS, Context.MODE_PRIVATE)
-    private val modelDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "models").apply { mkdirs() }
+
+    // WorkManager downloads to app-specific external storage because it has ample space and
+    // supports resumable background transfer. llama.cpp itself runs from internal no-backup
+    // storage: Android's private filesystem has predictable mmap semantics and avoids emulated
+    // external-storage/FUSE behavior during multi-gigabyte native model mapping.
+    private val downloadModelDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "models").apply { mkdirs() }
+    private val runtimeModelDir = File(context.noBackupFilesDir, "models").apply { mkdirs() }
     private val verificationLocks = ConcurrentHashMap<String, Mutex>()
 
     init {
         cleanupRetiredModels()
     }
 
-    fun modelFile(spec: ModelSpec): File = File(modelDir, spec.fileName)
-    private fun partialFile(spec: ModelSpec): File = File(modelDir, "${spec.fileName}.part")
+    private fun runtimeModelFile(spec: ModelSpec): File = File(runtimeModelDir, spec.fileName)
+    private fun downloadModelFile(spec: ModelSpec): File = File(downloadModelDir, spec.fileName)
+
+    /** Prefer the mmap-safe internal runtime copy once it has been migrated. */
+    fun modelFile(spec: ModelSpec): File {
+        val runtime = runtimeModelFile(spec)
+        return if (runtime.exists()) runtime else downloadModelFile(spec)
+    }
+
+    private fun partialFile(spec: ModelSpec): File = File(downloadModelDir, "${spec.fileName}.part")
     private fun uniqueWork(spec: ModelSpec) = "furina-model-${spec.id}"
 
     @Synchronized
@@ -44,11 +62,16 @@ class ModelDownloadManager(private val context: Context) {
         val current = status(spec)
         if (current.optString("state") == "downloading") return current
 
-        val target = modelFile(spec)
-        require(!target.exists() || target.delete()) {
+        val runtimeTarget = runtimeModelFile(spec)
+        val downloadTarget = downloadModelFile(spec)
+        require(!runtimeTarget.exists() || runtimeTarget.delete()) {
+            "File model runtime lama tidak dapat dibersihkan. Coba hapus model lalu ulangi."
+        }
+        require(!downloadTarget.exists() || downloadTarget.delete()) {
             "File model lama tidak dapat dibersihkan. Coba hapus model lalu ulangi."
         }
-        val available = StatFs(modelDir.absolutePath).availableBytes
+
+        val available = StatFs(downloadModelDir.absolutePath).availableBytes
         val reusablePartial = partialFile(spec).length().coerceAtMost(spec.expectedBytes)
         require(available + reusablePartial >= spec.expectedBytes + DOWNLOAD_HEADROOM_BYTES) {
             "Penyimpanan tidak cukup. Sisakan setidaknya ${formatGiB(spec.expectedBytes + DOWNLOAD_HEADROOM_BYTES)}."
@@ -96,21 +119,23 @@ class ModelDownloadManager(private val context: Context) {
             .remove("downloaded:${spec.id}")
             .remove("total:${spec.id}")
             .apply()
-        modelFile(spec).delete()
+        runtimeModelFile(spec).delete()
+        downloadModelFile(spec).delete()
         partialFile(spec).delete()
         return status(spec)
     }
 
     @Synchronized
-    fun delete(spec: ModelSpec): JSONObject {
-        return cancel(spec)
-    }
+    fun delete(spec: ModelSpec): JSONObject = cancel(spec)
 
     fun status(spec: ModelSpec): JSONObject {
         val file = modelFile(spec)
         val partial = partialFile(spec)
         var state = prefs.getString("state:${spec.id}", null)
             ?: if (file.exists() && file.length() > 0) "ready" else if (partial.exists()) "paused" else "not_downloaded"
+        if (!file.exists() && state == "ready") {
+            state = if (partial.exists()) "paused" else "not_downloaded"
+        }
         val downloaded = when {
             file.exists() -> file.length()
             partial.exists() -> partial.length()
@@ -133,10 +158,81 @@ class ModelDownloadManager(private val context: Context) {
             .put("totalBytes", total)
             .put("progress", if (total > 0L) downloaded.toDouble() / total.toDouble() else 0.0)
             .put("verified", verified)
+            .put("runtimePrivate", runtimeModelFile(spec).exists())
             .put("reason", reason)
-            .put("availableBytes", StatFs(modelDir.absolutePath).availableBytes)
+            .put("availableBytes", StatFs(downloadModelDir.absolutePath).availableBytes)
             .put("error", verificationError ?: prefs.getString("error:${spec.id}", "") ?: "")
             .put("path", if (file.exists()) file.absolutePath else "")
+    }
+
+    /**
+     * Copy a verified model from emulated app-specific storage into internal no-backup
+     * storage before llama.cpp mmaps it. The source is removed only after a complete,
+     * checksum-verified, fsynced internal copy has been atomically promoted.
+     */
+    fun ensureRuntimeModel(spec: ModelSpec, progress: ((Long, Long) -> Unit)? = null): File {
+        val runtime = runtimeModelFile(spec)
+        if (runtime.exists()) {
+            require(runtime.length() == spec.expectedBytes) { "Ukuran model runtime tidak cocok" }
+            return runtime
+        }
+
+        val source = downloadModelFile(spec)
+        require(source.exists() && source.isFile && source.canRead()) {
+            "File model terverifikasi tidak ditemukan"
+        }
+        require(source.length() == spec.expectedBytes) { "Ukuran model sumber tidak cocok" }
+        require(prefs.getString("verified:${spec.id}", null) == spec.sha256) {
+            "Model harus diverifikasi sebelum dipindahkan ke runtime internal"
+        }
+
+        val available = StatFs(runtimeModelDir.absolutePath).availableBytes
+        require(available >= spec.expectedBytes + MIGRATION_HEADROOM_BYTES) {
+            "Penyimpanan internal tidak cukup untuk menyiapkan model lokal. Sisakan setidaknya ${formatGiB(spec.expectedBytes + MIGRATION_HEADROOM_BYTES)}."
+        }
+
+        val temp = File(runtimeModelDir, "${spec.fileName}.migrating")
+        temp.delete()
+        val digest = MessageDigest.getInstance("SHA-256")
+        var copied = 0L
+        try {
+            FileInputStream(source).use { input ->
+                FileOutputStream(temp).use { output ->
+                    val buffer = ByteArray(COPY_BUFFER_BYTES)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count <= 0) break
+                        output.write(buffer, 0, count)
+                        digest.update(buffer, 0, count)
+                        copied += count
+                        progress?.invoke(copied, spec.expectedBytes)
+                    }
+                    output.flush()
+                    output.fd.sync()
+                }
+            }
+
+            if (temp.length() != spec.expectedBytes) {
+                throw IOException("Salinan model internal tidak lengkap (${temp.length()} byte)")
+            }
+            val actual = digest.digest().joinToString("") { "%02x".format(it) }
+            if (!actual.equals(spec.sha256, ignoreCase = true)) {
+                throw IOException("Checksum salinan model internal tidak cocok")
+            }
+            if (runtime.exists() && !runtime.delete()) throw IOException("Model runtime lama tidak dapat diganti")
+            if (!temp.renameTo(runtime)) throw IOException("Model internal selesai disalin tetapi tidak dapat dipromosikan")
+            // A failed delete only leaves a harmless duplicate. modelFile() still prefers runtime.
+            source.delete()
+            prefs.edit()
+                .putString("state:${spec.id}", "ready")
+                .putString("verified:${spec.id}", spec.sha256)
+                .remove("verification_error:${spec.id}")
+                .apply()
+            return runtime
+        } catch (error: Throwable) {
+            temp.delete()
+            throw error
+        }
     }
 
     private fun migrateLegacyDownload(spec: ModelSpec) {
@@ -147,13 +243,13 @@ class ModelDownloadManager(private val context: Context) {
             service.remove(legacyId)
         }
         prefs.edit().remove("download:${spec.id}").apply()
-        val legacyTarget = modelFile(spec)
+        val legacyTarget = downloadModelFile(spec)
         if (legacyTarget.exists() && legacyTarget.length() in 1 until spec.expectedBytes) {
             legacyTarget.renameTo(partialFile(spec))
         }
     }
 
-    /** Remove only Furina's two retired GGUF files so an update cannot leave 8 GB unused. */
+    /** Remove only Furina's retired GGUF files so an update cannot leave old models unused. */
     private fun cleanupRetiredModels() {
         val retired = listOf(
             "qwen35-4b-uncensored-q4km" to "Qwen3.5-4B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
@@ -161,8 +257,10 @@ class ModelDownloadManager(private val context: Context) {
         )
         retired.forEach { (id, fileName) ->
             workManager.cancelUniqueWork("furina-model-$id")
-            File(modelDir, fileName).delete()
-            File(modelDir, "$fileName.part").delete()
+            File(downloadModelDir, fileName).delete()
+            File(downloadModelDir, "$fileName.part").delete()
+            File(runtimeModelDir, fileName).delete()
+            File(runtimeModelDir, "$fileName.migrating").delete()
             prefs.edit()
                 .remove("cancelled:$id").remove("verified:$id").remove("verification_error:$id")
                 .remove("error:$id").remove("state:$id").remove("downloaded:$id")
@@ -181,7 +279,7 @@ class ModelDownloadManager(private val context: Context) {
         if (prefs.getString("verified:${spec.id}", null) == spec.sha256) return true
 
         val digest = MessageDigest.getInstance("SHA-256")
-        val buffer = ByteArray(8 * 1024 * 1024)
+        val buffer = ByteArray(COPY_BUFFER_BYTES)
         var readTotal = 0L
         FileInputStream(file).use { input ->
             while (true) {
@@ -203,9 +301,9 @@ class ModelDownloadManager(private val context: Context) {
     }
 
     /**
-     * Verification can be requested by both the settings status poller and the
-     * inference loader. Serializing per model prevents two full 5.6 GB scans
-     * from competing for I/O and page cache immediately before native load.
+     * Verification can be requested by both the settings status poller and the inference
+     * loader. Serializing per model prevents two full multi-gigabyte scans from competing
+     * for I/O and page cache immediately before native load.
      */
     suspend fun verifySerialized(spec: ModelSpec, progress: ((Long, Long) -> Unit)? = null): Boolean {
         val lock = verificationLocks.getOrPut(spec.id) { Mutex() }
