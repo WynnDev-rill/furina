@@ -8,6 +8,10 @@
     "decision",
     "pullRequest",
     "headSha",
+    "engineerCycleId",
+    "reviewCycleId",
+    "bossCycleId",
+    "reviewedHeadSha",
     "evidenceLevel",
     "productValue",
     "regressionRisk",
@@ -29,6 +33,15 @@
       "maxLength": 40,
       "pattern": "^[0-9a-fA-F]+$"
     },
+    "engineerCycleId": {"type": "string", "minLength": 1},
+    "reviewCycleId": {"type": "string", "minLength": 1},
+    "bossCycleId": {"type": "string", "minLength": 1},
+    "reviewedHeadSha": {
+      "type": "string",
+      "minLength": 7,
+      "maxLength": 40,
+      "pattern": "^[0-9a-fA-F]+$"
+    },
     "evidenceLevel": {
       "type": "string",
       "enum": ["STATIC", "CI", "BEHAVIORAL", "DEVICE"]
@@ -37,8 +50,8 @@
     "regressionRisk": {"type": "number", "minimum": 0, "maximum": 10},
     "complexityCost": {"type": "number", "minimum": 0, "maximum": 10},
     "confidence": {"type": "number", "minimum": 0, "maximum": 10},
-    "reason": {"type": "string", "minLength": 1, "maxLength": 1200},
-    "requiredNextAction": {"type": "string", "minLength": 1, "maxLength": 600},
+    "reason": {"type": "string", "minLength": 1, "maxLength": 1600},
+    "requiredNextAction": {"type": "string", "minLength": 1, "maxLength": 800},
     "decidedAt": {"type": "string", "format": "date-time"}
   }
 }
