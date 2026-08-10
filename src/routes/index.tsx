@@ -884,6 +884,7 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   return (
     <div className="relative h-[100dvh] w-full overflow-hidden bg-background text-foreground">
+      <BootScreen visible={isBooting} />
       <img src={bg} alt={`${name} background`} className="absolute inset-0 h-full w-full object-cover" draggable={false} />
       <div className={`pointer-events-none absolute inset-0 ${
         theme === "dark"
