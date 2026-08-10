@@ -6,6 +6,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
@@ -23,7 +25,7 @@ class UnifiedAiEngine(
     private val contextEngine: ContextEngine,
     private val providers: Map<String, AiProvider>,
 ) {
-    private val maintenanceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val maintenanceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var maintenanceJob: Job? = null
 
     private fun provider(id: String): AiProvider =
@@ -103,7 +105,9 @@ class UnifiedAiEngine(
         val finalText = reply.toString().trim()
         check(finalText.isNotBlank()) { "Model tidak menghasilkan jawaban" }
         val assistantId = store.addMessage(sessionId, "assistant", finalText)
-        store.updateSessionSummary(sessionId)
+
+        // Summary compaction, reflection and contradiction reconciliation are all post-response
+        // idle work. None of them delays the visible completion callback or the next TTFT.
         scheduleIdleMaintenance(sessionId, userText)
 
         val finishedAt = SystemClock.elapsedRealtime()
@@ -121,18 +125,36 @@ class UnifiedAiEngine(
         return UnifiedGenerationResult(userId, assistantId, metrics)
     }
 
-    suspend fun unload() = providers.values.forEach { it.unload() }
+    /** Stop background writers before unload/restore/session mutation. */
+    suspend fun unload() {
+        maintenanceJob?.cancelAndJoin()
+        maintenanceJob = null
+        providers.values.forEach { it.unload() }
+    }
+
+    fun destroy() {
+        maintenanceJob?.cancel()
+        maintenanceJob = null
+        maintenanceScope.cancel()
+    }
 
     /**
-     * Heavy memory reconciliation/reflection is postponed until the conversation has been
-     * idle. A new user turn cancels the pending job before it starts.
+     * Heavy memory work is postponed until the conversation has been idle. A new user turn
+     * cancels the pending job before it starts.
      */
     private fun scheduleIdleMaintenance(sessionId: String, userText: String) {
         maintenanceJob?.cancel()
-        maintenanceJob = maintenanceScope.launch {
-            delay(6_000L)
-            runCatching { contextEngine.runMaintenance(sessionId, userText) }
+        lateinit var job: Job
+        job = maintenanceScope.launch {
+            try {
+                delay(6_000L)
+                runCatching { contextEngine.runMaintenance(sessionId, userText) }
+                runCatching { store.updateSessionSummary(sessionId) }
+            } finally {
+                if (maintenanceJob === job) maintenanceJob = null
+            }
         }
+        maintenanceJob = job
     }
 
     /** Lightweight telemetry for the future 100–300 scenario on-device quality benchmark. */

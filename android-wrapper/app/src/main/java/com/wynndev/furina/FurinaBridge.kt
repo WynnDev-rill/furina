@@ -3,12 +3,16 @@ package com.wynndev.furina
 import android.net.Uri
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -22,7 +26,7 @@ class FurinaBridge(
 ) {
     private val scope = kotlinx.coroutines.CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val prefs = activity.getSharedPreferences("furina_native", 0)
-    private val contextEngine = ContextEngine(store)
+    private val contextEngine = ContextEngine(activity.applicationContext, store)
     private val localProvider = LocalLlamaProvider(activity.applicationContext, modelDownloads, ::emitState)
     private val aiRuntime = AiRuntimeController(activity.applicationContext)
     private val providers: Map<String, AiProvider> = buildMap {
@@ -30,6 +34,11 @@ class FurinaBridge(
         putAll(aiRuntime.onlineProviders)
     }
     private val aiEngine = UnifiedAiEngine(store, contextEngine, providers)
+
+    /** Native llama.cpp lifecycle is single-owner even when WebView actions arrive quickly. */
+    private val aiOperationMutex = Mutex()
+    private val jobLock = Any()
+    private val pendingMutations = AtomicInteger(0)
     private var generationJob: Job? = null
     private var prepareJob: Job? = null
     private val verificationJobs = mutableMapOf<String, Job>()
@@ -40,16 +49,16 @@ class FurinaBridge(
         val runtime = aiRuntime.modeSummaryJson()
         return JSONObject()
             .put("available", true)
-            .put("version", "4.1")
+            .put("version", "4.3")
             .put("selectedModelId", selectedModelId())
             .put("runtime", if (runtime.optString("mode") == OnlineAiConfigStore.MODE_ONLINE) "Online API" else "llama.cpp Android native")
-            .put("aiEngine", "unified-provider-v2")
+            .put("aiEngine", "unified-provider-v3")
             .put("provider", runtime.optString("provider"))
             .put("providerName", runtime.optString("providerName"))
             .put("aiMode", runtime.optString("mode"))
             .put("onlineReady", runtime.optBoolean("onlineReady"))
             .put("autoFallback", runtime.optBoolean("autoFallback"))
-            .put("contextStrategy", "model-aware identity + summary + relevant memory + recent history")
+            .put("contextStrategy", "layered identity + role-safe retrieval + idle consolidation")
             .put("offline", runtime.optString("mode") != OnlineAiConfigStore.MODE_ONLINE)
             .toString()
     }
@@ -94,13 +103,14 @@ class FurinaBridge(
     @JavascriptInterface
     fun deleteModel(modelId: String) {
         val spec = ModelCatalog.byId(modelId) ?: return
-        scope.launch {
-            try {
-                synchronized(verificationJobs) { verificationJobs.remove(modelId)?.cancel(); verificationProgress.remove(modelId) }
-                aiEngine.unload()
-                modelDownloads.delete(spec)
-                emitState("model_deleted", modelId, 0.0)
-            } catch (e: Throwable) { emitError("model-delete", e.message ?: "Gagal menghapus model") }
+        launchAiMutation("model-delete") {
+            synchronized(verificationJobs) {
+                verificationJobs.remove(modelId)?.cancel()
+                verificationProgress.remove(modelId)
+            }
+            aiEngine.unload()
+            modelDownloads.delete(spec)
+            emitState("model_deleted", modelId, 0.0)
         }
     }
 
@@ -117,14 +127,14 @@ class FurinaBridge(
     @JavascriptInterface
     fun setAiMode(mode: String) {
         aiRuntime.setMode(mode)
-        scope.launch { aiEngine.unload() }
+        launchAiMutation("mode-switch") { aiEngine.unload() }
         emitOnlineAi("settings", aiRuntime.config.selectedProvider(), true, "Mode AI diperbarui")
     }
 
     @JavascriptInterface
     fun setOnlineProvider(providerId: String) {
         aiRuntime.setProvider(providerId)
-        scope.launch { aiEngine.unload() }
+        launchAiMutation("provider-switch") { aiEngine.unload() }
         emitOnlineAi("settings", providerId, true, "Provider dipilih")
     }
 
@@ -189,14 +199,22 @@ class FurinaBridge(
 
     @JavascriptInterface
     fun deleteSession(sessionId: String) {
+        // Immediate removal keeps UI responsive. Repeat after cancellation so a generation
+        // that was already unwinding cannot resurrect the deleted session with its final write.
         store.deleteSession(sessionId)
-        scope.launch { aiEngine.unload() }
+        launchAiMutation("session-delete") {
+            aiEngine.unload()
+            store.deleteSession(sessionId)
+        }
     }
 
     @JavascriptInterface
     fun clearSession(sessionId: String) {
         store.clearSession(sessionId)
-        scope.launch { aiEngine.unload() }
+        launchAiMutation("session-clear") {
+            aiEngine.unload()
+            store.clearSession(sessionId)
+        }
     }
 
     @JavascriptInterface
@@ -227,21 +245,32 @@ class FurinaBridge(
 
     @JavascriptInterface
     fun prepareModel(sessionId: String, characterName: String, persona: String) {
-        if (sessionId.isBlank() || generationJob?.isActive == true || prepareJob?.isActive == true) return
-        if (aiRuntime.config.mode() == OnlineAiConfigStore.MODE_ONLINE) return
-        prepareJob = scope.launch {
-            try {
-                val localModel = ModelCatalog.byId(selectedModelId()) ?: return@launch
-                if (modelDownloads.status(localModel).optString("state") != "ready") return@launch
-                val (providerId, model) = aiRuntime.resolve(localModel)
-                aiEngine.prepare(providerId, model, sessionId, characterName, persona)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                emitState("error", selectedModelId(), 0.0)
-                emitError("model-prepare", friendlyEngineError(e))
-            } finally {
-                prepareJob = null
+        if (sessionId.isBlank() || aiRuntime.config.mode() == OnlineAiConfigStore.MODE_ONLINE) return
+        if (pendingMutations.get() > 0) return
+
+        synchronized(jobLock) {
+            if (generationJob?.isActive == true || prepareJob?.isActive == true) return
+            lateinit var job: Job
+            job = scope.launch {
+                try {
+                    aiOperationMutex.withLock {
+                        val localModel = ModelCatalog.byId(selectedModelId()) ?: return@withLock
+                        if (modelDownloads.status(localModel).optString("state") != "ready") return@withLock
+                        val (providerId, model) = aiRuntime.resolve(localModel)
+                        aiEngine.prepare(providerId, model, sessionId, characterName, persona)
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    emitState("error", selectedModelId(), 0.0)
+                    emitError("model-prepare", friendlyEngineError(e))
+                }
+            }
+            prepareJob = job
+            job.invokeOnCompletion {
+                synchronized(jobLock) {
+                    if (prepareJob === job) prepareJob = null
+                }
             }
         }
     }
@@ -250,53 +279,70 @@ class FurinaBridge(
     fun generate(requestId: String, sessionId: String, userText: String, characterName: String, persona: String) {
         val clean = userText.trim()
         if (clean.isEmpty()) return
-        if (generationJob?.isActive == true) {
-            emitError(requestId, "Furina masih menyelesaikan jawaban sebelumnya")
+        if (pendingMutations.get() > 0) {
+            emitError(requestId, "Mesin AI sedang mengganti atau membersihkan konteks")
             return
         }
 
-        generationJob = scope.launch {
-            try {
-                val localModel = ModelCatalog.byId(selectedModelId()) ?: error("Model AI lokal tidak dikenal")
-                if (aiRuntime.config.mode() != OnlineAiConfigStore.MODE_ONLINE) {
-                    val modelState = modelDownloads.status(localModel).optString("state")
-                    if (modelState != "ready") error("Unduh ${localModel.displayName} terlebih dahulu")
-                }
-                val (providerId, model) = aiRuntime.resolve(localModel)
-                emitState("thinking", model.id, 0.0)
-                val pending = StringBuilder()
-                var lastDispatch = android.os.SystemClock.elapsedRealtime()
-                val result = aiEngine.generate(requestId, providerId, model, sessionId, clean, characterName, persona) { token ->
-                    pending.append(token)
-                    val now = android.os.SystemClock.elapsedRealtime()
-                    if (pending.length >= STREAM_DISPATCH_MIN_CHARS || now - lastDispatch >= STREAM_DISPATCH_MAX_DELAY_MS) {
-                        dispatchToken(requestId, pending.toString())
-                        pending.clear()
-                        lastDispatch = now
+        synchronized(jobLock) {
+            if (generationJob?.isActive == true) {
+                emitError(requestId, "Furina masih menyelesaikan jawaban sebelumnya")
+                return
+            }
+            lateinit var job: Job
+            job = scope.launch {
+                try {
+                    aiOperationMutex.withLock {
+                        val localModel = ModelCatalog.byId(selectedModelId()) ?: error("Model AI lokal tidak dikenal")
+                        if (aiRuntime.config.mode() != OnlineAiConfigStore.MODE_ONLINE) {
+                            val modelState = modelDownloads.status(localModel).optString("state")
+                            if (modelState != "ready") error("Unduh ${localModel.displayName} terlebih dahulu")
+                        }
+                        val (providerId, model) = aiRuntime.resolve(localModel)
+                        emitState("thinking", model.id, 0.0)
+                        val pending = StringBuilder()
+                        var lastDispatch = android.os.SystemClock.elapsedRealtime()
+                        val result = aiEngine.generate(
+                            requestId, providerId, model, sessionId, clean, characterName, persona,
+                        ) { token ->
+                            pending.append(token)
+                            val now = android.os.SystemClock.elapsedRealtime()
+                            if (pending.length >= STREAM_DISPATCH_MIN_CHARS || now - lastDispatch >= STREAM_DISPATCH_MAX_DELAY_MS) {
+                                dispatchToken(requestId, pending.toString())
+                                pending.clear()
+                                lastDispatch = now
+                            }
+                        }
+                        if (pending.isNotEmpty()) dispatchToken(requestId, pending.toString())
+                        emitDone(requestId, result.userId, result.assistantId, result.metrics)
+                        emitState("ready", model.id, 1.0)
                     }
+                    withContext(Dispatchers.IO) {
+                        try { backupManager.autoBackupIfDue() } catch (_: Throwable) {}
+                    }
+                } catch (e: CancellationException) {
+                    emitError(requestId, "Respons dihentikan")
+                    emitState("cancelled", selectedModelId(), 0.0)
+                } catch (e: Throwable) {
+                    emitState("error", selectedModelId(), 0.0)
+                    emitError(requestId, friendlyEngineError(e))
                 }
-                if (pending.isNotEmpty()) dispatchToken(requestId, pending.toString())
-                emitDone(requestId, result.userId, result.assistantId, result.metrics)
-                emitState("ready", model.id, 1.0)
-                withContext(Dispatchers.IO) {
-                    try { backupManager.autoBackupIfDue() } catch (_: Throwable) {}
+            }
+            generationJob = job
+            job.invokeOnCompletion {
+                synchronized(jobLock) {
+                    // Completion of an old cancelled job must never clear a newer job.
+                    if (generationJob === job) generationJob = null
                 }
-            } catch (e: CancellationException) {
-                emitError(requestId, "Respons dihentikan")
-                emitState("cancelled", selectedModelId(), 0.0)
-            } catch (e: Throwable) {
-                emitState("error", selectedModelId(), 0.0)
-                emitError(requestId, friendlyEngineError(e))
-            } finally {
-                generationJob = null
             }
         }
     }
 
     @JavascriptInterface
     fun stopGeneration() {
-        generationJob?.cancel()
-        generationJob = null
+        // The completion callback owns clearing the reference. Clearing immediately creates a
+        // window where a second generation can enter while native llama.cpp is still unwinding.
+        synchronized(jobLock) { generationJob }?.cancel()
     }
 
     @JavascriptInterface
@@ -336,14 +382,19 @@ class FurinaBridge(
     }
 
     fun onRestoreFileSelected(uri: Uri) {
-        scope.launch(Dispatchers.IO) {
-            try {
-                generationJob?.cancel()
-                aiEngine.unload()
-                backupManager.restoreFrom(uri)
-                emitBackup(true, "Restore selesai. Memori Furina sudah dipulihkan.")
-                eval("window.__furinaNativeRestored && window.__furinaNativeRestored()")
-            } catch (e: Throwable) { emitBackup(false, e.message ?: "Restore gagal") }
+        launchAiMutation("restore") {
+            aiEngine.unload()
+            withContext(Dispatchers.IO) { backupManager.restoreFrom(uri) }
+            emitBackup(true, "Restore selesai. Memori dan kontinuitas Furina sudah dipulihkan.")
+            eval("window.__furinaNativeRestored && window.__furinaNativeRestored()")
+        }
+    }
+
+    /** Used by cloud restore so database replacement cannot overlap native generation. */
+    suspend fun withAiPaused(block: suspend () -> Unit) {
+        runExclusiveMutation {
+            aiEngine.unload()
+            block()
         }
     }
 
@@ -352,10 +403,38 @@ class FurinaBridge(
     }
 
     fun destroy() {
-        generationJob?.cancel()
-        prepareJob?.cancel()
+        synchronized(jobLock) {
+            generationJob?.cancel()
+            prepareJob?.cancel()
+        }
+        aiEngine.destroy()
         scope.cancel()
         store.close()
+    }
+
+    private fun launchAiMutation(requestId: String, block: suspend () -> Unit) {
+        scope.launch {
+            try {
+                runExclusiveMutation(block)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                emitError(requestId, friendlyEngineError(e))
+            }
+        }
+    }
+
+    private suspend fun runExclusiveMutation(block: suspend () -> Unit) {
+        pendingMutations.incrementAndGet()
+        try {
+            val jobs = synchronized(jobLock) {
+                listOfNotNull(generationJob, prepareJob).also { active -> active.forEach { it.cancel() } }
+            }
+            jobs.joinAll()
+            aiOperationMutex.withLock { block() }
+        } finally {
+            pendingMutations.decrementAndGet()
+        }
     }
 
     private fun selectedModelId(): String {
@@ -440,8 +519,6 @@ class FurinaBridge(
     }
 
     private companion object {
-        // Keep streaming visually live while avoiding a WebView/React render for every
-        // tiny native token chunk. This caps idle cadence near one dispatch per frame.
         const val STREAM_DISPATCH_MIN_CHARS = 48
         const val STREAM_DISPATCH_MAX_DELAY_MS = 72L
     }

@@ -13,6 +13,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 
 data class ProviderProbeResult(
@@ -28,8 +29,9 @@ class OnlineProviderException(
 ) : IllegalStateException(message)
 
 /**
- * OpenRouter, Gemini and Groq all expose OpenAI-compatible chat/model endpoints.
- * One adapter keeps Furina's prompt/memory semantics identical across providers.
+ * OpenRouter, Gemini and Groq expose compatible chat/model endpoints. One adapter keeps
+ * Furina's prompt/memory semantics identical across providers and prevents an unhealthy
+ * free-model catalogue from turning one response into minutes of sequential retries.
  */
 class OpenAiCompatibleProvider(
     private val spec: OnlineProviderSpec,
@@ -42,6 +44,7 @@ class OpenAiCompatibleProvider(
     @Volatile private var modelCache: List<OnlineModel> = emptyList()
     @Volatile private var modelCacheAt: Long = 0L
     @Volatile private var lastResolvedModel: String? = null
+    private val unhealthyUntil = ConcurrentHashMap<String, Long>()
 
     override fun isWarm(model: AiModelRef, context: AiContext): Boolean = keyStore.has(id)
     override suspend fun prepare(model: AiModelRef, context: AiContext) = Unit
@@ -101,7 +104,10 @@ class OpenAiCompatibleProvider(
             if (preferred != null) add(preferred)
             discovered.filterTo(this) { it.id != preferred?.id }
         }
-        val candidates = if (config.autoFallback()) ordered else ordered.take(1)
+        val now = System.currentTimeMillis()
+        val healthy = ordered.filter { (unhealthyUntil[it.id] ?: 0L) <= now }
+        val pool = if (healthy.isNotEmpty()) healthy else ordered
+        val candidates = if (config.autoFallback()) pool.take(MAX_FALLBACK_CANDIDATES) else ordered.take(1)
         var lastError: Throwable? = null
 
         for (candidate in candidates) {
@@ -113,10 +119,15 @@ class OpenAiCompatibleProvider(
                         send(chunk)
                     }
                 }
+                unhealthyUntil.remove(candidate.id)
                 lastResolvedModel = candidate.id
                 return@channelFlow
             } catch (e: OnlineProviderException) {
                 lastError = e
+                if (!emitted && e.retryable) {
+                    val cooldown = if (e.status == 429) 5 * 60_000L else 90_000L
+                    unhealthyUntil[candidate.id] = System.currentTimeMillis() + cooldown
+                }
                 if (emitted || !config.autoFallback() || !e.retryable) throw e
             }
         }
@@ -136,15 +147,12 @@ class OpenAiCompatibleProvider(
             .put("max_tokens", request.predictLength.coerceIn(64, model.maxOutputTokens))
             .put("messages", JSONArray().apply {
                 put(JSONObject().put("role", "system").put("content", request.context.systemPrompt))
-                val turn = buildString {
-                    if (request.context.runtimeContext.isNotBlank()) {
-                        appendLine("[PRIVATE TURN CONTEXT]")
-                        appendLine(request.context.runtimeContext)
-                        appendLine("[END PRIVATE TURN CONTEXT]")
-                    }
-                    append(request.userMessage)
+                // Dynamic relationship state is background context, never merged into the
+                // current user's role. This preserves the same priority rule as local mode.
+                if (request.context.runtimeContext.isNotBlank()) {
+                    put(JSONObject().put("role", "system").put("content", request.context.runtimeContext))
                 }
-                put(JSONObject().put("role", "user").put("content", turn))
+                put(JSONObject().put("role", "user").put("content", request.userMessage))
             })
         applyReasoningPolicy(payload, model.id)
 
@@ -313,7 +321,7 @@ class OpenAiCompatibleProvider(
             useCaches = false
             setRequestProperty("Authorization", "Bearer $key")
             setRequestProperty("Content-Type", "application/json")
-            setRequestProperty("User-Agent", "Furina-Android/4.1")
+            setRequestProperty("User-Agent", "Furina-Android/4.3")
             if (id == "openrouter") {
                 setRequestProperty("HTTP-Referer", "https://furina-pi.vercel.app")
                 setRequestProperty("X-Title", "Furina")
@@ -338,10 +346,9 @@ class OpenAiCompatibleProvider(
             402 -> "Kuota/kredit untuk model ini habis"
             403 -> "Model ini tidak diizinkan oleh akun ${spec.displayName}"
             429 -> "Model sedang mencapai batas kuota/rate limit"
-            502, 503, 504 -> "Model sedang tidak tersedia"
             else -> message
         }
-        return OnlineProviderException(status, friendly, retryable && status != 401)
+        return OnlineProviderException(status, friendly, retryable)
     }
 
     private fun readAll(stream: InputStream?): String {
@@ -349,11 +356,6 @@ class OpenAiCompatibleProvider(
         return stream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
     }
 
-    /**
-     * Some reasoning models emit their private scratchpad inside content as
-     * <think>...</think>. Provider flags are preferred, but this streaming filter is a
-     * final guard so reasoning never reaches the chat UI even when tags are split across chunks.
-     */
     private class HiddenReasoningFilter {
         private enum class Mode { UNDECIDED, HIDDEN, ANSWER }
         private var mode = Mode.UNDECIDED
@@ -416,5 +418,9 @@ class OpenAiCompatibleProvider(
             Mode.UNDECIDED, Mode.ANSWER -> pending.toString()
             Mode.HIDDEN -> ""
         }.also { pending.clear() }
+    }
+
+    private companion object {
+        const val MAX_FALLBACK_CANDIDATES = 5
     }
 }
