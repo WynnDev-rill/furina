@@ -16,6 +16,7 @@ WORKER = ROOT / "engineering/worker/HOURLY_PROMPT.md"
 WORK_PACKAGE = ROOT / "engineering/work-package/POLICY.md"
 PRIORITY = ROOT / "engineering/prioritization/POLICY.md"
 INDEPENDENCE = ROOT / "engineering/review/INDEPENDENCE_POLICY.md"
+REVIEW_SCHEMA = ROOT / "engineering/review/decision.schema.json"
 DEVICE_SCHEMA = ROOT / "engineering/evidence/device-report.schema.json"
 BEHAVIORAL_SCHEMA = ROOT / "engineering/evidence/behavioral-run.schema.json"
 CALIBRATION_SCHEMA = ROOT / "engineering/calibration/record.schema.json"
@@ -149,7 +150,6 @@ def main() -> int:
         ],
     )
 
-    # The worker must not regress to the old cross-tier formula as its selection authority.
     if "priority = impact * confidence * frequency / max(1, effort * regressionRisk)" in worker:
         raise ContractError("HOURLY_PROMPT.md reintroduced the old reward-hacking-prone priority formula")
 
@@ -170,6 +170,20 @@ def main() -> int:
             "Anti-rubber-stamp rule",
         ],
     )
+
+    review = read_json(REVIEW_SCHEMA)
+    require_required_fields(
+        "review/decision.schema.json",
+        review,
+        {
+            "pullRequest", "reviewCycleId", "engineerCycleId", "reviewedHeadSha",
+            "verdict", "evidenceLevel", "regressionRisk", "scopeCoherence",
+            "simplerAlternative", "reason", "reviewedAt",
+        },
+    )
+    review_verdicts = set(review.get("properties", {}).get("verdict", {}).get("enum", []))
+    if review_verdicts != {"APPROVE", "REQUEST_CHANGES", "BLOCKED_HUMAN", "NO_CHANGE_RECOMMENDED"}:
+        raise ContractError(f"review decision enum mismatch: {sorted(review_verdicts)}")
 
     device = read_json(DEVICE_SCHEMA)
     require_required_fields(
@@ -220,7 +234,8 @@ def main() -> int:
         "boss/decision.schema.json",
         boss,
         {
-            "decision", "pullRequest", "headSha", "evidenceLevel", "productValue",
+            "decision", "pullRequest", "headSha", "engineerCycleId", "reviewCycleId",
+            "bossCycleId", "reviewedHeadSha", "evidenceLevel", "productValue",
             "regressionRisk", "complexityCost", "confidence", "reason",
             "requiredNextAction", "decidedAt",
         },
