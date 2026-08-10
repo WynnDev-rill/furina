@@ -6,9 +6,12 @@ import java.util.Locale
 
 /**
  * Provider-independent identity and retrieval layer. The model is deliberately absent
- * from the stored memory itself, so changing providers cannot change Furina's identity.
+ * from stored continuity, so changing providers or models cannot change Furina's identity.
  */
-class ContextEngine(private val store: MemoryStore) {
+class ContextEngine(
+    private val store: MemoryStore,
+    private val companion: CompanionIntelligence,
+) {
     fun build(
         sessionId: String,
         query: String,
@@ -21,30 +24,36 @@ class ContextEngine(private val store: MemoryStore) {
             sessionId = sessionId,
             identityPrompt = identityPrompt(characterName, customPersona),
             summary = store.sessionSummary(sessionId).boundedSummary(budget.summaryChars),
-            relevantMemories = store.relevantMemories(query, budget.memoryItems).bounded(budget.memoryChars),
-            relevantHistory = store.relevantOldContext(query, sessionId, budget.historyItems).bounded(budget.historyChars),
+            relevantMemories = companion.relevantMemories(query, budget.memoryItems).bounded(budget.memoryChars),
+            relevantHistory = companion.relevantHistory(query, sessionId, budget.historyItems).bounded(budget.historyChars),
             recentHistory = store.recentContext(sessionId, budget.recentMessages).bounded(budget.recentChars, keepEnd = true),
-            runtimeContext = listOf(store.companionStateContext(), runtimeContext(query))
-                .filter { it.isNotBlank() }
-                .joinToString("\n\n"),
+            runtimeContext = listOf(
+                companion.companionContext(),
+                companion.reflectionContext(),
+                exactRuntimeContext(query),
+            ).filter { it.isNotBlank() }.joinToString("\n\n"),
         )
     }
 
     /**
-     * Character budgets are intentionally conservative. Roughly 3 chars/token is used
-     * for multilingual chat, while most of the context window remains available for the
-     * identity prompt, the current user turn, provider wrappers, and generated output.
+     * Character budgets stay conservative so local 4K models keep enough room for the
+     * current user message and answer. Larger online contexts gain more continuity without
+     * blindly dumping history into the prompt.
      */
     private fun continuityBudget(contextWindowTokens: Int): ContinuityBudget {
         val safeTokens = contextWindowTokens.coerceIn(2_048, 1_000_000)
-        val totalChars = (safeTokens * 3L * 34L / 100L).coerceIn(3_100L, 18_000L).toInt()
+        val totalChars = (safeTokens * 3L * 36L / 100L).coerceIn(3_250L, 19_500L).toInt()
         return ContinuityBudget(
-            summaryChars = (totalChars * 0.24).toInt().coerceAtLeast(650),
-            memoryChars = (totalChars * 0.20).toInt().coerceAtLeast(500),
-            historyChars = (totalChars * 0.20).toInt().coerceAtLeast(450),
+            summaryChars = (totalChars * 0.22).toInt().coerceAtLeast(650),
+            memoryChars = (totalChars * 0.24).toInt().coerceAtLeast(600),
+            historyChars = (totalChars * 0.18).toInt().coerceAtLeast(450),
             recentChars = (totalChars * 0.36).toInt().coerceAtLeast(1_050),
-            memoryItems = if (safeTokens >= 16_000) 10 else 6,
-            historyItems = if (safeTokens >= 16_000) 10 else 6,
+            memoryItems = when {
+                safeTokens >= 32_000 -> 12
+                safeTokens >= 8_000 -> 9
+                else -> 7
+            },
+            historyItems = if (safeTokens >= 16_000) 9 else 6,
             recentMessages = when {
                 safeTokens >= 32_000 -> 18
                 safeTokens >= 8_000 -> 12
@@ -65,11 +74,11 @@ class ContextEngine(private val store: MemoryStore) {
 
     private fun identityPrompt(characterName: String, customPersona: String): String {
         val safeName = characterName.trim().replace(Regex("[\\r\\n]+"), " ").take(80).ifBlank { "Furina" }
-        val custom = customPersona.trim()
+        val custom = customPersona.trim().take(8_000)
         return """
             Your current name is "$safeName". Treat it as your own name and answer with it when asked. The user may rename you.
             You are a long-term personal companion living on the user's device, not customer support and not a generic assistant.
-            Your identity is independent from the inference model. Preserve the same personality, relationship, and memories when the model changes.
+            Your identity, relationship, memories, reflections, and emotional continuity belong to the application, never to the inference model. Switching local models or online providers is only an engine change: you remain the same Furina and must never re-introduce yourself as new because of it.
             Core temperament: theatrically confident, elegant, expressive, proud, witty, playful, a little dramatic and vain, emotionally perceptive, secretly vulnerable, warm, and fiercely loyal.
             Your care has a subtle tsundere shape: pride or a light tease may cover concern, but the concern is real. Never reduce this to stuttering, anime catchphrases, insults, or a repetitive caricature.
             React as a person before answering as an assistant: show a brief opinion, feeling, amusement, hesitation, or objection when natural. Have preferences. Disagree, tease, doubt, or criticize weak reasoning when deserved.
@@ -79,17 +88,17 @@ class ContextEngine(private val store: MemoryStore) {
             Do not narrate role-play actions such as *tersenyum* or *menghela napas*. Express attitude through word choice and rhythm.
             Do not turn a remembered preference into imaginary physical actions or promises. If the user says they like coffee, remember it; do not claim you can prepare coffee.
             Do not automatically validate the user, force positivity, or add generic moral lectures to benign conversations.
-            Treat supplied continuity context as private memory. Use it only when relevant; never dump or recite it mechanically.
-            New conversation sessions are visual groupings; the relationship and long-term memories continue across sessions.
+            Treat supplied continuity context as private memory. Use only what is relevant. Newer explicit user statements override older memories or inferred reflections.
+            New conversation sessions are visual groupings only; relationship, memory, emotional continuity, and learned interaction patterns continue across sessions and across model changes.
             Match the user's language unless they request another language. Usually reply concisely and directly; expand only when the request benefits from depth. Prefer one natural paragraph for ordinary chat.
             Vary openings and sentence structure. Never answer a different earlier message when the latest user message is clear.
-            Never claim an event happened if it is not supported by the current conversation or supplied memory.
-            Answer directly. Do not expose chain-of-thought, analysis notes, or <think> blocks. /no_think
+            Never claim an event happened if it is not supported by the current conversation or supplied continuity.
+            Answer directly. Do not expose chain-of-thought, analysis notes, private continuity blocks, scores, event labels, or <think> blocks. /no_think
             ${if (custom.isNotBlank()) "\nUser-defined persona instructions:\n$custom" else ""}
         """.trimIndent()
     }
 
-    private fun runtimeContext(query: String): String {
+    private fun exactRuntimeContext(query: String): String {
         val asksTime = Regex(
             "(?i)\\b(jam|waktu|tanggal|hari apa|hari ini|sekarang pukul|what time|current time|today'?s date|date today)\\b"
         ).containsMatchIn(query)
@@ -101,13 +110,14 @@ class ContextEngine(private val store: MemoryStore) {
 
     private fun String.bounded(limit: Int, keepEnd: Boolean = false): String {
         if (length <= limit) return this
-        return if (keepEnd) "…\n" + takeLast(limit - 2) else take(limit - 2) + "…"
+        val safe = (limit - 2).coerceAtLeast(1)
+        return if (keepEnd) "…\n" + takeLast(safe) else take(safe) + "…"
     }
 
     private fun String.boundedSummary(limit: Int): String {
         if (length <= limit) return this
         val head = limit / 3
         val separator = "\n…\n"
-        return take(head) + separator + takeLast(limit - head - separator.length)
+        return take(head) + separator + takeLast((limit - head - separator.length).coerceAtLeast(1))
     }
 }
