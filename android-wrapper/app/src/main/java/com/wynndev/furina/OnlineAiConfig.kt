@@ -7,6 +7,7 @@ import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.KeyStore
+import java.security.MessageDigest
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -124,6 +125,19 @@ class OnlineAiConfigStore(context: Context) {
         if (modelId.isNullOrBlank()) editor.remove("model:$providerId") else editor.putString("model:$providerId", modelId)
         editor.apply()
     }
+
+    fun markValidated(providerId: String, keyFingerprint: String) {
+        prefs.edit().putString("validated_key:$providerId", keyFingerprint).apply()
+    }
+
+    fun isValidated(providerId: String, keyFingerprint: String?): Boolean {
+        if (keyFingerprint.isNullOrBlank()) return false
+        return prefs.getString("validated_key:$providerId", null) == keyFingerprint
+    }
+
+    fun clearValidation(providerId: String) {
+        prefs.edit().remove("validated_key:$providerId").apply()
+    }
 }
 
 /**
@@ -170,6 +184,13 @@ class SecureApiKeyStore(context: Context) {
     }
 
     fun has(providerId: String): Boolean = get(providerId)?.isNotBlank() == true
+
+    fun fingerprint(providerId: String): String? {
+        val value = get(providerId) ?: return null
+        val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+        return digest.take(12).joinToString("") { "%02x".format(it) }
+    }
+
     fun remove(providerId: String) = prefs.edit().remove(providerId).apply()
 
     private fun key(): SecretKey {
@@ -199,13 +220,15 @@ fun onlineProvidersJson(
     OnlineProviderCatalog.providers.forEach { spec ->
         val models = JSONArray()
         cachedModels(spec.id).forEach { models.put(it.toJson()) }
+        val fingerprint = keys.fingerprint(spec.id)
         providers.put(
             JSONObject()
                 .put("id", spec.id)
                 .put("name", spec.displayName)
                 .put("description", spec.description)
                 .put("keyHint", spec.keyHint)
-                .put("keyConfigured", keys.has(spec.id))
+                .put("keyConfigured", fingerprint != null)
+                .put("keyValidated", config.isValidated(spec.id, fingerprint))
                 .put("selectedModel", config.selectedModel(spec.id) ?: "")
                 .put("models", models),
         )
