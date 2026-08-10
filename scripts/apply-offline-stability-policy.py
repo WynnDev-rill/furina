@@ -37,6 +37,116 @@ def patch_cpp(path: Path) -> None:
         "low-peak micro-batch",
     )
 
+    # The Qwen3.5 template intentionally raises "No user query found in messages"
+    # when rendered with a system-only history. Furina prewarms by decoding its
+    # identity before the first user turn, so calling the full Jinja renderer here
+    # crosses JNI with an uncaught C++ exception and Android reports SIGABRT (6).
+    # Furina's offline path is text-only, therefore use the exact text markers from
+    # Qwen3.5's template directly. This preserves enable_thinking=false semantics
+    # while removing the unsafe system-only Jinja state and its parser overhead.
+    risky_formatter = '''static std::string chat_add_and_format(const std::string &role, const std::string &content) {
+    common_chat_msg new_msg;
+    new_msg.role = role;
+    new_msg.content = content;
+
+    // Apply the model's own Jinja template with Qwen3.5 non-thinking enabled.
+    // We compute only the incremental suffix so previously decoded KV tokens are
+    // not duplicated on every turn.
+    common_chat_templates_inputs inputs;
+    inputs.use_jinja = true;
+    inputs.enable_thinking = false;
+    inputs.reasoning_format = COMMON_REASONING_FORMAT_NONE;
+    inputs.chat_template_kwargs["enable_thinking"] = "false";
+
+    std::string formatted_past;
+    if (!chat_msgs.empty()) {
+        inputs.messages = chat_msgs;
+        inputs.add_generation_prompt = false;
+        formatted_past = common_chat_templates_apply(g_chat_templates.get(), inputs).prompt;
+    }
+
+    inputs.messages.push_back(new_msg);
+    inputs.add_generation_prompt = role == ROLE_USER;
+    const std::string formatted_full = common_chat_templates_apply(g_chat_templates.get(), inputs).prompt;
+
+    std::string formatted;
+    if (formatted_full.size() >= formatted_past.size() &&
+        formatted_full.compare(0, formatted_past.size(), formatted_past) == 0) {
+        formatted = formatted_full.substr(formatted_past.size());
+    } else {
+        // Pinned templates should be prefix-stable. Preserve correctness if a future
+        // template is not by falling back to llama.cpp's incremental formatter.
+        LOGw("%s: chat template was not prefix-stable; using compatibility formatter", __func__);
+        formatted = common_chat_format_single(
+                g_chat_templates.get(), chat_msgs, new_msg, role == ROLE_USER, /* use_jinja */ true);
+    }
+
+    chat_msgs.push_back(new_msg);
+    LOGi("%s: Formatted and added %s message: \\n%s\\n", __func__, role.c_str(), formatted.c_str());
+    return formatted;
+}'''
+    safe_formatter = '''static std::string chat_add_and_format(const std::string &role, const std::string &content) {
+    common_chat_msg new_msg;
+    new_msg.role = role;
+    new_msg.content = content;
+
+    std::string formatted;
+    if (role == ROLE_SYSTEM) {
+        // Exact text-only Qwen3.5 system branch.
+        formatted = std::string("<|im_start|>system\\n") + content + "<|im_end|>\\n";
+    } else if (role == ROLE_USER) {
+        // A sampled EOG already closes the previous assistant turn; its template
+        // has a trailing newline that is not part of the EOG token, so add it here.
+        const bool follows_assistant = !chat_msgs.empty() && chat_msgs.back().role == ROLE_ASSISTANT;
+        if (follows_assistant) formatted += "\\n";
+        formatted += std::string("<|im_start|>user\\n") + content +
+                     "<|im_end|>\\n<|im_start|>assistant\\n<think>\\n\\n</think>\\n\\n";
+    } else if (role != ROLE_ASSISTANT) {
+        LOGe("%s: Unsupported local chat role: %s", __func__, role.c_str());
+    }
+
+    // Assistant text is already present in KV because it was generated token by
+    // token. We only retain its semantic message here for turn bookkeeping.
+    chat_msgs.push_back(new_msg);
+    LOGi("%s: Added %s message using deterministic Qwen3.5 text template", __func__, role.c_str());
+    return formatted;
+}'''
+    text = replace_once(text, risky_formatter, safe_formatter, "system-safe Qwen3.5 formatter")
+
+    old_system_format = '''    // Format system prompt if applicable
+    const bool has_chat_template = common_chat_templates_was_explicit(g_chat_templates.get());
+    if (has_chat_template) {
+        formatted_system_prompt = chat_add_and_format(ROLE_SYSTEM, system_prompt);
+    }'''
+    new_system_format = '''    // Furina currently has one local model: Qwen3.5 Deckard. Always apply its
+    // deterministic text markers; never invoke the full Jinja template system-only.
+    formatted_system_prompt = chat_add_and_format(ROLE_SYSTEM, system_prompt);'''
+    text = replace_once(text, old_system_format, new_system_format, "system prompt formatter")
+
+    old_user_format = '''    // Format user prompt if applicable
+    const bool has_chat_template = common_chat_templates_was_explicit(g_chat_templates.get());
+    if (has_chat_template) {
+        formatted_user_prompt = chat_add_and_format(ROLE_USER, user_prompt);
+    }'''
+    new_user_format = '''    // Use the exact Qwen3.5 text-only user + non-thinking generation markers.
+    formatted_user_prompt = chat_add_and_format(ROLE_USER, user_prompt);'''
+    text = replace_once(text, old_user_format, new_user_format, "user prompt formatter")
+
+    text = replace_once(
+        text,
+        '''common_tokenize(g_context, formatted_system_prompt,
+                                               false, has_chat_template)''',
+        '''common_tokenize(g_context, formatted_system_prompt,
+                                               false, true)''',
+        "system special-token parsing",
+    )
+    text = replace_once(
+        text,
+        '''common_tokenize(g_context, formatted_user_prompt, false, has_chat_template)''',
+        '''common_tokenize(g_context, formatted_user_prompt, false, true)''',
+        "user special-token parsing",
+    )
+
     path.write_text(text, encoding="utf-8")
 
 
@@ -67,7 +177,7 @@ import android.util.Log''',
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
         runCatching {
             val manager = appContext.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-            manager.setProcessStateSummary(stage.take(120).toByteArray(Charsets.UTF_8))
+            manager.setProcessStateSummary(("furina:" + stage).take(120).toByteArray(Charsets.UTF_8))
         }
     }
 
@@ -128,7 +238,7 @@ def main() -> None:
     kotlin = Path(sys.argv[2])
     patch_cpp(cpp)
     patch_kotlin(kotlin)
-    print("Applied Furina Android offline stability policy: private mmap + deterministic low-peak load")
+    print("Applied Furina Android offline stability policy: private mmap + low-peak load + system-safe Qwen3.5 prompt")
 
 
 if __name__ == "__main__":
