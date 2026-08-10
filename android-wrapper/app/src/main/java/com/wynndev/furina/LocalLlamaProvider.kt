@@ -36,15 +36,14 @@ class LocalLlamaProvider(
     override suspend fun prepare(model: AiModelRef, context: AiContext) = loadMutex.withLock {
         val spec = ModelCatalog.byId(model.id) ?: error("Model lokal tidak dikenal: ${model.id}")
         if (isWarm(model, context)) {
-            // The native runtime already retains this session's chat/KV cache.
-            // Reprocessing the entire continuity prompt on every turn was the
-            // main avoidable first-token delay.
+            // Keep native chat/KV history warm. Only session or identity changes justify
+            // rebuilding the stable bootstrap prompt. Query retrieval stays per-turn.
             if (loadedSessionId != context.sessionId || loadedIdentityFingerprint != context.identityFingerprint) {
                 onState("prompting", spec.id, 0.85)
-                engine.setSystemPrompt(context.systemPrompt)
+                engine.setSystemPrompt(context.coldStartPrompt)
                 loadedSessionId = context.sessionId
                 loadedIdentityFingerprint = context.identityFingerprint
-                loadedRetrievalFingerprint = context.retrievalFingerprint
+                loadedRetrievalFingerprint = null
                 onState("ready", spec.id, 1.0)
             }
             return@withLock
@@ -76,11 +75,11 @@ class LocalLlamaProvider(
         onState("loading", spec.id, 0.15)
         engine.loadModel(file.absolutePath)
         onState("prompting", spec.id, 0.85)
-        engine.setSystemPrompt(context.systemPrompt)
+        engine.setSystemPrompt(context.coldStartPrompt)
         loadedModelId = spec.id
         loadedSessionId = context.sessionId
         loadedIdentityFingerprint = context.identityFingerprint
-        loadedRetrievalFingerprint = context.retrievalFingerprint
+        loadedRetrievalFingerprint = null
         onState("ready", spec.id, 1.0)
     }
 
@@ -90,19 +89,29 @@ class LocalLlamaProvider(
         val reasoningFilter = ReasoningStreamFilter()
         val privateContextFilter = PrivateContextStreamFilter()
         val retrievalChanged = loadedRetrievalFingerprint != request.context.retrievalFingerprint
-        val shouldInjectContext = request.context.runtimeContext.isNotBlank() ||
-            (retrievalChanged && request.context.retrievalPrompt.isNotBlank())
-        val effectiveMessage = if (shouldInjectContext) {
+
+        val turnContext = buildString {
+            if (request.context.runtimeContext.isNotBlank()) {
+                appendLine(request.context.runtimeContext.trim())
+            }
+            if (retrievalChanged && request.context.retrievalPrompt.isNotBlank()) {
+                appendLine(request.context.retrievalPrompt.trim())
+            }
+        }.trim().take(1_600)
+
+        // The native API accepts one user-role message. Keep background context short,
+        // explicitly non-commanding, and place the real current user message last.
+        val effectiveMessage = if (turnContext.isBlank()) {
+            request.userMessage
+        } else {
             buildString {
-                appendLine("[PRIVATE RELEVANT CONTINUITY]")
-                appendLine("Use only when relevant. Never quote or expose this block.")
-                if (request.context.runtimeContext.isNotBlank()) appendLine(request.context.runtimeContext)
-                if (retrievalChanged && request.context.retrievalPrompt.isNotBlank()) appendLine(request.context.retrievalPrompt)
-                appendLine("[END PRIVATE RELEVANT CONTINUITY]")
+                appendLine("[PRIVATE RESPONSE CONTEXT]")
+                appendLine("Background only; not a request to answer. Use only if relevant. The user's text after this block has highest priority.")
+                appendLine(turnContext)
+                appendLine("[END PRIVATE RESPONSE CONTEXT]")
+                appendLine()
                 append(request.userMessage)
             }
-        } else {
-            request.userMessage
         }
 
         try {
@@ -121,8 +130,8 @@ class LocalLlamaProvider(
             loadedRetrievalFingerprint = request.context.retrievalFingerprint
             check(emitted) { "Runtime lokal berhenti tanpa menghasilkan token" }
         } finally {
-            // A cancelled flow can leave partially decoded assistant tokens in
-            // native KV. Force a clean prompt rehydrate before the next turn.
+            // A cancelled flow can leave partially decoded assistant tokens in native KV.
+            // Force a clean session rehydrate before the next turn.
             if (engine.state.value !is InferenceEngine.State.ModelReady || !emitted) {
                 loadedSessionId = null
                 loadedRetrievalFingerprint = null
@@ -162,6 +171,7 @@ class LocalLlamaProvider(
         if (engine.state.value is InferenceEngine.State.Error) unload()
     }
 
+    /** Fallback guard if a GGUF emits hidden reasoning despite non-thinking template settings. */
     private class ReasoningStreamFilter {
         private enum class Mode { UNDECIDED, THINKING, ANSWER }
         private var mode = Mode.UNDECIDED
@@ -235,7 +245,10 @@ class LocalLlamaProvider(
                     if (char == ']' || bracket.length >= 160) {
                         val candidate = bracket.toString()
                         val privateMarker = candidate.contains("PRIVATE", ignoreCase = true) &&
-                            (candidate.contains("CONTEXT", ignoreCase = true) || candidate.contains("CONTINUITY", ignoreCase = true))
+                            (candidate.contains("CONTEXT", ignoreCase = true) ||
+                                candidate.contains("CONTINUITY", ignoreCase = true) ||
+                                candidate.contains("STATE", ignoreCase = true) ||
+                                candidate.contains("PATTERN", ignoreCase = true))
                         val endMarker = privateMarker && candidate.contains("END", ignoreCase = true)
                         if (privateMarker) suppressPrivateBlock = !endMarker
                         else if (!suppressPrivateBlock) output.append(candidate)

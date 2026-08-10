@@ -9,13 +9,16 @@ rm -rf "$WORK"
 git clone --filter=blob:none https://github.com/ggml-org/llama.cpp.git "$WORK"
 git -C "$WORK" checkout "$LLAMA_COMMIT"
 
-# Overlay two audited sample-runtime files on the pinned upstream. This keeps the
-# dependency reproducible without adopting a fork or a heavyweight server runtime.
+# Overlay the audited Android sample runtime, then apply Furina's small deterministic
+# companion policy patch. The patch fails closed if the pinned source layout changes.
 cp "$ROOT/scripts/overlays/ai_chat.cpp" "$WORK/examples/llama.android/lib/src/main/cpp/ai_chat.cpp"
 cp "$ROOT/scripts/overlays/InferenceEngineImpl.kt" "$WORK/examples/llama.android/lib/src/main/java/com/arm/aichat/internal/InferenceEngineImpl.kt"
+python3 "$ROOT/scripts/apply-companion-runtime-policy.py" \
+  "$WORK/examples/llama.android/lib/src/main/cpp/ai_chat.cpp" \
+  "$WORK/examples/llama.android/lib/src/main/java/com/arm/aichat/internal/InferenceEngineImpl.kt"
 
 # Furina targets physical Android phones. Do not spend CI time or APK space on
-# the x86_64 emulator backend; every supported Play Store device here is arm64.
+# the x86_64 emulator backend; every supported device here is arm64.
 sed -i 's/listOf("arm64-v8a", "x86_64")/listOf("arm64-v8a")/' \
     "$WORK/examples/llama.android/lib/build.gradle.kts"
 

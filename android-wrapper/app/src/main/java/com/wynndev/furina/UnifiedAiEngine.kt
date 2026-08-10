@@ -2,6 +2,13 @@ package com.wynndev.furina
 
 import android.os.SystemClock
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 
 data class UnifiedGenerationResult(
@@ -16,6 +23,9 @@ class UnifiedAiEngine(
     private val contextEngine: ContextEngine,
     private val providers: Map<String, AiProvider>,
 ) {
+    private val maintenanceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    @Volatile private var maintenanceJob: Job? = null
+
     private fun provider(id: String): AiProvider =
         providers[id] ?: error("Provider AI tidak tersedia: $id")
 
@@ -26,10 +36,11 @@ class UnifiedAiEngine(
         characterName: String,
         persona: String,
     ) {
-        val query = store.lastUserMessage(sessionId)
+        // Prewarming must never freeze retrieval for the previous user message into the
+        // local model. Empty query builds only stable identity + session rehydration.
         val context = contextEngine.build(
             sessionId = sessionId,
-            query = query,
+            query = "",
             characterName = characterName,
             customPersona = persona,
             contextWindowTokens = model.contextWindowTokens,
@@ -47,12 +58,12 @@ class UnifiedAiEngine(
         persona: String,
         onToken: (String) -> Unit,
     ): UnifiedGenerationResult {
+        maintenanceJob?.cancel()
         val startedAt = SystemClock.elapsedRealtime()
         var firstTokenAt = 0L
         var tokenCount = 0
 
-        // Relationship, emotional and temporal continuity are application-owned state.
-        // Observe before building context so every provider receives the same Furina state.
+        // Only lightweight deterministic state updates run before inference.
         contextEngine.observeUserTurn(sessionId, userText)
         val context = contextEngine.build(
             sessionId = sessionId,
@@ -65,18 +76,10 @@ class UnifiedAiEngine(
         val warmStart = activeProvider.isWarm(model, context)
         activeProvider.prepare(model, context)
 
-        // Persist the user turn even if generation fails; a retry keeps the user's intent.
+        // Persist the user turn even if generation fails; retrying keeps the user's intent.
         val userId = store.addMessage(sessionId, "user", userText)
-        // Auto-memory extraction happens inside addMessage. Reconcile contradictions only
-        // after that transaction, so the next turn sees one current preference rather than
-        // mutually exclusive facts.
-        contextEngine.reconcileMemories()
-
         val reply = StringBuilder()
         val baseBudget = responseBudgetFor(userText)
-        // Online reasoning models can consume hidden tokens before the visible answer. A
-        // generous ceiling prevents the final sentence from being clipped, while local
-        // models keep the smaller latency-conscious budget.
         val generationBudget = if (activeProvider.capabilities.offline) baseBudget else maxOf(baseBudget, 512)
         val request = AiGenerationRequest(
             requestId = requestId,
@@ -101,6 +104,7 @@ class UnifiedAiEngine(
         check(finalText.isNotBlank()) { "Model tidak menghasilkan jawaban" }
         val assistantId = store.addMessage(sessionId, "assistant", finalText)
         store.updateSessionSummary(sessionId)
+        scheduleIdleMaintenance(sessionId, userText)
 
         val finishedAt = SystemClock.elapsedRealtime()
         val firstTokenMs = if (firstTokenAt > 0L) firstTokenAt - startedAt else finishedAt - startedAt
@@ -112,11 +116,45 @@ class UnifiedAiEngine(
             .put("warmStart", warmStart)
             .put("provider", activeProvider.id)
             .put("model", activeProvider.resolvedModelId() ?: model.id)
-            .put("continuity", "companion-v2")
+            .put("continuity", "companion-v3-layered")
+            .put("qualityFlags", qualityFlags(userText, finalText))
         return UnifiedGenerationResult(userId, assistantId, metrics)
     }
 
     suspend fun unload() = providers.values.forEach { it.unload() }
+
+    /**
+     * Heavy memory reconciliation/reflection is postponed until the conversation has been
+     * idle. A new user turn cancels the pending job before it starts.
+     */
+    private fun scheduleIdleMaintenance(sessionId: String, userText: String) {
+        maintenanceJob?.cancel()
+        maintenanceJob = maintenanceScope.launch {
+            delay(6_000L)
+            runCatching { contextEngine.runMaintenance(sessionId, userText) }
+        }
+    }
+
+    /** Lightweight telemetry for the future 100–300 scenario on-device quality benchmark. */
+    private fun qualityFlags(userText: String, response: String): JSONArray {
+        val flags = JSONArray()
+        val normalizedUser = userText.replace(Regex("\\s+"), " ").trim()
+        val normalizedResponse = response.replace(Regex("\\s+"), " ").trim()
+        if (normalizedUser.length >= 16 && normalizedResponse.startsWith(normalizedUser, ignoreCase = true)) {
+            flags.put("prompt_echo")
+        }
+        if (response.contains("PRIVATE RESPONSE CONTEXT", ignoreCase = true) ||
+            response.contains("PRIVATE TURN STATE", ignoreCase = true) ||
+            response.contains("PRIVATE SESSION REHYDRATION", ignoreCase = true)
+        ) {
+            flags.put("private_context_leak")
+        }
+        val sentences = response.split(Regex("(?<=[.!?])\\s+"))
+            .map { it.replace(Regex("\\s+"), " ").trim().lowercase() }
+            .filter { it.length >= 18 }
+        if (sentences.groupingBy { it }.eachCount().values.any { it >= 2 }) flags.put("sentence_loop")
+        return flags
+    }
 
     private fun responseBudgetFor(message: String): Int {
         val normalized = message.trim().lowercase()
