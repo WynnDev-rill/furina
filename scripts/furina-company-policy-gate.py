@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Validate the Furina Engineering Company operating contract.
+"""Validate Furina Engineering Company control-plane invariants.
 
-This deterministic gate verifies that the autonomous worker cannot silently lose the
-anti-stall lifecycle, evidence policy, external-blocker handling, regression recovery,
-proactive improvement authority, high-value work-package policy, review-gated merge rule,
-or independent Boss gate. It does not claim to evaluate Furina model behavior.
+This gate protects the rules that prevent hourly reward hacking, same-cycle self-review,
+false BEHAVIORAL claims, policy drift, infrastructure churn, and autonomous merge authority.
+It validates contracts; it does not itself prove Furina model quality.
 """
 from __future__ import annotations
 
@@ -15,7 +14,11 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPANY = ROOT / "engineering/COMPANY.md"
 WORKER = ROOT / "engineering/worker/HOURLY_PROMPT.md"
 WORK_PACKAGE = ROOT / "engineering/work-package/POLICY.md"
+PRIORITY = ROOT / "engineering/prioritization/POLICY.md"
+INDEPENDENCE = ROOT / "engineering/review/INDEPENDENCE_POLICY.md"
 DEVICE_SCHEMA = ROOT / "engineering/evidence/device-report.schema.json"
+BEHAVIORAL_SCHEMA = ROOT / "engineering/evidence/behavioral-run.schema.json"
+CALIBRATION_SCHEMA = ROOT / "engineering/calibration/record.schema.json"
 BOSS_POLICY = ROOT / "engineering/boss/BOSS_POLICY.md"
 BOSS_SCHEMA = ROOT / "engineering/boss/decision.schema.json"
 
@@ -30,19 +33,33 @@ def read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def read_json(path: Path) -> dict:
+    try:
+        return json.loads(read(path))
+    except json.JSONDecodeError as exc:
+        raise ContractError(f"invalid JSON in {path.relative_to(ROOT)}: {exc}") from exc
+
+
 def require_all(label: str, text: str, needles: list[str]) -> None:
     missing = [needle for needle in needles if needle not in text]
     if missing:
         raise ContractError(f"{label} missing contract markers: {', '.join(missing)}")
 
 
+def require_required_fields(label: str, schema: dict, expected: set[str]) -> None:
+    actual = set(schema.get("required", []))
+    missing = sorted(expected - actual)
+    if missing:
+        raise ContractError(f"{label} missing required fields: {missing}")
+
+
 def main() -> int:
     company = read(COMPANY)
     worker = read(WORKER)
     work_package = read(WORK_PACKAGE)
-    schema_text = read(DEVICE_SCHEMA)
+    priority = read(PRIORITY)
+    independence = read(INDEPENDENCE)
     boss_policy = read(BOSS_POLICY)
-    boss_schema_text = read(BOSS_SCHEMA)
 
     lifecycle = ["active", "testing", "ready_for_merge", "blocked_human", "completed", "superseded"]
 
@@ -52,18 +69,8 @@ def main() -> int:
         [
             "REVIEW_GATED",
             *lifecycle,
-            "one canonical lifecycle",
-            "A `ready_for_merge` PR with no new evidence or human decision must be skipped",
-            "Do not spend a new cycle re-reviewing a `blocked_human` PR unless there is new evidence",
-            "blockerType = external_transient",
-            "Vercel free-tier deployment rate limits",
-            "Do not rewrite working code to satisfy an external transient failure",
-            "Post-Decision and Post-Merge Regression Handling",
-            "A previous Reviewer or Boss decision is not immutable",
-            "Proactive Improvement Discovery",
-            "micro-UX",
-            "repository skills",
-            "YELLOW at minimum",
+            "Every engineering cycle may legitimately conclude with NO_CHANGE",
+            "A green build is evidence of build health, not proof of product improvement",
             "STATIC",
             "CI",
             "BEHAVIORAL",
@@ -73,101 +80,157 @@ def main() -> int:
     )
 
     require_all(
-        "HOURLY_PROMPT.md",
-        worker,
+        "PRIORITIZATION/POLICY.md",
+        priority,
         [
-            *lifecycle,
-            "engineering/work-package/POLICY.md",
-            "A `ready_for_merge` PR with no new evidence or human decision must not consume another cycle",
-            "A `blocked_human` PR with no new evidence must not consume another cycle",
-            "blockerType = external_transient",
-            "Vercel rate limits",
-            "Do not rewrite code or repeatedly retry while the condition cannot change",
-            "A previous Reviewer/Boss approval is not immutable",
-            "micro-UX",
-            "repository tooling/skills/dependencies",
-            "YELLOW at minimum",
-            "one coherent high-value work package",
-            "not necessarily one isolated change",
-            "Prefer one meaningful package over several tiny PRs",
-            "Do not bundle unrelated subsystems",
-            "Do not consume Vercel deployments",
-            "## Ringkasan Indonesia",
-            "Never auto-merge",
-            "STATIC, CI, BEHAVIORAL, or DEVICE",
-            "Reviewer approval is not final company approval",
-            "APPROVE_MERGE",
-            "REJECT_CLOSE",
-            "REQUEST_REVISION",
-            "BLOCKED_HUMAN",
+            "authoritative for candidate ranking",
+            "P0_PRODUCT",
+            "P0_UNBLOCKER",
+            "P1_PRODUCT",
+            "P2_PRODUCT",
+            "META_ENGINEERING",
+            "A lower tier cannot outrank a higher eligible tier",
+            "withinTierScore",
+            "no more than one of the last six completed change-producing cycles",
+            "confidence is capped at 7/10",
+            "engineering/calibration/record.schema.json",
+            "Anti-self-optimization rule",
         ],
     )
 
     require_all(
-        "WORK_PACKAGE_POLICY.md",
+        "REVIEW/INDEPENDENCE_POLICY.md",
+        independence,
+        [
+            "Engineer phase",
+            "Reviewer phase",
+            "Boss phase",
+            "different `cycleId`",
+            "reviewCycleId",
+            "bossCycleId",
+            "reviewedHeadSha",
+            "Any new commit invalidates both previous Reviewer and Boss approval",
+            "Role labels inside one model response are not independent review",
+        ],
+    )
+
+    require_all(
+        "WORK_PACKAGE/POLICY.md",
         work_package,
         [
-            "one-small-fix limit",
-            "one coherent high-value work package per cycle",
-            "multiple related fixes, upgrades, refinements, tests, and cleanup items",
+            "engineering/prioritization/POLICY.md",
+            "one coherent high-value work package",
             "Do not create a PR for a trivial isolated tweak",
-            "Prefer a meaningful package over several tiny PRs",
             "Do not combine unrelated subsystems",
-            "Vercel and CI efficiency",
+            "same execution that writes the package must not certify it as Reviewer or Boss",
+            "engineering/calibration/record.schema.json",
             "Do not repeatedly push no-op or cosmetic commits",
-            "Reviewer and Boss must reject a package that is large but incoherent",
             "## Ringkasan Indonesia",
         ],
     )
+
+    require_all(
+        "HOURLY_PROMPT.md",
+        worker,
+        [
+            "engineering/prioritization/POLICY.md",
+            "engineering/review/INDEPENDENCE_POLICY.md",
+            "engineering/evidence/behavioral-run.schema.json",
+            "engineering/calibration/record.schema.json",
+            "scheduler prompt must not duplicate the full company policy",
+            "One-role-per-cycle rule",
+            "reviewCycleId != engineerCycleId",
+            "bossCycleId",
+            "actualModelRun=true",
+            "Strategic tier is lexicographic",
+            "META_ENGINEERING",
+            "Never auto-merge",
+            "Human merge remains the final write to `main`",
+        ],
+    )
+
+    # The worker must not regress to the old cross-tier formula as its selection authority.
+    if "priority = impact * confidence * frequency / max(1, effort * regressionRisk)" in worker:
+        raise ContractError("HOURLY_PROMPT.md reintroduced the old reward-hacking-prone priority formula")
 
     require_all(
         "BOSS_POLICY.md",
         boss_policy,
         [
-            "The Boss does not write code",
-            "Reviewer approval is an input, not final company approval",
-            "APPROVE_MERGE",
-            "REJECT_CLOSE",
-            "REQUEST_REVISION",
-            "BLOCKED_HUMAN",
+            "Role labels inside one model response are not independent review",
+            "engineerCycleId",
+            "reviewCycleId",
+            "bossCycleId",
+            "reviewedHeadSha",
+            "Reviewer and Boss results must be recorded separately",
+            "actualModelRun=true",
+            "engineering/prioritization/POLICY.md",
+            "engineering/calibration/record.schema.json",
             "It does NOT merge automatically",
-            "canonical PR lifecycle",
-            "External transient conditions are not code defects",
-            "Boss approval is evidence-bound, not permanent",
-            "new repository skill, dependency, SDK, GitHub Action, build tool, or native library is YELLOW at minimum",
             "Anti-rubber-stamp rule",
         ],
     )
 
-    schema = json.loads(schema_text)
-    required = set(schema.get("required", []))
-    expected_required = {"schemaVersion", "recordedAt", "commit", "device", "model", "objective", "observation"}
-    if not expected_required.issubset(required):
-        missing = sorted(expected_required - required)
-        raise ContractError(f"device report schema missing required fields: {missing}")
-
-    properties = schema.get("properties", {})
+    device = read_json(DEVICE_SCHEMA)
+    require_required_fields(
+        "device-report.schema.json",
+        device,
+        {"schemaVersion", "recordedAt", "commit", "device", "model", "objective", "observation"},
+    )
     for field in ("measurements", "runtime", "behavioral", "privacy"):
-        if field not in properties:
-            raise ContractError(f"device report schema missing property: {field}")
+        if field not in device.get("properties", {}):
+            raise ContractError(f"device-report.schema.json missing property: {field}")
 
-    boss_schema = json.loads(boss_schema_text)
-    boss_required = set(boss_schema.get("required", []))
-    expected_boss_required = {
-        "decision", "pullRequest", "headSha", "evidenceLevel", "productValue",
-        "regressionRisk", "complexityCost", "confidence", "reason",
-        "requiredNextAction", "decidedAt"
-    }
-    if not expected_boss_required.issubset(boss_required):
-        missing = sorted(expected_boss_required - boss_required)
-        raise ContractError(f"boss decision schema missing required fields: {missing}")
+    behavioral = read_json(BEHAVIORAL_SCHEMA)
+    require_required_fields(
+        "behavioral-run.schema.json",
+        behavioral,
+        {"schemaVersion", "recordedAt", "commit", "benchmarkVersion", "actualModelRun", "model", "scenarios", "aggregate"},
+    )
+    actual_model_run = behavioral.get("properties", {}).get("actualModelRun", {})
+    if actual_model_run.get("const") is not True:
+        raise ContractError("behavioral-run.schema.json must require actualModelRun=true")
+    scenario = behavioral.get("properties", {}).get("scenarios", {}).get("items", {})
+    scenario_required = set(scenario.get("required", []))
+    if not {"scenarioId", "output", "scores"}.issubset(scenario_required):
+        raise ContractError("behavioral-run.schema.json scenarios must require scenarioId/output/scores")
 
-    decision_enum = set(boss_schema.get("properties", {}).get("decision", {}).get("enum", []))
+    calibration = read_json(CALIBRATION_SCHEMA)
+    require_required_fields(
+        "calibration/record.schema.json",
+        calibration,
+        {"schemaVersion", "workId", "category", "strategicTier", "prediction", "status"},
+    )
+    prediction_required = set(calibration.get("properties", {}).get("prediction", {}).get("required", []))
+    expected_prediction = {"cycleId", "recordedAt", "impact", "confidence", "expectedMetric", "expectedDelta", "verificationWindow"}
+    if not expected_prediction.issubset(prediction_required):
+        raise ContractError("calibration prediction contract is incomplete")
+    calibration_enum = set(
+        calibration.get("properties", {})
+        .get("observation", {})
+        .get("properties", {})
+        .get("calibration", {})
+        .get("enum", [])
+    )
+    if calibration_enum != {"overestimated", "calibrated", "underestimated", "inconclusive"}:
+        raise ContractError("calibration outcome enum mismatch")
+
+    boss = read_json(BOSS_SCHEMA)
+    require_required_fields(
+        "boss/decision.schema.json",
+        boss,
+        {
+            "decision", "pullRequest", "headSha", "evidenceLevel", "productValue",
+            "regressionRisk", "complexityCost", "confidence", "reason",
+            "requiredNextAction", "decidedAt",
+        },
+    )
+    decisions = set(boss.get("properties", {}).get("decision", {}).get("enum", []))
     expected_decisions = {"APPROVE_MERGE", "REJECT_CLOSE", "REQUEST_REVISION", "BLOCKED_HUMAN"}
-    if decision_enum != expected_decisions:
-        raise ContractError(f"boss decision enum mismatch: {sorted(decision_enum)}")
+    if decisions != expected_decisions:
+        raise ContractError(f"boss decision enum mismatch: {sorted(decisions)}")
 
-    print("Furina Engineering Company v2 policy gate passed")
+    print("Furina Engineering Company v3 control-plane policy gate passed")
     return 0
 
 
@@ -175,5 +238,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except ContractError as error:
-        print(f"Furina Engineering Company v2 policy gate failed: {error}")
+        print(f"Furina Engineering Company v3 control-plane policy gate failed: {error}")
         raise SystemExit(1)
