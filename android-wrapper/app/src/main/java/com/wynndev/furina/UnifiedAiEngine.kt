@@ -14,6 +14,7 @@ data class UnifiedGenerationResult(
 class UnifiedAiEngine(
     private val store: MemoryStore,
     private val contextEngine: ContextEngine,
+    private val companion: CompanionIntelligence,
     private val providers: Map<String, AiProvider>,
 ) {
     private fun provider(id: String): AiProvider =
@@ -50,7 +51,10 @@ class UnifiedAiEngine(
         val startedAt = SystemClock.elapsedRealtime()
         var firstTokenAt = 0L
         var tokenCount = 0
-        store.observeUserTurn(userText)
+
+        // Relationship, emotional and temporal continuity are application-owned state.
+        // Observe before building context so every provider receives the same Furina state.
+        companion.observeUserTurn(sessionId, userText)
         val context = contextEngine.build(
             sessionId = sessionId,
             query = userText,
@@ -64,6 +68,11 @@ class UnifiedAiEngine(
 
         // Persist the user turn even if generation fails; a retry keeps the user's intent.
         val userId = store.addMessage(sessionId, "user", userText)
+        // Auto-memory extraction happens inside addMessage. Reconcile contradictions only
+        // after that transaction, so the next turn sees one current preference rather than
+        // mutually exclusive facts.
+        companion.reconcileMemories()
+
         val reply = StringBuilder()
         val baseBudget = responseBudgetFor(userText)
         // Online reasoning models can consume hidden tokens before the visible answer. A
@@ -104,6 +113,7 @@ class UnifiedAiEngine(
             .put("warmStart", warmStart)
             .put("provider", activeProvider.id)
             .put("model", activeProvider.resolvedModelId() ?: model.id)
+            .put("continuity", "companion-v2")
         return UnifiedGenerationResult(userId, assistantId, metrics)
     }
 
