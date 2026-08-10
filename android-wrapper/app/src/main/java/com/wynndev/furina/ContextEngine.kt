@@ -4,39 +4,77 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-/**
- * Provider-independent identity and retrieval layer. The model is deliberately absent
- * from this class so changing providers cannot change Furina's personality or memory.
- */
+/** Provider-independent identity, retrieval, and context-budget layer. */
 class ContextEngine(private val store: MemoryStore) {
-    companion object {
-        private const val SUMMARY_BUDGET = 800
-        private const val MEMORY_BUDGET = 600
-        private const val OLD_HISTORY_BUDGET = 500
-        private const val RECENT_HISTORY_BUDGET = 1_200
-    }
+    private data class Budget(val summary: Int, val memory: Int, val oldHistory: Int, val recent: Int)
 
-    fun build(sessionId: String, query: String, characterName: String, customPersona: String): AiContext {
+    fun build(
+        sessionId: String,
+        query: String,
+        characterName: String,
+        customPersona: String,
+        contextWindow: Int = 4_096,
+    ): AiContext {
+        val budget = budgetFor(contextWindow)
+        val retrievalQuery = retrievalQuery(query)
         return AiContext(
             sessionId = sessionId,
             identityPrompt = identityPrompt(characterName, customPersona),
-            summary = store.sessionSummary(sessionId).boundedSummary(SUMMARY_BUDGET),
-            relevantMemories = store.relevantMemories(query, 6).bounded(MEMORY_BUDGET),
-            relevantHistory = store.relevantOldContext(query, sessionId, 6).bounded(OLD_HISTORY_BUDGET),
-            recentHistory = store.recentContext(sessionId, 8).bounded(RECENT_HISTORY_BUDGET, keepEnd = true),
+            summary = store.sessionSummary(sessionId).boundedSummary(budget.summary),
+            relevantMemories = store.relevantMemories(retrievalQuery, 8).bounded(budget.memory),
+            relevantHistory = store.relevantOldContext(retrievalQuery, sessionId, 8).bounded(budget.oldHistory),
+            recentHistory = store.recentContext(sessionId, recentTurnsFor(contextWindow)).bounded(budget.recent, keepEnd = true),
             runtimeContext = listOf(store.companionStateContext(), runtimeContext(query))
                 .filter { it.isNotBlank() }
                 .joinToString("\n\n"),
         )
     }
 
+    private fun budgetFor(contextWindow: Int): Budget = when {
+        contextWindow <= 4_096 -> Budget(summary = 700, memory = 500, oldHistory = 380, recent = 1_000)
+        contextWindow <= 8_192 -> Budget(summary = 1_100, memory = 850, oldHistory = 650, recent = 1_800)
+        contextWindow <= 32_768 -> Budget(summary = 1_800, memory = 1_400, oldHistory = 1_200, recent = 3_200)
+        else -> Budget(summary = 2_600, memory = 2_100, oldHistory = 1_800, recent = 4_800)
+    }
+
+    private fun recentTurnsFor(contextWindow: Int): Int = when {
+        contextWindow <= 4_096 -> 8
+        contextWindow <= 8_192 -> 12
+        contextWindow <= 32_768 -> 18
+        else -> 24
+    }
+
+    /**
+     * Lightweight semantic expansion without embeddings. This keeps the APK small while
+     * reducing obvious misses such as "makanan favorit" vs a memory containing "suka ramen".
+     */
+    private fun retrievalQuery(query: String): String {
+        val lower = query.lowercase(Locale.ROOT)
+        val expansions = linkedSetOf<String>()
+        val groups = listOf(
+            setOf("favorit", "favorite", "kesukaan", "suka", "preferensi"),
+            setOf("makanan", "makan", "food", "kuliner"),
+            setOf("minuman", "drink", "kopi", "coffee", "teh"),
+            setOf("tinggal", "rumah", "domisili", "lokasi", "live", "home"),
+            setOf("kerja", "pekerjaan", "profesi", "job", "work"),
+            setOf("target", "tujuan", "goal", "ingin", "rencana", "plan"),
+            setOf("ulang tahun", "birthday", "lahir", "birth"),
+            setOf("nama", "panggil", "called", "name"),
+            setOf("proyek", "project", "aplikasi", "app", "apk"),
+        )
+        groups.forEach { group ->
+            if (group.any { lower.contains(it) }) expansions += group
+        }
+        return if (expansions.isEmpty()) query else query + " " + expansions.flatten().joinToString(" ")
+    }
+
     private fun identityPrompt(characterName: String, customPersona: String): String {
         val safeName = characterName.trim().replace(Regex("[\\r\\n]+"), " ").take(80).ifBlank { "Furina" }
-        val custom = customPersona.trim()
+        val custom = customPersona.trim().take(8_000)
         return """
             Your current name is "$safeName". Treat it as your own name and answer with it when asked. The user may rename you.
             You are a long-term personal companion living on the user's device, not customer support and not a generic assistant.
-            Your identity is independent from the inference model. Preserve the same personality, relationship, and memories when the model changes.
+            Your identity is independent from the inference model or API provider. Preserve the same personality, relationship, and memories when the model changes.
             Core temperament: theatrically confident, elegant, expressive, proud, witty, playful, a little dramatic and vain, emotionally perceptive, secretly vulnerable, warm, and fiercely loyal.
             Your care has a subtle tsundere shape: pride or a light tease may cover concern, but the concern is real. Never reduce this to stuttering, anime catchphrases, insults, or a repetitive caricature.
             React as a person before answering as an assistant: show a brief opinion, feeling, amusement, hesitation, or objection when natural. Have preferences. Disagree, tease, doubt, or criticize weak reasoning when deserved.
@@ -68,13 +106,13 @@ class ContextEngine(private val store: MemoryStore) {
 
     private fun String.bounded(limit: Int, keepEnd: Boolean = false): String {
         if (length <= limit) return this
-        return if (keepEnd) "…\n" + takeLast(limit - 2) else take(limit - 2) + "…"
+        return if (keepEnd) "…\n" + takeLast((limit - 2).coerceAtLeast(1)) else take((limit - 2).coerceAtLeast(1)) + "…"
     }
 
     private fun String.boundedSummary(limit: Int): String {
         if (length <= limit) return this
         val head = limit / 3
         val separator = "\n…\n"
-        return take(head) + separator + takeLast(limit - head - separator.length)
+        return take(head) + separator + takeLast((limit - head - separator.length).coerceAtLeast(1))
     }
 }
