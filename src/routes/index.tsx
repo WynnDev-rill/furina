@@ -232,7 +232,8 @@ function FurinaApp() {
   const [editingTitleVal, setEditingTitleVal] = useState("");
   const [cloneSampleName, setCloneSampleName] = useState<string>("");
   const [hasCloneSample, setHasCloneSample] = useState(false);
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [isBooting, setIsBooting] = useState(true);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
