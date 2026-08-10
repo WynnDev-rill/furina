@@ -6,12 +6,16 @@ on:
       - agent/online-ai-provider-fallback
     paths:
       - '.github/workflows/apply-online-ai-ui.yml'
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
   patch:
+    if: github.head_ref == 'agent/online-ai-provider-fallback' || github.ref_name == 'agent/online-ai-provider-fallback'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
