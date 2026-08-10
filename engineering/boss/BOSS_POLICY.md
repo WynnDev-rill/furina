@@ -10,6 +10,8 @@ The Boss must not trust the Engineer's or Reviewer's summary as sufficient evide
 
 The Boss must explicitly consider whether the same product benefit can be obtained with less code, less complexity, or lower regression risk.
 
+Reviewer approval is an input, not final company approval.
+
 ## Allowed decisions
 Exactly one decision is produced for a candidate PR:
 
@@ -19,12 +21,12 @@ Exactly one decision is produced for a candidate PR:
 - `BLOCKED_HUMAN`: A decision requires evidence or authority the company cannot obtain itself, such as physical-device evidence, credentials, destructive approval, or RED-scope human approval.
 
 ## Decision authority
-During `REVIEW_GATED` autonomy:
+During `REVIEW_GATED` autonomy, Boss decisions map onto the existing PR lifecycle from `engineering/COMPANY.md` rather than creating a second state machine:
 
-- `APPROVE_MERGE` means the Boss certifies the PR as `boss_approved`. It does NOT merge automatically. Human merge remains the final write to `main`.
-- `REJECT_CLOSE` may close/cancel a draft GREEN/YELLOW engineering PR automatically because closing a PR does not modify `main` and can be reversed.
-- `REQUEST_REVISION` returns the same PR/branch to the Engineer and records the requested revision.
-- `BLOCKED_HUMAN` records one concrete human/evidence request and must not freeze unrelated engineering.
+- `APPROVE_MERGE` -> `ready_for_merge`. It does NOT merge automatically. Human merge remains the final write to `main`.
+- `REJECT_CLOSE` -> close/cancel a draft GREEN/YELLOW engineering PR automatically because closing a PR does not modify `main` and can be reversed; then classify it `completed` or `superseded` as appropriate.
+- `REQUEST_REVISION` -> `active`, with one coherent revision objective returned to the same PR/branch.
+- `BLOCKED_HUMAN` -> `blocked_human`, with one concrete human/evidence request; it must not freeze unrelated engineering.
 - RED work can never receive autonomous final merge authority from the Boss. The Boss may only recommend and escalate it.
 
 ## Boss decision test
