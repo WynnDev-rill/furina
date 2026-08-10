@@ -24,7 +24,9 @@ class FurinaBridge(
     private val prefs = activity.getSharedPreferences("furina_native", 0)
     private val contextEngine = ContextEngine(store)
     private val localProvider = LocalLlamaProvider(activity.applicationContext, modelDownloads, ::emitState)
-    private val aiEngine = UnifiedAiEngine(store, contextEngine, mapOf(localProvider.id to localProvider))
+    private val onlineManager = OnlineProviderManager(activity.applicationContext)
+    private val providers = (listOf<AiProvider>(localProvider) + onlineManager.adapters()).associateBy { it.id }
+    private val aiEngine = UnifiedAiEngine(store, contextEngine, providers)
     private var generationJob: Job? = null
     private var prepareJob: Job? = null
     private val verificationJobs = mutableMapOf<String, Job>()
@@ -33,13 +35,14 @@ class FurinaBridge(
     @JavascriptInterface
     fun nativeInfo(): String = JSONObject()
         .put("available", true)
-        .put("version", "4.0")
+        .put("version", "4.1")
         .put("selectedModelId", selectedModelId())
-        .put("runtime", "llama.cpp Android native")
-        .put("aiEngine", "unified-provider-v1")
-        .put("provider", localProvider.id)
-        .put("contextStrategy", "identity + summary + relevant memory + recent history")
-        .put("offline", localProvider.capabilities.offline)
+        .put("runtime", "llama.cpp Android native + online provider adapters")
+        .put("aiEngine", "unified-provider-v2")
+        .put("provider", if (onlineManager.mode() == "online") onlineManager.selectedProviderId() else localProvider.id)
+        .put("aiMode", onlineManager.mode())
+        .put("contextStrategy", "identity + adaptive summary + semantic-lite memory + recent history")
+        .put("offline", onlineManager.mode() != "online")
         .toString()
 
     @JavascriptInterface
@@ -100,16 +103,71 @@ class FurinaBridge(
     }
 
     @JavascriptInterface
+    fun onlineAiSettings(): String = onlineManager.settingsJson().toString()
+
+    @JavascriptInterface
+    fun setAiMode(mode: String): String {
+        val result = onlineManager.setMode(mode)
+        scope.launch { aiEngine.unload() }
+        return result
+    }
+
+    @JavascriptInterface
+    fun selectOnlineProvider(providerId: String): String {
+        val result = onlineManager.setProvider(providerId)
+        scope.launch { aiEngine.unload() }
+        return result
+    }
+
+    @JavascriptInterface
+    fun selectOnlineModel(providerId: String, modelId: String): String = onlineManager.setModel(providerId, modelId)
+
+    @JavascriptInterface
+    fun setOnlineAutoFallback(enabled: Boolean): String = onlineManager.setAutoFallback(enabled)
+
+    @JavascriptInterface
+    fun removeOnlineApiKey(providerId: String): String {
+        val result = onlineManager.removeKey(providerId)
+        scope.launch { aiEngine.unload() }
+        return result
+    }
+
+    @JavascriptInterface
+    fun saveAndTestOnlineApiKey(providerId: String, apiKey: String, requestId: String) {
+        scope.launch {
+            try {
+                emitOnlineResult(requestId, onlineManager.testAndSave(providerId, apiKey))
+            } catch (e: Throwable) {
+                emitOnlineResult(requestId, JSONObject()
+                    .put("success", false)
+                    .put("message", friendlyEngineError(e))
+                    .put("settings", onlineManager.settingsJson()))
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun refreshOnlineModels(providerId: String, requestId: String) {
+        scope.launch {
+            try {
+                emitOnlineResult(requestId, onlineManager.refresh(providerId))
+            } catch (e: Throwable) {
+                emitOnlineResult(requestId, JSONObject()
+                    .put("success", false)
+                    .put("message", friendlyEngineError(e))
+                    .put("settings", onlineManager.settingsJson()))
+            }
+        }
+    }
+
+    @JavascriptInterface
     fun createSession(): String {
         val id = store.createSession()
         return JSONObject().put("id", id).put("title", "Percakapan baru").put("createdAt", System.currentTimeMillis()).toString()
     }
 
-    @JavascriptInterface
-    fun listSessions(): String = store.sessionsJson()
-
-    @JavascriptInterface
-    fun loadSession(sessionId: String): String = store.loadSessionJson(sessionId)
+    @JavascriptInterface fun listSessions(): String = store.sessionsJson()
+    @JavascriptInterface fun loadSession(sessionId: String): String = store.loadSessionJson(sessionId)
 
     @JavascriptInterface
     fun deleteSession(sessionId: String) {
@@ -123,26 +181,13 @@ class FurinaBridge(
         scope.launch { aiEngine.unload() }
     }
 
-    @JavascriptInterface
-    fun memoryStats(): String = store.statsJson()
-
-    @JavascriptInterface
-    fun listMemories(): String = store.memoriesJson()
-
-    @JavascriptInterface
-    fun addMemory(content: String): String = store.addMemory(content)
-
-    @JavascriptInterface
-    fun deleteMemory(memoryId: String) = store.deleteMemory(memoryId)
-
-    @JavascriptInterface
-    fun clearMemories() = store.clearMemories()
-
-    @JavascriptInterface
-    fun appSettings(): String = store.appSettingsJson()
-
-    @JavascriptInterface
-    fun saveAppSettings(settingsJson: String) = store.saveAppSettingsJson(settingsJson)
+    @JavascriptInterface fun memoryStats(): String = store.statsJson()
+    @JavascriptInterface fun listMemories(): String = store.memoriesJson()
+    @JavascriptInterface fun addMemory(content: String): String = store.addMemory(content)
+    @JavascriptInterface fun deleteMemory(memoryId: String) = store.deleteMemory(memoryId)
+    @JavascriptInterface fun clearMemories() = store.clearMemories()
+    @JavascriptInterface fun appSettings(): String = store.appSettingsJson()
+    @JavascriptInterface fun saveAppSettings(settingsJson: String) = store.saveAppSettingsJson(settingsJson)
 
     @JavascriptInterface
     fun setSystemTheme(dark: Boolean) {
@@ -151,12 +196,13 @@ class FurinaBridge(
 
     @JavascriptInterface
     fun prepareModel(sessionId: String, characterName: String, persona: String) {
+        if (onlineManager.mode() == "online") return
         if (sessionId.isBlank() || generationJob?.isActive == true || prepareJob?.isActive == true) return
         prepareJob = scope.launch {
             try {
-                val model = ModelCatalog.byId(selectedModelId()) ?: return@launch
-                if (modelDownloads.status(model).optString("state") != "ready") return@launch
-                aiEngine.prepare(model, sessionId, characterName, persona)
+                val spec = ModelCatalog.byId(selectedModelId()) ?: return@launch
+                if (modelDownloads.status(spec).optString("state") != "ready") return@launch
+                aiEngine.prepare(localRoute(spec), sessionId, characterName, persona)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -178,33 +224,52 @@ class FurinaBridge(
         }
 
         generationJob = scope.launch {
+            var activeModelId = selectedModelId()
             try {
-                val model = ModelCatalog.byId(selectedModelId()) ?: error("Model AI tidak dikenal")
-                val modelState = modelDownloads.status(model).optString("state")
-                if (modelState != "ready") error("Unduh ${model.displayName} terlebih dahulu")
-                emitState("thinking", model.id, 0.0)
+                val route = if (onlineManager.mode() == "online") {
+                    onlineManager.route()
+                } else {
+                    val spec = ModelCatalog.byId(selectedModelId()) ?: error("Model AI lokal tidak dikenal")
+                    val modelState = modelDownloads.status(spec).optString("state")
+                    if (modelState != "ready") error("Unduh ${spec.displayName} terlebih dahulu")
+                    localRoute(spec)
+                }
+                activeModelId = route.models.first().id
+                emitState("thinking", activeModelId, 0.0)
                 val pending = StringBuilder()
                 var lastDispatch = android.os.SystemClock.elapsedRealtime()
-                val result = aiEngine.generate(requestId, model, sessionId, clean, characterName, persona) { token ->
-                    pending.append(token)
-                    val now = android.os.SystemClock.elapsedRealtime()
-                    if (pending.length >= 24 || now - lastDispatch >= 45L) {
-                        dispatchToken(requestId, pending.toString())
-                        pending.clear()
-                        lastDispatch = now
-                    }
-                }
+                val result = aiEngine.generate(
+                    requestId = requestId,
+                    route = route,
+                    sessionId = sessionId,
+                    userText = clean,
+                    characterName = characterName,
+                    persona = persona,
+                    onToken = { token ->
+                        pending.append(token)
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (pending.length >= 24 || now - lastDispatch >= 45L) {
+                            dispatchToken(requestId, pending.toString())
+                            pending.clear()
+                            lastDispatch = now
+                        }
+                    },
+                    onFallback = { _, next, _ ->
+                        activeModelId = next.id
+                        emitState("fallback", next.id, 0.0)
+                    },
+                )
                 if (pending.isNotEmpty()) dispatchToken(requestId, pending.toString())
                 emitDone(requestId, result.userId, result.assistantId, result.metrics)
-                emitState("ready", model.id, 1.0)
+                emitState("ready", result.metrics.optString("model", activeModelId), 1.0)
                 withContext(Dispatchers.IO) {
                     try { backupManager.autoBackupIfDue() } catch (_: Throwable) {}
                 }
             } catch (e: CancellationException) {
                 emitError(requestId, "Respons dihentikan")
-                emitState("cancelled", selectedModelId(), 0.0)
+                emitState("cancelled", activeModelId, 0.0)
             } catch (e: Throwable) {
-                emitState("error", selectedModelId(), 0.0)
+                emitState("error", activeModelId, 0.0)
                 emitError(requestId, friendlyEngineError(e))
             } finally {
                 generationJob = null
@@ -218,8 +283,7 @@ class FurinaBridge(
         generationJob = null
     }
 
-    @JavascriptInterface
-    fun backupInfo(): String = backupManager.infoJson()
+    @JavascriptInterface fun backupInfo(): String = backupManager.infoJson()
 
     @JavascriptInterface
     fun chooseBackupFolder() {
@@ -273,10 +337,23 @@ class FurinaBridge(
     fun destroy() {
         generationJob?.cancel()
         prepareJob?.cancel()
-        // The llama runtime is process-wide; Android frees native memory with the process.
         scope.cancel()
         store.close()
     }
+
+    private fun localRoute(spec: ModelSpec): AiRoute = AiRoute(
+        providerId = localProvider.id,
+        models = listOf(AiModelRef(
+            providerId = localProvider.id,
+            id = spec.id,
+            displayName = spec.displayName,
+            contextWindow = 4_096,
+            maxOutputTokens = 1_024,
+            local = true,
+            reasoning = true,
+        )),
+        automaticFallback = false,
+    )
 
     private fun selectedModelId(): String {
         val fallback = ModelCatalog.models.first().id
@@ -316,7 +393,12 @@ class FurinaBridge(
     private fun friendlyEngineError(error: Throwable): String {
         val raw = error.message.orEmpty()
         val type = error::class.java.simpleName
+        val providerError = error as? AiProviderException
         return when {
+            providerError?.statusCode == 401 -> "API key ${providerError.providerId} tidak valid atau sudah dicabut. Tes ulang API key di Pengaturan."
+            providerError?.statusCode == 429 -> "Kuota/rate limit model online sedang habis. Semua model gratis cadangan yang tersedia sudah dicoba."
+            providerError?.statusCode == 403 -> raw.ifBlank { "API key valid tetapi proyek tidak memiliki izin untuk model ini." }
+            providerError != null -> raw.ifBlank { "Provider online gagal (HTTP ${providerError.statusCode ?: "?"})." }
             error is kotlinx.coroutines.TimeoutCancellationException -> "Mesin AI terlalu lama disiapkan. Tutup aplikasi lain lalu coba lagi."
             raw.contains("RAM aman", ignoreCase = true) -> raw
             raw.startsWith("llama.cpp:", ignoreCase = true) -> "Mesin AI gagal memuat model. $raw"
@@ -343,6 +425,10 @@ class FurinaBridge(
 
     private fun emitState(state: String, modelId: String, progress: Double) {
         eval("window.__furinaNativeState && window.__furinaNativeState(${JSONObject.quote(state)}, ${JSONObject.quote(modelId)}, $progress)")
+    }
+
+    private fun emitOnlineResult(requestId: String, payload: JSONObject) {
+        eval("window.__furinaOnlineResult && window.__furinaOnlineResult(${JSONObject.quote(requestId)}, $payload)")
     }
 
     private fun emitBackup(success: Boolean, message: String) {
