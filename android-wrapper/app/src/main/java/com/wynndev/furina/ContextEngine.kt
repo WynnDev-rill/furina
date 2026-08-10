@@ -1,5 +1,6 @@
 package com.wynndev.furina
 
+import android.content.Context
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -8,10 +9,15 @@ import java.util.Locale
  * Provider-independent identity and retrieval layer. The model is deliberately absent
  * from stored continuity, so changing providers or models cannot change Furina's identity.
  */
-class ContextEngine(
-    private val store: MemoryStore,
-    private val companion: CompanionIntelligence,
-) {
+class ContextEngine(private val store: MemoryStore) {
+    // MemoryStore owns the application Context privately. minify is disabled for this APK,
+    // so reflecting our own field keeps the public MemoryStore API stable while this v2
+    // companion layer remains isolated and easy to remove/migrate later.
+    private val companion = CompanionIntelligence(storeContext(), store)
+
+    fun observeUserTurn(sessionId: String, text: String) = companion.observeUserTurn(sessionId, text)
+    fun reconcileMemories() = companion.reconcileMemories()
+
     fun build(
         sessionId: String,
         query: String,
@@ -106,6 +112,12 @@ class ContextEngine(
         val now = ZonedDateTime.now()
         val formatted = now.format(DateTimeFormatter.ofPattern("EEEE, d MMMM uuuu, HH:mm", Locale.forLanguageTag("id-ID")))
         return "Current device date and time: $formatted (${now.zone.id}). Use this exact value if the user asks; do not guess or claim you lack access."
+    }
+
+    private fun storeContext(): Context {
+        val field = MemoryStore::class.java.getDeclaredField("context")
+        field.isAccessible = true
+        return (field.get(store) as Context).applicationContext
     }
 
     private fun String.bounded(limit: Int, keepEnd: Boolean = false): String {
