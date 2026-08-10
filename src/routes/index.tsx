@@ -1397,6 +1397,20 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   );
 }
 
+function BootScreen({ visible }: { visible: boolean }) {
+  return (
+    <div className={`boot-screen ${visible ? "" : "boot-hidden"}`} aria-hidden={!visible}>
+      <div className="boot-orb boot-orb-1" />
+      <div className="boot-orb boot-orb-2" />
+      <div className="boot-orb boot-orb-3" />
+      <div className="relative z-10 flex flex-col items-center">
+        <div className="boot-ring" />
+        <div className="boot-label">Memuat</div>
+      </div>
+    </div>
+  );
+}
+
 function MsgStatusIcon({ status }: { status?: MsgStatus }) {
   if (!status) return null;
   if (status === "sending") return <Loader2 className="h-3 w-3 animate-spin opacity-70" />;
