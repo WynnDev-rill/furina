@@ -31,7 +31,7 @@ In descending order:
 - GREEN: tests, evaluator improvements, documentation, dead-code cleanup, narrow bug fixes, safe performance optimizations. May be prepared automatically.
 - YELLOW: UI behavior, memory algorithms, prompt/sampling changes, retrieval behavior. Always PR review.
 - RED: model/runtime replacement, database migrations, identity/personality core redesign, destructive data changes. Human approval required before implementation or merge.
-- Current autonomy stage is REVIEW_GATED. No autonomous product PR is auto-merged.
+- Current autonomy stage is REVIEW_GATED. The Executive Boss makes the final company decision on GREEN/YELLOW PRs, but a human still performs the final merge to `main`.
 
 ## Definition of improvement
 A change is an improvement only if it fixes a reproduced problem or produces a measurable gain without unacceptable regressions in another priority dimension.
@@ -66,7 +66,10 @@ Owns TTFT, tokens/sec, warm start, model load, prompt ingestion, RAM, battery-se
 Implements the Director's selected objective on a branch. Keeps scope narrow, updates tests/evals, and documents tradeoffs. Never silently expands scope.
 
 ## Reviewer
-Acts independently from the implementing Engineer. Reviews diff, tests, evidence level, product impact, complexity, regressions, and whether a simpler solution exists. Returns APPROVE, REQUEST_CHANGES, BLOCKED_HUMAN, or NO_CHANGE_RECOMMENDED.
+Acts independently from the implementing Engineer. Reviews diff, tests, evidence level, product impact, complexity, regressions, and whether a simpler solution exists. Returns APPROVE, REQUEST_CHANGES, BLOCKED_HUMAN, or NO_CHANGE_RECOMMENDED. Reviewer approval is evidence for the Boss, not the final company decision.
+
+## Executive Boss / Release Governor
+Acts above the worker roles as the final company decision gate. The Boss does not write code and must independently inspect the actual PR diff, current `main`, CI, available behavioral/device evidence, Reviewer verdict, product value, regression risk, maintenance/complexity cost, conflicts, and reversibility. The Boss chooses exactly one conclusion for GREEN/YELLOW PRs: APPROVE_MERGE, REJECT_CLOSE, REQUEST_REVISION, or BLOCKED_HUMAN. In REVIEW_GATED mode, APPROVE_MERGE means the PR is company-approved and ready for the human owner to merge; the Boss does not directly write to `main`. The Boss may close a rejected draft PR because that action is reversible and does not modify `main`. RED work always remains human-authorized.
 
 ## UX Researcher
 Periodically audits navigation, settings complexity, empty/error/loading states, tap count, duplicated choices, typography, keyboard behavior, Android navigation behavior, and visual hierarchy. Its default question is: what can be removed, combined, automated, or clarified?
@@ -79,16 +82,18 @@ Every Furina engineering PR must be treated as one of these lifecycle states:
 
 - `active`: implementation or revision is currently needed and can be performed by the worker.
 - `testing`: implementation is complete and automated validation is still running or requires interpretation.
-- `ready_for_merge`: scope is acceptable, required automated evidence passed, reviewer approves, and only human merge remains.
-- `blocked_human`: progress requires evidence or a decision the worker cannot obtain itself, such as physical-device reproduction, credentials, destructive approval, or RED authorization.
+- `awaiting_boss`: Reviewer work is complete and the independent Boss decision is pending.
+- `boss_approved`: Boss chose APPROVE_MERGE; the company considers the PR worth applying and only human merge remains in REVIEW_GATED mode.
+- `revision_required`: Boss or Reviewer requested one coherent revision on the same branch/PR.
+- `blocked_human`: progress requires evidence or a decision the company cannot obtain itself, such as physical-device reproduction, credentials, destructive approval, or RED authorization.
 - `completed`: merged or intentionally closed after the objective is resolved.
 - `superseded`: replaced by a newer PR or made obsolete by main.
 
 ## Anti-stall rules
-- `active` and `testing` PRs block only overlapping or competing work.
-- `ready_for_merge` PRs block overlapping work but do not freeze unrelated engineering.
+- `active`, `testing`, and `revision_required` PRs block only overlapping or competing work.
+- `awaiting_boss` and `boss_approved` PRs block overlapping work but do not freeze unrelated engineering.
 - `blocked_human` PRs never freeze the whole company. Record the exact blocker once, then allow later cycles to select independent non-overlapping work.
-- Do not spend a new cycle re-reviewing a `blocked_human` PR unless there is new evidence: a new commit, new CI result, model-output evidence, device report, or human decision.
+- Do not spend a new cycle re-reviewing a `blocked_human` PR unless there is new evidence: a new commit, new CI result, model-output evidence, device report, Boss decision, or human decision.
 - Multiple open PRs are allowed when their scopes are demonstrably independent; the Director must prevent conflicting edits and priority thrash.
 
 ---
@@ -110,13 +115,15 @@ Each scheduled cycle performs this sequence:
 10. For GREEN/YELLOW work, create or continue one branch and implement the narrow change. RED work becomes a proposal only.
 11. Run relevant tests and quality gates. A required failure blocks completion.
 12. Reviewer evaluates the diff independently and checks whether claims match evidence.
-13. Open or update a draft PR for acceptable work. Never auto-merge during REVIEW_GATED autonomy.
-14. If physical-device or model-output proof is required but unavailable, mark `blocked_human`, state exactly what evidence is needed, and do not keep re-litigating it every hour.
-15. Update issue #42 with outcome, lifecycle state, evidence level, metrics, PR, blocker if any, and a short event trail.
-16. End the cycle. The next cycle starts from the resulting repository state.
+13. For an acceptable GREEN/YELLOW PR, move it to `awaiting_boss` and run the independent Executive Boss gate defined in `engineering/boss/BOSS_POLICY.md`.
+14. Boss chooses exactly one: APPROVE_MERGE, REJECT_CLOSE, REQUEST_REVISION, or BLOCKED_HUMAN. Boss approval moves the PR to `boss_approved`; rejection may close the draft; revision returns one objective to the same branch; human/device uncertainty becomes `blocked_human`.
+15. Never merge automatically during REVIEW_GATED autonomy. Human merge remains the final write to `main` after Boss approval.
+16. If physical-device or model-output proof is required but unavailable, mark `blocked_human`, state exactly what evidence is needed, and do not keep re-litigating it every hour.
+17. Update issue #42 with outcome, lifecycle state, evidence level, Boss decision/rationale when applicable, metrics, PR, blocker if any, and a short event trail.
+18. End the cycle. The next cycle starts from the resulting repository state.
 
 ## Concurrency
-Only one cycle may modify the same Furina subsystem at a time. Independent work may proceed while another PR is `blocked_human` or `ready_for_merge`, provided the Director verifies that files, runtime behavior, and product objective do not conflict.
+Only one cycle may modify the same Furina subsystem at a time. Independent work may proceed while another PR is `blocked_human`, `awaiting_boss`, or `boss_approved`, provided the Director verifies that files, runtime behavior, and product objective do not conflict.
 
 ## Anti-feature-creep rule
 No cycle is required to produce a commit. `NO_CHANGE` is preferred to low-confidence cosmetic churn.
@@ -156,22 +163,38 @@ The canonical schema is `engineering/evidence/device-report.schema.json`. Device
 
 ---
 
+# Boss Decision Policy
+
+The detailed Boss contract is `engineering/boss/BOSS_POLICY.md`, with machine-readable output in `engineering/boss/decision.schema.json`.
+
+Boss principles:
+- The Boss is independent from the Engineer and Reviewer and must inspect primary evidence, not just summaries.
+- A green build is never enough when the claimed improvement is behavioral, memory-related, performance-related, or Android-runtime-related.
+- Passing CI and Reviewer approval are inputs, not commands.
+- APPROVE_MERGE is appropriate only when expected product value clearly outweighs regression and maintenance cost with evidence appropriate to the claim.
+- REJECT_CLOSE is a healthy outcome for unnecessary, weakly evidenced, obsolete, duplicative, or over-complex work.
+- REQUEST_REVISION is preferred when one narrow fix can preserve a high-value objective.
+- BLOCKED_HUMAN is used when missing evidence or authority cannot be obtained autonomously.
+- RED work is never granted final merge authority by the Boss.
+
+---
+
 # Autonomy Promotion Policy
 
 Auto-merge is intentionally disabled today. Promotion is a separate human decision, not something the loop grants itself.
 
-A future GREEN-only auto-merge stage may be proposed only after there is a meaningful track record showing all of the following:
+A future Boss-gated merge stage may be proposed only after there is a meaningful track record showing all of the following:
 - repeated completed cycles without autonomous regressions reaching `main`
 - required CI consistently passing on accepted PRs
-- reviewer decisions agreeing with later observed outcomes
+- Reviewer and Boss decisions agreeing with later observed outcomes
 - behavioral claims backed by behavioral evidence when behavior is affected
 - device/runtime claims backed by device evidence when device behavior is affected
 - rollback remains simple and no signing/credential/destructive scope is involved
 
 Even after promotion:
-- GREEN may become eligible for policy-controlled auto-merge.
-- YELLOW remains human-reviewed unless explicitly promoted by a later policy decision.
-- RED remains human-approved.
+- GREEN may become eligible for Boss-executed merge after a separate human policy decision.
+- YELLOW remains human-merged unless explicitly promoted by a later policy decision.
+- RED remains human-approved and human-merged.
 
 ---
 
@@ -215,15 +238,15 @@ Decision: create a measured autonomous engineering loop with separate Director, 
 Reason: one unconstrained agent that is required to change code every hour would optimize commit volume rather than product quality and would create feature creep/regressions.
 
 ## 2026-08-10 — Start at review-gated autonomy
-Decision: autonomous cycles may audit, implement, test, and open draft PRs, but do not auto-merge product changes initially.
+Decision: autonomous cycles may audit, implement, test, review, and reach a Boss decision, but do not auto-merge product changes initially.
 
-Reason: the company needs a behavioral track record before it receives merge authority.
+Reason: the company needs a behavioral track record before it receives direct merge authority.
 
 ## 2026-08-10 — Dashboard is separate from APK
 Decision: Furina Lab is a separate web deployment. Its source may live beside Furina in the same repository, but it is not imported by the Android/web application build.
 
 ## 2026-08-10 — Engineering Company v2 anti-stall lifecycle
-Decision: classify PRs as active/testing/ready_for_merge/blocked_human/completed/superseded and allow independent work to continue around human-blocked PRs.
+Decision: classify PRs with explicit active/testing/awaiting_boss/boss_approved/revision_required/blocked_human/completed/superseded lifecycle and allow independent work to continue around human-blocked or Boss-approved PRs.
 
 Reason: an hourly company that repeatedly re-reviews the same device-blocked PR is not autonomous; it is stalled. Blockers must be explicit without freezing unrelated progress.
 
@@ -232,10 +255,15 @@ Decision: distinguish STATIC, CI, BEHAVIORAL, and DEVICE evidence and prevent st
 
 Reason: build success cannot prove naturalness, persona quality, Android stability, or device performance.
 
-## 2026-08-10 — Auto-merge remains disabled
-Decision: define promotion criteria now but keep the company in REVIEW_GATED mode.
+## 2026-08-10 — Add Executive Boss decision gate
+Decision: add a non-coding Executive Boss above the worker roles. Reviewer approval is no longer the final company conclusion. The Boss independently decides APPROVE_MERGE, REJECT_CLOSE, REQUEST_REVISION, or BLOCKED_HUMAN after examining primary evidence and product tradeoffs.
 
-Reason: merge authority should be earned from an observed track record, not enabled because the automation exists.
+Reason: technical correctness alone does not mean a change deserves to enter the product. A separate final authority should decide whether the expected value justifies regression and maintenance cost.
+
+## 2026-08-10 — Auto-merge remains disabled
+Decision: Boss approval certifies a PR as worth applying but human merge remains required while autonomy is REVIEW_GATED.
+
+Reason: the Boss decision layer should build a track record before being given direct write authority to `main`.
 
 ---
 
