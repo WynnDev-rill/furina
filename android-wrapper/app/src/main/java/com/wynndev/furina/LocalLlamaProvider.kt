@@ -19,7 +19,7 @@ class LocalLlamaProvider(
     private val onState: (String, String, Double) -> Unit,
 ) : AiProvider {
     override val id = "local-llama"
-    override val capabilities = AiProviderCapabilities(streaming = true, offline = true)
+    override val capabilities = AiProviderCapabilities(streaming = true, offline = true, reasoning = true)
 
     private val appContext = context.applicationContext
     private val engine: InferenceEngine = AiChat.getInferenceEngine(appContext)
@@ -30,14 +30,12 @@ class LocalLlamaProvider(
     @Volatile private var loadedIdentityFingerprint: Int? = null
     @Volatile private var loadedRetrievalFingerprint: Int? = null
 
-    override fun isWarm(model: ModelSpec, context: AiContext): Boolean =
+    override fun isWarm(model: AiModelRef, context: AiContext): Boolean =
         loadedModelId == model.id && engine.state.value is InferenceEngine.State.ModelReady
 
-    override suspend fun prepare(model: ModelSpec, context: AiContext) = loadMutex.withLock {
+    override suspend fun prepare(model: AiModelRef, context: AiContext) = loadMutex.withLock {
+        val localSpec = ModelCatalog.byId(model.id) ?: error("Model lokal tidak dikenal: ${model.id}")
         if (isWarm(model, context)) {
-            // The native runtime already retains this session's chat/KV cache.
-            // Reprocessing the entire continuity prompt on every turn was the
-            // main avoidable first-token delay.
             if (loadedSessionId != context.sessionId || loadedIdentityFingerprint != context.identityFingerprint) {
                 onState("prompting", model.id, 0.85)
                 engine.setSystemPrompt(context.systemPrompt)
@@ -58,7 +56,7 @@ class LocalLlamaProvider(
 
         onState("preparing", model.id, 0.0)
         withContext(Dispatchers.IO) {
-            if (!modelDownloads.verifySerialized(model) { done, total ->
+            if (!modelDownloads.verifySerialized(localSpec) { done, total ->
                     if (total > 0L) onState("verifying", model.id, done.toDouble() / total.toDouble())
                 }) {
                 throw IllegalStateException("Checksum model tidak cocok. Hapus lalu unduh ulang model.")
@@ -70,7 +68,7 @@ class LocalLlamaProvider(
             unload()
         }
 
-        val file = modelDownloads.modelFile(model)
+        val file = modelDownloads.modelFile(localSpec)
         require(file.exists() && file.canRead()) { "File model tidak dapat dibaca: ${file.absolutePath}" }
         onState("loading", model.id, 0.15)
         engine.loadModel(file.absolutePath)
@@ -100,9 +98,7 @@ class LocalLlamaProvider(
                 appendLine("[END PRIVATE RELEVANT CONTINUITY]")
                 append(request.userMessage)
             }
-        } else {
-            request.userMessage
-        }
+        } else request.userMessage
 
         try {
             engine.sendUserPrompt(effectiveMessage, request.predictLength).collect { token ->
@@ -120,8 +116,6 @@ class LocalLlamaProvider(
             loadedRetrievalFingerprint = request.context.retrievalFingerprint
             check(emitted) { "Runtime lokal berhenti tanpa menghasilkan token" }
         } finally {
-            // A cancelled flow can leave partially decoded assistant tokens in
-            // native KV. Force a clean prompt rehydrate before the next turn.
             if (engine.state.value !is InferenceEngine.State.ModelReady || !emitted) {
                 loadedSessionId = null
                 loadedRetrievalFingerprint = null
@@ -182,19 +176,9 @@ class LocalLlamaProvider(
                                 mode = Mode.THINKING
                             }
                             "<think>".startsWith(candidate) -> break
-                            else -> {
-                                // A direct answer should be visible from its first
-                                // token; do not hold an arbitrary 16-character buffer.
-                                mode = Mode.ANSWER
-                            }
+                            else -> mode = Mode.ANSWER
                         }
-                        if (mode == Mode.THINKING) {
-                            continue
-                        } else if (mode == Mode.ANSWER) {
-                            continue
-                        } else {
-                            break
-                        }
+                        if (mode != Mode.UNDECIDED) continue else break
                     }
                     Mode.THINKING -> {
                         val end = pending.indexOf("</think>")
@@ -236,22 +220,16 @@ class LocalLlamaProvider(
                     if (char == '[') {
                         bracketOpen = true
                         bracket.append(char)
-                    } else if (!suppressPrivateBlock) {
-                        output.append(char)
-                    }
+                    } else if (!suppressPrivateBlock) output.append(char)
                 } else {
                     bracket.append(char)
                     if (char == ']' || bracket.length >= 160) {
                         val candidate = bracket.toString()
                         val privateMarker = candidate.contains("PRIVATE", ignoreCase = true) &&
-                            (candidate.contains("CONTEXT", ignoreCase = true) ||
-                                candidate.contains("CONTINUITY", ignoreCase = true))
+                            (candidate.contains("CONTEXT", ignoreCase = true) || candidate.contains("CONTINUITY", ignoreCase = true))
                         val endMarker = privateMarker && candidate.contains("END", ignoreCase = true)
-                        if (privateMarker) {
-                            suppressPrivateBlock = !endMarker
-                        } else if (!suppressPrivateBlock) {
-                            output.append(candidate)
-                        }
+                        if (privateMarker) suppressPrivateBlock = !endMarker
+                        else if (!suppressPrivateBlock) output.append(candidate)
                         bracket.clear()
                         bracketOpen = false
                     }
