@@ -34,12 +34,15 @@ class ContextEngine(private val store: MemoryStore) {
             relevantHistory = companion.relevantHistory(query, sessionId, budget.historyItems).bounded(budget.historyChars),
             recentHistory = store.recentContext(sessionId, budget.recentMessages).bounded(budget.recentChars, keepEnd = true),
             runtimeContext = listOf(
-                companion.companionContext(),
+                companionStateContext(),
                 companion.reflectionContext(),
                 exactRuntimeContext(query),
             ).filter { it.isNotBlank() }.joinToString("\n\n"),
         )
     }
+
+    /** Backward-compatible name kept for CI and provider-neutral continuity contracts. */
+    private fun companionStateContext(): String = companion.companionContext()
 
     /**
      * Character budgets stay conservative so local 4K models keep enough room for the
