@@ -65,7 +65,7 @@ class ContextEngine(private val store: MemoryStore) {
         groups.forEach { group ->
             if (group.any { lower.contains(it) }) expansions += group
         }
-        return if (expansions.isEmpty()) query else query + " " + expansions.flatten().joinToString(" ")
+        return if (expansions.isEmpty()) query else query + " " + expansions.joinToString(" ")
     }
 
     private fun identityPrompt(characterName: String, customPersona: String): String {
