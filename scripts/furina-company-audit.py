@@ -82,7 +82,8 @@ def main() -> int:
             "message": "Build-time runtime policy explicitly disables thinking for the companion runtime."
         })
 
-    model_count = len(re.findall(r"ModelSpec\s*\(", catalog)) or len(re.findall(r"LocalModel", catalog))
+    model_list = catalog.split("val models = listOf(", 1)[1] if "val models = listOf(" in catalog else ""
+    model_count = len(re.findall(r"\bModelSpec\s*\(", model_list))
     latest_first = "latest" in context.lower() or "answer the latest" in context.lower()
 
     result = {
@@ -94,7 +95,7 @@ def main() -> int:
             "unifiedEnginePresent": bool(unified),
             "cpuOnlyOverlay": cpu_only,
             "thinkingDisabledByPolicy": thinking_disabled,
-            "modelCatalogEntriesApprox": model_count,
+            "modelCatalogEntries": model_count,
             "latestMessagePrioritySignal": latest_first
         },
         "findings": findings
