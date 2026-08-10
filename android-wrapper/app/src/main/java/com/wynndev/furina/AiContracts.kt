@@ -16,6 +16,19 @@ data class AiAttachment(
     val displayName: String,
 )
 
+/**
+ * Provider-neutral model identity. Local GGUF metadata stays in ModelSpec while the
+ * orchestration layer only depends on capabilities that matter to prompting.
+ */
+data class AiModelRef(
+    val providerId: String,
+    val id: String,
+    val displayName: String,
+    val contextWindowTokens: Int = 4_096,
+    val maxOutputTokens: Int = 1_024,
+    val offline: Boolean = false,
+)
+
 data class AiContext(
     val sessionId: String,
     val identityPrompt: String,
@@ -55,7 +68,7 @@ data class AiContext(
 data class AiGenerationRequest(
     val requestId: String,
     val sessionId: String,
-    val model: ModelSpec,
+    val model: AiModelRef,
     val context: AiContext,
     val userMessage: String,
     val attachments: List<AiAttachment> = emptyList(),
@@ -66,13 +79,15 @@ data class AiProviderCapabilities(
     val streaming: Boolean,
     val offline: Boolean,
     val attachments: Set<String> = emptySet(),
+    val systemPrompt: Boolean = true,
 )
 
 interface AiProvider {
     val id: String
     val capabilities: AiProviderCapabilities
-    suspend fun prepare(model: ModelSpec, context: AiContext)
+    suspend fun prepare(model: AiModelRef, context: AiContext)
     fun stream(request: AiGenerationRequest): Flow<String>
     suspend fun unload()
-    fun isWarm(model: ModelSpec, context: AiContext): Boolean
+    fun isWarm(model: AiModelRef, context: AiContext): Boolean
+    fun resolvedModelId(): String? = null
 }

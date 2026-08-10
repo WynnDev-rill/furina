@@ -30,21 +30,22 @@ class LocalLlamaProvider(
     @Volatile private var loadedIdentityFingerprint: Int? = null
     @Volatile private var loadedRetrievalFingerprint: Int? = null
 
-    override fun isWarm(model: ModelSpec, context: AiContext): Boolean =
+    override fun isWarm(model: AiModelRef, context: AiContext): Boolean =
         loadedModelId == model.id && engine.state.value is InferenceEngine.State.ModelReady
 
-    override suspend fun prepare(model: ModelSpec, context: AiContext) = loadMutex.withLock {
+    override suspend fun prepare(model: AiModelRef, context: AiContext) = loadMutex.withLock {
+        val spec = ModelCatalog.byId(model.id) ?: error("Model lokal tidak dikenal: ${model.id}")
         if (isWarm(model, context)) {
             // The native runtime already retains this session's chat/KV cache.
             // Reprocessing the entire continuity prompt on every turn was the
             // main avoidable first-token delay.
             if (loadedSessionId != context.sessionId || loadedIdentityFingerprint != context.identityFingerprint) {
-                onState("prompting", model.id, 0.85)
+                onState("prompting", spec.id, 0.85)
                 engine.setSystemPrompt(context.systemPrompt)
                 loadedSessionId = context.sessionId
                 loadedIdentityFingerprint = context.identityFingerprint
                 loadedRetrievalFingerprint = context.retrievalFingerprint
-                onState("ready", model.id, 1.0)
+                onState("ready", spec.id, 1.0)
             }
             return@withLock
         }
@@ -56,10 +57,10 @@ class LocalLlamaProvider(
         }
         if (isWarm(model, context)) return@withLock
 
-        onState("preparing", model.id, 0.0)
+        onState("preparing", spec.id, 0.0)
         withContext(Dispatchers.IO) {
-            if (!modelDownloads.verifySerialized(model) { done, total ->
-                    if (total > 0L) onState("verifying", model.id, done.toDouble() / total.toDouble())
+            if (!modelDownloads.verifySerialized(spec) { done, total ->
+                    if (total > 0L) onState("verifying", spec.id, done.toDouble() / total.toDouble())
                 }) {
                 throw IllegalStateException("Checksum model tidak cocok. Hapus lalu unduh ulang model.")
             }
@@ -70,17 +71,17 @@ class LocalLlamaProvider(
             unload()
         }
 
-        val file = modelDownloads.modelFile(model)
+        val file = modelDownloads.modelFile(spec)
         require(file.exists() && file.canRead()) { "File model tidak dapat dibaca: ${file.absolutePath}" }
-        onState("loading", model.id, 0.15)
+        onState("loading", spec.id, 0.15)
         engine.loadModel(file.absolutePath)
-        onState("prompting", model.id, 0.85)
+        onState("prompting", spec.id, 0.85)
         engine.setSystemPrompt(context.systemPrompt)
-        loadedModelId = model.id
+        loadedModelId = spec.id
         loadedSessionId = context.sessionId
         loadedIdentityFingerprint = context.identityFingerprint
         loadedRetrievalFingerprint = context.retrievalFingerprint
-        onState("ready", model.id, 1.0)
+        onState("ready", spec.id, 1.0)
     }
 
     override fun stream(request: AiGenerationRequest): Flow<String> = flow {
@@ -182,19 +183,9 @@ class LocalLlamaProvider(
                                 mode = Mode.THINKING
                             }
                             "<think>".startsWith(candidate) -> break
-                            else -> {
-                                // A direct answer should be visible from its first
-                                // token; do not hold an arbitrary 16-character buffer.
-                                mode = Mode.ANSWER
-                            }
+                            else -> mode = Mode.ANSWER
                         }
-                        if (mode == Mode.THINKING) {
-                            continue
-                        } else if (mode == Mode.ANSWER) {
-                            continue
-                        } else {
-                            break
-                        }
+                        continue
                     }
                     Mode.THINKING -> {
                         val end = pending.indexOf("</think>")
@@ -244,14 +235,10 @@ class LocalLlamaProvider(
                     if (char == ']' || bracket.length >= 160) {
                         val candidate = bracket.toString()
                         val privateMarker = candidate.contains("PRIVATE", ignoreCase = true) &&
-                            (candidate.contains("CONTEXT", ignoreCase = true) ||
-                                candidate.contains("CONTINUITY", ignoreCase = true))
+                            (candidate.contains("CONTEXT", ignoreCase = true) || candidate.contains("CONTINUITY", ignoreCase = true))
                         val endMarker = privateMarker && candidate.contains("END", ignoreCase = true)
-                        if (privateMarker) {
-                            suppressPrivateBlock = !endMarker
-                        } else if (!suppressPrivateBlock) {
-                            output.append(candidate)
-                        }
+                        if (privateMarker) suppressPrivateBlock = !endMarker
+                        else if (!suppressPrivateBlock) output.append(candidate)
                         bracket.clear()
                         bracketOpen = false
                     }

@@ -24,23 +24,35 @@ class FurinaBridge(
     private val prefs = activity.getSharedPreferences("furina_native", 0)
     private val contextEngine = ContextEngine(store)
     private val localProvider = LocalLlamaProvider(activity.applicationContext, modelDownloads, ::emitState)
-    private val aiEngine = UnifiedAiEngine(store, contextEngine, mapOf(localProvider.id to localProvider))
+    private val aiRuntime = AiRuntimeController(activity.applicationContext)
+    private val providers: Map<String, AiProvider> = buildMap {
+        put(localProvider.id, localProvider)
+        putAll(aiRuntime.onlineProviders)
+    }
+    private val aiEngine = UnifiedAiEngine(store, contextEngine, providers)
     private var generationJob: Job? = null
     private var prepareJob: Job? = null
     private val verificationJobs = mutableMapOf<String, Job>()
     private val verificationProgress = mutableMapOf<String, Double>()
 
     @JavascriptInterface
-    fun nativeInfo(): String = JSONObject()
-        .put("available", true)
-        .put("version", "4.0")
-        .put("selectedModelId", selectedModelId())
-        .put("runtime", "llama.cpp Android native")
-        .put("aiEngine", "unified-provider-v1")
-        .put("provider", localProvider.id)
-        .put("contextStrategy", "identity + summary + relevant memory + recent history")
-        .put("offline", localProvider.capabilities.offline)
-        .toString()
+    fun nativeInfo(): String {
+        val runtime = aiRuntime.modeSummaryJson()
+        return JSONObject()
+            .put("available", true)
+            .put("version", "4.1")
+            .put("selectedModelId", selectedModelId())
+            .put("runtime", if (runtime.optString("mode") == OnlineAiConfigStore.MODE_ONLINE) "Online API" else "llama.cpp Android native")
+            .put("aiEngine", "unified-provider-v2")
+            .put("provider", runtime.optString("provider"))
+            .put("providerName", runtime.optString("providerName"))
+            .put("aiMode", runtime.optString("mode"))
+            .put("onlineReady", runtime.optBoolean("onlineReady"))
+            .put("autoFallback", runtime.optBoolean("autoFallback"))
+            .put("contextStrategy", "model-aware identity + summary + relevant memory + recent history")
+            .put("offline", runtime.optString("mode") != OnlineAiConfigStore.MODE_ONLINE)
+            .toString()
+    }
 
     @JavascriptInterface
     fun modelCatalog(): String {
@@ -100,6 +112,70 @@ class FurinaBridge(
     }
 
     @JavascriptInterface
+    fun onlineAiSettings(): String = aiRuntime.settingsJson()
+
+    @JavascriptInterface
+    fun setAiMode(mode: String) {
+        aiRuntime.setMode(mode)
+        scope.launch { aiEngine.unload() }
+        emitOnlineAi("settings", aiRuntime.config.selectedProvider(), true, "Mode AI diperbarui")
+    }
+
+    @JavascriptInterface
+    fun setOnlineProvider(providerId: String) {
+        aiRuntime.setProvider(providerId)
+        scope.launch { aiEngine.unload() }
+        emitOnlineAi("settings", providerId, true, "Provider dipilih")
+    }
+
+    @JavascriptInterface
+    fun setOnlineModel(providerId: String, modelId: String) {
+        aiRuntime.setModel(providerId, modelId)
+        emitOnlineAi("settings", providerId, true, "Model utama diperbarui")
+    }
+
+    @JavascriptInterface
+    fun setOnlineAutoFallback(enabled: Boolean) {
+        aiRuntime.setAutoFallback(enabled)
+        emitOnlineAi("settings", aiRuntime.config.selectedProvider(), true, if (enabled) "Fallback otomatis aktif" else "Fallback otomatis nonaktif")
+    }
+
+    @JavascriptInterface
+    fun saveOnlineApiKey(providerId: String, apiKey: String) {
+        try {
+            aiRuntime.saveKey(providerId, apiKey)
+            emitOnlineAi("saved", providerId, true, "API key disimpan aman di Android Keystore")
+            testOnlineProvider(providerId)
+        } catch (e: Throwable) {
+            emitOnlineAi("saved", providerId, false, e.message ?: "API key gagal disimpan")
+        }
+    }
+
+    @JavascriptInterface
+    fun deleteOnlineApiKey(providerId: String) {
+        aiRuntime.removeKey(providerId)
+        emitOnlineAi("deleted", providerId, true, "API key dihapus")
+    }
+
+    @JavascriptInterface
+    fun testOnlineProvider(providerId: String) {
+        scope.launch {
+            emitOnlineAi("testing", providerId, true, "Menguji API key dan katalog model gratis…")
+            val result = aiRuntime.test(providerId)
+            emitOnlineAi("tested", providerId, result.success, result.message)
+        }
+    }
+
+    @JavascriptInterface
+    fun refreshOnlineModels(providerId: String) {
+        scope.launch {
+            emitOnlineAi("refreshing", providerId, true, "Memperbarui model gratis…")
+            val result = aiRuntime.refresh(providerId)
+            emitOnlineAi("refreshed", providerId, result.success, result.message)
+        }
+    }
+
+    @JavascriptInterface
     fun createSession(): String {
         val id = store.createSession()
         return JSONObject().put("id", id).put("title", "Percakapan baru").put("createdAt", System.currentTimeMillis()).toString()
@@ -152,11 +228,13 @@ class FurinaBridge(
     @JavascriptInterface
     fun prepareModel(sessionId: String, characterName: String, persona: String) {
         if (sessionId.isBlank() || generationJob?.isActive == true || prepareJob?.isActive == true) return
+        if (aiRuntime.config.mode() == OnlineAiConfigStore.MODE_ONLINE) return
         prepareJob = scope.launch {
             try {
-                val model = ModelCatalog.byId(selectedModelId()) ?: return@launch
-                if (modelDownloads.status(model).optString("state") != "ready") return@launch
-                aiEngine.prepare(model, sessionId, characterName, persona)
+                val localModel = ModelCatalog.byId(selectedModelId()) ?: return@launch
+                if (modelDownloads.status(localModel).optString("state") != "ready") return@launch
+                val (providerId, model) = aiRuntime.resolve(localModel)
+                aiEngine.prepare(providerId, model, sessionId, characterName, persona)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -179,13 +257,16 @@ class FurinaBridge(
 
         generationJob = scope.launch {
             try {
-                val model = ModelCatalog.byId(selectedModelId()) ?: error("Model AI tidak dikenal")
-                val modelState = modelDownloads.status(model).optString("state")
-                if (modelState != "ready") error("Unduh ${model.displayName} terlebih dahulu")
+                val localModel = ModelCatalog.byId(selectedModelId()) ?: error("Model AI lokal tidak dikenal")
+                if (aiRuntime.config.mode() != OnlineAiConfigStore.MODE_ONLINE) {
+                    val modelState = modelDownloads.status(localModel).optString("state")
+                    if (modelState != "ready") error("Unduh ${localModel.displayName} terlebih dahulu")
+                }
+                val (providerId, model) = aiRuntime.resolve(localModel)
                 emitState("thinking", model.id, 0.0)
                 val pending = StringBuilder()
                 var lastDispatch = android.os.SystemClock.elapsedRealtime()
-                val result = aiEngine.generate(requestId, model, sessionId, clean, characterName, persona) { token ->
+                val result = aiEngine.generate(requestId, providerId, model, sessionId, clean, characterName, persona) { token ->
                     pending.append(token)
                     val now = android.os.SystemClock.elapsedRealtime()
                     if (pending.length >= 24 || now - lastDispatch >= 45L) {
@@ -273,7 +354,6 @@ class FurinaBridge(
     fun destroy() {
         generationJob?.cancel()
         prepareJob?.cancel()
-        // The llama runtime is process-wide; Android frees native memory with the process.
         scope.cancel()
         store.close()
     }
@@ -317,7 +397,9 @@ class FurinaBridge(
         val raw = error.message.orEmpty()
         val type = error::class.java.simpleName
         return when {
+            error is OnlineProviderException -> raw.ifBlank { "Provider online gagal" }
             error is kotlinx.coroutines.TimeoutCancellationException -> "Mesin AI terlalu lama disiapkan. Tutup aplikasi lain lalu coba lagi."
+            raw.contains("API key", ignoreCase = true) || raw.contains("model gratis", ignoreCase = true) || raw.contains("kuota", ignoreCase = true) -> raw
             raw.contains("RAM aman", ignoreCase = true) -> raw
             raw.startsWith("llama.cpp:", ignoreCase = true) -> "Mesin AI gagal memuat model. $raw"
             raw.contains("memory", ignoreCase = true) || raw.contains("allocate", ignoreCase = true) ->
@@ -343,6 +425,10 @@ class FurinaBridge(
 
     private fun emitState(state: String, modelId: String, progress: Double) {
         eval("window.__furinaNativeState && window.__furinaNativeState(${JSONObject.quote(state)}, ${JSONObject.quote(modelId)}, $progress)")
+    }
+
+    private fun emitOnlineAi(event: String, providerId: String, success: Boolean, message: String) {
+        eval("window.__furinaOnlineAi && window.__furinaOnlineAi(${JSONObject.quote(event)}, ${JSONObject.quote(providerId)}, $success, ${JSONObject.quote(message)})")
     }
 
     private fun emitBackup(success: Boolean, message: String) {

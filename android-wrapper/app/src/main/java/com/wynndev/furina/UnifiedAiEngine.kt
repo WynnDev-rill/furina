@@ -10,23 +10,37 @@ data class UnifiedGenerationResult(
     val metrics: JSONObject,
 )
 
-/** Single orchestration path for local and future online provider adapters. */
+/** Single orchestration path for local and online provider adapters. */
 class UnifiedAiEngine(
     private val store: MemoryStore,
     private val contextEngine: ContextEngine,
     private val providers: Map<String, AiProvider>,
 ) {
-    private fun provider(id: String = "local-llama"): AiProvider =
+    private fun provider(id: String): AiProvider =
         providers[id] ?: error("Provider AI tidak tersedia: $id")
 
-    suspend fun prepare(model: ModelSpec, sessionId: String, characterName: String, persona: String) {
+    suspend fun prepare(
+        providerId: String,
+        model: AiModelRef,
+        sessionId: String,
+        characterName: String,
+        persona: String,
+    ) {
         val query = store.lastUserMessage(sessionId)
-        provider().prepare(model, contextEngine.build(sessionId, query, characterName, persona))
+        val context = contextEngine.build(
+            sessionId = sessionId,
+            query = query,
+            characterName = characterName,
+            customPersona = persona,
+            contextWindowTokens = model.contextWindowTokens,
+        )
+        provider(providerId).prepare(model, context)
     }
 
     suspend fun generate(
         requestId: String,
-        model: ModelSpec,
+        providerId: String,
+        model: AiModelRef,
         sessionId: String,
         userText: String,
         characterName: String,
@@ -37,12 +51,18 @@ class UnifiedAiEngine(
         var firstTokenAt = 0L
         var tokenCount = 0
         store.observeUserTurn(userText)
-        val context = contextEngine.build(sessionId, userText, characterName, persona)
-        val activeProvider = provider()
+        val context = contextEngine.build(
+            sessionId = sessionId,
+            query = userText,
+            characterName = characterName,
+            customPersona = persona,
+            contextWindowTokens = model.contextWindowTokens,
+        )
+        val activeProvider = provider(providerId)
         val warmStart = activeProvider.isWarm(model, context)
         activeProvider.prepare(model, context)
 
-        // Persist the user turn even if native generation fails; retries then retain intent.
+        // Persist the user turn even if generation fails; a retry keeps the user's intent.
         val userId = store.addMessage(sessionId, "user", userText)
         val reply = StringBuilder()
         val request = AiGenerationRequest(
@@ -51,7 +71,7 @@ class UnifiedAiEngine(
             model = model,
             context = context,
             userMessage = userText,
-            predictLength = responseBudgetFor(userText),
+            predictLength = responseBudgetFor(userText).coerceAtMost(model.maxOutputTokens),
         )
         try {
             activeProvider.stream(request).collect { token ->
@@ -61,8 +81,6 @@ class UnifiedAiEngine(
                 onToken(token)
             }
         } catch (cancelled: CancellationException) {
-            // Cancellation has one owner: FurinaBridge. Propagating it avoids
-            // emitting both "done" and "cancelled" for the same request.
             throw cancelled
         }
 
@@ -80,6 +98,7 @@ class UnifiedAiEngine(
             .put("tokenCount", tokenCount)
             .put("warmStart", warmStart)
             .put("provider", activeProvider.id)
+            .put("model", activeProvider.resolvedModelId() ?: model.id)
         return UnifiedGenerationResult(userId, assistantId, metrics)
     }
 
@@ -92,7 +111,7 @@ class UnifiedAiEngine(
             ?.groupValues
             ?.getOrNull(1)
             ?.toIntOrNull()
-        if (requestedWords != null) return (requestedWords * 3 / 2).coerceIn(256, 1024)
+        if (requestedWords != null) return (requestedWords * 3 / 2).coerceIn(256, 1_024)
 
         val greeting = Regex(
             "^(hi+|hai+|halo+|hello+|hey+|pagi|siang|sore|malam|apa kabar)[!?. ,]*$"
