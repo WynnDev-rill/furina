@@ -107,6 +107,8 @@ class FurinaBridge(
 
     @JavascriptInterface
     fun setAiMode(mode: String): String {
+        prepareJob?.cancel()
+        prepareJob = null
         val result = onlineManager.setMode(mode)
         scope.launch { aiEngine.unload() }
         return result
@@ -114,6 +116,8 @@ class FurinaBridge(
 
     @JavascriptInterface
     fun selectOnlineProvider(providerId: String): String {
+        prepareJob?.cancel()
+        prepareJob = null
         val result = onlineManager.setProvider(providerId)
         scope.launch { aiEngine.unload() }
         return result

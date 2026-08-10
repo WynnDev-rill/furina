@@ -311,7 +311,9 @@ private object OpenAiHttp {
         Unit
     }
 
-    suspend fun streamChat(def: OnlineProviderDefinition, key: String, request: AiGenerationRequest, emit: suspend (String) -> Unit) = withContext(Dispatchers.IO) {
+    // Keep Flow emissions in the collector coroutine. Emitting from withContext(IO)
+    // violates Flow context preservation and can crash streaming at runtime.
+    suspend fun streamChat(def: OnlineProviderDefinition, key: String, request: AiGenerationRequest, emit: suspend (String) -> Unit) {
         val effectiveUser = if (request.context.runtimeContext.isNotBlank()) {
             "[PRIVATE RUNTIME CONTEXT]\n${request.context.runtimeContext}\n[END PRIVATE RUNTIME CONTEXT]\n${request.userMessage}"
         } else request.userMessage
@@ -375,7 +377,7 @@ private object OpenAiHttp {
                 "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b",
             )
             FreeModelStrategy.GEMINI_FREE_TIER ->
-                (lower.contains("flash") || lower.contains("gemma")) && !lower.contains("live")
+                lower.contains("flash") && !lower.contains("live") && !lower.contains("image")
         }
         if (!allowed) return null
 

@@ -22,8 +22,8 @@ import { speakClone, speakVoicevoxUrl } from "@/lib/furina.functions";
 export const Route = createFileRoute("/native")({
   head: () => ({
     meta: [
-      { title: "Furina — Offline Companion" },
-      { name: "description", content: "Furina offline companion dengan Qwen lokal, memori jangka panjang, dan backup terenkripsi." },
+      { title: "Furina — Private AI Companion" },
+      { name: "description", content: "Furina companion dengan AI lokal atau API key pribadi, memori jangka panjang, dan backup terenkripsi." },
     ],
   }),
   component: FurinaNativeApp,
@@ -51,11 +51,17 @@ type NativeMessage = { id: string; role: "user" | "assistant"; content: string; 
 type NativeSession = { id: string; title: string; createdAt: number; updatedAt?: number; messageCount?: number };
 type MemoryStats = { sessions: number; messages: number; memories: number; firstSeen: number; relationship?: string };
 type BackupInfo = { folderSelected: boolean; folderUri?: string; recoveryKey: string; lastBackup: number };
-type GenerationMetrics = { firstTokenMs: number; tokensPerSecond: number; tokenCount: number; warmStart: boolean };
+type GenerationMetrics = { firstTokenMs: number; tokensPerSecond: number; tokenCount: number; warmStart: boolean; provider?: string; model?: string; fallbackCount?: number };
+type OnlineModel = { id: string; name: string; contextWindow: number; maxOutputTokens: number; vision?: boolean; tools?: boolean; reasoning?: boolean };
+type OnlineProvider = { id: string; name: string; note: string; configured: boolean; selectedModelId: string; models: OnlineModel[]; lastRefresh: number };
+type OnlineAiSettings = { mode: "local" | "online"; providerId: string; autoFallback: boolean; providers: OnlineProvider[] };
+type OnlineResult = { success: boolean; message: string; keyValid?: boolean; generationReady?: boolean; settings?: OnlineAiSettings };
 type MemoryItem = { id: string; content: string; kind?: string; importance?: number; createdAt?: number; updatedAt?: number };
 type ThemeMode = "dark" | "light";
 type ReplyLanguage = "auto" | "ja" | "en" | "id";
 type TTSProvider = "voicevox" | "clone";
+
+const DEFAULT_ONLINE_AI: OnlineAiSettings = { mode: "local", providerId: "openrouter", autoFallback: true, providers: [] };
 
 type NativeBridge = {
   nativeInfo(): string;
@@ -65,6 +71,14 @@ type NativeBridge = {
   cancelModelDownload(modelId: string): string;
   deleteModel(modelId: string): void;
   selectModel(modelId: string): string;
+  onlineAiSettings(): string;
+  setAiMode(mode: string): string;
+  selectOnlineProvider(providerId: string): string;
+  selectOnlineModel(providerId: string, modelId: string): string;
+  setOnlineAutoFallback(enabled: boolean): string;
+  removeOnlineApiKey(providerId: string): string;
+  saveAndTestOnlineApiKey(providerId: string, apiKey: string, requestId: string): void;
+  refreshOnlineModels(providerId: string, requestId: string): void;
   createSession(): string;
   listSessions(): string;
   loadSession(sessionId: string): string;
@@ -96,6 +110,7 @@ declare global {
     __furinaNativeDone?: (requestId: string, userId: string, assistantId: string, metrics?: GenerationMetrics) => void;
     __furinaNativeError?: (requestId: string, message: string) => void;
     __furinaNativeState?: (state: string, modelId: string, progress: number) => void;
+    __furinaOnlineResult?: (requestId: string, payload: OnlineResult) => void;
     __furinaNativeBackup?: (success: boolean, message: string) => void;
     __furinaNativeRestored?: () => void;
   }
@@ -199,6 +214,9 @@ function FurinaNativeApp() {
   const [models, setModels] = useState<NativeModel[]>(FALLBACK_MODELS);
   const [statuses, setStatuses] = useState<Record<string, ModelStatus>>({});
   const [selectedModel, setSelectedModel] = useState("");
+  const [onlineAi, setOnlineAi] = useState<OnlineAiSettings>(DEFAULT_ONLINE_AI);
+  const [onlineKeyDraft, setOnlineKeyDraft] = useState<Record<string, string>>({});
+  const [onlineBusy, setOnlineBusy] = useState("");
   const [runtimeState, setRuntimeState] = useState("idle");
   const [runtimeProgress, setRuntimeProgress] = useState(0);
   const [runtimeError, setRuntimeError] = useState("");
@@ -251,6 +269,12 @@ function FurinaNativeApp() {
   }, [persona, language]);
 
   const bridge = () => typeof window !== "undefined" ? window.FurinaNative : undefined;
+
+  const refreshOnlineAi = useCallback(() => {
+    const b = bridge();
+    if (!b) return;
+    setOnlineAi(parseJson<OnlineAiSettings>(b.onlineAiSettings(), DEFAULT_ONLINE_AI));
+  }, []);
 
   const refreshStats = useCallback(() => {
     const b = bridge();
@@ -312,10 +336,11 @@ function FurinaNativeApp() {
     if (typeof saved.preGenAudio === "boolean") setPreGenAudio(saved.preGenAudio);
     setNativeReady(true);
     refreshModels();
+    refreshOnlineAi();
     refreshSessions();
     refreshStats();
     refreshMemories();
-  }, [refreshMemories, refreshModels, refreshSessions, refreshStats]);
+  }, [refreshMemories, refreshModels, refreshOnlineAi, refreshSessions, refreshStats]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -338,6 +363,17 @@ function FurinaNativeApp() {
     setHasCloneSample(Boolean(localStorage.getItem(PREF.cloneSample)));
 
     window.__furinaNativeReady = initialize;
+    window.__furinaOnlineResult = (requestId, payload) => {
+      if (payload.settings) setOnlineAi(payload.settings);
+      setOnlineBusy((current) => current === requestId ? "" : current);
+      if (payload.success) {
+        toast.success(payload.message);
+        if (requestId.startsWith("key:")) {
+          const providerId = requestId.split(":")[1];
+          setOnlineKeyDraft((prev) => ({ ...prev, [providerId]: "" }));
+        }
+      } else toast.error(payload.message);
+    };
     window.__furinaNativeToken = (requestId, chunk) => {
       if (requestRef.current !== requestId) return;
       const pendingId = `pending:${requestId}`;
@@ -390,6 +426,7 @@ function FurinaNativeApp() {
     initialize();
     return () => {
       delete window.__furinaNativeReady;
+      delete window.__furinaOnlineResult;
       delete window.__furinaNativeToken;
       delete window.__furinaNativeDone;
       delete window.__furinaNativeError;
@@ -438,13 +475,16 @@ function FurinaNativeApp() {
   }, [messages]);
 
   const selectedStatus = statuses[selectedModel];
-  const canSend = nativeReady && selectedStatus?.state === "ready" && !sending && input.trim().length > 0;
+  const activeOnlineProvider = onlineAi.providers.find((provider) => provider.id === onlineAi.providerId);
+  const activeOnlineModel = activeOnlineProvider?.models.find((model) => model.id === activeOnlineProvider.selectedModelId);
+  const onlineReady = onlineAi.mode === "online" && Boolean(activeOnlineProvider?.configured && activeOnlineProvider.selectedModelId);
+  const canSend = nativeReady && (onlineAi.mode === "online" ? onlineReady : selectedStatus?.state === "ready") && !sending && input.trim().length > 0;
 
   useEffect(() => {
-    if (!nativeReady || !activeSessionId || selectedStatus?.state !== "ready" || sending) return;
+    if (onlineAi.mode === "online" || !nativeReady || !activeSessionId || selectedStatus?.state !== "ready" || sending) return;
     const timer = window.setTimeout(() => bridge()?.prepareModel(activeSessionId, name, effectivePersona), 450);
     return () => window.clearTimeout(timer);
-  }, [nativeReady, activeSessionId, selectedModel, selectedStatus?.state, name, effectivePersona, sending]);
+  }, [onlineAi.mode, nativeReady, activeSessionId, selectedModel, selectedStatus?.state, name, effectivePersona, sending]);
 
   useEffect(() => {
     preparedAudioRef.current.clear();
@@ -454,8 +494,14 @@ function FurinaNativeApp() {
     const text = input.trim();
     const b = bridge();
     if (!b || !activeSessionId || !text || sending) return;
-    if (statuses[selectedModel]?.state !== "ready") {
-      toast.error("Unduh dan pilih model AI terlebih dahulu.");
+    if (onlineAi.mode === "online") {
+      if (!onlineReady) {
+        toast.error("Pasang dan tes API key online, lalu pilih model gratis terlebih dahulu.");
+        setOpenSettings(true);
+        return;
+      }
+    } else if (statuses[selectedModel]?.state !== "ready") {
+      toast.error("Unduh dan pilih model AI lokal terlebih dahulu.");
       setOpenSettings(true);
       return;
     }
@@ -656,7 +702,14 @@ function FurinaNativeApp() {
   }
 
   const statusText = useMemo(() => {
-    if (!nativeReady) return "Buka halaman ini melalui APK Furina untuk AI lokal.";
+    if (!nativeReady) return "Buka halaman ini melalui APK Furina.";
+    if (runtimeState === "fallback") return "Model penuh — mencoba model gratis cadangan…";
+    if (onlineAi.mode === "online") {
+      if (runtimeState === "thinking") return `${name} sedang berpikir via ${activeOnlineProvider?.name || "AI online"}…`;
+      if (runtimeState === "error") return "Provider online perlu perhatian";
+      if (onlineReady) return `${activeOnlineProvider?.name || "Online"} · ${activeOnlineModel?.name || activeOnlineProvider?.selectedModelId || "model gratis"}`;
+      return "Pasang dan tes API key online";
+    }
     if (runtimeState === "verifying" || selectedStatus?.state === "verifying") return `Memverifikasi model… ${Math.round((selectedStatus?.progress ?? runtimeProgress) * 100)}%`;
     if (runtimeState === "loading") return "Memuat model ke RAM…";
     if (runtimeState === "prompting") return "Menerapkan kepribadian…";
@@ -665,11 +718,11 @@ function FurinaNativeApp() {
     if (runtimeState === "error") return "Mesin AI perlu perhatian";
     if (selectedStatus?.state === "ready") return "AI lokal siap";
     return "Model belum diunduh";
-  }, [nativeReady, runtimeState, runtimeProgress, selectedStatus?.state, name]);
+  }, [nativeReady, runtimeState, runtimeProgress, selectedStatus?.state, name, onlineAi.mode, onlineReady, activeOnlineProvider?.name, activeOnlineProvider?.selectedModelId, activeOnlineModel?.name]);
 
-  const runtimeBusy = ["verifying", "loading", "prompting", "preparing", "thinking"].includes(runtimeState)
-    || selectedStatus?.state === "verifying";
-  const runtimeReady = selectedStatus?.state === "ready" && runtimeState !== "error";
+  const runtimeBusy = ["verifying", "loading", "prompting", "preparing", "thinking", "fallback"].includes(runtimeState)
+    || (onlineAi.mode === "local" && selectedStatus?.state === "verifying");
+  const runtimeReady = onlineAi.mode === "online" ? onlineReady && runtimeState !== "error" : selectedStatus?.state === "ready" && runtimeState !== "error";
 
   return (
     <div className={`relative h-[100dvh] w-full overflow-hidden ${theme === "dark" ? "bg-[#050712] text-white" : "bg-slate-100 text-slate-950"}`}>
@@ -742,7 +795,7 @@ function FurinaNativeApp() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (canSend) send(); } }}
-            placeholder={selectedStatus?.state === "ready" ? "Ketik pesan…" : "Unduh model AI dari Pengaturan…"}
+            placeholder={onlineAi.mode === "online" ? (onlineReady ? "Ketik pesan…" : "Pasang API key online dari Pengaturan…") : (selectedStatus?.state === "ready" ? "Ketik pesan…" : "Unduh model AI dari Pengaturan…")}
             aria-label="Pesan untuk Furina"
             rows={1}
             className={`max-h-32 min-h-12 flex-1 resize-none border-0 bg-transparent px-3 py-3 text-base shadow-none outline-none focus-visible:ring-0 ${theme === "dark" ? "text-white placeholder:text-white/40" : "text-slate-950 placeholder:text-slate-500"}`}
@@ -785,7 +838,7 @@ function FurinaNativeApp() {
         <SheetContent side="right" className={`flex h-full w-full max-w-md flex-col gap-0 overflow-hidden border-l p-0 ${theme === "dark" ? "border-slate-800 bg-[#050712] text-slate-100" : "border-slate-200 bg-white text-slate-950"}`}>
           <SheetHeader className={`relative z-20 shrink-0 border-b px-5 pb-4 pt-5 text-left shadow-sm backdrop-blur-xl ${theme === "dark" ? "border-slate-800 bg-[#050712]/96" : "border-slate-200 bg-white/96"}`}>
             <SheetTitle className="pr-10 text-xl">Pengaturan</SheetTitle>
-            <SheetDescription className="max-w-sm text-xs leading-relaxed">Identitas, AI lokal, suara, memori, dan backup.</SheetDescription>
+            <SheetDescription className="max-w-sm text-xs leading-relaxed">Identitas, AI lokal/online, suara, memori, dan backup.</SheetDescription>
           </SheetHeader>
 
           <div ref={settingsScrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-smooth px-4 py-5 touch-manipulation sm:px-6">
@@ -875,6 +928,128 @@ function FurinaNativeApp() {
                   <div className="rounded-lg bg-muted p-2"><p className="text-sm font-semibold">{lastMetrics.warmStart ? "Hangat" : "Dingin"}</p><p className="text-[9px] text-muted-foreground">kondisi model</p></div>
                 </div>
               )}
+            </section>
+
+            <section className="space-y-4 rounded-2xl border bg-muted/10 p-4 shadow-sm">
+              <div className="flex items-start gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Cloud className="h-[18px] w-[18px]" /></span>
+                <div className="min-w-0 flex-1">
+                  <Label>Mesin AI online</Label>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">Gunakan API key milikmu sendiri. Memori, identitas, dan hubungan Furina tetap sama saat berpindah model atau provider.</p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs">Mode AI</Label>
+                <Select value={onlineAi.mode} onValueChange={(value) => {
+                  const b = bridge(); if (!b) return;
+                  setOnlineAi(parseJson<OnlineAiSettings>(b.setAiMode(value), onlineAi));
+                  setRuntimeError("");
+                }}>
+                  <SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="local">Lokal — Deckard 4B di perangkat</SelectItem>
+                    <SelectItem value="online">Online — API key pribadi</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {onlineAi.mode === "online" && (
+                <div className="space-y-4 rounded-xl border bg-background/30 p-3">
+                  <div className="space-y-2">
+                    <Label className="text-xs">Provider</Label>
+                    <Select value={onlineAi.providerId} onValueChange={(value) => {
+                      const b = bridge(); if (!b) return;
+                      setOnlineAi(parseJson<OnlineAiSettings>(b.selectOnlineProvider(value), onlineAi));
+                      setRuntimeError("");
+                    }}>
+                      <SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {onlineAi.providers.map((provider) => <SelectItem key={provider.id} value={provider.id}>{provider.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {activeOnlineProvider ? (
+                    <>
+                      <div className={`rounded-lg border p-2.5 text-[11px] ${activeOnlineProvider.configured ? "border-emerald-500/25 bg-emerald-500/10" : "border-amber-500/25 bg-amber-500/10"}`}>
+                        <div className="flex items-center gap-2 font-medium">
+                          {activeOnlineProvider.configured ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <AlertCircle className="h-3.5 w-3.5 text-amber-500" />}
+                          {activeOnlineProvider.configured ? "API key tersimpan dan terenkripsi" : "API key belum dipasang"}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label className="text-xs">API key {activeOnlineProvider.name}</Label>
+                        <Input
+                          type="password"
+                          autoComplete="off"
+                          value={onlineKeyDraft[activeOnlineProvider.id] || ""}
+                          placeholder={activeOnlineProvider.configured ? "Isi hanya jika ingin mengganti key" : "Tempel API key di sini"}
+                          onChange={(e) => setOnlineKeyDraft((prev) => ({ ...prev, [activeOnlineProvider.id]: e.target.value }))}
+                        />
+                        <div className="flex flex-wrap gap-2">
+                          <Button size="sm" disabled={Boolean(onlineBusy)} onClick={() => {
+                            const key = (onlineKeyDraft[activeOnlineProvider.id] || "").trim();
+                            if (!key) { toast.error("Masukkan API key terlebih dahulu."); return; }
+                            const requestId = `key:${activeOnlineProvider.id}:${Date.now()}`;
+                            setOnlineBusy(requestId);
+                            bridge()?.saveAndTestOnlineApiKey(activeOnlineProvider.id, key, requestId);
+                          }}>
+                            {onlineBusy.startsWith("key:") ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1.5 h-3.5 w-3.5" />}
+                            Simpan & tes
+                          </Button>
+                          <Button size="sm" variant="outline" disabled={!activeOnlineProvider.configured || Boolean(onlineBusy)} onClick={() => {
+                            const requestId = `models:${activeOnlineProvider.id}:${Date.now()}`;
+                            setOnlineBusy(requestId);
+                            bridge()?.refreshOnlineModels(activeOnlineProvider.id, requestId);
+                          }}>
+                            {onlineBusy.startsWith("models:") ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="mr-1.5 h-3.5 w-3.5" />}
+                            Perbarui model
+                          </Button>
+                          {activeOnlineProvider.configured && <Button size="sm" variant="ghost" disabled={Boolean(onlineBusy)} onClick={() => {
+                            if (!confirm(`Hapus API key ${activeOnlineProvider.name} dari perangkat?`)) return;
+                            const b = bridge(); if (!b) return;
+                            setOnlineAi(parseJson<OnlineAiSettings>(b.removeOnlineApiKey(activeOnlineProvider.id), onlineAi));
+                            setOnlineKeyDraft((prev) => ({ ...prev, [activeOnlineProvider.id]: "" }));
+                          }}><Trash2 className="mr-1 h-3.5 w-3.5" />Hapus key</Button>}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label className="text-xs">Model gratis</Label>
+                        <Select value={activeOnlineProvider.selectedModelId || ""} disabled={!activeOnlineProvider.models.length} onValueChange={(value) => {
+                          const b = bridge(); if (!b) return;
+                          setOnlineAi(parseJson<OnlineAiSettings>(b.selectOnlineModel(activeOnlineProvider.id, value), onlineAi));
+                        }}>
+                          <SelectTrigger className="min-h-11"><SelectValue placeholder="Tes key untuk memuat model gratis" /></SelectTrigger>
+                          <SelectContent>
+                            {activeOnlineProvider.models.map((model) => (
+                              <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-[10px] leading-relaxed text-muted-foreground">{activeOnlineProvider.models.length ? `${activeOnlineProvider.models.length} model gratis/free-tier terdeteksi dari provider.` : "Daftar model dimuat setelah API key berhasil diuji."}</p>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/50 p-3">
+                        <div className="min-w-0">
+                          <Label className="text-xs">Fallback otomatis</Label>
+                          <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">Jika model gagal sebelum mengirim jawaban karena kuota, rate limit, atau unavailable, coba model gratis berikutnya.</p>
+                        </div>
+                        <Switch checked={onlineAi.autoFallback} onCheckedChange={(checked) => {
+                          const b = bridge(); if (!b) return;
+                          setOnlineAi(parseJson<OnlineAiSettings>(b.setOnlineAutoFallback(checked), onlineAi));
+                        }} />
+                      </div>
+
+                      <p className="text-[10px] leading-relaxed text-muted-foreground">{activeOnlineProvider.note}</p>
+                    </>
+                  ) : <p className="text-xs text-muted-foreground">Provider belum tersedia. Tutup dan buka kembali Pengaturan.</p>}
+                </div>
+              )}
+
+              <p className="text-[10px] leading-relaxed text-muted-foreground">API key tidak disimpan di web/localStorage dan tidak ikut backup memori. Key dienkripsi oleh Android Keystore di perangkat.</p>
             </section>
 
             <details className="group rounded-2xl border bg-muted/10 shadow-sm">
