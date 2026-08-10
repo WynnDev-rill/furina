@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import tempfile
@@ -124,6 +125,42 @@ def verify_backup_contract() -> None:
             "cloud jobs must stop before the shared MemoryStore closes")
 
 
+def verify_behavioral_scenarios_contract() -> int:
+    data = json.loads(read("engineering/evals/companion-scenarios.json"))
+    require(data.get("schemaVersion") == 1, "behavioral scenario schemaVersion must be 1")
+    rubric = data.get("rubric")
+    require(isinstance(rubric, list) and rubric, "behavioral scenario rubric must be a non-empty list")
+    require(len(rubric) == len(set(rubric)), "behavioral scenario rubric entries must be unique")
+    required_rubric = {
+        "latest_message_adherence", "furina_persona", "naturalness", "memory_use",
+        "correction_handling", "emotional_consistency", "initiative", "non_repetition",
+        "non_customer_service_tone",
+    }
+    require(required_rubric.issubset(set(rubric)), "behavioral scenario rubric lost a required companion dimension")
+
+    scenarios = data.get("scenarios")
+    require(isinstance(scenarios, list) and 12 <= len(scenarios) <= 64,
+            "behavioral benchmark must contain 12–64 focused scenarios")
+    ids = []
+    categories = set()
+    for index, scenario in enumerate(scenarios):
+        require(isinstance(scenario, dict), f"behavioral scenario #{index + 1} must be an object")
+        for field in ("id", "category", "history", "user", "expect"):
+            value = scenario.get(field)
+            require(isinstance(value, str) and value.strip(),
+                    f"behavioral scenario #{index + 1} field {field} must be non-empty text")
+        ids.append(scenario["id"])
+        categories.add(scenario["category"])
+    require(len(ids) == len(set(ids)), "behavioral scenario ids must be unique")
+    required_categories = {
+        "persona", "agency", "context", "memory", "learning", "emotion",
+        "relationship", "reasoning", "usefulness", "naturalness", "style",
+    }
+    missing = sorted(required_categories - categories)
+    require(not missing, f"behavioral benchmark lost required categories: {', '.join(missing)}")
+    return len(scenarios)
+
+
 def verify_scenario_matrix() -> int:
     intents = [
         "greeting", "direct_question", "correction", "preference_change", "memory_recall", "emotional_support",
@@ -157,8 +194,13 @@ def main() -> None:
     verify_layered_context_contract()
     verify_lifecycle_contract()
     verify_backup_contract()
-    count = verify_scenario_matrix()
-    print(f"Furina companion quality gate passed: {count} deterministic pipeline scenarios + lifecycle/backup invariants")
+    behavioral_count = verify_behavioral_scenarios_contract()
+    pipeline_count = verify_scenario_matrix()
+    print(
+        "Furina companion quality gate passed: "
+        f"{behavioral_count} behavioral benchmark scenarios + "
+        f"{pipeline_count} deterministic pipeline scenarios + lifecycle/backup invariants"
+    )
 
 
 if __name__ == "__main__":
