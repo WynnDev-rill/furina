@@ -232,7 +232,8 @@ function FurinaApp() {
   const [editingTitleVal, setEditingTitleVal] = useState("");
   const [cloneSampleName, setCloneSampleName] = useState<string>("");
   const [hasCloneSample, setHasCloneSample] = useState(false);
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [isBooting, setIsBooting] = useState(true);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -243,6 +244,7 @@ function FurinaApp() {
   const settingsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const conversationsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userMsgCountRef = useRef(0);
+  const bootMinDoneRef = useRef(false);
 
   const activeConvo = conversations.find((c) => c.id === activeId);
   const messages = useMemo(() => activeConvo?.messages ?? [], [activeConvo]);
@@ -254,10 +256,33 @@ function FurinaApp() {
   }, [theme]);
 
   // ===== Auth listener =====
+  function maybeFinishBoot() {
+    if (!bootMinDoneRef.current) return;
+    if (!authReady) return;
+    if (!initialLoadDoneRef.current) return;
+    setIsBooting(false);
+  }
+
+  useEffect(() => {
+    const minTimer = setTimeout(() => {
+      bootMinDoneRef.current = true;
+      maybeFinishBoot();
+    }, 1400);
+    // Fallback: never keep the boot screen longer than 4 s even if auth stalls
+    const maxTimer = setTimeout(() => {
+      setIsBooting(false);
+    }, 4000);
+    return () => {
+      clearTimeout(minTimer);
+      clearTimeout(maxTimer);
+    };
+  }, []);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session?.user) setAuthUser({ id: data.session.user.id, email: data.session.user.email ?? undefined });
       setAuthReady(true);
+      maybeFinishBoot();
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
       setAuthUser(session?.user ? { id: session.user.id, email: session.user.email ?? undefined } : null);
@@ -338,6 +363,7 @@ function FurinaApp() {
       if (csn) setCloneSampleName(csn);
     } catch {}
     initialLoadDoneRef.current = true;
+    maybeFinishBoot();
   }, []);
 
   // ===== Sync on auth change =====
@@ -865,6 +891,7 @@ function FurinaApp() {
 
   return (
     <div className="relative h-[100dvh] w-full overflow-hidden bg-background text-foreground">
+      <BootScreen visible={isBooting} />
       <img src={bg} alt={`${name} background`} className="absolute inset-0 h-full w-full object-cover" draggable={false} />
       <div className={`pointer-events-none absolute inset-0 ${
         theme === "dark"
@@ -1373,6 +1400,20 @@ function FurinaApp() {
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function BootScreen({ visible }: { visible: boolean }) {
+  return (
+    <div className={`boot-screen ${visible ? "" : "boot-hidden"}`} aria-hidden={!visible}>
+      <div className="boot-orb boot-orb-1" />
+      <div className="boot-orb boot-orb-2" />
+      <div className="boot-orb boot-orb-3" />
+      <div className="relative z-10 flex flex-col items-center">
+        <div className="boot-ring" />
+        <div className="boot-label">Memuat</div>
+      </div>
     </div>
   );
 }

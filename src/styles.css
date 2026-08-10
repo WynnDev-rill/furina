@@ -153,33 +153,117 @@
   100% { transform: scale(1); opacity: 1; }
 }
 
-/* Chat surfaces — translucent, readable in both themes */
-.bubble-ai {
-  background: color-mix(in oklab, var(--color-card) 72%, transparent);
-  color: var(--color-card-foreground);
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-  border: 1px solid color-mix(in oklab, var(--color-foreground) 8%, transparent);
+/* Professional app boot loading screen */
+.boot-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(
+      circle at 50% 40%,
+      color-mix(in oklab, var(--color-primary) 8%, transparent) 0%,
+      transparent 60%
+    ),
+    linear-gradient(
+      180deg,
+      var(--color-background) 0%,
+      color-mix(in oklab, var(--color-background) 98%, var(--color-primary) 2%) 100%
+    );
+  transition: opacity 0.7s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.7s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.bubble-user {
-  background: linear-gradient(135deg,
-    color-mix(in oklab, oklch(0.62 0.18 265) 88%, transparent),
-    color-mix(in oklab, oklch(0.55 0.20 295) 88%, transparent));
-  color: #fff;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255,255,255,0.14);
+
+.boot-screen.boot-hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
-.glass-chip {
-  background: color-mix(in oklab, var(--color-background) 55%, transparent);
-  backdrop-filter: blur(12px) saturate(140%);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
-  border: 1px solid color-mix(in oklab, var(--color-foreground) 10%, transparent);
-  color: var(--color-foreground);
+
+.boot-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(48px);
+  opacity: 0.28;
+  animation: boot-morph 9s ease-in-out infinite;
 }
-.composer-glass {
-  background: color-mix(in oklab, var(--color-background) 78%, transparent);
-  backdrop-filter: blur(18px) saturate(150%);
-  -webkit-backdrop-filter: blur(18px) saturate(150%);
-  border-top: 1px solid color-mix(in oklab, var(--color-foreground) 10%, transparent);
+
+.boot-orb-1 {
+  width: 240px;
+  height: 240px;
+  background: var(--color-primary);
+  animation-delay: 0s;
 }
+
+.boot-orb-2 {
+  width: 190px;
+  height: 190px;
+  background: var(--color-accent);
+  animation-delay: -4.5s;
+}
+
+.boot-orb-3 {
+  width: 140px;
+  height: 140px;
+  background: var(--color-muted-foreground);
+  animation-delay: -2s;
+  opacity: 0.18;
+}
+
+@keyframes boot-morph {
+  0%, 100% {
+    transform: translate(0, 0) scale(1) rotate(0deg);
+  }
+  33% {
+    transform: translate(32px, -28px) scale(1.12) rotate(8deg);
+  }
+  66% {
+    transform: translate(-24px, 22px) scale(0.94) rotate(-5deg);
+  }
+}
+
+.boot-ring {
+  position: relative;
+  width: 54px;
+  height: 54px;
+}
+
+.boot-ring::before,
+.boot-ring::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: var(--color-primary);
+  animation: boot-spin 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.boot-ring::after {
+  width: 34px;
+  height: 34px;
+  inset: 10px;
+  border-top-color: var(--color-accent);
+  animation-duration: 1.9s;
+  animation-direction: reverse;
+}
+
+@keyframes boot-spin {
+  to { transform: rotate(360deg); }
+}
+
+.boot-label {
+  margin-top: 22px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--color-muted-foreground);
+  animation: boot-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes boot-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.95; }
+}
+
