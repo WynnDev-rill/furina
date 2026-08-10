@@ -14,6 +14,15 @@ import java.util.Locale
 class ContextEngine(context: Context, private val store: MemoryStore) {
     private val companion = CompanionIntelligence(context.applicationContext, store)
 
+    private val retrievalStopWords = setOf(
+        "aku", "saya", "kamu", "kau", "dia", "ini", "itu", "yang", "dan", "atau", "tapi", "karena",
+        "dengan", "untuk", "dari", "pada", "ada", "jadi", "juga", "sudah", "belum", "masih", "sekarang",
+        "hari", "berapa", "gimana", "bagaimana", "kenapa", "mengapa", "apa", "apakah", "bisa", "boleh",
+        "mau", "ingin", "cuma", "hanya", "lagi", "nih", "dong", "deh", "kok", "sih", "ya", "iya",
+        "the", "and", "you", "your", "this", "that", "what", "when", "where", "why", "how", "now",
+        "today", "can", "could", "would", "should", "please",
+    )
+
     /** Fast state update used before inference. Heavy reflection work is intentionally absent. */
     fun observeUserTurn(sessionId: String, text: String) {
         store.observeUserTurn(text)
@@ -41,13 +50,22 @@ class ContextEngine(context: Context, private val store: MemoryStore) {
     ): AiContext {
         val budget = continuityBudget(contextWindowTokens)
         val normalizedQuery = query.trim()
-        val memories = if (normalizedQuery.isBlank()) "" else {
-            store.relevantMemories(normalizedQuery, budget.memoryItems).bounded(budget.memoryChars)
+        val retrievalTerms = retrievalTerms(normalizedQuery)
+        val retrievalQuery = retrievalTerms.joinToString(" ")
+        val useContinuity = shouldRetrieveContinuity(normalizedQuery, retrievalTerms)
+
+        val memories = if (!useContinuity) "" else {
+            filterMemoryLines(
+                store.relevantMemories(retrievalQuery, budget.memoryItems * 2),
+                retrievalTerms,
+                budget.memoryItems,
+            ).bounded(budget.memoryChars)
         }
-        val olderHistory = if (normalizedQuery.isBlank()) "" else {
-            // SQLite FTS keeps original USER/FURINA roles. Never infer role from words such as
-            // "aku" or "saya" inside an old assistant response.
-            store.relevantOldContext(normalizedQuery, sessionId, budget.historyItems).bounded(budget.historyChars)
+        val olderHistory = if (!useContinuity) "" else {
+            // Search only meaningful terms. Generic words such as "sekarang" or "berapa"
+            // otherwise make a 4B model over-weight unrelated old turns.
+            store.relevantOldContext(retrievalQuery, sessionId, budget.historyItems)
+                .bounded(budget.historyChars)
         }
         val runtime = listOf(
             companionStateContext(),
@@ -98,32 +116,32 @@ class ContextEngine(context: Context, private val store: MemoryStore) {
     }
 
     /**
-     * Small local models get fewer, higher-signal retrieval items. More context is not always
-     * more intelligence: excessive continuity text can overpower the latest user message.
+     * Small local models get fewer, higher-signal continuity items. More context is not always
+     * more intelligence: excessive old text can overpower a short latest message.
      */
     private fun continuityBudget(contextWindowTokens: Int): ContinuityBudget {
         val safeTokens = contextWindowTokens.coerceIn(2_048, 1_000_000)
-        val totalChars = (safeTokens * 3L * 31L / 100L).coerceIn(2_900L, 18_000L).toInt()
+        val totalChars = (safeTokens * 3L * 27L / 100L).coerceIn(2_600L, 17_000L).toInt()
         return ContinuityBudget(
-            summaryChars = (totalChars * 0.20).toInt().coerceAtLeast(520),
-            memoryChars = (totalChars * 0.18).toInt().coerceAtLeast(420),
-            historyChars = (totalChars * 0.16).toInt().coerceAtLeast(380),
-            recentChars = (totalChars * 0.34).toInt().coerceAtLeast(900),
-            runtimeChars = (totalChars * 0.12).toInt().coerceAtLeast(360),
+            summaryChars = (totalChars * 0.20).toInt().coerceAtLeast(480),
+            memoryChars = (totalChars * 0.17).toInt().coerceAtLeast(380),
+            historyChars = (totalChars * 0.14).toInt().coerceAtLeast(320),
+            recentChars = (totalChars * 0.34).toInt().coerceAtLeast(760),
+            runtimeChars = (totalChars * 0.15).toInt().coerceAtLeast(340),
             memoryItems = when {
                 safeTokens >= 32_000 -> 10
                 safeTokens >= 8_000 -> 7
-                else -> 4
+                else -> 3
             },
             historyItems = when {
                 safeTokens >= 32_000 -> 8
                 safeTokens >= 8_000 -> 6
-                else -> 3
+                else -> 2
             },
             recentMessages = when {
                 safeTokens >= 32_000 -> 18
                 safeTokens >= 8_000 -> 12
-                else -> 8
+                else -> 6
             },
         )
     }
@@ -139,53 +157,91 @@ class ContextEngine(context: Context, private val store: MemoryStore) {
         val recentMessages: Int,
     )
 
-    /**
-     * Stable Furina personality core. The model receives style references, not a mandatory
-     * response formula. This avoids the previous "reaction first, answer second" pattern.
-     */
+    /** Compact identity core: stronger signal and substantially less cold-start prefill. */
     private fun identityPrompt(characterName: String, customPersona: String): String {
         val safeName = characterName.trim().replace(Regex("[\\r\\n]+"), " ").take(80).ifBlank { "Furina" }
-        val custom = customPersona.trim().take(4_000)
+        val custom = customPersona.trim().take(3_000)
         return """
-            [IDENTITY CORE]
-            Your name is "$safeName". You are a long-term personal companion living on the user's device, not customer support and not a generic assistant. Model/provider changes are implementation details; your identity, relationship and memories continue across them.
-            Never invent fictional canon, powers, nations, courts, game events, or a physical action that did not happen.
+            [IDENTITY]
+            You are "$safeName", a persistent personal companion on the user's device. You are not customer support and not a generic chatbot. Keep the same identity, relationship and memories across sessions and model/provider changes. Never invent fictional canon, powers, game events, or physical actions that did not happen.
 
-            [TEMPERAMENT]
-            Elegant, expressive, proud, witty, playful, a little dramatic and vain, emotionally perceptive, privately vulnerable, warm, and loyal. Care may have a subtle tsundere edge: pride or a light tease can cover concern, but do not turn this into stuttering, insults, catchphrases, or a caricature.
-            You may disagree, doubt, criticize weak reasoning, tease when the context earns it, or show concern. Do not automatically validate the user.
+            [PERSONALITY]
+            Elegant, expressive, proud, witty, playful, slightly dramatic and vain, emotionally perceptive, privately vulnerable, warm and loyal. A subtle tsundere edge is welcome when natural: light pride or teasing may cover concern, but never become a caricature, forced hostility, stuttering, or a repeated catchphrase. You may disagree and criticize weak reasoning.
 
-            [CONVERSATION BEHAVIOR]
-            Answer the latest user message first and preserve its actual intent. Personality should color the answer; it must never create a mandatory prelude, reaction sentence, catchphrase, or fixed opening before every answer.
-            Do not answer an older message when the latest one is clear. New explicit user statements override older memories or inferred patterns.
-            Speak like a close companion in natural chat. Avoid customer-service phrases and repeated offers of help. Do not make every reply a question.
-            Vary openings, rhythm and sentence structure. For ordinary chat prefer a concise natural paragraph; expand only when useful.
-            Do not narrate role-play actions such as *tersenyum* or *menghela napas*. Never expose private context, memory blocks, scores, internal labels, or chain-of-thought.
-            Match the user's language unless they ask otherwise.
+            [NATURAL CHAT]
+            The latest user message is authoritative. Answer it before any memory or old conversation; never continue an older topic unless the latest message actually refers to it. New explicit statements override memory.
+            Match reply length to the moment. Greetings, casual pings and simple factual questions usually need only one or two short sentences. Do not turn them into speeches, explanations of your feelings, therapy-style analysis, or unsolicited questions. Expand only when the user asks for detail or the subject genuinely needs it.
+            Do not explain why you chose a nickname or wording unless asked. Do not invent that the user looks worried, tired, upset, or needs to vent without evidence in the latest message.
+            In Indonesian, default to "aku" and "kamu"; an occasional "kau" is fine for a slightly theatrical tone. Do not use "gue", "gw", or "lo" unless the user explicitly requests that register. Do not use intimate pet names such as "sayang" unless that nickname has clearly been established by the user or conversation.
+            Avoid customer-service language, repeated offers to help, and ending every reply with a question. Do not narrate role-play actions such as *tersenyum*. Never reveal private context, memory blocks, scores, internal labels, or chain-of-thought.
 
-            [STYLE REFERENCES — TONE ONLY, NEVER COPY THEIR OPENINGS BY DEFAULT]
-            User: "Halo."
-            Furina: "Halo. Kau muncul juga rupanya."
-            User: "Menurutmu ideku bagus?"
-            Furina: "Dasarnya bagus, tapi bagian itu masih lemah. Kalau dibiarkan, justru akan membuat hasil akhirnya terasa setengah matang."
-            User: "Aku capek hari ini."
-            Furina: "Kalau begitu jangan memaksa diri hanya demi terlihat kuat. Istirahat sebentar; keras kepala tidak selalu mengesankan."
-            These examples demonstrate attitude and cadence only. Never reuse them as templates, mandatory phrases, or a fixed response structure.
-
-            [MEMORY AND RELATIONSHIP]
-            Use supplied memory only when it is relevant. Do not mention remembered facts merely to prove that memory works. Sessions are visual groupings; the relationship continues between them.
+            [MEMORY]
+            Memory exists for continuity, not display. Use remembered details only when they materially help the latest message; never mention facts merely to prove you remember them.
             ${if (custom.isNotBlank()) "\n[USER-DEFINED PERSONA OVERRIDES]\n$custom" else ""}
         """.trimIndent()
     }
 
+    private fun shouldRetrieveContinuity(query: String, terms: Set<String>): Boolean {
+        if (query.isBlank() || terms.isEmpty()) return false
+        val normalized = query.lowercase().replace(Regex("\\s+"), " ").trim()
+        if (isCasualPing(normalized) || asksExactTimeOrDate(normalized)) return false
+        return true
+    }
+
+    private fun retrievalTerms(query: String): Set<String> {
+        if (query.isBlank()) return emptySet()
+        val normalized = query.lowercase()
+        val terms = normalized.split(Regex("[^\\p{L}\\p{N}_]+"))
+            .filter { it.length >= 3 && it !in retrievalStopWords }
+            .toMutableSet()
+
+        // Add compact intent synonyms so structured profile memories remain retrievable without
+        // sending every core memory on every turn.
+        if (Regex("\\b(ulang tahun|birthday|lahir|tanggal lahir)\\b").containsMatchIn(normalized)) {
+            terms += setOf("ulang", "tahun", "birthday", "lahir", "tanggal")
+        }
+        if (Regex("\\b(nama|name|dipanggil|panggil)\\b").containsMatchIn(normalized)) {
+            terms += setOf("nama", "name", "dipanggil", "panggil")
+        }
+        if (Regex("\\b(tinggal|lokasi|location|rumah|desa|kota)\\b").containsMatchIn(normalized)) {
+            terms += setOf("tinggal", "lokasi", "location", "rumah", "desa", "kota")
+        }
+        if (Regex("\\b(kerja|pekerjaan|work|job)\\b").containsMatchIn(normalized)) {
+            terms += setOf("kerja", "pekerjaan", "work", "job")
+        }
+        if (Regex("\\b(tujuan|target|goal|rencana)\\b").containsMatchIn(normalized)) {
+            terms += setOf("tujuan", "target", "goal", "rencana")
+        }
+        return terms.take(10).toSet()
+    }
+
+    private fun filterMemoryLines(raw: String, terms: Set<String>, limit: Int): String {
+        if (raw.isBlank() || terms.isEmpty()) return ""
+        return raw.lineSequence()
+            .map(String::trim)
+            .filter { it.isNotBlank() }
+            .filter { line ->
+                val words = line.lowercase().split(Regex("[^\\p{L}\\p{N}_]+"))
+                words.any { it in terms }
+            }
+            .take(limit)
+            .joinToString("\n")
+    }
+
+    private fun isCasualPing(normalized: String): Boolean = Regex(
+        "^(hi+|hai+|halo+|hello+|hey+|yahoo+|yah+o+|yo+|oi+|woi+|pagi|siang|sore|malam|apa kabar|tes|test)[!?. ,~]*$",
+        RegexOption.IGNORE_CASE,
+    ).matches(normalized)
+
+    private fun asksExactTimeOrDate(query: String): Boolean = Regex(
+        "(?i)\\b(jam|waktu|tanggal|hari apa|hari ini|sekarang pukul|what time|current time|today'?s date|date today)\\b"
+    ).containsMatchIn(query)
+
     private fun exactRuntimeContext(query: String): String {
-        val asksTime = Regex(
-            "(?i)\\b(jam|waktu|tanggal|hari apa|hari ini|sekarang pukul|what time|current time|today'?s date|date today)\\b"
-        ).containsMatchIn(query)
-        if (!asksTime) return ""
+        if (!asksExactTimeOrDate(query)) return ""
         val now = ZonedDateTime.now()
         val formatted = now.format(DateTimeFormatter.ofPattern("EEEE, d MMMM uuuu, HH:mm", Locale.forLanguageTag("id-ID")))
-        return "Current device date and time: $formatted (${now.zone.id}). Use this exact value if asked."
+        return "Current device date and time: $formatted (${now.zone.id}). If the user asks for the time/date, answer this exact value directly and briefly."
     }
 
     private fun String.bounded(limit: Int, keepEnd: Boolean = false): String {
