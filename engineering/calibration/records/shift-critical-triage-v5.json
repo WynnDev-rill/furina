@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "workId": "shift-critical-triage-v5",
+  "category": "engineering_control_plane",
+  "strategicTier": "META_ENGINEERING",
+  "prediction": {
+    "cycleId": "human-directed-2026-08-11-0122",
+    "recordedAt": "2026-08-11T01:22:00+07:00",
+    "impact": 8,
+    "confidence": 7,
+    "expectedMetric": "hourly shift throughput without critical-priority displacement",
+    "expectedDelta": "one hourly ChatGPT shift can progress Engineer -> CI/evidence -> adversarial Reviewer -> Boss -> exact-head merge without external AI provider handoffs, while T0/T1 critical-path work blocks local polish",
+    "verificationWindow": "next 6 completed engineering shifts plus first revision-request shift",
+    "reason": "The human owner explicitly preferred a simpler full-shift orchestration model and identified a concrete prioritization failure mode: treating minor local defects while critical system injuries remain unresolved. Confidence is capped until live shifts demonstrate that evidence-reset review and time-aware checkpointing preserve quality."
+  },
+  "status": "prediction_only"
+}

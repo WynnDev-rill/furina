@@ -1,70 +1,75 @@
 # Furina Engineering Work Package Policy
 
 ## Purpose
-The hourly cadence is a scheduling boundary, not a one-small-fix limit. Each cycle should maximize meaningful product value while keeping one coherent scope that can be reviewed, tested, and reverted as a unit.
+The hourly cadence is a scheduling boundary, not a one-small-fix limit. Each shift should maximize meaningful product value while keeping one coherent scope that can be tested, reviewed, revised, and reverted as a unit.
 
-This policy governs package shape. Candidate priority is governed by `engineering/prioritization/POLICY.md`; a large or easy engineering package must not displace a higher-tier product/evidence objective.
+Package shape is governed here. Candidate eligibility and priority are governed by `engineering/triage/CRITICAL_PATH_POLICY.md` and `engineering/prioritization/POLICY.md`.
 
 ## Core rule
-Select one coherent high-value work package per Engineer cycle, not necessarily one isolated change.
+Select at most one newly chosen coherent high-value work package per shift.
 
-A work package may contain multiple related fixes, upgrades, refinements, tests, and cleanup items when they share the same product goal or subsystem and are safer/more efficient to ship together.
+A package may contain multiple related fixes, refinements, tests, and cleanup only when they share the same critical path/product objective, evidence boundary, and rollback boundary.
 
 Examples:
-- Chat UX package: contextual copy/play controls, visibility rules, tap targets, spacing, loading/error feedback, keyboard behavior, and related animation polish.
-- Offline runtime reliability package: model-load error handling, retry behavior, crash diagnostics, storage-path robustness, and matching tests.
-- Memory quality package: deduplication, contradiction handling, retrieval tuning, persistence fixes, and behavioral tests that validate the same memory objective.
+- offline runtime reliability: model-load failure, crash diagnostics, storage-path robustness, retry behavior, matching tests;
+- memory quality: contradiction handling, deduplication, retrieval/persistence fixes, matching behavioral evidence;
+- chat UX: only when no higher critical path is actionable, combine related loading/error/keyboard/navigation friction under one rollback boundary.
+
+## Critical-path scope boundary
+When T0/T1 work is actionable, the package must stay focused on stabilizing/restoring that path.
+
+Do not bundle unrelated local bugs, cosmetic polish, opportunistic refactors, or meta-engineering merely because nearby files are open.
+
+A tiny incidental change is allowed only if it is required by the critical repair or adds effectively zero separate regression, evidence, and rollback burden.
 
 ## Value threshold
-Do not create a PR for a trivial isolated tweak merely because an hourly cycle ran.
+Do not create a PR for a trivial isolated tweak merely because an hourly shift ran.
 
-Before implementation, the Director should ask whether a candidate can reasonably be bundled with other related evidence-backed improvements in the same subsystem. Prefer a meaningful package over several tiny PRs when bundling does not materially increase regression risk.
+A package should normally do at least one:
+- fix a meaningful user-visible problem or coherent cluster;
+- stabilize/restore a critical product path;
+- materially improve reliability, performance, companion quality, or usability;
+- directly unblock measurement or safe work on a higher-priority path;
+- remove recurring engineering friction only when meta-engineering is eligible.
 
-A work package should normally satisfy at least one of these:
-- fixes a meaningful user-visible problem or a cluster of related problems;
-- materially improves reliability, performance, companion quality, or usability;
-- directly unblocks measurement or safe work on a higher-tier product objective;
-- removes recurring engineering friction or duplicated complexity when meta-engineering is eligible under the prioritization policy;
-- combines several small related improvements whose aggregate value is clearly meaningful.
+If no meaningful eligible package exists, return `NO_CHANGE`.
 
-If no meaningful eligible package is available, return NO_CHANGE rather than producing cosmetic churn.
+## Split criteria
+Split work when:
+- changes belong to different triage classes and the lower class is not required by the critical path;
+- evidence types or rollback decisions differ materially;
+- one part can block/revert independently;
+- combined review becomes difficult;
+- the package crosses into RED scope;
+- branches/subsystems would create avoidable conflict.
 
-## Scope boundaries
-Bundling is allowed only when changes are coherent.
+## Same-shift phase boundary
+Engineer, Reviewer, and Boss may occur in the same ChatGPT shift to eliminate idle waiting, but they remain separate evidence passes.
 
-Do not combine unrelated subsystems merely to make a PR look larger. Split work when:
-- the changes require different evidence types or independent risk decisions;
-- one part can block/revert independently from the rest;
-- the combined change becomes difficult to review or test;
-- the package crosses into RED scope that requires human authorization;
-- the changes touch competing branches or create avoidable merge conflicts.
+- Engineer writes code and pushes an exact head.
+- Reviewer must perform the evidence-reset protocol in `engineering/review/INDEPENDENCE_POLICY.md` before certification.
+- Boss must perform its own evidence-reset pass before release decision.
+- Each role uses a distinct phase/provenance ID and separate audit comment.
+- A new commit invalidates prior Reviewer/Boss records.
 
-Reviewer and Boss must reject a package that is large but incoherent.
+The same-shift design is an efficiency tradeoff; it must not be mislabeled as independent models.
 
-## Phase boundary
-Package implementation belongs to the Engineer phase. The same execution that writes the package must not certify it as Reviewer or Boss. After implementation and required tests, hand the exact head SHA to a later Reviewer cycle under `engineering/review/INDEPENDENCE_POLICY.md`.
+## Revision loop
+Reviewer/Boss revision returns to the same PR. If the shift clock safely permits implementation + validation + re-review, revise immediately. If time is low, checkpoint the valuable PR for the next shift rather than closing or rushing it.
 
-A Reviewer-requested revision returns to an Engineer phase; any new commit invalidates prior Reviewer/Boss approval for the old head SHA.
-
-## Vercel and CI efficiency
-Minimize infrastructure churn without weakening validation.
-
-Rules:
-- Prefer one coherent PR with a small number of purposeful commits over many tiny PRs in the same subsystem.
-- Do not create a deployment merely to validate engineering-only/documentation/test changes when the deployment is not evidence required for the claim.
-- Respect repository/Vercel ignore rules so Android-only, engineering-only, documentation, or test-only work does not consume Vercel deployments unnecessarily.
-- Treat Vercel quota/rate-limit failures as external_transient when unrelated to the claimed product change.
-- Do not repeatedly push no-op or cosmetic commits just to retrigger deployment or CI.
+## Infrastructure efficiency
+- Prefer a small number of purposeful commits.
+- No no-op/cosmetic commits to retrigger CI or deployment.
+- Do not consume Vercel deployment when irrelevant to the claim.
+- Treat temporary provider/quota failure as `external_transient` when appropriate.
 
 ## Prediction contract
-Before implementation of a measurable improvement, record expected metric/delta and verification window. Use `engineering/calibration/record.schema.json` for accepted work so later cycles can compare prediction against observation.
+Before implementation, record expected metric/delta and verification window. Use `engineering/calibration/record.schema.json` for accepted work.
 
-Do not claim a package is high-value solely from a high self-assigned impact score; strategic tier and evidence come first.
+Do not claim high value from a self-assigned score alone. Triage class, strategic tier, causal evidence, and critical-path position come first.
 
 ## Review contract
-Reviewer must evaluate the package as a whole and also check that each included change contributes to the same objective.
-
-Reviewer must verify package eligibility under the prioritization policy, not merely code correctness. Boss should prefer APPROVE_MERGE only when combined product value clearly outweighs aggregate regression/maintenance cost and operational independence/evidence requirements are satisfied. Boss should REQUEST_REVISION when the objective is valuable but the package contains unnecessary or weakly related scope.
+Reviewer checks the package as a whole and each included change against the same objective. Boss should approve only when product value clearly outweighs aggregate regression/maintenance cost and the critical path was treated rather than bypassed.
 
 ## PR summary
-Every PR must start with `## Ringkasan Indonesia` and summarize the complete work package, not only the last commit. State what changed, why it matters, strategic tier, evidence level, whether APK behavior is affected, important risks/blockers, and the decision expected from the human owner.
+Every normal company PR starts with `## Ringkasan Indonesia` and summarizes the full package, triage class, strategic tier, evidence, APK impact, risk/blocker, rollback boundary, and intended decision.
