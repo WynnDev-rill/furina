@@ -244,6 +244,7 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const settingsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const conversationsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userMsgCountRef = useRef(0);
+  const bootMinDoneRef = useRef(false);
 
   const activeConvo = conversations.find((c) => c.id === activeId);
   const messages = useMemo(() => activeConvo?.messages ?? [], [activeConvo]);
