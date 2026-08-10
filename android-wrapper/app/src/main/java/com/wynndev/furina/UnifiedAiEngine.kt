@@ -81,8 +81,7 @@ class UnifiedAiEngine(
         // Persist the user turn even if generation fails; retrying keeps the user's intent.
         val userId = store.addMessage(sessionId, "user", userText)
         val reply = StringBuilder()
-        val baseBudget = responseBudgetFor(userText)
-        val generationBudget = if (activeProvider.capabilities.offline) baseBudget else maxOf(baseBudget, 512)
+        val generationBudget = responseBudgetFor(userText)
         val request = AiGenerationRequest(
             requestId = requestId,
             sessionId = sessionId,
@@ -157,7 +156,7 @@ class UnifiedAiEngine(
         maintenanceJob = job
     }
 
-    /** Lightweight telemetry for the future 100–300 scenario on-device quality benchmark. */
+    /** Lightweight telemetry for the future on-device behavioral benchmark. */
     private fun qualityFlags(userText: String, response: String): JSONArray {
         val flags = JSONArray()
         val normalizedUser = userText.replace(Regex("\\s+"), " ").trim()
@@ -171,6 +170,12 @@ class UnifiedAiEngine(
         ) {
             flags.put("private_context_leak")
         }
+        if (normalizedUser.length <= 50 && normalizedResponse.length > 420) {
+            flags.put("overlong_short_turn")
+        }
+        if (Regex("(?i)(^|\\W)(lo|gue|gw)(\\W|$)").containsMatchIn(response)) {
+            flags.put("register_mismatch")
+        }
         val sentences = response.split(Regex("(?<=[.!?])\\s+"))
             .map { it.replace(Regex("\\s+"), " ").trim().lowercase() }
             .filter { it.length >= 18 }
@@ -178,28 +183,41 @@ class UnifiedAiEngine(
         return flags
     }
 
+    /**
+     * A companion should not use an assistant-sized output budget for every utterance.
+     * This is a hard ceiling, not a target: short social turns stay conversational while
+     * explanation/detail requests retain enough room to be useful.
+     */
     private fun responseBudgetFor(message: String): Int {
-        val normalized = message.trim().lowercase()
-        val requestedWords = Regex("\\b(\\d{2,4})\\s*(kata|words?)\\b")
+        val normalized = message.trim().lowercase().replace(Regex("\\s+"), " ")
+        val requestedWords = Regex("\\b(\\d{1,4})\\s*(kata|words?)\\b")
             .find(normalized)
             ?.groupValues
             ?.getOrNull(1)
             ?.toIntOrNull()
-        if (requestedWords != null) return (requestedWords * 3 / 2).coerceIn(256, 1_024)
+        if (requestedWords != null) return (requestedWords * 3 / 2).coerceIn(96, 1_024)
 
-        val greeting = Regex(
-            "^(hi+|hai+|halo+|hello+|hey+|pagi|siang|sore|malam|apa kabar)[!?. ,]*$"
+        val casualPing = Regex(
+            "^(hi+|hai+|halo+|hello+|hey+|yahoo+|yah+o+|yo+|oi+|woi+|pagi|siang|sore|malam|apa kabar|tes|test)[!?. ,~]*$"
+        )
+        val exactTimeOrDate = Regex(
+            "\\b(jam|waktu|tanggal|hari apa|hari ini|sekarang pukul|what time|current time|today'?s date|date today)\\b"
+        )
+        val explanation = Regex(
+            "(^|\\b)(jelaskan|jelasin|terangkan|bahas|apa itu|what is|explain|mengapa|kenapa bisa|bagaimana cara|how does|how to)(\\b|$)"
         )
         val longForm = Regex(
             "\\b(esai|essay|artikel|article|cerita|story|surat|letter|email|laporan|report|" +
-                "rinci|mendetail|detailed|panjang|long-form)\\b"
+                "rinci|mendetail|detailed|panjang|long-form|lengkap|comprehensive)\\b"
         )
         return when {
-            greeting.matches(normalized) -> 96
+            exactTimeOrDate.containsMatchIn(normalized) -> 48
+            casualPing.matches(normalized) -> 64
             longForm.containsMatchIn(normalized) -> 512
-            message.length <= 40 -> 192
-            message.length <= 180 -> 256
-            else -> 384
+            explanation.containsMatchIn(normalized) -> 256
+            message.length <= 50 -> 96
+            message.length <= 180 -> 192
+            else -> 320
         }
     }
 }
