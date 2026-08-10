@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Validate the Furina Engineering Company operating contract.
 
-This is intentionally deterministic. It verifies that the autonomous worker cannot
-silently lose the anti-stall lifecycle, evidence policy, review-gated merge rule,
-or independent Boss decision gate. It does not claim to evaluate Furina model behavior.
+This deterministic gate verifies that the autonomous worker cannot silently lose the
+anti-stall lifecycle, evidence policy, external-blocker handling, regression recovery,
+proactive improvement authority, review-gated merge rule, or independent Boss gate.
+It does not claim to evaluate Furina model behavior.
 """
 from __future__ import annotations
 
@@ -49,7 +50,18 @@ def main() -> int:
         [
             "REVIEW_GATED",
             *lifecycle,
+            "one canonical lifecycle",
+            "A `ready_for_merge` PR with no new evidence or human decision must be skipped",
             "Do not spend a new cycle re-reviewing a `blocked_human` PR unless there is new evidence",
+            "blockerType = external_transient",
+            "Vercel free-tier deployment rate limits",
+            "Do not rewrite working code to satisfy an external transient failure",
+            "Post-Decision and Post-Merge Regression Handling",
+            "A previous Reviewer or Boss decision is not immutable",
+            "Proactive Improvement Discovery",
+            "micro-UX",
+            "repository skills",
+            "YELLOW at minimum",
             "STATIC",
             "CI",
             "BEHAVIORAL",
@@ -57,13 +69,21 @@ def main() -> int:
             "Auto-merge is intentionally disabled today",
         ],
     )
+
     require_all(
         "HOURLY_PROMPT.md",
         worker,
         [
             *lifecycle,
-            "new commit, CI result, behavioral/model-output evidence, device report, Boss decision, or human decision",
+            "A `ready_for_merge` PR with no new evidence or human decision must not consume another cycle",
             "A `blocked_human` PR with no new evidence must not consume another cycle",
+            "blockerType = external_transient",
+            "Vercel rate limits",
+            "Do not rewrite code or repeatedly retry while the condition cannot change",
+            "A previous Reviewer/Boss approval is not immutable",
+            "micro-UX",
+            "repository tooling/skills/dependencies",
+            "YELLOW at minimum",
             "Never auto-merge",
             "STATIC, CI, BEHAVIORAL, or DEVICE",
             "Reviewer approval is not final company approval",
@@ -73,6 +93,7 @@ def main() -> int:
             "BLOCKED_HUMAN",
         ],
     )
+
     require_all(
         "BOSS_POLICY.md",
         boss_policy,
@@ -84,7 +105,10 @@ def main() -> int:
             "REQUEST_REVISION",
             "BLOCKED_HUMAN",
             "It does NOT merge automatically",
-            "existing PR lifecycle",
+            "canonical PR lifecycle",
+            "External transient conditions are not code defects",
+            "Boss approval is evidence-bound, not permanent",
+            "new repository skill, dependency, SDK, GitHub Action, build tool, or native library is YELLOW at minimum",
             "Anti-rubber-stamp rule",
         ],
     )
@@ -112,9 +136,7 @@ def main() -> int:
         missing = sorted(expected_boss_required - boss_required)
         raise ContractError(f"boss decision schema missing required fields: {missing}")
 
-    decision_enum = set(
-        boss_schema.get("properties", {}).get("decision", {}).get("enum", [])
-    )
+    decision_enum = set(boss_schema.get("properties", {}).get("decision", {}).get("enum", []))
     expected_decisions = {"APPROVE_MERGE", "REJECT_CLOSE", "REQUEST_REVISION", "BLOCKED_HUMAN"}
     if decision_enum != expected_decisions:
         raise ContractError(f"boss decision enum mismatch: {sorted(decision_enum)}")
