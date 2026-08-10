@@ -132,7 +132,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: android-wrapper/app/libs/llama-android.aar
-          key: llama-android-aar-${{ runner.os }}-ndk29-${{ hashFiles('scripts/bootstrap-llama-android.sh', 'scripts/overlays/**', 'scripts/apply-companion-runtime-policy.py') }}
+          key: llama-android-aar-${{ runner.os }}-ndk29-${{ hashFiles('scripts/bootstrap-llama-android.sh', 'scripts/overlays/**', 'scripts/apply-companion-runtime-policy.py', 'scripts/apply-offline-stability-policy.py') }}
 
       - name: Install Android native toolchain
         if: steps.llama-cache.outputs.cache-hit != 'true'
@@ -148,7 +148,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .ccache
-          key: furina-llama-ccache-${{ runner.os }}-ndk29-${{ hashFiles('scripts/bootstrap-llama-android.sh', 'scripts/overlays/**', 'scripts/apply-companion-runtime-policy.py') }}
+          key: furina-llama-ccache-${{ runner.os }}-ndk29-${{ hashFiles('scripts/bootstrap-llama-android.sh', 'scripts/overlays/**', 'scripts/apply-companion-runtime-policy.py', 'scripts/apply-offline-stability-policy.py') }}
           restore-keys: |
             furina-llama-ccache-${{ runner.os }}-ndk29-
 
@@ -172,7 +172,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: android-wrapper/app/libs/llama-android.aar
-          key: llama-android-aar-${{ runner.os }}-ndk29-${{ hashFiles('scripts/bootstrap-llama-android.sh', 'scripts/overlays/**', 'scripts/apply-companion-runtime-policy.py') }}
+          key: llama-android-aar-${{ runner.os }}-ndk29-${{ hashFiles('scripts/bootstrap-llama-android.sh', 'scripts/overlays/**', 'scripts/apply-companion-runtime-policy.py', 'scripts/apply-offline-stability-policy.py') }}
 
       - name: Verify llama.cpp Android AAR
         run: test -s android-wrapper/app/libs/llama-android.aar
