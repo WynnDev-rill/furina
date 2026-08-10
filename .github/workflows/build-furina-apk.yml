@@ -86,7 +86,7 @@ jobs:
           ! grep -q 'engine.destroy()' android-wrapper/app/src/main/java/com/wynndev/furina/FurinaBridge.kt
           grep -q 'transition-transform duration-300 ease-out' src/routes/native.tsx
           grep -q 'setDecorFitsSystemWindows(window, true)' android-wrapper/app/src/main/java/com/wynndev/furina/MainActivity.kt
-          grep -q 'windowOptOutEdgeToEdgeEnforcement' android-wrapper/app/src/main/res/values/styles.xml
+          grep -q 'windowOptOutEdgeToEdgeEnforcement' android-wrapper/app/src/main/res/values-v35/styles.xml
           grep -q 'android:extractNativeLibs="true"' android-wrapper/app/src/main/AndroidManifest.xml
           grep -q 'jniLibs.useLegacyPackaging = true' android-wrapper/app/build.gradle
           grep -q 'reasoning_budget_tokens' scripts/overlays/ai_chat.cpp
