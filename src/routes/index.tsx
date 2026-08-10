@@ -356,6 +356,7 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
       if (csn) setCloneSampleName(csn);
     } catch {}
     initialLoadDoneRef.current = true;
+    maybeFinishBoot();
   }, []);
 
   // ===== Sync on auth change =====
