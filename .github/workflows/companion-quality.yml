@@ -8,6 +8,7 @@ on:
       - 'scripts/overlays/**'
       - 'scripts/apply-companion-runtime-policy.py'
       - 'scripts/companion-quality-gate.py'
+      - 'scripts/offline-load-safety-gate.py'
       - 'scripts/bootstrap-llama-android.sh'
 
 permissions:
@@ -21,3 +22,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify layered companion pipeline
         run: python3 scripts/companion-quality-gate.py
+      - name: Verify Android offline load safety
+        run: python3 scripts/offline-load-safety-gate.py
