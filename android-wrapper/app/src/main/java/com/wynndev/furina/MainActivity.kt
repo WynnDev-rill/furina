@@ -15,8 +15,8 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.view.WindowCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 
 class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
@@ -51,10 +51,13 @@ class MainActivity : ComponentActivity() {
         webView = WebView(this).apply {
             setBackgroundColor(Color.rgb(5, 7, 18))
             settings.javaScriptEnabled = true
+            settings.javaScriptCanOpenWindowsAutomatically = false
+            settings.setSupportMultipleWindows(true)
             settings.domStorageEnabled = true
             settings.cacheMode = WebSettings.LOAD_DEFAULT
             settings.allowFileAccess = false
             settings.allowContentAccess = false
+            settings.setGeolocationEnabled(false)
             settings.mediaPlaybackRequiresUserGesture = false
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             settings.safeBrowsingEnabled = true
@@ -71,8 +74,10 @@ class MainActivity : ComponentActivity() {
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                val uri = request?.url ?: return false
-                if (uri.scheme == "https" && uri.host == APP_HOST) return false
+                val uri = request?.url ?: return true
+                if (isTrustedAppUri(uri)) return false
+                val scheme = uri.scheme?.lowercase()
+                if (scheme !in SAFE_EXTERNAL_SCHEMES) return true
                 return try {
                     startActivity(Intent(Intent.ACTION_VIEW, uri))
                     true
@@ -80,7 +85,8 @@ class MainActivity : ComponentActivity() {
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
-                bridge.notifyNativeReady()
+                val uri = runCatching { Uri.parse(url) }.getOrNull()
+                if (uri != null && isTrustedAppUri(uri)) bridge.notifyNativeReady()
             }
 
             override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
@@ -128,6 +134,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun isTrustedAppUri(uri: Uri): Boolean =
+        uri.scheme.equals("https", ignoreCase = true) && uri.host.equals(APP_HOST, ignoreCase = true)
+
     private fun showLoadError(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         val html = """
@@ -153,6 +162,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val APP_HOST = "furina-pi.vercel.app"
         private const val APP_URL = "https://furina-pi.vercel.app/native"
+        private val SAFE_EXTERNAL_SCHEMES = setOf("https", "http", "mailto", "tel")
         private val STATUS_BAR_COLOR = Color.rgb(45, 45, 45)
         private val NAVIGATION_BAR_COLOR = Color.rgb(213, 213, 213)
     }
