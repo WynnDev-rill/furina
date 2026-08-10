@@ -49,15 +49,15 @@ Repository policy is authoritative. The scheduler prompt must stay thin and must
 ## Event-driven handoff
 `.github/workflows/furina-autonomous-gate.yml` is responsible for:
 1. waiting only for required exact-head CI;
-2. independent Reviewer model job;
+2. independent Reviewer execution through GitHub Copilot CLI using the short-lived Actions `GITHUB_TOKEN`;
 3. deterministic semantic decision validation;
-4. independent Boss model job after Reviewer APPROVE;
+4. independent Boss Copilot CLI execution after Reviewer APPROVE;
 5. a second semantic validation;
 6. Boss-gated auto-merge for GREEN/YELLOW exact heads.
 
 If Reviewer/Boss requests revision, leave the same PR active. The next hourly Engineer shift continues that PR instead of creating a competing PR.
 
-If GitHub Models/orchestration is unavailable, record the concrete infrastructure blocker. Do not weaken independence by self-reviewing in the same execution.
+If GitHub Copilot CLI/orchestration is unavailable, record the concrete infrastructure or entitlement blocker. Do not weaken independence by self-reviewing in the same execution.
 
 ## Evidence discipline
 - STATIC/CI cannot prove persona, naturalness, memory, TTFT, RAM, battery, or Android runtime improvement.

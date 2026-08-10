@@ -5,24 +5,20 @@ on:
     types: [opened, synchronize, reopened]
 
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-  actions: read
-  models: read
+  contents: read
 
 concurrency:
   group: furina-autonomous-gate-${{ github.event.pull_request.number }}
   cancel-in-progress: true
-
-env:
-  FURINA_GATE_MODEL: openai/gpt-4.1
 
 jobs:
   await-ci:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       contains(github.event.pull_request.body, '<!-- FURINA_COMPANY_PR_V1 -->')
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-latest
     timeout-minutes: 35
     outputs:
@@ -67,8 +63,13 @@ jobs:
 
   reviewer:
     needs: await-ci
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      copilot-requests: write
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     outputs:
       verdict: ${{ steps.result.outputs.verdict }}
     steps:
@@ -81,7 +82,10 @@ jobs:
       - name: Fetch current main
         run: git fetch origin main
 
-      - name: Run fresh independent Reviewer model
+      - name: Install current GitHub Copilot CLI
+        run: npm install -g @github/copilot
+
+      - name: Run fresh independent Reviewer via Copilot CLI
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -135,8 +139,13 @@ jobs:
   boss:
     needs: [await-ci, reviewer]
     if: needs.reviewer.outputs.verdict == 'APPROVE'
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      copilot-requests: write
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     outputs:
       decision: ${{ steps.result.outputs.decision }}
       autonomy_class: ${{ steps.result.outputs.autonomy_class }}
@@ -163,7 +172,10 @@ jobs:
           --engineer-cycle "${{ needs.await-ci.outputs.engineer_cycle }}"
           --pr "${{ needs.await-ci.outputs.pr }}"
 
-      - name: Run fresh independent Boss model
+      - name: Install current GitHub Copilot CLI
+        run: npm install -g @github/copilot
+
+      - name: Run fresh independent Boss via Copilot CLI
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -223,6 +235,10 @@ jobs:
     if: >-
       needs.boss.outputs.decision == 'APPROVE_MERGE' &&
       needs.boss.outputs.autonomy_class != 'RED'
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -290,12 +306,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           for attempt in $(seq 1 12); do
             MERGEABLE="$(gh api "repos/$REPO/pulls/$PR" --jq '.mergeable')"
-            if [ "$MERGEABLE" = "true" ]; then
-              break
-            fi
+            if [ "$MERGEABLE" = "true" ]; then break; fi
             if [ "$MERGEABLE" = "false" ]; then
               echo "GitHub reports PR is not mergeable" >&2
               exit 1
@@ -317,5 +330,4 @@ jobs:
             cat merge-result.json >&2
             exit 1
           }
-
           echo "Boss-gated exact head merged successfully"
