@@ -69,7 +69,7 @@ jobs:
       pull-requests: write
       copilot-requests: write
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     outputs:
       verdict: ${{ steps.result.outputs.verdict }}
     steps:
@@ -88,6 +88,7 @@ jobs:
       - name: Run fresh independent Reviewer via Copilot CLI
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          FURINA_REQUIRED_CI_PASSED: 'true'
         run: |
           set -euo pipefail
           python3 scripts/furina-model-gate.py \
@@ -145,7 +146,7 @@ jobs:
       pull-requests: write
       copilot-requests: write
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     outputs:
       decision: ${{ steps.result.outputs.decision }}
       autonomy_class: ${{ steps.result.outputs.autonomy_class }}
@@ -178,6 +179,7 @@ jobs:
       - name: Run fresh independent Boss via Copilot CLI
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          FURINA_REQUIRED_CI_PASSED: 'true'
         run: |
           set -euo pipefail
           python3 scripts/furina-model-gate.py \

@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
-  "workId": "pr-47-control-plane-v3",
+  "workId": "pr-47-control-plane-v4",
   "pullRequest": 47,
   "category": "engineering_control_plane",
-  "strategicTier": "P0_UNBLOCKER",
+  "strategicTier": "META_ENGINEERING",
   "prediction": {
-    "cycleId": "cycle-2026-08-10-2351-human-revision",
-    "recordedAt": "2026-08-10T23:56:00+07:00",
+    "cycleId": "engineer-head-next-review-context",
+    "recordedAt": "2026-08-11T01:08:00+07:00",
     "impact": 8,
     "confidence": 7,
-    "expectedMetric": "control-plane contract integrity",
-    "expectedDelta": "old cross-tier formula absent from worker; strategic-tier policy enforced; same-cycle Engineer/Reviewer/Boss certification rejected; BEHAVIORAL requires actual model outputs",
-    "verificationWindow": "CI on the revised PR head plus the next independent Reviewer and Boss cycles",
-    "reason": "Human audit reproduced a concrete resource-allocation failure (meta-policy 900 vs device evidence 18) and identified same-execution Reviewer/Boss certification. Confidence is capped at 7 until the revised policy survives CI and independent follow-up cycles."
+    "expectedMetric": "event-driven certification integrity and elapsed handoff time",
+    "expectedDelta": "after an Engineer push, required exact-head CI gates Reviewer immediately; Reviewer/Boss run in fresh read-only contexts with semantic SHA/cycle validation; GREEN/YELLOW Boss APPROVE_MERGE can merge exact head without human queueing",
+    "verificationWindow": "live PR #47 autonomous-gate runs plus exact-head CI and final merge outcome",
+    "reason": "This is explicitly human-requested META_ENGINEERING. Prior runs reproduced same-context certification weaknesses, scheduler/policy drift, and a retired model-provider failure. Confidence remains capped at 7 until the revised read-only Reviewer context survives live Reviewer and Boss execution."
   },
   "status": "prediction_only"
 }
