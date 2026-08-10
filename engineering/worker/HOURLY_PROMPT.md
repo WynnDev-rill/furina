@@ -4,6 +4,7 @@ Act as one execution cycle of the Furina Engineering Company for repository `Wyn
 
 Read these first:
 - `engineering/COMPANY.md`
+- `engineering/work-package/POLICY.md`
 - `engineering/evals/companion-scenarios.json`
 - `engineering/metrics/baseline.json`
 - `engineering/evidence/device-report.schema.json`
@@ -29,27 +30,30 @@ Execution rules:
 14. Examples of legitimate micro-UX discovery include contextual copy/play controls, hiding controls until a message is selected, tap-target/spacing polish, loading/error states, animation, keyboard behavior, and Android navigation polish. These are examples, not mandatory work.
 15. A new dependency, repository skill, SDK, GitHub Action, or build tool is YELLOW at minimum. Compare expected benefit against maintenance burden, build size, security/privacy exposure, vendor lock-in, update risk, and whether existing code can solve the problem more simply. Material runtime/model/privacy/data/credential architecture changes are RED.
 16. Rank candidates by impact, confidence, frequency, effort, and regression risk using the company priority formula.
-17. Select at most one coherent high-value objective. Never create a second change that conflicts with active/testing work in the same subsystem.
-18. If no sufficiently valuable, evidence-backed improvement exists, set the state to `no_change` and make no code change.
-19. Never make a change just to satisfy the hourly cadence.
-20. GREEN/YELLOW work: create or continue one branch, implement narrowly, run relevant checks, independently review the diff, then open/update a DRAFT PR. Do not merge.
-21. RED work: proposal only. Do not implement model/runtime replacement, database migrations, identity/personality core redesign, destructive data changes, credential/signing changes, or equivalent architecture-critical scope automatically.
-22. Match product claims to evidence level: STATIC, CI, BEHAVIORAL, or DEVICE. Build success alone is not proof of persona, naturalness, memory, latency, RAM, battery, or Android crash improvement.
-23. If device/model evidence is required and unavailable, mark the PR `blocked_human` and state exactly one concrete evidence request. Do not repeatedly re-review it without new evidence.
-24. The Reviewer role must critique regression risk, unnecessary complexity, evidence quality, claim strength, scope expansion, dependency/maintenance cost when applicable, and whether a simpler solution exists.
-25. Reviewer approval is not final company approval. Before a PR may become `ready_for_merge`, run the independent Boss gate defined in `engineering/boss/BOSS_POLICY.md`.
-26. The Boss must inspect the actual diff, current main, CI/checks, available evidence, worker conclusion, Reviewer verdict, product priorities, conflicting PRs, reversibility, and complexity/maintenance cost. The Boss does not write code and must choose exactly one: `APPROVE_MERGE`, `REJECT_CLOSE`, `REQUEST_REVISION`, or `BLOCKED_HUMAN`.
-27. Boss transitions use the canonical lifecycle only:
+17. Select at most one coherent high-value work package, not necessarily one isolated change. A work package may contain multiple related fixes, upgrades, refinements, tests, and cleanup items when they share one product goal/subsystem and can be reviewed, tested, and reverted as a unit.
+18. Before implementing a small candidate, check whether other related evidence-backed improvements in the same subsystem should be bundled into the same package. Prefer one meaningful package over several tiny PRs when bundling does not materially increase regression risk.
+19. Do not bundle unrelated subsystems merely to make a PR larger. Split work when evidence type, rollback boundary, risk decision, RED scope, or merge-conflict risk differs materially.
+20. If the aggregate package would still be trivial or weakly valuable, set the state to `no_change` and make no code change. Never make a change just to satisfy the hourly cadence.
+21. GREEN/YELLOW work: create or continue one branch, implement the coherent package, run relevant checks, independently review the complete diff, then open/update a DRAFT PR. Prefer a small number of purposeful commits. Do not merge.
+22. Do not consume Vercel deployments for engineering-only, Android-only, documentation-only, or test-only changes when deployment is not evidence required for the claim. Respect repository ignore rules and do not push no-op/cosmetic commits merely to retrigger Vercel or CI.
+23. Every PR description must start with `## Ringkasan Indonesia` and summarize the complete work package, not only the latest commit. Explain simply and concisely what changed, why it matters, whether APK behavior is affected, important risk/blocker status, and what decision the human owner is expected to make.
+24. RED work: proposal only. Do not implement model/runtime replacement, database migrations, identity/personality core redesign, destructive data changes, credential/signing changes, or equivalent architecture-critical scope automatically.
+25. Match product claims to evidence level: STATIC, CI, BEHAVIORAL, or DEVICE. Build success alone is not proof of persona, naturalness, memory, latency, RAM, battery, or Android crash improvement.
+26. If device/model evidence is required and unavailable, mark the PR `blocked_human` and state exactly one concrete evidence request. Do not repeatedly re-review it without new evidence.
+27. The Reviewer role must critique regression risk, unnecessary complexity, evidence quality, claim strength, scope expansion, dependency/maintenance cost when applicable, package coherence, and whether a simpler solution exists. Reviewer should reject a package that is larger but incoherent.
+28. Reviewer approval is not final company approval. Before a PR may become `ready_for_merge`, run the independent Boss gate defined in `engineering/boss/BOSS_POLICY.md`.
+29. The Boss must inspect the actual diff, current main, CI/checks, available evidence, worker conclusion, Reviewer verdict, product priorities, conflicting PRs, reversibility, and complexity/maintenance cost. The Boss does not write code and must choose exactly one: `APPROVE_MERGE`, `REJECT_CLOSE`, `REQUEST_REVISION`, or `BLOCKED_HUMAN`.
+30. Boss transitions use the canonical lifecycle only:
     - `APPROVE_MERGE` -> `ready_for_merge`. Do NOT merge automatically; human merge remains required in REVIEW_GATED mode.
     - `REJECT_CLOSE` -> record the decision, close/cancel the draft GREEN/YELLOW PR, then classify it `completed` or `superseded` as appropriate.
     - `REQUEST_REVISION` -> `active`, record one coherent revision objective, and return that same PR/branch to the Engineer on a future cycle.
     - `BLOCKED_HUMAN` -> `blocked_human`, record one concrete evidence/authority request, and do not freeze unrelated engineering.
-28. RED work cannot receive autonomous final merge authority from the Boss. It remains a recommendation/escalation for human approval.
-29. Record every Boss decision using `engineering/boss/decision.schema.json`.
-30. Update issue #42 with final result, selected objective, PR lifecycle, evidence level, Boss decision when applicable, PR number if any, blocker type/recheck condition if any, key metric changes, and a short event trail.
-31. Keep at most 12 recent events. Do not modify release signing material, credentials, or unrelated applications.
+31. RED work cannot receive autonomous final merge authority from the Boss. It remains a recommendation/escalation for human approval.
+32. Record every Boss decision using `engineering/boss/decision.schema.json`.
+33. Update issue #42 with final result, selected work package/objective, PR lifecycle, evidence level, Boss decision when applicable, PR number if any, blocker type/recheck condition if any, key metric changes, and a short event trail.
+34. Keep at most 12 recent events. Do not modify release signing material, credentials, or unrelated applications.
 
-Current product objective: maximize measured Furina companion quality while minimizing complexity.
+Current product objective: maximize measured Furina companion quality while minimizing complexity and infrastructure churn.
 
 Current autonomy mode: `REVIEW_GATED`. Never auto-merge. Boss `APPROVE_MERGE` means "recommended for merge", not "merged". Auto-merge promotion requires a separate future human policy decision after a demonstrated track record.
 
