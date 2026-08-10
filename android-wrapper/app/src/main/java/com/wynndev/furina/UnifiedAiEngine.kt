@@ -81,15 +81,16 @@ class UnifiedAiEngine(
         // Persist the user turn even if generation fails; retrying keeps the user's intent.
         val userId = store.addMessage(sessionId, "user", userText)
         val reply = StringBuilder()
-        val baseBudget = responseBudgetFor(userText)
-        val generationBudget = if (activeProvider.capabilities.offline) baseBudget else maxOf(baseBudget, 512)
         val request = AiGenerationRequest(
             requestId = requestId,
             sessionId = sessionId,
             model = model,
             context = context,
             userMessage = userText,
-            predictLength = generationBudget.coerceAtMost(model.maxOutputTokens),
+            // Do not infer answer length from input length. The model is allowed to finish its
+            // thought and stop naturally on EOS/EOG. maxOutputTokens remains only a runaway/
+            // context safety horizon, not a conversational length target.
+            predictLength = model.maxOutputTokens,
         )
         try {
             activeProvider.stream(request).collect { token ->
@@ -157,7 +158,7 @@ class UnifiedAiEngine(
         maintenanceJob = job
     }
 
-    /** Lightweight telemetry for the future 100–300 scenario on-device quality benchmark. */
+    /** Lightweight telemetry for the future on-device behavioral benchmark. */
     private fun qualityFlags(userText: String, response: String): JSONArray {
         val flags = JSONArray()
         val normalizedUser = userText.replace(Regex("\\s+"), " ").trim()
@@ -167,39 +168,33 @@ class UnifiedAiEngine(
         }
         if (response.contains("PRIVATE RESPONSE CONTEXT", ignoreCase = true) ||
             response.contains("PRIVATE TURN STATE", ignoreCase = true) ||
-            response.contains("PRIVATE SESSION REHYDRATION", ignoreCase = true)
+            response.contains("PRIVATE SESSION REHYDRATION", ignoreCase = true) ||
+            response.contains("PRIVATE LANGUAGE REGISTER", ignoreCase = true) ||
+            response.contains("PRIVATE RESPONSE SHAPE", ignoreCase = true)
         ) {
             flags.put("private_context_leak")
         }
+
+        // Overlong is telemetry only. It does not stop or truncate generation; behavioral
+        // directives in ContextEngine should teach the model when a human-sized reply is enough.
+        if (normalizedUser.length <= 50 && normalizedResponse.length > 520) {
+            flags.put("overlong_short_turn")
+        }
+
+        val streetRegister = Regex("(?i)(^|\\W)(lo|lu|loe|elu|gue|gua|gw)(\\W|$)")
+        val userUsesStreetRegister = streetRegister.containsMatchIn(userText)
+        if (!userUsesStreetRegister && streetRegister.containsMatchIn(response)) {
+            flags.put("unmirrored_street_register")
+        }
+        val intimatePetName = Regex("(?i)(^|\\W)(sayang|beb|babe|dear|honey)(\\W|$)")
+        if (!intimatePetName.containsMatchIn(userText) && intimatePetName.containsMatchIn(response)) {
+            flags.put("unestablished_pet_name")
+        }
+
         val sentences = response.split(Regex("(?<=[.!?])\\s+"))
             .map { it.replace(Regex("\\s+"), " ").trim().lowercase() }
             .filter { it.length >= 18 }
         if (sentences.groupingBy { it }.eachCount().values.any { it >= 2 }) flags.put("sentence_loop")
         return flags
-    }
-
-    private fun responseBudgetFor(message: String): Int {
-        val normalized = message.trim().lowercase()
-        val requestedWords = Regex("\\b(\\d{2,4})\\s*(kata|words?)\\b")
-            .find(normalized)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.toIntOrNull()
-        if (requestedWords != null) return (requestedWords * 3 / 2).coerceIn(256, 1_024)
-
-        val greeting = Regex(
-            "^(hi+|hai+|halo+|hello+|hey+|pagi|siang|sore|malam|apa kabar)[!?. ,]*$"
-        )
-        val longForm = Regex(
-            "\\b(esai|essay|artikel|article|cerita|story|surat|letter|email|laporan|report|" +
-                "rinci|mendetail|detailed|panjang|long-form)\\b"
-        )
-        return when {
-            greeting.matches(normalized) -> 96
-            longForm.containsMatchIn(normalized) -> 512
-            message.length <= 40 -> 192
-            message.length <= 180 -> 256
-            else -> 384
-        }
     }
 }

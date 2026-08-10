@@ -7,6 +7,7 @@ on:
       - 'android-wrapper/app/src/main/java/com/wynndev/furina/**'
       - 'scripts/overlays/**'
       - 'scripts/apply-companion-runtime-policy.py'
+      - 'scripts/apply-offline-stability-policy.py'
       - 'scripts/companion-quality-gate.py'
       - 'scripts/offline-load-safety-gate.py'
       - 'scripts/bootstrap-llama-android.sh'
