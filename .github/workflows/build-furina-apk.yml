@@ -49,7 +49,7 @@ jobs:
 
       - name: Validate web companion route
         run: |
-          npm ci --no-audit --no-fund --prefer-offline
+          npm install --no-audit --no-fund --prefer-offline
           npm run build
           test -s src/routes/native.tsx
           grep -q 'Qwen3.5 4B Deckard Heretic' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
