@@ -1,51 +1,61 @@
 #!/usr/bin/env python3
 """Validate Furina Engineering Company control-plane invariants.
 
-This gate protects the rules that prevent hourly reward hacking, same-cycle self-review,
-false BEHAVIORAL claims, policy drift, infrastructure churn, and autonomous merge authority.
-It validates contracts; it does not itself prove Furina model quality.
+This gate protects strategic prioritization, event-driven role independence, exact-SHA
+decision semantics, auditability, evidence discipline, and Boss-gated merge authority.
+It validates contracts; it does not prove Furina runtime/model quality.
 """
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-COMPANY = ROOT / "engineering/COMPANY.md"
-WORKER = ROOT / "engineering/worker/HOURLY_PROMPT.md"
-WORK_PACKAGE = ROOT / "engineering/work-package/POLICY.md"
-PRIORITY = ROOT / "engineering/prioritization/POLICY.md"
-INDEPENDENCE = ROOT / "engineering/review/INDEPENDENCE_POLICY.md"
-REVIEW_SCHEMA = ROOT / "engineering/review/decision.schema.json"
-DEVICE_SCHEMA = ROOT / "engineering/evidence/device-report.schema.json"
-BEHAVIORAL_SCHEMA = ROOT / "engineering/evidence/behavioral-run.schema.json"
-CALIBRATION_SCHEMA = ROOT / "engineering/calibration/record.schema.json"
-BOSS_POLICY = ROOT / "engineering/boss/BOSS_POLICY.md"
-BOSS_SCHEMA = ROOT / "engineering/boss/decision.schema.json"
 
+FILES = {
+    "company": ROOT / "engineering/COMPANY.md",
+    "worker": ROOT / "engineering/worker/HOURLY_PROMPT.md",
+    "work_package": ROOT / "engineering/work-package/POLICY.md",
+    "priority": ROOT / "engineering/prioritization/POLICY.md",
+    "independence": ROOT / "engineering/review/INDEPENDENCE_POLICY.md",
+    "audit": ROOT / "engineering/decisions/AUDIT_POLICY.md",
+    "review_schema": ROOT / "engineering/review/decision.schema.json",
+    "device_schema": ROOT / "engineering/evidence/device-report.schema.json",
+    "behavioral_schema": ROOT / "engineering/evidence/behavioral-run.schema.json",
+    "calibration_schema": ROOT / "engineering/calibration/record.schema.json",
+    "boss_policy": ROOT / "engineering/boss/BOSS_POLICY.md",
+    "boss_schema": ROOT / "engineering/boss/decision.schema.json",
+    "decision_gate": ROOT / "scripts/furina-decision-gate.py",
+    "model_gate": ROOT / "scripts/furina-model-gate.py",
+    "ci_wait": ROOT / "scripts/furina-ci-wait.py",
+    "orchestrator": ROOT / ".github/workflows/furina-autonomous-gate.yml",
+}
+
+OLD_PRIORITY = "priority = impact * confidence * frequency / max(1, effort * regressionRisk)"
 
 class ContractError(RuntimeError):
     pass
-
 
 def read(path: Path) -> str:
     if not path.is_file():
         raise ContractError(f"missing required file: {path.relative_to(ROOT)}")
     return path.read_text(encoding="utf-8")
 
-
 def read_json(path: Path) -> dict:
     try:
-        return json.loads(read(path))
+        value = json.loads(read(path))
     except json.JSONDecodeError as exc:
         raise ContractError(f"invalid JSON in {path.relative_to(ROOT)}: {exc}") from exc
-
+    if not isinstance(value, dict):
+        raise ContractError(f"{path.relative_to(ROOT)} must contain a JSON object")
+    return value
 
 def require_all(label: str, text: str, needles: list[str]) -> None:
-    missing = [needle for needle in needles if needle not in text]
+    missing = [x for x in needles if x not in text]
     if missing:
         raise ContractError(f"{label} missing contract markers: {', '.join(missing)}")
-
 
 def require_required_fields(label: str, schema: dict, expected: set[str]) -> None:
     actual = set(schema.get("required", []))
@@ -53,205 +63,146 @@ def require_required_fields(label: str, schema: dict, expected: set[str]) -> Non
     if missing:
         raise ContractError(f"{label} missing required fields: {missing}")
 
-
 def main() -> int:
-    company = read(COMPANY)
-    worker = read(WORKER)
-    work_package = read(WORK_PACKAGE)
-    priority = read(PRIORITY)
-    independence = read(INDEPENDENCE)
-    boss_policy = read(BOSS_POLICY)
+    text = {name: read(path) for name, path in FILES.items() if not name.endswith("_schema")}
+    company = text["company"]
+    worker = text["worker"]
+    priority = text["priority"]
+    independence = text["independence"]
+    audit = text["audit"]
+    boss = text["boss_policy"]
+    orchestrator = text["orchestrator"]
 
-    lifecycle = ["active", "testing", "ready_for_merge", "blocked_human", "completed", "superseded"]
+    require_all("COMPANY.md", company, [
+        "BOSS_GATED_AUTO_MERGE",
+        "engineering/prioritization/POLICY.md",
+        "engineering/review/INDEPENDENCE_POLICY.md",
+        "engineering/decisions/AUDIT_POLICY.md",
+        "scripts/furina-decision-gate.py",
+        ".github/workflows/furina-autonomous-gate.yml",
+        "There is no artificial wall-clock delay",
+        "RED remains human-authorized and human-merged",
+        "FURINA_COMPANY_PR_V1",
+        "A green build is evidence of build health, not proof of product improvement",
+        "STATIC", "CI", "BEHAVIORAL", "DEVICE",
+    ])
+    if OLD_PRIORITY in company:
+        raise ContractError("COMPANY.md still contains the superseded cross-tier priority formula")
+    if "REVIEW_GATED" in company and "BOSS_GATED_AUTO_MERGE" not in company:
+        raise ContractError("COMPANY.md autonomy mode drifted back to REVIEW_GATED")
 
-    require_all(
-        "COMPANY.md",
-        company,
-        [
-            "REVIEW_GATED",
-            *lifecycle,
-            "Every engineering cycle may legitimately conclude with NO_CHANGE",
-            "A green build is evidence of build health, not proof of product improvement",
-            "STATIC",
-            "CI",
-            "BEHAVIORAL",
-            "DEVICE",
-            "Auto-merge is intentionally disabled today",
-        ],
-    )
+    require_all("PRIORITIZATION/POLICY.md", priority, [
+        "authoritative for candidate ranking",
+        "P0_PRODUCT", "P0_UNBLOCKER", "P1_PRODUCT", "P2_PRODUCT", "META_ENGINEERING",
+        "A lower tier cannot outrank a higher eligible tier",
+        "withinTierScore",
+        "Anti-self-optimization rule",
+    ])
 
-    require_all(
-        "PRIORITIZATION/POLICY.md",
-        priority,
-        [
-            "authoritative for candidate ranking",
-            "P0_PRODUCT",
-            "P0_UNBLOCKER",
-            "P1_PRODUCT",
-            "P2_PRODUCT",
-            "META_ENGINEERING",
-            "A lower tier cannot outrank a higher eligible tier",
-            "withinTierScore",
-            "no more than one of the last six completed change-producing cycles",
-            "confidence is capped at 7/10",
-            "engineering/calibration/record.schema.json",
-            "Anti-self-optimization rule",
-        ],
-    )
+    require_all("REVIEW/INDEPENDENCE_POLICY.md", independence, [
+        "no minimum wall-clock delay",
+        "separate GitHub Actions job",
+        "reviewCycleId != engineerCycleId",
+        "bossCycleId != engineerCycleId",
+        "scripts/furina-decision-gate.py",
+        "FURINA_REVIEW_DECISION_V1",
+        "BOSS_GATED_AUTO_MERGE",
+    ])
 
-    require_all(
-        "REVIEW/INDEPENDENCE_POLICY.md",
-        independence,
-        [
-            "Engineer phase",
-            "Reviewer phase",
-            "Boss phase",
-            "different `cycleId`",
-            "reviewCycleId",
-            "bossCycleId",
-            "reviewedHeadSha",
-            "Any new commit invalidates both previous Reviewer and Boss approval",
-            "Role labels inside one model response are not independent review",
-        ],
-    )
+    require_all("DECISIONS/AUDIT_POLICY.md", audit, [
+        "FURINA_REVIEW_DECISION_V1",
+        "FURINA_BOSS_DECISION_V1",
+        "separate top-level PR comments",
+        "Never edit/reuse an old decision comment",
+        "scripts/furina-decision-gate.py",
+    ])
 
-    require_all(
-        "WORK_PACKAGE/POLICY.md",
-        work_package,
-        [
-            "engineering/prioritization/POLICY.md",
-            "one coherent high-value work package",
-            "Do not create a PR for a trivial isolated tweak",
-            "Do not combine unrelated subsystems",
-            "same execution that writes the package must not certify it as Reviewer or Boss",
-            "engineering/calibration/record.schema.json",
-            "Do not repeatedly push no-op or cosmetic commits",
-            "## Ringkasan Indonesia",
-        ],
-    )
+    require_all("HOURLY_PROMPT.md", worker, [
+        "hourly automation is only a **shift trigger**",
+        ".github/workflows/furina-autonomous-gate.yml",
+        "strategic tier first",
+        "Do **not** issue Reviewer APPROVE or Boss APPROVE_MERGE yourself",
+        "Do **not** wait for an arbitrary minute boundary",
+        "BOSS_GATED_AUTO_MERGE",
+        "FURINA_COMPANY_PR_V1",
+    ])
+    if OLD_PRIORITY in worker:
+        raise ContractError("HOURLY_PROMPT.md reintroduced old cross-tier priority formula")
 
-    require_all(
-        "HOURLY_PROMPT.md",
-        worker,
-        [
-            "engineering/prioritization/POLICY.md",
-            "engineering/review/INDEPENDENCE_POLICY.md",
-            "engineering/evidence/behavioral-run.schema.json",
-            "engineering/calibration/record.schema.json",
-            "scheduler prompt must not duplicate the full company policy",
-            "One-role-per-cycle rule",
-            "reviewCycleId != engineerCycleId",
-            "bossCycleId",
-            "actualModelRun=true",
-            "Strategic tier is lexicographic",
-            "META_ENGINEERING",
-            "Never auto-merge",
-            "Human merge remains the final write to `main`",
-        ],
-    )
+    require_all("BOSS_POLICY.md", boss, [
+        "fresh execution context",
+        "There is no required time delay",
+        "scripts/furina-decision-gate.py",
+        "autonomy class",
+        "BOSS_GATED_AUTO_MERGE",
+        "APPROVE_MERGE",
+        "RED",
+        "FURINA_BOSS_DECISION_V1",
+    ])
 
-    if "priority = impact * confidence * frequency / max(1, effort * regressionRisk)" in worker:
-        raise ContractError("HOURLY_PROMPT.md reintroduced the old reward-hacking-prone priority formula")
+    require_all("furina-autonomous-gate.yml", orchestrator, [
+        "models: read",
+        "actions: read",
+        "pull-requests: write",
+        "issues: write",
+        "furina-ci-wait.py",
+        "furina-model-gate.py",
+        "furina-decision-gate.py",
+        "FURINA_REVIEW_DECISION_V1",
+        "FURINA_BOSS_DECISION_V1",
+        "APPROVE_MERGE",
+        "autonomyClass",
+        "github.event.pull_request.head.repo.full_name == github.repository",
+    ])
 
-    require_all(
-        "BOSS_POLICY.md",
-        boss_policy,
-        [
-            "Role labels inside one model response are not independent review",
-            "engineerCycleId",
-            "reviewCycleId",
-            "bossCycleId",
-            "reviewedHeadSha",
-            "Reviewer and Boss results must be recorded separately",
-            "actualModelRun=true",
-            "engineering/prioritization/POLICY.md",
-            "engineering/calibration/record.schema.json",
-            "It does NOT merge automatically",
-            "Anti-rubber-stamp rule",
-        ],
-    )
+    review = read_json(FILES["review_schema"])
+    require_required_fields("review/decision.schema.json", review, {
+        "pullRequest", "reviewCycleId", "engineerCycleId", "reviewedHeadSha",
+        "verdict", "evidenceLevel", "regressionRisk", "scopeCoherence",
+        "simplerAlternative", "reason", "reviewedAt",
+    })
 
-    review = read_json(REVIEW_SCHEMA)
-    require_required_fields(
-        "review/decision.schema.json",
-        review,
-        {
-            "pullRequest", "reviewCycleId", "engineerCycleId", "reviewedHeadSha",
-            "verdict", "evidenceLevel", "regressionRisk", "scopeCoherence",
-            "simplerAlternative", "reason", "reviewedAt",
-        },
-    )
-    review_verdicts = set(review.get("properties", {}).get("verdict", {}).get("enum", []))
-    if review_verdicts != {"APPROVE", "REQUEST_CHANGES", "BLOCKED_HUMAN", "NO_CHANGE_RECOMMENDED"}:
-        raise ContractError(f"review decision enum mismatch: {sorted(review_verdicts)}")
+    boss_schema = read_json(FILES["boss_schema"])
+    require_required_fields("boss/decision.schema.json", boss_schema, {
+        "decision", "pullRequest", "headSha", "engineerCycleId", "reviewCycleId",
+        "bossCycleId", "reviewedHeadSha", "evidenceLevel", "autonomyClass",
+        "productValue", "regressionRisk", "complexityCost", "confidence",
+        "reason", "requiredNextAction", "decidedAt",
+    })
+    autonomy = set(boss_schema.get("properties", {}).get("autonomyClass", {}).get("enum", []))
+    if autonomy != {"GREEN", "YELLOW", "RED"}:
+        raise ContractError(f"Boss autonomyClass enum mismatch: {sorted(autonomy)}")
 
-    device = read_json(DEVICE_SCHEMA)
-    require_required_fields(
-        "device-report.schema.json",
-        device,
-        {"schemaVersion", "recordedAt", "commit", "device", "model", "objective", "observation"},
-    )
-    for field in ("measurements", "runtime", "behavioral", "privacy"):
-        if field not in device.get("properties", {}):
-            raise ContractError(f"device-report.schema.json missing property: {field}")
-
-    behavioral = read_json(BEHAVIORAL_SCHEMA)
-    require_required_fields(
-        "behavioral-run.schema.json",
-        behavioral,
-        {"schemaVersion", "recordedAt", "commit", "benchmarkVersion", "actualModelRun", "model", "scenarios", "aggregate"},
-    )
-    actual_model_run = behavioral.get("properties", {}).get("actualModelRun", {})
-    if actual_model_run.get("const") is not True:
+    behavioral = read_json(FILES["behavioral_schema"])
+    if behavioral.get("properties", {}).get("actualModelRun", {}).get("const") is not True:
         raise ContractError("behavioral-run.schema.json must require actualModelRun=true")
-    scenario = behavioral.get("properties", {}).get("scenarios", {}).get("items", {})
-    scenario_required = set(scenario.get("required", []))
-    if not {"scenarioId", "output", "scores"}.issubset(scenario_required):
-        raise ContractError("behavioral-run.schema.json scenarios must require scenarioId/output/scores")
 
-    calibration = read_json(CALIBRATION_SCHEMA)
-    require_required_fields(
-        "calibration/record.schema.json",
-        calibration,
-        {"schemaVersion", "workId", "category", "strategicTier", "prediction", "status"},
-    )
-    prediction_required = set(calibration.get("properties", {}).get("prediction", {}).get("required", []))
-    expected_prediction = {"cycleId", "recordedAt", "impact", "confidence", "expectedMetric", "expectedDelta", "verificationWindow"}
-    if not expected_prediction.issubset(prediction_required):
-        raise ContractError("calibration prediction contract is incomplete")
-    calibration_enum = set(
-        calibration.get("properties", {})
-        .get("observation", {})
-        .get("properties", {})
-        .get("calibration", {})
-        .get("enum", [])
-    )
-    if calibration_enum != {"overestimated", "calibrated", "underestimated", "inconclusive"}:
-        raise ContractError("calibration outcome enum mismatch")
+    calibration = read_json(FILES["calibration_schema"])
+    require_required_fields("calibration/record.schema.json", calibration, {
+        "schemaVersion", "workId", "category", "strategicTier", "prediction", "status",
+    })
 
-    boss = read_json(BOSS_SCHEMA)
-    require_required_fields(
-        "boss/decision.schema.json",
-        boss,
-        {
-            "decision", "pullRequest", "headSha", "engineerCycleId", "reviewCycleId",
-            "bossCycleId", "reviewedHeadSha", "evidenceLevel", "productValue",
-            "regressionRisk", "complexityCost", "confidence", "reason",
-            "requiredNextAction", "decidedAt",
-        },
-    )
-    decisions = set(boss.get("properties", {}).get("decision", {}).get("enum", []))
-    expected_decisions = {"APPROVE_MERGE", "REJECT_CLOSE", "REQUEST_REVISION", "BLOCKED_HUMAN"}
-    if decisions != expected_decisions:
-        raise ContractError(f"boss decision enum mismatch: {sorted(decisions)}")
+    device = read_json(FILES["device_schema"])
+    require_required_fields("device-report.schema.json", device, {
+        "schemaVersion", "recordedAt", "commit", "device", "model", "objective", "observation",
+    })
 
-    print("Furina Engineering Company v3 control-plane policy gate passed")
+    proc = subprocess.run(
+        [sys.executable, str(FILES["decision_gate"]), "self-test"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    if proc.returncode:
+        raise ContractError(f"decision semantic self-test failed:\n{proc.stdout}")
+
+    print("Furina Engineering Company v4 event-driven policy gate passed")
     return 0
-
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except ContractError as error:
-        print(f"Furina Engineering Company v3 control-plane policy gate failed: {error}")
+    except ContractError as exc:
+        print(f"Furina Engineering Company v4 policy gate failed: {exc}")
         raise SystemExit(1)

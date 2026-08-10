@@ -1,52 +1,76 @@
 # Furina Review Independence Policy
 
 ## Purpose
-Reviewer and Boss independence must be operational, not merely role-played inside one execution. The same scheduled execution that authored a change must not also certify that change for merge.
+Reviewer and Boss independence must be operational, not role-played. A change may move quickly, but the same model conversation/process that authored a head must not certify that head for merge.
 
 ## Execution-context separation
-For every GREEN/YELLOW PR:
+For every GREEN/YELLOW PR head:
 
-1. **Engineer phase** — one execution may select, implement, test, and update the PR. It must finish by setting lifecycle to `testing` or `blocked_human`. It may not emit Reviewer approval or a Boss decision for code it authored in that execution.
-2. **Reviewer phase** — a later scheduled execution with a different `cycleId` must inspect the diff and evidence from primary sources. It may return `APPROVE`, `REQUEST_CHANGES`, `BLOCKED_HUMAN`, or `NO_CHANGE_RECOMMENDED`. It must record `reviewCycleId` and `reviewedHeadSha`.
-3. **Boss phase** — a still later scheduled execution with a third `cycleId` may run only after an independent Reviewer event exists for the exact current head SHA. It must inspect primary evidence again and record `bossCycleId`.
+1. **Engineer** creates or revises the head. Its provenance is recorded as `engineerCycleId`.
+2. **Reviewer** runs in a fresh execution context after required CI for that exact head is green. `reviewCycleId` must differ from `engineerCycleId`.
+3. **Boss** runs only after a valid Reviewer `APPROVE` record exists for the same head. `bossCycleId` must differ from both prior IDs.
 
-A single execution may reconcile old decisions, but it may not create an Engineer result, Reviewer approval, and Boss approval for the same head SHA in one cycle.
+A separate GitHub Actions job counts as a separate execution context when it:
+- starts a fresh process/job;
+- performs a new model/API call with a fresh prompt;
+- reads primary evidence again;
+- does not reuse the Engineer or Reviewer model conversation;
+- writes a separate machine-readable decision record.
+
+There is **no minimum wall-clock delay**. If CI completes at 10:07, Reviewer may begin at 10:07. If Reviewer approves at 10:10, Boss may begin immediately afterward.
+
+Fallback scheduled executions remain valid if event-driven orchestration is unavailable, but fixed hourly waiting is not a quality requirement.
 
 ## Head-SHA binding
-Reviewer and Boss decisions are valid only for the exact PR head SHA they inspected. Any new commit invalidates both previous Reviewer and Boss approval for that PR and returns it to `testing` until a later cycle reviews the new head.
+Reviewer and Boss decisions are valid only for the exact PR head SHA they inspected. Any new commit invalidates prior Reviewer/Boss certification for that PR.
 
-## Minimum separation
-`reviewCycleId` must differ from `engineerCycleId`.
-`bossCycleId` must differ from both `engineerCycleId` and `reviewCycleId`.
+Minimum semantic invariants:
+- `reviewCycleId != engineerCycleId`
+- `bossCycleId != engineerCycleId`
+- `bossCycleId != reviewCycleId`
+- `reviewedHeadSha == current PR head SHA`
+- Boss `headSha == current PR head SHA`
+- Boss may approve only when the referenced Reviewer verdict is `APPROVE`
 
-The separation is about fresh execution context, not elapsed wall-clock time. Hourly cadence naturally provides this without artificial delays.
+These invariants are not trusted to JSON Schema alone. `scripts/furina-decision-gate.py` must validate them before lifecycle transition or merge.
 
-## Machine-readable Reviewer record
-Reviewer output must conform to `engineering/review/decision.schema.json` and include:
-- `pullRequest`
-- `reviewCycleId`
-- `engineerCycleId`
-- `reviewedHeadSha`
-- `verdict`
-- `evidenceLevel`
-- `regressionRisk`
-- `scopeCoherence`
-- `simplerAlternative`
-- `reason`
-- `reviewedAt`
+## Machine-readable audit trail
+Reviewer and Boss decisions must be separate top-level PR comments using `engineering/decisions/AUDIT_POLICY.md`. Reviewer records use `FURINA_REVIEW_DECISION_V1`; Boss records use `FURINA_BOSS_DECISION_V1`.
 
-The Reviewer should submit its review as a distinct PR review/comment. The Boss decision is a separate record/comment created in a later execution.
+Issue #42 is only the current-state pointer. It is not sufficient as the durable decision trail.
+
+Never edit an old Reviewer/Boss decision comment to make it apply to a new head. A new head receives new decision comments.
+
+## Reviewer contract
+Reviewer output conforms to `engineering/review/decision.schema.json` and records:
+- pull request
+- engineer/reviewer cycle IDs
+- exact reviewed head SHA
+- verdict
+- evidence level
+- regression risk
+- scope coherence
+- simpler alternative
+- reason
+- timestamp
+
+Reviewer returns exactly one:
+`APPROVE`, `REQUEST_CHANGES`, `BLOCKED_HUMAN`, or `NO_CHANGE_RECOMMENDED`.
 
 ## Boss prerequisite
-The Boss must refuse to decide and leave the PR in `testing` when:
-- no independent Reviewer record exists;
-- the Reviewer record does not conform to `engineering/review/decision.schema.json`;
-- the Reviewer inspected a different head SHA;
-- `reviewCycleId == engineerCycleId`;
-- the Boss is running in either the Engineer or Reviewer cycle;
-- required evidence for the product claim is missing.
+Boss must refuse approval when:
+- no separate Reviewer record exists;
+- Reviewer record is malformed or semantically invalid;
+- Reviewer verdict is not `APPROVE`;
+- reviewed SHA differs from current head;
+- cycle IDs collide;
+- required evidence is missing;
+- the head changed after Reviewer approval.
 
-Boss output must conform to `engineering/boss/decision.schema.json`, including `engineerCycleId`, `reviewCycleId`, `bossCycleId`, and `reviewedHeadSha`.
+Boss output conforms to `engineering/boss/decision.schema.json`.
+
+## Auto-merge boundary
+Under `BOSS_GATED_AUTO_MERGE`, only GREEN/YELLOW heads with a semantically valid Reviewer APPROVE and Boss APPROVE_MERGE may be merged automatically. RED remains human-authorized and human-merged.
 
 ## Anti-rubber-stamp rule
-Role labels inside one model response are not independent review. Independence requires separate scheduled executions, separate machine-readable decisions, and SHA-bound records.
+One response containing “Engineer”, “Reviewer”, and “Boss” sections is one execution, not independent certification. Separate role labels never substitute for separate execution contexts and exact-SHA machine-readable evidence.

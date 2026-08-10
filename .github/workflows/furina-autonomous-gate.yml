@@ -1,0 +1,321 @@
+name: Furina Autonomous Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
+  models: read
+
+concurrency:
+  group: furina-autonomous-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  FURINA_GATE_MODEL: openai/gpt-4.1
+
+jobs:
+  await-ci:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(github.event.pull_request.body, '<!-- FURINA_COMPANY_PR_V1 -->')
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    outputs:
+      head: ${{ steps.meta.outputs.head }}
+      pr: ${{ steps.meta.outputs.pr }}
+      engineer_cycle: ${{ steps.meta.outputs.engineer_cycle }}
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Fetch current main
+        run: git fetch origin main
+
+      - id: meta
+        name: Bind orchestration to exact head
+        shell: bash
+        run: |
+          set -euo pipefail
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          PR="${{ github.event.pull_request.number }}"
+          echo "head=$HEAD" >> "$GITHUB_OUTPUT"
+          echo "pr=$PR" >> "$GITHUB_OUTPUT"
+          echo "engineer_cycle=engineer-head-${HEAD:0:12}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate control-plane contracts
+        run: |
+          python3 scripts/furina-company-policy-gate.py
+          python3 scripts/furina-decision-gate.py self-test
+
+      - name: Wait only for required exact-head CI
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/furina-ci-wait.py
+          --repo "${{ github.repository }}"
+          --head "${{ github.event.pull_request.head.sha }}"
+          --timeout-seconds 1800
+          --discovery-seconds 120
+
+  reviewer:
+    needs: await-ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      verdict: ${{ steps.result.outputs.verdict }}
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.await-ci.outputs.head }}
+          fetch-depth: 0
+
+      - name: Fetch current main
+        run: git fetch origin main
+
+      - name: Run fresh independent Reviewer model
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/furina-model-gate.py \
+            --role reviewer \
+            --pr "${{ needs.await-ci.outputs.pr }}" \
+            --head "${{ needs.await-ci.outputs.head }}" \
+            --engineer-cycle "${{ needs.await-ci.outputs.engineer_cycle }}" \
+            --run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            > reviewer-decision.json
+
+      - name: Validate Reviewer semantics
+        run: >-
+          python3 scripts/furina-decision-gate.py review
+          --decision reviewer-decision.json
+          --expected-head "${{ needs.await-ci.outputs.head }}"
+          --engineer-cycle "${{ needs.await-ci.outputs.engineer_cycle }}"
+          --pr "${{ needs.await-ci.outputs.pr }}"
+
+      - id: result
+        name: Export Reviewer verdict
+        run: echo "verdict=$(jq -r .verdict reviewer-decision.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Record Reviewer audit comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ needs.await-ci.outputs.pr }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo '<!-- FURINA_REVIEW_DECISION_V1 -->'
+            echo '## Furina Independent Reviewer'
+            echo '```json'
+            cat reviewer-decision.json
+            echo
+            echo '```'
+          } > reviewer-comment.md
+          gh api "repos/$REPO/issues/$PR/comments" -f body="$(cat reviewer-comment.md)" >/dev/null
+
+      - name: Preserve Reviewer record
+        uses: actions/upload-artifact@v4
+        with:
+          name: furina-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: reviewer-decision.json
+          retention-days: 14
+
+  boss:
+    needs: [await-ci, reviewer]
+    if: needs.reviewer.outputs.verdict == 'APPROVE'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      decision: ${{ steps.result.outputs.decision }}
+      autonomy_class: ${{ steps.result.outputs.autonomy_class }}
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.await-ci.outputs.head }}
+          fetch-depth: 0
+
+      - name: Fetch current main
+        run: git fetch origin main
+
+      - name: Restore Reviewer record
+        uses: actions/download-artifact@v4
+        with:
+          name: furina-review-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Revalidate Reviewer before Boss
+        run: >-
+          python3 scripts/furina-decision-gate.py review
+          --decision reviewer-decision.json
+          --expected-head "${{ needs.await-ci.outputs.head }}"
+          --engineer-cycle "${{ needs.await-ci.outputs.engineer_cycle }}"
+          --pr "${{ needs.await-ci.outputs.pr }}"
+
+      - name: Run fresh independent Boss model
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/furina-model-gate.py \
+            --role boss \
+            --pr "${{ needs.await-ci.outputs.pr }}" \
+            --head "${{ needs.await-ci.outputs.head }}" \
+            --engineer-cycle "${{ needs.await-ci.outputs.engineer_cycle }}" \
+            --run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --review-file reviewer-decision.json \
+            > boss-decision.json
+
+      - name: Validate Boss semantics
+        run: >-
+          python3 scripts/furina-decision-gate.py boss
+          --decision boss-decision.json
+          --review reviewer-decision.json
+          --expected-head "${{ needs.await-ci.outputs.head }}"
+          --engineer-cycle "${{ needs.await-ci.outputs.engineer_cycle }}"
+          --pr "${{ needs.await-ci.outputs.pr }}"
+
+      - id: result
+        name: Export Boss decision
+        run: |
+          echo "decision=$(jq -r .decision boss-decision.json)" >> "$GITHUB_OUTPUT"
+          echo "autonomy_class=$(jq -r .autonomyClass boss-decision.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Record Boss audit comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ needs.await-ci.outputs.pr }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo '<!-- FURINA_BOSS_DECISION_V1 -->'
+            echo '## Furina Executive Boss'
+            echo '```json'
+            cat boss-decision.json
+            echo
+            echo '```'
+          } > boss-comment.md
+          gh api "repos/$REPO/issues/$PR/comments" -f body="$(cat boss-comment.md)" >/dev/null
+
+      - name: Preserve Boss record
+        uses: actions/upload-artifact@v4
+        with:
+          name: furina-boss-${{ github.run_id }}-${{ github.run_attempt }}
+          path: boss-decision.json
+          retention-days: 14
+
+  merge:
+    needs: [await-ci, reviewer, boss]
+    if: >-
+      needs.boss.outputs.decision == 'APPROVE_MERGE' &&
+      needs.boss.outputs.autonomy_class != 'RED'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact approved head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.await-ci.outputs.head }}
+          fetch-depth: 0
+
+      - name: Fetch current main
+        run: git fetch origin main
+
+      - name: Restore Reviewer record
+        uses: actions/download-artifact@v4
+        with:
+          name: furina-review-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Restore Boss record
+        uses: actions/download-artifact@v4
+        with:
+          name: furina-boss-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Revalidate exact-head decisions immediately before merge
+        run: |
+          set -euo pipefail
+          python3 scripts/furina-decision-gate.py review \
+            --decision reviewer-decision.json \
+            --expected-head "${{ needs.await-ci.outputs.head }}" \
+            --engineer-cycle "${{ needs.await-ci.outputs.engineer_cycle }}" \
+            --pr "${{ needs.await-ci.outputs.pr }}"
+          python3 scripts/furina-decision-gate.py boss \
+            --decision boss-decision.json \
+            --review reviewer-decision.json \
+            --expected-head "${{ needs.await-ci.outputs.head }}" \
+            --engineer-cycle "${{ needs.await-ci.outputs.engineer_cycle }}" \
+            --pr "${{ needs.await-ci.outputs.pr }}"
+
+      - name: Recheck current PR head and required CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ needs.await-ci.outputs.pr }}
+          HEAD: ${{ needs.await-ci.outputs.head }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT_HEAD="$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)"
+          test "$CURRENT_HEAD" = "$HEAD" || {
+            echo "PR head moved: expected $HEAD, got $CURRENT_HEAD" >&2
+            exit 1
+          }
+          python3 scripts/furina-ci-wait.py \
+            --repo "$REPO" \
+            --head "$HEAD" \
+            --timeout-seconds 1800 \
+            --discovery-seconds 60
+
+      - name: Boss-gated squash merge exact head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ needs.await-ci.outputs.pr }}
+          HEAD: ${{ needs.await-ci.outputs.head }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for attempt in $(seq 1 12); do
+            MERGEABLE="$(gh api "repos/$REPO/pulls/$PR" --jq '.mergeable')"
+            if [ "$MERGEABLE" = "true" ]; then
+              break
+            fi
+            if [ "$MERGEABLE" = "false" ]; then
+              echo "GitHub reports PR is not mergeable" >&2
+              exit 1
+            fi
+            sleep 5
+          done
+
+          IS_DRAFT="$(gh api "repos/$REPO/pulls/$PR" --jq '.draft')"
+          if [ "$IS_DRAFT" = "true" ]; then
+            gh pr ready "$PR" --repo "$REPO"
+          fi
+
+          gh api --method PUT "repos/$REPO/pulls/$PR/merge" \
+            -f merge_method=squash \
+            -f sha="$HEAD" \
+            > merge-result.json
+
+          test "$(jq -r .merged merge-result.json)" = "true" || {
+            cat merge-result.json >&2
+            exit 1
+          }
+
+          echo "Boss-gated exact head merged successfully"
