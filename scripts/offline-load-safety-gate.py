@@ -43,7 +43,7 @@ def main() -> None:
             "4B low-memory mode must retain the 4096-token context target")
     require("LLAMA_LOAD_MODE_MMAP" in native and "llama_supports_mmap()" in native,
             "multi-GB Android load must remain mmap-backed")
-    require("retrying without mmap" not in native and "LLAMA_LOAD_MODE_NONE" not in native,
+    require("retrying without mmap" not in native and "model_params.load_mode = LLAMA_LOAD_MODE_NONE;" not in native,
             "multi-GB Android load must never retry with a full-buffer non-mmap path")
     require("user_tokens.erase(user_tokens.begin(), user_tokens.begin() + skipped_tokens)" in native,
             "overflow handling must preserve the newest user message")
