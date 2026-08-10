@@ -3,8 +3,8 @@
 
 This deterministic gate verifies that the autonomous worker cannot silently lose the
 anti-stall lifecycle, evidence policy, external-blocker handling, regression recovery,
-proactive improvement authority, review-gated merge rule, or independent Boss gate.
-It does not claim to evaluate Furina model behavior.
+proactive improvement authority, high-value work-package policy, review-gated merge rule,
+or independent Boss gate. It does not claim to evaluate Furina model behavior.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 COMPANY = ROOT / "engineering/COMPANY.md"
 WORKER = ROOT / "engineering/worker/HOURLY_PROMPT.md"
+WORK_PACKAGE = ROOT / "engineering/work-package/POLICY.md"
 DEVICE_SCHEMA = ROOT / "engineering/evidence/device-report.schema.json"
 BOSS_POLICY = ROOT / "engineering/boss/BOSS_POLICY.md"
 BOSS_SCHEMA = ROOT / "engineering/boss/decision.schema.json"
@@ -38,6 +39,7 @@ def require_all(label: str, text: str, needles: list[str]) -> None:
 def main() -> int:
     company = read(COMPANY)
     worker = read(WORKER)
+    work_package = read(WORK_PACKAGE)
     schema_text = read(DEVICE_SCHEMA)
     boss_policy = read(BOSS_POLICY)
     boss_schema_text = read(BOSS_SCHEMA)
@@ -75,6 +77,7 @@ def main() -> int:
         worker,
         [
             *lifecycle,
+            "engineering/work-package/POLICY.md",
             "A `ready_for_merge` PR with no new evidence or human decision must not consume another cycle",
             "A `blocked_human` PR with no new evidence must not consume another cycle",
             "blockerType = external_transient",
@@ -84,6 +87,12 @@ def main() -> int:
             "micro-UX",
             "repository tooling/skills/dependencies",
             "YELLOW at minimum",
+            "one coherent high-value work package",
+            "not necessarily one isolated change",
+            "Prefer one meaningful package over several tiny PRs",
+            "Do not bundle unrelated subsystems",
+            "Do not consume Vercel deployments",
+            "## Ringkasan Indonesia",
             "Never auto-merge",
             "STATIC, CI, BEHAVIORAL, or DEVICE",
             "Reviewer approval is not final company approval",
@@ -91,6 +100,23 @@ def main() -> int:
             "REJECT_CLOSE",
             "REQUEST_REVISION",
             "BLOCKED_HUMAN",
+        ],
+    )
+
+    require_all(
+        "WORK_PACKAGE_POLICY.md",
+        work_package,
+        [
+            "one-small-fix limit",
+            "one coherent high-value work package per cycle",
+            "multiple related fixes, upgrades, refinements, tests, and cleanup items",
+            "Do not create a PR for a trivial isolated tweak",
+            "Prefer a meaningful package over several tiny PRs",
+            "Do not combine unrelated subsystems",
+            "Vercel and CI efficiency",
+            "Do not repeatedly push no-op or cosmetic commits",
+            "Reviewer and Boss must reject a package that is large but incoherent",
+            "## Ringkasan Indonesia",
         ],
     )
 
