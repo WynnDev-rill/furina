@@ -39,11 +39,13 @@ class LocalLlamaProvider(
             // Keep native chat/KV history warm. Only session or identity changes justify
             // rebuilding the stable bootstrap prompt. Query retrieval stays per-turn.
             if (loadedSessionId != context.sessionId || loadedIdentityFingerprint != context.identityFingerprint) {
+                ProcessExitDiagnostics.mark(appContext, "offline-prompt-rehydrate")
                 onState("prompting", spec.id, 0.85)
                 engine.setSystemPrompt(context.coldStartPrompt)
                 loadedSessionId = context.sessionId
                 loadedIdentityFingerprint = context.identityFingerprint
                 loadedRetrievalFingerprint = null
+                ProcessExitDiagnostics.mark(appContext, "idle")
                 onState("ready", spec.id, 1.0)
             }
             return@withLock
@@ -56,6 +58,7 @@ class LocalLlamaProvider(
         }
         if (isWarm(model, context)) return@withLock
 
+        ProcessExitDiagnostics.mark(appContext, "offline-verify")
         onState("preparing", spec.id, 0.0)
         withContext(Dispatchers.IO) {
             if (!modelDownloads.verifySerialized(spec) { done, total ->
@@ -65,21 +68,33 @@ class LocalLlamaProvider(
             }
         }
 
+        // llama.cpp's Android binding is designed to load through an app-private file path.
+        // Existing installs are migrated once from external/FUSE-backed storage without a
+        // redownload; the copy is hashed while streaming and source removal happens last.
+        ProcessExitDiagnostics.mark(appContext, "offline-storage-migrate")
+        val file = withContext(Dispatchers.IO) {
+            modelDownloads.ensureRuntimeModel(spec) { done, total ->
+                if (total > 0L) onState("verifying", spec.id, done.toDouble() / total.toDouble())
+            }
+        }
+
         waitForInitialization()
         if (engine.state.value is InferenceEngine.State.ModelReady || engine.state.value is InferenceEngine.State.Error) {
             unload()
         }
 
-        val file = modelDownloads.modelFile(spec)
         require(file.exists() && file.canRead()) { "File model tidak dapat dibaca: ${file.absolutePath}" }
+        ProcessExitDiagnostics.mark(appContext, "offline-engine-load")
         onState("loading", spec.id, 0.15)
         engine.loadModel(file.absolutePath)
+        ProcessExitDiagnostics.mark(appContext, "offline-system-prompt")
         onState("prompting", spec.id, 0.85)
         engine.setSystemPrompt(context.coldStartPrompt)
         loadedModelId = spec.id
         loadedSessionId = context.sessionId
         loadedIdentityFingerprint = context.identityFingerprint
         loadedRetrievalFingerprint = null
+        ProcessExitDiagnostics.mark(appContext, "idle")
         onState("ready", spec.id, 1.0)
     }
 
