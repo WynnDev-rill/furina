@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "workId": "pr-47-control-plane-v3",
+  "pullRequest": 47,
+  "category": "engineering_control_plane",
+  "strategicTier": "P0_UNBLOCKER",
+  "prediction": {
+    "cycleId": "cycle-2026-08-10-2351-human-revision",
+    "recordedAt": "2026-08-10T23:56:00+07:00",
+    "impact": 8,
+    "confidence": 7,
+    "expectedMetric": "control-plane contract integrity",
+    "expectedDelta": "old cross-tier formula absent from worker; strategic-tier policy enforced; same-cycle Engineer/Reviewer/Boss certification rejected; BEHAVIORAL requires actual model outputs",
+    "verificationWindow": "CI on the revised PR head plus the next independent Reviewer and Boss cycles",
+    "reason": "Human audit reproduced a concrete resource-allocation failure (meta-policy 900 vs device evidence 18) and identified same-execution Reviewer/Boss certification. Confidence is capped at 7 until the revised policy survives CI and independent follow-up cycles."
+  },
+  "status": "prediction_only"
+}
