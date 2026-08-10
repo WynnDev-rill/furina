@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://furina.local/engineering/evidence/behavioral-run.schema.json",
+  "title": "Furina Behavioral Model Run",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "recordedAt",
+    "commit",
+    "benchmarkVersion",
+    "actualModelRun",
+    "model",
+    "scenarios",
+    "aggregate"
+  ],
+  "properties": {
+    "schemaVersion": {"type": "integer", "const": 1},
+    "recordedAt": {"type": "string", "format": "date-time"},
+    "commit": {
+      "type": "string",
+      "minLength": 7,
+      "maxLength": 40,
+      "pattern": "^[0-9a-fA-F]+$"
+    },
+    "baselineCommit": {
+      "type": "string",
+      "minLength": 7,
+      "maxLength": 40,
+      "pattern": "^[0-9a-fA-F]+$"
+    },
+    "benchmarkVersion": {"type": "string", "minLength": 1},
+    "actualModelRun": {"type": "boolean", "const": true},
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "identifier"],
+      "properties": {
+        "provider": {"type": "string", "minLength": 1},
+        "identifier": {"type": "string", "minLength": 1},
+        "quantization": {"type": "string"},
+        "contextSize": {"type": "integer", "exclusiveMinimum": 0},
+        "sampling": {"type": "string", "maxLength": 500}
+      }
+    },
+    "evaluator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {"type": "string", "enum": ["human", "deterministic", "model_judge", "hybrid"]},
+        "identifier": {"type": "string", "maxLength": 200},
+        "notes": {"type": "string", "maxLength": 1000}
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scenarioId", "output", "scores"],
+        "properties": {
+          "scenarioId": {"type": "string", "minLength": 1},
+          "output": {"type": "string", "minLength": 1, "maxLength": 12000},
+          "scores": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "latest_message_adherence",
+              "furina_persona",
+              "naturalness",
+              "memory_use",
+              "correction_handling",
+              "emotional_consistency",
+              "initiative",
+              "non_repetition",
+              "non_customer_service_tone"
+            ],
+            "properties": {
+              "latest_message_adherence": {"type": "number", "minimum": 0, "maximum": 10},
+              "furina_persona": {"type": "number", "minimum": 0, "maximum": 10},
+              "naturalness": {"type": "number", "minimum": 0, "maximum": 10},
+              "memory_use": {"type": "number", "minimum": 0, "maximum": 10},
+              "correction_handling": {"type": "number", "minimum": 0, "maximum": 10},
+              "emotional_consistency": {"type": "number", "minimum": 0, "maximum": 10},
+              "initiative": {"type": "number", "minimum": 0, "maximum": 10},
+              "non_repetition": {"type": "number", "minimum": 0, "maximum": 10},
+              "non_customer_service_tone": {"type": "number", "minimum": 0, "maximum": 10}
+            }
+          },
+          "flags": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"type": "string", "maxLength": 120}
+          },
+          "notes": {"type": "string", "maxLength": 1000}
+        }
+      }
+    },
+    "aggregate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["score", "scenarioCount"],
+      "properties": {
+        "score": {"type": "number", "minimum": 0, "maximum": 10},
+        "scenarioCount": {"type": "integer", "minimum": 1},
+        "deltaVsBaseline": {"type": "number", "minimum": -10, "maximum": 10},
+        "regressions": {
+          "type": "array",
+          "items": {"type": "string", "maxLength": 300}
+        }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "containsSecrets": {"type": "boolean", "const": false},
+        "containsPersonalConversation": {"type": "boolean", "const": false}
+      }
+    }
+  }
+}
