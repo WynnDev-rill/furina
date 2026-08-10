@@ -115,6 +115,13 @@ export function OnlineAiSettingsCard({ nativeReady }: { nativeReady: boolean }) 
   );
   const selectedModel = provider?.models.find((model) => model.id === provider.selectedModel) ?? provider?.models[0];
 
+  useEffect(() => {
+    if (!nativeReady || !provider?.keyConfigured || provider.models.length > 0) return;
+    setBusy(true);
+    setMessage("Memuat katalog model gratis…");
+    bridge()?.refreshOnlineModels(provider.id);
+  }, [nativeReady, provider?.id, provider?.keyConfigured, provider?.models.length]);
+
   function chooseMode(mode: AiMode) {
     bridge()?.setAiMode(mode);
     setSettings((current) => ({ ...current, mode }));
@@ -183,6 +190,10 @@ export function OnlineAiSettingsCard({ nativeReady }: { nativeReady: boolean }) 
       ) : (
         <div className="space-y-4 rounded-xl border bg-background/35 p-3">
           {!nativeReady && <div className="rounded-lg bg-destructive/10 p-2 text-xs text-destructive">Pengaturan API hanya tersedia di APK Furina.</div>}
+
+          <div className="rounded-lg bg-sky-500/10 p-2.5 text-[10px] leading-relaxed text-sky-700 dark:text-sky-200">
+            Dalam mode API online, pesan saat ini dan hanya konteks continuity/memory yang relevan untuk jawaban dikirim ke provider yang kamu pilih. Database lengkap tetap lokal di perangkat.
+          </div>
 
           <div className="space-y-2">
             <Label className="text-xs">Provider</Label>
