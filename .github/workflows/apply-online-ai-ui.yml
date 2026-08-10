@@ -34,6 +34,7 @@ jobs:
           npm run build
       - name: Commit migration result
         run: |
+          git checkout -- .github/workflows/build-furina-apk.yml .github/workflows/apply-online-ai-ui.yml
           git config user.name "Furina Build Bot"
           git config user.email "actions@users.noreply.github.com"
           git add -A
