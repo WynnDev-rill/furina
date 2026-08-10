@@ -10,6 +10,7 @@ object ProcessExitDiagnostics {
     private const val PREFS = "furina_process_exit"
     private const val CONSUMED_TS = "consumed_timestamp"
     private const val RECENT_WINDOW_MS = 6L * 60L * 60L * 1000L
+    private const val STAGE_PREFIX = "furina:"
 
     data class Snapshot(
         val reason: Int,
@@ -44,8 +45,7 @@ object ProcessExitDiagnostics {
 
         // On the first prepare attempt after a hard process death, surface Android's
         // historical exit reason instead of immediately entering the same crash loop.
-        // The timestamp is consumed once, so reopening Furina proceeds with the new
-        // recovery loader on the next attempt.
+        // The timestamp is consumed once, so reopening Furina proceeds on the next attempt.
         if (stage == "offline-verify") {
             consumeHumanSummary(context)?.let { summary ->
                 throw IllegalStateException("$summary. Tutup lalu buka Furina sekali lagi untuk mencoba profil pemulihan.")
@@ -54,7 +54,7 @@ object ProcessExitDiagnostics {
 
         runCatching {
             val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-            manager.setProcessStateSummary(stage.take(120).toByteArray(Charsets.UTF_8))
+            manager.setProcessStateSummary((STAGE_PREFIX + stage).take(120).toByteArray(Charsets.UTF_8))
         }
     }
 
@@ -62,11 +62,28 @@ object ProcessExitDiagnostics {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
         val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         val now = System.currentTimeMillis()
-        val exits = runCatching { manager.getHistoricalProcessExitReasons(null, 0, 12) }.getOrDefault(emptyList())
-        val exit = exits.firstOrNull {
-            now - it.timestamp in 0..RECENT_WINDOW_MS && isDangerousReason(it.reason)
-        } ?: return null
-        val stage = runCatching { exit.processStateSummary?.toString(Charsets.UTF_8).orEmpty() }.getOrDefault("")
+        val mainProcess = context.applicationInfo.processName
+        val exits = runCatching { manager.getHistoricalProcessExitReasons(null, 0, 16) }.getOrDefault(emptyList())
+
+        // WebView/Chromium renderer processes belong to the same package and may carry
+        // binary process-state summaries. Only the APK's main process is relevant to
+        // llama.cpp and only Furina-prefixed summaries are rendered as diagnostic stages.
+        val exit = exits
+            .filter { it.processName == mainProcess }
+            .sortedByDescending { it.timestamp }
+            .firstOrNull {
+                now - it.timestamp in 0..RECENT_WINDOW_MS && isDangerousReason(it.reason)
+            } ?: return null
+
+        val rawSummary = runCatching {
+            exit.processStateSummary?.toString(Charsets.UTF_8).orEmpty()
+        }.getOrDefault("")
+        val stage = rawSummary
+            .takeIf { it.startsWith(STAGE_PREFIX) }
+            ?.removePrefix(STAGE_PREFIX)
+            ?.take(120)
+            .orEmpty()
+
         return Snapshot(
             reason = exit.reason,
             reasonName = reasonName(exit.reason),
