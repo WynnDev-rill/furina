@@ -17,6 +17,9 @@ In descending order:
 - Furina is already Furina on first launch. Shared history may deepen; baseline character quality must not be turn-count gated.
 - Prefer one canonical source of truth for identity, memory state, emotional state, relationship state, runtime state, and engineering state.
 - Prefer removing complexity over exposing more settings.
+- A new feature requires a defined user benefit and a way to verify that benefit.
+- Do not trade a large loss in persona or memory quality for a small latency gain.
+- Do not trade a large latency regression for a cosmetic improvement.
 - Keep the generation hot path minimal; expensive learning/reflection belongs in cancellable or queued maintenance.
 - Every engineering shift may legitimately conclude with `NO_CHANGE`.
 - Optimize measured product quality, not commit count or PR count.
