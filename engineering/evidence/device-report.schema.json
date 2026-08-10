@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://furina.local/engineering/evidence/device-report.schema.json",
+  "title": "Furina Android Device Evidence Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "recordedAt",
+    "commit",
+    "device",
+    "model",
+    "objective",
+    "observation"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "recordedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "commit": {
+      "type": "string",
+      "minLength": 7,
+      "maxLength": 40,
+      "pattern": "^[0-9a-fA-F]+$"
+    },
+    "objective": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240
+    },
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manufacturer", "model", "androidVersion"],
+      "properties": {
+        "manufacturer": {"type": "string", "minLength": 1},
+        "model": {"type": "string", "minLength": 1},
+        "androidVersion": {"type": "string", "minLength": 1},
+        "ramGiB": {"type": "number", "exclusiveMinimum": 0},
+        "notes": {"type": "string", "maxLength": 500}
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identifier"],
+      "properties": {
+        "identifier": {"type": "string", "minLength": 1},
+        "quantization": {"type": "string"},
+        "contextSize": {"type": "integer", "exclusiveMinimum": 0}
+      }
+    },
+    "measurements": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "modelLoadMs": {"type": "number", "minimum": 0},
+        "ttftMs": {"type": "number", "minimum": 0},
+        "tokensPerSecond": {"type": "number", "minimum": 0},
+        "peakRssMiB": {"type": "number", "minimum": 0},
+        "peakPssMiB": {"type": "number", "minimum": 0},
+        "batteryDeltaPercent": {"type": "number", "minimum": -100, "maximum": 100},
+        "sampleCount": {"type": "integer", "minimum": 1}
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "exitReason": {"type": "string", "maxLength": 300},
+        "crashed": {"type": "boolean"},
+        "reproductionSteps": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {"type": "string", "maxLength": 300}
+        }
+      }
+    },
+    "behavioral": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scenarioIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "aggregateScore": {"type": "number", "minimum": 0, "maximum": 10},
+        "notes": {"type": "string", "maxLength": 1000}
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result", "summary"],
+      "properties": {
+        "result": {
+          "type": "string",
+          "enum": ["pass", "fail", "inconclusive"]
+        },
+        "summary": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "regressions": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {"type": "string", "maxLength": 300}
+        }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "containsSecrets": {"type": "boolean", "const": false},
+        "containsPersonalConversation": {"type": "boolean", "const": false}
+      }
+    }
+  }
+}

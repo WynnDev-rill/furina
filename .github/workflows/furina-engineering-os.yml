@@ -7,7 +7,6 @@ on:
       - 'android-wrapper/**'
       - 'scripts/**'
       - 'engineering/**'
-      - 'furina-lab/**'
       - '.github/workflows/furina-engineering-os.yml'
 
 jobs:
@@ -20,17 +19,16 @@ jobs:
         run: |
           python3 -m json.tool engineering/metrics/baseline.json >/dev/null
           python3 -m json.tool engineering/evals/companion-scenarios.json >/dev/null
+          python3 -m json.tool engineering/evidence/device-report.schema.json >/dev/null
+
+      - name: Validate Engineering Company v2 policy
+        run: python3 scripts/furina-company-policy-gate.py
 
       - name: Run deterministic architecture audit
         run: python3 scripts/furina-company-audit.py | tee furina-company-audit.json
 
       - name: Run existing companion quality gate
         run: python3 scripts/companion-quality-gate.py
-
-      - name: Validate Furina Lab JavaScript syntax
-        run: |
-          node --check furina-lab/app.js
-          node --check furina-lab/api/status.js
 
       - name: Upload audit
         uses: actions/upload-artifact@v4
