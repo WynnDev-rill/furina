@@ -114,10 +114,6 @@ class OpenAiCompatibleProvider(
                     }
                 }
                 lastResolvedModel = candidate.id
-                if (candidate.id != config.selectedModel(id) && config.autoFallback()) {
-                    // Keep the user's preference intact. Fallback is temporary and the
-                    // preferred model is retried on the next request.
-                }
                 return@channelFlow
             } catch (e: OnlineProviderException) {
                 lastError = e
@@ -216,12 +212,12 @@ class OpenAiCompatibleProvider(
             val context = when {
                 item.optInt("context_length", 0) > 0 -> item.optInt("context_length")
                 item.optInt("context_window", 0) > 0 -> item.optInt("context_window")
-                id == "gemini" -> 32_768 // conservative prompt budget if OpenAI metadata omits the real limit
+                id == "gemini" -> 32_768
                 else -> 8_192
             }
             val topProvider = item.optJSONObject("top_provider")
             val maxOutput = when {
-                topProvider?.optInt("max_completion_tokens", 0) ?: 0 > 0 -> topProvider!!.optInt("max_completion_tokens")
+                (topProvider?.optInt("max_completion_tokens", 0) ?: 0) > 0 -> topProvider!!.optInt("max_completion_tokens")
                 item.optInt("max_completion_tokens", 0) > 0 -> item.optInt("max_completion_tokens")
                 else -> 2_048
             }
