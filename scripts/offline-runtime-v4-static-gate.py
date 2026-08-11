@@ -36,10 +36,14 @@ def main() -> None:
         run("python3", str(ROOT / "scripts/fix-offline-runtime-v4-kotlin-regex.py"), str(impl))
         run("python3", str(ROOT / "scripts/apply-offline-checkpoint-chat-policy.py"), str(cpp))
         run("python3", str(ROOT / "scripts/apply-offline-backend-autotune-policy.py"), str(cpp), str(impl))
+        run("python3", str(ROOT / "scripts/fix-offline-backend-cpp-includes.py"), str(cpp))
+        run("python3", str(ROOT / "scripts/apply-hexagon-runtime-env-policy.py"), str(cpp))
 
         cpp_text = cpp.read_text(encoding="utf-8")
         impl_text = impl.read_text(encoding="utf-8")
         interface_text = interface.read_text(encoding="utf-8")
+        bootstrap_text = (ROOT / "scripts/bootstrap-llama-android.sh").read_text(encoding="utf-8")
+        hexagon_build_text = (ROOT / "scripts/build-hexagon-runtime.sh").read_text(encoding="utf-8")
 
         require("resetConversationKeepingSystemPromptNative" in cpp_text, "SYSTEM-prefix reset JNI missing")
         require("llama_state_seq_get_data" in cpp_text, "KV save API missing")
@@ -55,6 +59,10 @@ def main() -> None:
         require("find_device_for_backend" in cpp_text, "backend device matching missing")
         require("params.n_gpu_layers = -1" in cpp_text, "accelerator layer offload missing")
         require("cpu:fallback-load" in cpp_text, "accelerator CPU fallback missing")
+        require('setenv("ADSP_LIBRARY_PATH", path_to_backend, 1)' in cpp_text,
+                "Hexagon HTP runtime path must follow Android nativeLibDir")
+        require("ggml_backend_load_all_from_path(path_to_backend)" in cpp_text,
+                "dynamic accelerator registration missing")
 
         for symbol in (
             "saveCheckpoint", "restoreCheckpoint", "ensureRuntimeProfile", "runtimeProfile",
@@ -70,7 +78,19 @@ def main() -> None:
         require("listOf(\"cpu\", \"vulkan\", \"opencl\", \"hexagon\")" in impl_text,
                 "CPU/Vulkan/OpenCL/Hexagon candidate order missing")
 
-    print("Offline runtime static gate passed: KV/session + adaptive CPU/Vulkan/OpenCL/Hexagon runtime invariants")
+        require("build-hexagon-runtime.sh" in bootstrap_text, "Hexagon builder not wired into AAR bootstrap")
+        require("libggml-hexagon.so" in bootstrap_text, "AAR must verify Hexagon plugin packaging")
+        for arch in ("v73", "v75", "v79", "v81"):
+            require(f"libggml-htp-${{arch}}.so".replace("${arch}", arch) in bootstrap_text,
+                    f"AAR must verify HTP {arch} skel packaging")
+        require("ghcr.io/snapdragon-toolchain/arm64-android:v0.7" in hexagon_build_text,
+                "Hexagon build must use pinned official Snapdragon toolchain image")
+        require("arm64-android-snapdragon-release" in hexagon_build_text,
+                "Hexagon build must use upstream Snapdragon preset")
+        require("GGML_BACKEND_DL=ON" in hexagon_build_text,
+                "Hexagon must be a dynamic backend, not replace Furina's CPU/GPU runtime")
+
+    print("Offline runtime static gate passed: KV/session + CPU/Vulkan/OpenCL/Hexagon adaptive runtime invariants")
 
 
 if __name__ == "__main__":
