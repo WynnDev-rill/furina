@@ -16,10 +16,13 @@
         android:roundIcon="@drawable/furina_icon"
         android:theme="@style/Theme.Furina"
         android:usesCleartextTraffic="false">
-        <!-- Qualcomm exposes OpenCL as a vendor native library rather than an Android NDK API.
-             Keep it optional: unsupported devices still load Furina and use CPU/Vulkan. -->
+        <!-- Qualcomm exposes these accelerator drivers as vendor native libraries rather than
+             Android NDK APIs. Both stay optional so unsupported phones retain CPU/Vulkan. -->
         <uses-native-library
             android:name="libOpenCL.so"
+            android:required="false" />
+        <uses-native-library
+            android:name="libcdsprpc.so"
             android:required="false" />
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
