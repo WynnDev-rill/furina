@@ -12,6 +12,20 @@ exec > >(tee -a "$LOG") 2>&1
 
 : "${ANDROID_NDK_HOME:?ANDROID_NDK_HOME must point to the Android NDK}"
 
+prepare_host_gpu_tools() {
+  if command -v glslc >/dev/null 2>&1 && command -v ninja >/dev/null 2>&1 && \
+     [[ -d /usr/share/cmake/SPIRV-Headers ]]; then
+    return
+  fi
+  if command -v apt-get >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1; then
+    sudo apt-get update -qq
+    sudo apt-get install -y glslc spirv-headers ninja-build
+  else
+    echo "Vulkan build requires glslc, SPIRV-Headers and Ninja on the host." >&2
+    exit 1
+  fi
+}
+
 prepare_opencl_sdk() {
   rm -rf "$OPENCL_WORK"
   mkdir -p "$OPENCL_WORK/prefix"
@@ -40,6 +54,7 @@ prepare_opencl_sdk() {
   echo "Prepared Android OpenCL link SDK at $FURINA_OPENCL_PREFIX"
 }
 
+prepare_host_gpu_tools
 prepare_opencl_sdk
 
 rm -rf "$WORK"
