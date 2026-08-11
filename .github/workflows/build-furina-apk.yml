@@ -12,8 +12,6 @@ on:
       - 'scripts/overlays/**'
       - 'scripts/apply-companion-runtime-policy.py'
       - 'scripts/apply-offline-stability-policy.py'
-      - 'scripts/apply-warm-session-reset-policy.py'
-      - 'scripts/apply-offline-runtime-v4-policy.py'
       - 'scripts/public-repo-safety-gate.py'
       - '.agents/**'
       - 'package.json'
@@ -26,8 +24,6 @@ on:
       - 'scripts/overlays/**'
       - 'scripts/apply-companion-runtime-policy.py'
       - 'scripts/apply-offline-stability-policy.py'
-      - 'scripts/apply-warm-session-reset-policy.py'
-      - 'scripts/apply-offline-runtime-v4-policy.py'
       - 'scripts/public-repo-safety-gate.py'
       - '.agents/**'
       - 'package.json'
@@ -132,13 +128,6 @@ jobs:
           grep -q 'furina_engineering_evidence_v1' android-wrapper/app/src/main/java/com/wynndev/furina/DeviceEvidenceBridge.kt
           grep -q 'loginRequired", false' android-wrapper/app/src/main/java/com/wynndev/furina/DeviceEvidenceBridge.kt
           grep -q 'resetConversationStateKeepingModel' android-wrapper/app/src/main/java/com/wynndev/furina/LocalLlamaProvider.kt
-          grep -q 'resetConversationKeepingSystemPrompt' scripts/apply-warm-session-reset-policy.py
-          grep -q 'saveCheckpointNative' scripts/apply-offline-runtime-v4-policy.py
-          grep -q 'llama_state_seq_get_data' scripts/apply-offline-runtime-v4-policy.py
-          grep -q 'shift_context_for' scripts/apply-offline-runtime-v4-policy.py
-          grep -q 'ensureRuntimeProfile' android-wrapper/app/src/main/java/com/wynndev/furina/LocalLlamaProvider.kt
-          grep -q 'sessionRehydrationPrompt' android-wrapper/app/src/main/java/com/wynndev/furina/AiContracts.kt
-          grep -q 'checkpointConversation' android-wrapper/app/src/main/java/com/wynndev/furina/UnifiedAiEngine.kt
           grep -q 'block(localProvider)' android-wrapper/app/src/main/java/com/wynndev/furina/FurinaBridge.kt
           test "$(grep -c 'provider.prepare(model, context)' android-wrapper/app/src/main/java/com/wynndev/furina/DeviceBehavioralBenchmark.kt)" -eq 1
           ! grep -q 'provider.prepare(model, resetContext)' android-wrapper/app/src/main/java/com/wynndev/furina/DeviceBehavioralBenchmark.kt
@@ -167,7 +156,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: android-wrapper/app/libs/llama-android.aar
-          key: llama-android-aar-${{ runner.os }}-ndk29-${{ hashFiles('scripts/bootstrap-llama-android.sh', 'scripts/overlays/**', 'scripts/apply-companion-runtime-policy.py', 'scripts/apply-offline-stability-policy.py', 'scripts/apply-warm-session-reset-policy.py', 'scripts/apply-offline-runtime-v4-policy.py') }}
+          key: llama-android-aar-${{ runner.os }}-ndk29-${{ hashFiles('scripts/bootstrap-llama-android.sh', 'scripts/overlays/**', 'scripts/apply-companion-runtime-policy.py', 'scripts/apply-offline-stability-policy.py') }}
 
       - name: Install Android native toolchain
         if: steps.llama-cache.outputs.cache-hit != 'true'
@@ -183,7 +172,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .ccache
-          key: furina-llama-ccache-${{ runner.os }}-ndk29-${{ hashFiles('scripts/bootstrap-llama-android.sh', 'scripts/overlays/**', 'scripts/apply-companion-runtime-policy.py', 'scripts/apply-offline-stability-policy.py', 'scripts/apply-warm-session-reset-policy.py', 'scripts/apply-offline-runtime-v4-policy.py') }}
+          key: furina-llama-ccache-${{ runner.os }}-ndk29-${{ hashFiles('scripts/bootstrap-llama-android.sh', 'scripts/overlays/**', 'scripts/apply-companion-runtime-policy.py', 'scripts/apply-offline-stability-policy.py') }}
           restore-keys: |
             furina-llama-ccache-${{ runner.os }}-ndk29-
 
@@ -207,7 +196,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: android-wrapper/app/libs/llama-android.aar
-          key: llama-android-aar-${{ runner.os }}-ndk29-${{ hashFiles('scripts/bootstrap-llama-android.sh', 'scripts/overlays/**', 'scripts/apply-companion-runtime-policy.py', 'scripts/apply-offline-stability-policy.py', 'scripts/apply-warm-session-reset-policy.py', 'scripts/apply-offline-runtime-v4-policy.py') }}
+          key: llama-android-aar-${{ runner.os }}-ndk29-${{ hashFiles('scripts/bootstrap-llama-android.sh', 'scripts/overlays/**', 'scripts/apply-companion-runtime-policy.py', 'scripts/apply-offline-stability-policy.py') }}
 
       - name: Verify llama.cpp Android AAR
         run: test -s android-wrapper/app/libs/llama-android.aar
@@ -270,13 +259,75 @@ jobs:
           mkdir -p app/src/main/res/drawable
           cp ../public/icon-192.png app/src/main/res/drawable/furina_icon.png
           gradle --no-daemon --stacktrace --build-cache lintRelease assembleRelease 2>&1 | tee ../gradle-build.log
-          test -s app/build/outputs/apk/release/app-release.apk
 
-      - name: Upload APK artifact
+      - name: Upload Gradle diagnostic log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Furina-Gradle-Log-${{ github.run_number }}
+          path: gradle-build.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Verify stable APK identity, signing, and permissions
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          APK=android-wrapper/app/build/outputs/apk/release/app-release.apk
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK" | tee apk-signing.txt
+          grep -q '69b11ec474d557c92de2bc329cccbaaac488d0dcb99c9b1ba78f6c5e1d9cd1a7' apk-signing.txt
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | tee apk-badging.txt
+          grep -q "package: name='com.wynndev.furina'" apk-badging.txt
+          grep -q "application-label:'Furina'" apk-badging.txt
+          grep -Eq "application-icon-[0-9]+:'res/.+\\.png'" apk-badging.txt
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump permissions "$APK" | tee apk-permissions.txt
+          grep -q 'android.permission.INTERNET' apk-permissions.txt
+          grep -q 'android.permission.FOREGROUND_SERVICE_DATA_SYNC' apk-permissions.txt
+          cp "$APK" Furina-Stable.apk
+          ls -lh Furina-Stable.apk
+
+      - name: Upload Furina stable APK
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/upload-artifact@v4
         with:
-          name: Furina-APK
-          path: android-wrapper/app/build/outputs/apk/release/app-release.apk
+          name: Furina-Stable-${{ github.run_number }}
+          path: Furina-Stable.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 90
+
+      - name: Register official evidence enrollment hash
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          TOKEN_HASH: ${{ steps.evidence-enrollment.outputs.token_hash }}
+          TARGET_COMMIT: ${{ github.sha }}
+          EVIDENCE_ENDPOINT: https://fxebamfwewsvtscrbwxk.supabase.co/functions/v1/furina-device-evidence
+        run: |
+          set -euo pipefail
+          test -n "$TOKEN_HASH"
+          export EXPIRES_AT="$(date -u -d '+90 days' '+%Y-%m-%dT%H:%M:%SZ')"
+          python3 - <<'PY'
+          import json, os
+          body = {
+              "action": "control_enrollment",
+              "targetCommit": os.environ["TARGET_COMMIT"],
+              "tokenHash": os.environ["TOKEN_HASH"],
+              "expiresAt": os.environ["EXPIRES_AT"],
+          }
+          with open("evidence-enrollment.json", "w", encoding="utf-8") as fh:
+              json.dump(body, fh)
+          PY
+          OIDC_JSON="$(curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=furina-device-evidence")"
+          OIDC_TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<< "$OIDC_JSON")"
+          curl --fail-with-body -sS \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary @evidence-enrollment.json \
+            "$EVIDENCE_ENDPOINT" > evidence-enrollment-response.json
+          python3 - <<'PY'
+          import json
+          data = json.load(open("evidence-enrollment-response.json", encoding="utf-8"))
+          if data.get("ok") is not True:
+              raise SystemExit(f"evidence enrollment rejected: {data}")
+          print("Official evidence enrollment registered for exact main build.")
+          PY
