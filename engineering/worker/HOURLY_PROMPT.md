@@ -25,6 +25,8 @@ Read:
 - `engineering/boss/BOSS_POLICY.md`
 - issue #42
 
+For `engineering/work-queue/state.json`, the **canonical mutable copy is always read from `company/staging` when that branch exists**. The copy on `main` is only the last released snapshot and may intentionally lag between releases. Schemas and general repository policy still follow the release-PR-head/main rule above.
+
 ## Mode selection
 
 Using local Jakarta hour:
@@ -49,8 +51,8 @@ Acquire a shift lease in issue #42 before mutating `company/staging` or release 
 ## Common reconciliation
 
 Before any mode-specific action:
-1. Fetch exact `main`, `company/staging` if it exists, issue #42, work queue, open PRs, recent releases/integration state, CI, evidence debt, owner attention, circuit breakers, last-known-good, and new behavioral/device/user evidence.
-2. Validate the work-queue JSON against repository schema conceptually; if state is malformed, repair control-plane state before product work.
+1. Fetch exact `main`, `company/staging` if it exists, issue #42, the **staging work queue**, open PRs, recent releases/integration state, CI, evidence debt, owner attention, circuit breakers, last-known-good, and new behavioral/device/user evidence.
+2. Validate the staging work-queue JSON against repository schema conceptually; if state is malformed, repair control-plane state before product work.
 3. Reconcile staging ancestry against main. If staging is unexpectedly behind/diverged after a completed release, restore staging control-plane consistency before new work.
 4. Apply `engineering/triage/CRITICAL_PATH_POLICY.md` before strategic scoring.
 5. Respect unverified-behavior, evidence, circuit-breaker, RED-authority, and owner-away limits.
@@ -64,7 +66,7 @@ Goal: one useful engineering attempt without PR/hosted-CI/release churn.
 3. Record prediction, expected metric/delta, verification window, dependencies/conflicts, autonomy class, evidence level, and rollback boundary.
 4. Perform FAST validation using the cheapest relevant evidence available without opening a PR. STATIC is acceptable only for claims STATIC can prove.
 5. Run a non-certifying **Candidate Reviewer** pass: re-fetch the exact diff introduced by this shift, discard Engineer conclusions as untrusted summary, and adversarially check root cause, scope, dependency, regressions, simpler alternatives, rollback, and evidence truth.
-6. If accepted, add/update a work-queue item as `CANDIDATE` bound to exact staging head SHA. If rejected/blocked, repair/revert when safely possible or record `REJECTED`, `BLOCKED_EVIDENCE`, `BLOCKED_HUMAN`, `QUARANTINED`, or `SUPERSEDED` with reason.
+6. If accepted, add/update the staging work-queue item as `CANDIDATE` bound to exact staging head SHA. If rejected/blocked, repair/revert when safely possible or record `REJECTED`, `BLOCKED_EVIDENCE`, `BLOCKED_HUMAN`, `QUARANTINED`, or `SUPERSEDED` with reason.
 7. Update issue #42 and release lease.
 8. Do **not** open a normal product PR, run Reviewer/Boss release certification, auto-merge, build an APK, or request Vercel deployment merely because the candidate exists.
 
@@ -72,12 +74,12 @@ Goal: one useful engineering attempt without PR/hosted-CI/release churn.
 
 Goal: validate accumulated staging work approximately every six hours.
 
-1. Reconcile pending `CANDIDATE` items and their exact staging head.
+1. Reconcile pending `CANDIDATE` items from the staging queue and their exact staging head.
 2. Do not add a new feature merely to make the integration shift productive.
 3. Check dependencies/conflicts/supersession and remove or quarantine clearly invalid aggregate work when justified.
 4. Create exactly one checkpoint JSON under `engineering/integration/checkpoints/` containing checkpoint ID, exact staging SHA, timestamp, and candidate IDs being validated.
 5. The checkpoint push intentionally triggers MEDIUM staging workflows. Observe the exact staging workflow results before promotion when possible; otherwise record `PENDING` with an explicit recheck condition and do not promote.
-6. On exact-head green MEDIUM validation, mark included queue items `INTEGRATED`, set `validationTier=MEDIUM`, evidence level at most what was actually established, and update `lastIntegration`.
+6. On exact-head green MEDIUM validation, mark included queue items `INTEGRATED` in the staging queue, set `validationTier=MEDIUM`, evidence level at most what was actually established, and update `lastIntegration`.
 7. On red validation, promote nothing. Identify the failing candidate/shared cause; revert or prepare a narrow repair only if the clock permits and circuit breakers allow it.
 8. No normal merge to `main`, no Boss merge decision, and no Vercel deployment.
 
@@ -85,16 +87,16 @@ Goal: validate accumulated staging work approximately every six hours.
 
 Goal: release at most one normal daily aggregate when there is validated value.
 
-1. If staging equals main or no release-worthy work exists, record `NO_CHANGE` and end.
+1. Read releasable state from the staging queue. If there are no release-worthy `INTEGRATED`/eligible changes, record `NO_CHANGE`; queue-only control-state divergence from `main` is not a reason to release.
 2. Require an exact-head green MEDIUM integration after the latest candidate commit. If absent, create a final checkpoint and obtain it first.
 3. Open or update one release PR from `company/staging` to `main`. Use a daily aggregate summary of candidate IDs, triage/tier, product impact, evidence, APK impact, risk, rollback, and unattended-budget impact.
 4. Wait for required FULL exact-head PR checks. Existing path filters decide whether the signed APK build is required.
-5. Run **Reviewer evidence-reset pass** only after required exact-head evidence is ready: re-fetch exact PR head/diff, current main relationship, CI/evidence, queue items, triage, scope, regression, simpler alternatives, and budgets. Record a separate machine-readable Reviewer PR comment with distinct `reviewCycleId`.
+5. Run **Reviewer evidence-reset pass** only after required exact-head evidence is ready: re-fetch exact PR head/diff, current main relationship, CI/evidence, staging queue items, triage, scope, regression, simpler alternatives, and budgets. Record a separate machine-readable Reviewer PR comment with distinct `reviewCycleId`.
 6. If Reviewer requests revision, revise staging only when the remaining-time policy safely allows it; a new commit invalidates old certification and requires final integration/full CI again.
 7. Only after Reviewer `APPROVE`, run **Boss evidence-reset pass**. Re-fetch primary evidence again and record a separate Boss PR decision with distinct `bossCycleId`.
 8. If Boss returns `APPROVE_MERGE` for GREEN/YELLOW: final re-fetch must show current PR head equals the expected head SHA, relevant CI is green, budgets remain eligible, and GitHub is mergeable; then exact-SHA merge under `SHIFT_GATED_AUTO_MERGE`.
 9. RED remains human-authorized and human-merged.
-10. After merge, mark included queue items `RELEASED`, update `lastRelease`, reconcile issue #42, and reset/fast-forward `company/staging` to the merged main SHA before later candidate work.
+10. After merge, reset/fast-forward `company/staging` to the merged `main` SHA, then create one staging-only control-state commit that marks released queue items `RELEASED`, updates `lastRelease` and `stagingBaseSha`, reconciles issue #42, and remains outside the normal release trigger unless new release-worthy product work is later added.
 
 ## Quality boundaries
 
