@@ -3,6 +3,7 @@
 
 CPU remains compiled and is always the fallback. Vulkan is the generic Adreno path; OpenCL
 uses llama.cpp's Qualcomm-oriented kernels when the target device exposes a compatible driver.
+The bootstrap provides a link-time OpenCL SDK prefix; Android resolves libOpenCL from the device.
 """
 from __future__ import annotations
 
@@ -23,8 +24,18 @@ def main() -> None:
         set(GGML_SYSTEM_ARCH "ARM")
         set(GGML_CPU_KLEIDIAI ON)
         set(GGML_OPENMP ON)
-        # Keep CPU as the universal safe fallback, but compile both practical Adreno paths.
-        # Runtime selection is benchmark-driven and may still choose CPU.
+
+        # Furina keeps CPU compiled as the universal fallback but exposes both practical
+        # Adreno GPU paths. The runtime benchmarks registered devices and persists the winner.
+        if(DEFINED ENV{FURINA_OPENCL_PREFIX})
+            list(PREPEND CMAKE_PREFIX_PATH "$ENV{FURINA_OPENCL_PREFIX}")
+            set(OpenCL_INCLUDE_DIR "$ENV{FURINA_OPENCL_PREFIX}/include" CACHE PATH "" FORCE)
+            set(OpenCL_LIBRARY "$ENV{FURINA_OPENCL_PREFIX}/lib/libOpenCL.so" CACHE FILEPATH "" FORCE)
+        endif()
+        if(EXISTS "/usr/share/cmake/SPIRV-Headers")
+            set(SPIRV-Headers_DIR "/usr/share/cmake/SPIRV-Headers" CACHE PATH "" FORCE)
+        endif()
+
         set(GGML_VULKAN ON CACHE BOOL "" FORCE)
         set(GGML_OPENCL ON CACHE BOOL "" FORCE)
         set(GGML_OPENCL_USE_ADRENO_KERNELS ON CACHE BOOL "" FORCE)
