@@ -53,9 +53,21 @@ class DeviceBehavioralBenchmark(
             offline = true,
         )
 
+        // identityPrompt is independent of synthetic scenario/session data. Build it once instead
+        // of repeating persistence-backed ContextEngine work for every scenario.
+        val identityPrompt = contextEngine.build(
+            sessionId = "device-evidence:$requestId:identity",
+            query = "",
+            characterName = "Furina",
+            customPersona = "",
+            contextWindowTokens = model.contextWindowTokens,
+        ).identityPrompt
+
         val scenarioResults = JSONArray()
         val benchmarkStarted = SystemClock.elapsedRealtime()
         val seenIds = mutableSetOf<String>()
+        var warmBeforeBenchmark = false
+        var capturedWarmState = false
         onProgress(requestId, 0, scenarios.length())
         try {
             for (index in 0 until scenarios.length()) {
@@ -67,19 +79,9 @@ class DeviceBehavioralBenchmark(
                 val setup = parseSetup(scenario.optJSONArray("setup") ?: JSONArray())
                 val sessionId = "device-evidence:$requestId:$scenarioId"
 
-                // Query is intentionally empty so retrieval cannot select user memories. The
-                // returned identity is copied into a fresh context and all persistence-backed
-                // continuity/runtime fields are discarded before local inference.
-                val identitySource = contextEngine.build(
-                    sessionId = sessionId,
-                    query = "",
-                    characterName = "Furina",
-                    customPersona = "",
-                    contextWindowTokens = model.contextWindowTokens,
-                )
                 val context = AiContext(
                     sessionId = sessionId,
-                    identityPrompt = identitySource.identityPrompt,
+                    identityPrompt = identityPrompt,
                     summary = "",
                     relevantMemories = "",
                     relevantHistory = "",
@@ -95,14 +97,15 @@ class DeviceBehavioralBenchmark(
 
                 val startedAt = SystemClock.elapsedRealtime()
                 val warmBeforePrepare = provider.isWarm(model, context)
+                if (!capturedWarmState) {
+                    warmBeforeBenchmark = warmBeforePrepare
+                    capturedWarmState = true
+                }
 
-                // Explicitly cross a throwaway session boundary before the real scenario session.
-                // LocalLlamaProvider re-applies setSystemPrompt whenever sessionId changes, so this
-                // guarantees the native chat/KV state from the previous scenario cannot survive,
-                // while the loaded GGUF weights remain warm. The second prepare leaves the provider
-                // bound to the exact scenario session used by the generation request.
-                val resetContext = context.copy(sessionId = "$sessionId:isolation-reset")
-                provider.prepare(model, resetContext)
+                // Every scenario has a unique sessionId. LocalLlamaProvider therefore crosses the
+                // same setSystemPrompt boundary used for normal session switches, which resets
+                // native chat/KV state in one pass. The previous throwaway+real double prepare
+                // performed the same reset twice and doubled prompt-prefill work.
                 provider.prepare(model, context)
 
                 val preparedAt = SystemClock.elapsedRealtime()
@@ -116,6 +119,8 @@ class DeviceBehavioralBenchmark(
                         model = model,
                         context = context,
                         userMessage = userText,
+                        // Keep the same production safety horizon. Speed comes from eliminating
+                        // redundant load/prefill work, not by truncating model answers.
                         predictLength = model.maxOutputTokens,
                     )
                 ).collect { chunk ->
@@ -148,8 +153,14 @@ class DeviceBehavioralBenchmark(
                 onProgress(requestId, index + 1, scenarios.length())
             }
         } finally {
-            // Synthetic turns must never remain in native KV/chat state after the capture.
-            provider.unload()
+            // Preserve already-mapped GGUF weights when the user's model was warm before capture.
+            // Only conversation/KV state is cleared. If the model had to be cold-loaded solely for
+            // evidence, retain the old memory behavior and unload it after capture.
+            if (warmBeforeBenchmark) {
+                if (!provider.resetConversationStateKeepingModel()) provider.unload()
+            } else {
+                provider.unload()
+            }
         }
         val benchmarkFinished = SystemClock.elapsedRealtime()
 
@@ -174,6 +185,8 @@ class DeviceBehavioralBenchmark(
                 JSONObject()
                     .put("scenarioCount", scenarioResults.length())
                     .put("totalDurationMs", benchmarkFinished - benchmarkStarted)
+                    .put("reusedWarmModel", warmBeforeBenchmark)
+                    .put("scenarioResetStrategy", "single-session-switch")
             )
             .put(
                 "privacy",
