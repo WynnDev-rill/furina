@@ -1,11 +1,12 @@
 import { createClient } from "npm:@supabase/supabase-js@2.106.2";
 
 const BUCKET = "furina-backups";
-const REQUEST_PATH = ".engineering/device-evidence/request.json";
-const RESULT_PREFIX = ".engineering/device-evidence/results";
-const DEVICE_PATH = ".engineering/device-evidence/device.json";
-const ENROLLMENT_PREFIX = ".engineering/device-evidence/enrollments";
-const CHALLENGE_PATH = ".engineering/device-evidence/challenge.json";
+const ROOT = "engineering/device-evidence";
+const REQUEST_PATH = `${ROOT}/request.json`;
+const RESULT_PREFIX = `${ROOT}/results`;
+const DEVICE_PATH = `${ROOT}/device.json`;
+const ENROLLMENT_PREFIX = `${ROOT}/enrollments`;
+const CHALLENGE_PATH = `${ROOT}/challenge.json`;
 const SIGNAL_TOPIC = "furina-device-evidence-signal";
 const GITHUB_AUDIENCE = "furina-device-evidence";
 const GITHUB_REPOSITORY = "WynnDev-rill/furina";
@@ -26,10 +27,8 @@ const cors = {
 };
 
 class HttpError extends Error {
-  status: number;
-  constructor(status: number, message: string) {
+  constructor(public status: number, message: string) {
     super(message);
-    this.status = status;
   }
 }
 
@@ -57,20 +56,17 @@ function adminClient() {
 
 function bearer(req: Request) {
   const value = req.headers.get("authorization") ?? "";
-  if (!value.toLowerCase().startsWith("bearer ")) return "";
-  return value.slice(7).trim();
+  return value.toLowerCase().startsWith("bearer ") ? value.slice(7).trim() : "";
 }
 
 function decodeBase64Url(value: string) {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
   const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
-  const raw = atob(padded);
-  return Uint8Array.from(raw, (char) => char.charCodeAt(0));
+  return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
 }
 
 function decodeBase64(value: string) {
-  const raw = atob(value);
-  return Uint8Array.from(raw, (char) => char.charCodeAt(0));
+  return Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
 }
 
 function decodeJsonPart(value: string) {
@@ -83,7 +79,9 @@ async function verifyGithubOidc(token: string, expectedWorkflowRef: string) {
   if (parts.length !== 3) throw new HttpError(401, "invalid GitHub OIDC token");
   const header = decodeJsonPart(parts[0]);
   const claims = decodeJsonPart(parts[1]);
-  if (header.alg !== "RS256" || typeof header.kid !== "string") throw new HttpError(401, "unsupported GitHub OIDC algorithm");
+  if (header.alg !== "RS256" || typeof header.kid !== "string") {
+    throw new HttpError(401, "unsupported GitHub OIDC algorithm");
+  }
 
   const jwksResponse = await fetch(GITHUB_JWKS, { headers: { accept: "application/json" } });
   if (!jwksResponse.ok) throw new Error("GitHub JWKS unavailable");
@@ -97,8 +95,8 @@ async function verifyGithubOidc(token: string, expectedWorkflowRef: string) {
     false,
     ["verify"],
   );
-  const signed = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
   const signature = decodeBase64Url(parts[2]);
+  const signed = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
   if (!await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signature, signed)) {
     throw new HttpError(401, "invalid GitHub OIDC signature");
   }
@@ -106,7 +104,9 @@ async function verifyGithubOidc(token: string, expectedWorkflowRef: string) {
   const now = Math.floor(Date.now() / 1000);
   const audience = claims.aud;
   const audienceOk = audience === GITHUB_AUDIENCE || (Array.isArray(audience) && audience.includes(GITHUB_AUDIENCE));
-  if (claims.iss !== "https://token.actions.githubusercontent.com" || !audienceOk) throw new HttpError(403, "invalid GitHub OIDC issuer/audience");
+  if (claims.iss !== "https://token.actions.githubusercontent.com" || !audienceOk) {
+    throw new HttpError(403, "invalid GitHub OIDC issuer/audience");
+  }
   if (typeof claims.exp !== "number" || claims.exp <= now) throw new HttpError(401, "expired GitHub OIDC token");
   if (typeof claims.nbf === "number" && claims.nbf > now + 30) throw new HttpError(401, "GitHub OIDC token not active");
   if (claims.repository !== GITHUB_REPOSITORY) throw new HttpError(403, "wrong GitHub repository");
@@ -128,11 +128,11 @@ function randomHex(byteCount = 32) {
 async function readObject(path: string) {
   const { data, error } = await adminClient().storage.from(BUCKET).download(path);
   if (error) {
-    if ((error as { statusCode?: string | number }).statusCode === "404" || /not found/i.test(error.message)) return null;
+    const code = (error as { statusCode?: string | number }).statusCode;
+    if (code === 404 || code === "404" || /not found/i.test(error.message)) return null;
     throw error;
   }
-  const text = await data.text();
-  return JSON.parse(text) as Record<string, unknown>;
+  return JSON.parse(await data.text()) as Record<string, unknown>;
 }
 
 async function writeObject(path: string, body: unknown) {
@@ -150,31 +150,28 @@ async function deleteObject(path: string) {
   if (error && !/not found/i.test(error.message)) throw error;
 }
 
-/** Wake connected foreground devices without exposing request data. */
 async function signalRequest() {
   const baseUrl = Deno.env.get("SUPABASE_URL");
   if (!baseUrl) throw new Error("Supabase URL unavailable");
+  const key = secretKey();
   const response = await fetch(`${baseUrl}/realtime/v1/api/broadcast`, {
     method: "POST",
     headers: {
-      apikey: secretKey(),
+      apikey: key,
+      authorization: `Bearer ${key}`,
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      messages: [
-        {
-          topic: SIGNAL_TOPIC,
-          event: "request",
-          payload: { signal: true },
-        },
-      ],
+      messages: [{ topic: SIGNAL_TOPIC, event: "request", payload: { signal: true } }],
     }),
   });
   if (!response.ok) throw new Error(`Realtime request signal failed (${response.status})`);
 }
 
 function requireString(value: unknown, name: string, maxLength: number) {
-  if (typeof value !== "string" || value.trim().length === 0 || value.length > maxLength) throw new Error(`invalid ${name}`);
+  if (typeof value !== "string" || value.trim().length === 0 || value.length > maxLength) {
+    throw new Error(`invalid ${name}`);
+  }
   return value.trim();
 }
 
@@ -207,10 +204,9 @@ function requirePublicKey(value: unknown) {
 }
 
 async function importDeviceKey(encoded: string) {
-  const bytes = requirePublicKey(encoded).bytes;
   return await crypto.subtle.importKey(
     "spki",
-    bytes,
+    requirePublicKey(encoded).bytes,
     { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
     false,
     ["verify"],
@@ -220,7 +216,9 @@ async function importDeviceKey(encoded: string) {
 function validateInputs(value: unknown, benchmarkVersion: string) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid inputs");
   const inputs = value as Record<string, unknown>;
-  if (inputs.schemaVersion !== 1 || inputs.benchmarkVersion !== benchmarkVersion || !Array.isArray(inputs.scenarios)) throw new Error("invalid input manifest");
+  if (inputs.schemaVersion !== 1 || inputs.benchmarkVersion !== benchmarkVersion || !Array.isArray(inputs.scenarios)) {
+    throw new Error("invalid input manifest");
+  }
   if (inputs.scenarios.length < 1 || inputs.scenarios.length > 128) throw new Error("invalid scenario count");
   const ids = new Set<string>();
   for (const raw of inputs.scenarios) {
@@ -249,25 +247,39 @@ function validateControlRequest(body: Record<string, unknown>) {
   const benchmarkVersion = requireString(body.benchmarkVersion, "benchmarkVersion", 80);
   const expiresAt = requireString(body.expiresAt, "expiresAt", 80);
   const expiresMs = Date.parse(expiresAt);
-  if (!Number.isFinite(expiresMs) || expiresMs <= Date.now() || expiresMs > Date.now() + 24 * 60 * 60 * 1000) throw new Error("invalid expiresAt");
+  if (!Number.isFinite(expiresMs) || expiresMs <= Date.now() || expiresMs > Date.now() + 24 * 60 * 60 * 1000) {
+    throw new Error("invalid expiresAt");
+  }
   const { inputs } = validateInputs(body.inputs, benchmarkVersion);
-  return { schemaVersion: 1, requestId, targetCommit, benchmarkVersion, expiresAt, inputs, status: "requested", requestedAt: new Date().toISOString() };
+  return {
+    schemaVersion: 1,
+    requestId,
+    targetCommit,
+    benchmarkVersion,
+    expiresAt,
+    inputs,
+    status: "requested",
+    requestedAt: new Date().toISOString(),
+  };
 }
 
 function validateResult(result: unknown, request: Record<string, unknown>) {
   if (!result || typeof result !== "object" || Array.isArray(result)) throw new Error("invalid result");
   const record = result as Record<string, unknown>;
   if (record.schemaVersion !== 1 || record.actualModelRun !== true) throw new Error("result is not an actual model run");
-  if (record.requestId !== request.requestId || record.commit !== request.targetCommit || record.benchmarkVersion !== request.benchmarkVersion) throw new Error("result provenance mismatch");
+  if (record.requestId !== request.requestId || record.commit !== request.targetCommit || record.benchmarkVersion !== request.benchmarkVersion) {
+    throw new Error("result provenance mismatch");
+  }
   const privacy = record.privacy as Record<string, unknown> | undefined;
-  if (!privacy || privacy.syntheticInputsOnly !== true || privacy.containsSecrets !== false || privacy.containsPersonalConversation !== false || privacy.persistedToUserMemory !== false) throw new Error("invalid result privacy boundary");
+  if (!privacy || privacy.syntheticInputsOnly !== true || privacy.containsSecrets !== false || privacy.containsPersonalConversation !== false || privacy.persistedToUserMemory !== false) {
+    throw new Error("invalid result privacy boundary");
+  }
   if (!record.model || typeof record.model !== "object" || Array.isArray(record.model)) throw new Error("missing model metadata");
   const model = record.model as Record<string, unknown>;
   requireString(model.provider, "model provider", 120);
   requireString(model.identifier, "model identifier", 240);
   if (!Array.isArray(record.scenarios)) throw new Error("missing result scenarios");
-  const expectedInputs = request.inputs as Record<string, unknown>;
-  const expected = validateInputs(expectedInputs, String(request.benchmarkVersion)).ids;
+  const expected = validateInputs(request.inputs, String(request.benchmarkVersion)).ids;
   if (record.scenarios.length !== expected.size) throw new Error("result scenario count mismatch");
   const seen = new Set<string>();
   for (const raw of record.scenarios) {
@@ -311,8 +323,8 @@ async function verifyDeviceCall(body: Record<string, unknown>, action: "request"
     throw new HttpError(401, "expired device challenge");
   }
 
-  let payloadHash = "";
   let resultRaw = "";
+  let payloadHash = "";
   if (action === "result") {
     resultRaw = requireString(body.resultRaw, "resultRaw", MAX_RESULT_BYTES);
     payloadHash = await sha256(resultRaw);
@@ -379,9 +391,7 @@ Deno.serve(async (req: Request) => {
           if (existing.targetCommit !== request.targetCommit || existing.benchmarkVersion !== request.benchmarkVersion) {
             return json({ error: "requestId provenance conflict" }, 409);
           }
-          if (existing.status === "completed") {
-            return json({ ok: true, requestId: request.requestId, alreadyCompleted: true });
-          }
+          if (existing.status === "completed") return json({ ok: true, requestId: request.requestId, alreadyCompleted: true });
           if (existing.status === "requested" && Date.parse(String(existing.expiresAt)) > Date.now()) {
             await signalRequest();
             return json({ ok: true, requestId: request.requestId, alreadyRequested: true, signaled: true });
@@ -413,9 +423,7 @@ Deno.serve(async (req: Request) => {
       if (!enrollment || enrollment.targetCommit !== targetCommit || Date.parse(String(enrollment.expiresAt)) <= Date.now()) {
         throw new HttpError(403, "device enrollment unavailable or expired");
       }
-      if (await sha256(enrollmentToken) !== enrollment.tokenHash) {
-        throw new HttpError(403, "invalid device enrollment token");
-      }
+      if (await sha256(enrollmentToken) !== enrollment.tokenHash) throw new HttpError(403, "invalid device enrollment token");
 
       const existingDevice = await readObject(DEVICE_PATH);
       if (existingDevice && existingDevice.deviceId !== deviceId) {
@@ -476,9 +484,7 @@ Deno.serve(async (req: Request) => {
       if (!request || request.status !== "requested" || Date.parse(String(request.expiresAt)) <= Date.now()) {
         return json({ request: null });
       }
-      if (request.targetCommit !== verified.appCommit) {
-        return json({ request: null, reason: "build_mismatch" });
-      }
+      if (request.targetCommit !== verified.appCommit) return json({ request: null, reason: "build_mismatch" });
       return json({ request });
     }
 
