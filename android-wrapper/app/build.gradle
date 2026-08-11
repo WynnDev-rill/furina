@@ -3,7 +3,7 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
-def buildNumber = (System.getenv('GITHUB_RUN_NUMBER') ?: '1') as Integer
+def buildNumber = (System.getenv('FURINA_BUILD_NUMBER') ?: System.getenv('GITHUB_RUN_NUMBER') ?: '1') as Integer
 def gitSha = (System.getenv('FURINA_GIT_SHA') ?: System.getenv('GITHUB_SHA') ?: '').replaceAll('[^0-9a-fA-F]', '').toLowerCase()
 def evidenceEnrollmentToken = (System.getenv('FURINA_EVIDENCE_ENROLLMENT_TOKEN') ?: '').replaceAll('[^0-9a-fA-F]', '').toLowerCase()
 
