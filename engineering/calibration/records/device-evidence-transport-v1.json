@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "workId": "device-evidence-transport-v1",
+  "category": "behavioral_evidence_transport",
+  "strategicTier": "P0_PRODUCT",
+  "prediction": {
+    "cycleId": "eng-shift-2026-08-11-08-a",
+    "recordedAt": "2026-08-11T08:01:00+07:00",
+    "impact": 9,
+    "confidence": 8,
+    "expectedMetric": "first reproducible local-model behavioral capture from target Android",
+    "expectedDelta": "no target-device capture path to one on-demand synthetic capture path",
+    "verificationWindow": "first target-device request after the evidence-agent APK is installed",
+    "reason": "The executable benchmark exists but P0 behavioral decisions lack real local Android model outputs."
+  },
+  "status": "prediction_only"
+}

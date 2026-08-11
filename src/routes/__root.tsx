@@ -8,6 +8,7 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import { FurinaCloudBackupCard } from "@/components/FurinaCloudBackupCard";
+import { FurinaDeviceEvidenceAgent } from "@/components/FurinaDeviceEvidenceAgent";
 
 import appCss from "../styles.css?url";
 
@@ -122,6 +123,7 @@ function RootComponent() {
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
       <FurinaCloudBackupCard />
+      <FurinaDeviceEvidenceAgent />
     </QueryClientProvider>
   );
 }

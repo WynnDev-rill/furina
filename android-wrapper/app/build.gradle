@@ -4,6 +4,7 @@ plugins {
 }
 
 def buildNumber = (System.getenv('GITHUB_RUN_NUMBER') ?: '1') as Integer
+def gitSha = (System.getenv('FURINA_GIT_SHA') ?: System.getenv('GITHUB_SHA') ?: '').replaceAll('[^0-9a-fA-F]', '').toLowerCase()
 
 android {
     namespace 'com.wynndev.furina'
@@ -15,6 +16,7 @@ android {
         targetSdk 35
         versionCode buildNumber
         versionName "4.0.${buildNumber}"
+        buildConfigField 'String', 'GIT_SHA', "\"${gitSha}\""
         ndk { abiFilters 'arm64-v8a' }
     }
 
@@ -38,6 +40,10 @@ android {
             signingConfig signingConfigs.release
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     compileOptions {

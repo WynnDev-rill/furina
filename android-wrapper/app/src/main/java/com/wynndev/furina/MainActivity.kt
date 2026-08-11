@@ -33,6 +33,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
     private lateinit var bridge: FurinaBridge
     private lateinit var cloudBridge: CloudBackupBridge
+    private lateinit var evidenceBridge: DeviceEvidenceBridge
     private lateinit var loadingOverlay: View
     private var loadingStartedAt = 0L
     private var loadingDismissed = false
@@ -89,8 +90,10 @@ class MainActivity : ComponentActivity() {
         val backupManager = BackupManager(this, store)
         bridge = FurinaBridge(this, webView, store, modelDownloads, backupManager)
         cloudBridge = CloudBackupBridge(this, webView, backupManager, bridge::withAiPaused)
+        evidenceBridge = DeviceEvidenceBridge(this, webView, store, modelDownloads, bridge::withAiPaused)
         webView.addJavascriptInterface(bridge, "FurinaNative")
         webView.addJavascriptInterface(cloudBridge, "FurinaCloud")
+        webView.addJavascriptInterface(evidenceBridge, "FurinaEvidence")
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
@@ -334,11 +337,13 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        // Stop cloud jobs first because FurinaBridge owns the shared MemoryStore lifecycle.
+        // Stop cloud/evidence jobs first because FurinaBridge owns the shared MemoryStore lifecycle.
         cloudBridge.destroy()
+        evidenceBridge.destroy()
         bridge.destroy()
         webView.removeJavascriptInterface("FurinaNative")
         webView.removeJavascriptInterface("FurinaCloud")
+        webView.removeJavascriptInterface("FurinaEvidence")
         webView.destroy()
         super.onDestroy()
     }

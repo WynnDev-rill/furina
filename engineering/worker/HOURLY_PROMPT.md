@@ -16,6 +16,7 @@ Read:
 - `engineering/decisions/AUDIT_POLICY.md`
 - `engineering/evidence/behavioral-run.schema.json`
 - `engineering/evidence/device-report.schema.json`
+- `engineering/device-evidence/PROTOCOL.md`
 - `engineering/calibration/record.schema.json`
 - `engineering/boss/BOSS_POLICY.md`
 - issue #42
@@ -42,7 +43,8 @@ Acquire a shift lease in issue #42. A later hourly invocation must not overlap a
 5. Select only from the highest eligible triage class. Use strategic tier next, then numeric score only inside that class/tier.
 6. Prefer shared root causes and bottlenecks over treating many downstream symptoms.
 7. If evidence is too weak, choose diagnosis/evidence work rather than speculative repair.
-8. If no meaningful eligible package exists, record `NO_CHANGE` and end.
+8. If current work requires target-device evidence, use `engineering/device-evidence/PROTOCOL.md`; create a request only when the evidence is actually needed and consume only exact matching returned evidence.
+9. If no meaningful eligible package exists, record `NO_CHANGE` and end.
 
 ## 2. Engineer pass
 - Select one coherent work package. Do not open a second new PR merely because the first finishes early.
