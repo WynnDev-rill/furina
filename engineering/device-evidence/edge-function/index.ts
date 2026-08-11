@@ -231,7 +231,18 @@ Deno.serve(async (req: Request) => {
         const request = validateControlRequest(body);
         if (JSON.stringify(request).length > MAX_REQUEST_BYTES) throw new Error("request manifest too large");
         const existing = await readObject(REQUEST_PATH);
-        if (existing?.status === "requested" && Date.parse(String(existing.expiresAt)) > Date.now() && existing.requestId !== request.requestId) {
+        if (existing?.requestId === request.requestId) {
+          if (existing.targetCommit !== request.targetCommit || existing.benchmarkVersion !== request.benchmarkVersion) {
+            return json({ error: "requestId provenance conflict" }, 409);
+          }
+          if (existing.status === "completed") {
+            return json({ ok: true, requestId: request.requestId, alreadyCompleted: true });
+          }
+          if (existing.status === "requested" && Date.parse(String(existing.expiresAt)) > Date.now()) {
+            return json({ ok: true, requestId: request.requestId, alreadyRequested: true });
+          }
+        }
+        if (existing?.status === "requested" && Date.parse(String(existing.expiresAt)) > Date.now()) {
           return json({ error: "another evidence request is active" }, 409);
         }
         await writeObject(REQUEST_PATH, request);
