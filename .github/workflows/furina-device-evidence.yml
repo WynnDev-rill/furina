@@ -1,0 +1,211 @@
+name: Furina Device Evidence
+
+on:
+  issues:
+    types: [edited]
+
+permissions:
+  contents: read
+  issues: write
+  id-token: write
+
+concurrency:
+  group: furina-device-evidence-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    if: github.event.issue.number == 42
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      EVIDENCE_ENDPOINT: https://fxebamfwewsvtscrbwxk.supabase.co/functions/v1/furina-device-evidence
+      GH_TOKEN: ${{ github.token }}
+      ISSUE_BODY: ${{ github.event.issue.body }}
+    steps:
+      - name: Parse active evidence request
+        id: request
+        shell: bash
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os, re
+          body = os.environ.get("ISSUE_BODY", "")
+          match = re.search(r"<!-- FURINA_LAB_STATE\s*(\{.*?\})\s*FURINA_LAB_STATE -->", body, re.S)
+          if not match:
+              print("active=false")
+              raise SystemExit(0)
+          state = json.loads(match.group(1))
+          request = state.get("deviceEvidenceRequest") or {}
+          required = ("requestId", "targetCommit", "benchmarkVersion", "expiresAt")
+          active = request.get("status") == "requested" and all(request.get(k) for k in required)
+          print(f"active={'true' if active else 'false'}")
+          if active:
+              print(f"request_id={request['requestId']}")
+              print(f"target_commit={request['targetCommit']}")
+              print(f"benchmark_version={request['benchmarkVersion']}")
+              print(f"expires_at={request['expiresAt']}")
+          PY
+
+      - name: Checkout exact requested build source
+        if: steps.request.outputs.active == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.request.outputs.target_commit }}
+          fetch-depth: 1
+
+      - name: Create model-input manifest
+        if: steps.request.outputs.active == 'true'
+        run: python3 scripts/furina-behavioral-run-plan.py inputs > device-inputs.json
+
+      - name: Validate exact request provenance
+        if: steps.request.outputs.active == 'true'
+        env:
+          TARGET_COMMIT: ${{ steps.request.outputs.target_commit }}
+          BENCHMARK_VERSION: ${{ steps.request.outputs.benchmark_version }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_COMMIT"
+          python3 - <<'PY'
+          import json, os
+          inputs = json.load(open("device-inputs.json", encoding="utf-8"))
+          if str(inputs.get("benchmarkVersion")) != os.environ["BENCHMARK_VERSION"]:
+              raise SystemExit("benchmark version mismatch")
+          if not inputs.get("scenarios"):
+              raise SystemExit("empty benchmark manifest")
+          for scenario in inputs["scenarios"]:
+              if "expect" in scenario or "scores" in scenario:
+                  raise SystemExit("judge data leaked into device inputs")
+          PY
+
+      - name: Submit on-demand device request
+        if: steps.request.outputs.active == 'true'
+        env:
+          REQUEST_ID: ${{ steps.request.outputs.request_id }}
+          TARGET_COMMIT: ${{ steps.request.outputs.target_commit }}
+          BENCHMARK_VERSION: ${{ steps.request.outputs.benchmark_version }}
+          EXPIRES_AT: ${{ steps.request.outputs.expires_at }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os
+          body = {
+              "action": "control_request",
+              "requestId": os.environ["REQUEST_ID"],
+              "targetCommit": os.environ["TARGET_COMMIT"],
+              "benchmarkVersion": os.environ["BENCHMARK_VERSION"],
+              "expiresAt": os.environ["EXPIRES_AT"],
+              "inputs": json.load(open("device-inputs.json", encoding="utf-8")),
+          }
+          json.dump(body, open("control-request.json", "w", encoding="utf-8"), ensure_ascii=False)
+          PY
+          OIDC_JSON="$(curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=furina-device-evidence")"
+          OIDC_TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<< "$OIDC_JSON")"
+          curl --fail-with-body -sS \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary @control-request.json \
+            "$EVIDENCE_ENDPOINT" > control-response.json
+          python3 -m json.tool control-response.json
+
+      - name: Wait only while evidence is requested
+        if: steps.request.outputs.active == 'true'
+        id: collect
+        env:
+          REQUEST_ID: ${{ steps.request.outputs.request_id }}
+        shell: bash
+        run: |
+          ready=false
+          for attempt in $(seq 1 30); do
+            OIDC_JSON="$(curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=furina-device-evidence")"
+            OIDC_TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<< "$OIDC_JSON")"
+            python3 - <<'PY'
+          import json, os
+          json.dump({"action": "control_collect", "requestId": os.environ["REQUEST_ID"]}, open("collect-request.json", "w"))
+          PY
+            curl --fail-with-body -sS \
+              -H "Authorization: Bearer $OIDC_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data-binary @collect-request.json \
+              "$EVIDENCE_ENDPOINT" > collect-response.json
+            if python3 - <<'PY'
+          import json
+          data = json.load(open("collect-response.json", encoding="utf-8"))
+          raise SystemExit(0 if data.get("ready") is True else 1)
+          PY
+            then
+              python3 - <<'PY'
+          import json
+          data = json.load(open("collect-response.json", encoding="utf-8"))
+          json.dump(data["result"], open("device-evidence.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          PY
+              ready=true
+              break
+            fi
+            sleep 20
+          done
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+
+      - name: Verify captured provenance
+        if: steps.request.outputs.active == 'true' && steps.collect.outputs.ready == 'true'
+        env:
+          REQUEST_ID: ${{ steps.request.outputs.request_id }}
+          TARGET_COMMIT: ${{ steps.request.outputs.target_commit }}
+          BENCHMARK_VERSION: ${{ steps.request.outputs.benchmark_version }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          result = json.load(open("device-evidence.json", encoding="utf-8"))
+          assert result.get("schemaVersion") == 1
+          assert result.get("requestId") == os.environ["REQUEST_ID"]
+          assert result.get("commit") == os.environ["TARGET_COMMIT"]
+          assert str(result.get("benchmarkVersion")) == os.environ["BENCHMARK_VERSION"]
+          assert result.get("actualModelRun") is True
+          privacy = result.get("privacy") or {}
+          assert privacy.get("syntheticInputsOnly") is True
+          assert privacy.get("containsSecrets") is False
+          assert privacy.get("containsPersonalConversation") is False
+          assert privacy.get("persistedToUserMemory") is False
+          scenarios = result.get("scenarios") or []
+          assert scenarios and all(s.get("output") for s in scenarios)
+          assert all("scores" not in s for s in scenarios)
+          PY
+          sha256sum device-evidence.json | tee device-evidence.sha256
+
+      - name: Upload raw target-device capture
+        if: steps.request.outputs.active == 'true' && steps.collect.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Furina-Device-Evidence-${{ steps.request.outputs.request_id }}
+          path: |
+            device-evidence.json
+            device-evidence.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish ready pointer
+        if: steps.request.outputs.active == 'true' && steps.collect.outputs.ready == 'true'
+        env:
+          REQUEST_ID: ${{ steps.request.outputs.request_id }}
+          TARGET_COMMIT: ${{ steps.request.outputs.target_commit }}
+        run: |
+          CHECKSUM="$(cut -d' ' -f1 device-evidence.sha256)"
+          cat > evidence-comment.md <<EOF
+          <!-- FURINA_DEVICE_EVIDENCE_READY_V1 -->
+          \`\`\`json
+          {"requestId":"${REQUEST_ID}","targetCommit":"${TARGET_COMMIT}","workflowRunId":${GITHUB_RUN_ID},"artifactName":"Furina-Device-Evidence-${REQUEST_ID}","sha256":"${CHECKSUM}"}
+          \`\`\`
+          EOF
+          gh issue comment 42 --repo "$GITHUB_REPOSITORY" --body-file evidence-comment.md
+
+      - name: Publish pending pointer on timeout
+        if: steps.request.outputs.active == 'true' && steps.collect.outputs.ready != 'true'
+        env:
+          REQUEST_ID: ${{ steps.request.outputs.request_id }}
+          TARGET_COMMIT: ${{ steps.request.outputs.target_commit }}
+        run: |
+          cat > evidence-comment.md <<EOF
+          <!-- FURINA_DEVICE_EVIDENCE_PENDING_V1 -->
+          \`\`\`json
+          {"requestId":"${REQUEST_ID}","targetCommit":"${TARGET_COMMIT}","workflowRunId":${GITHUB_RUN_ID},"reason":"target_device_result_not_received_within_active_wait_window"}
+          \`\`\`
+          EOF
+          gh issue comment 42 --repo "$GITHUB_REPOSITORY" --body-file evidence-comment.md

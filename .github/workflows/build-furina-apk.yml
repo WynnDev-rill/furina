@@ -25,6 +25,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: furina-stable-${{ github.ref }}
@@ -110,6 +111,13 @@ jobs:
           grep -q 'isTrustedAppUri' android-wrapper/app/src/main/java/com/wynndev/furina/MainActivity.kt
           grep -q 'STREAM_DISPATCH_MIN_CHARS = 48' android-wrapper/app/src/main/java/com/wynndev/furina/FurinaBridge.kt
           grep -q 'STREAM_DISPATCH_MAX_DELAY_MS = 72L' android-wrapper/app/src/main/java/com/wynndev/furina/FurinaBridge.kt
+          grep -q 'EVIDENCE_ENROLLMENT_TOKEN' android-wrapper/app/build.gradle
+          grep -q 'furina_engineering_evidence_v1' android-wrapper/app/src/main/java/com/wynndev/furina/DeviceEvidenceBridge.kt
+          grep -q 'loginRequired", false' android-wrapper/app/src/main/java/com/wynndev/furina/DeviceEvidenceBridge.kt
+          grep -q 'provider.prepare(model, resetContext)' android-wrapper/app/src/main/java/com/wynndev/furina/DeviceBehavioralBenchmark.kt
+          grep -q 'control_enrollment' engineering/device-evidence/edge-function/index.ts
+          ! grep -q 'requireOwnerUser' engineering/device-evidence/edge-function/index.ts
+          ! grep -q 'auth.getSession' src/components/FurinaDeviceEvidenceAgent.tsx
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -188,9 +196,24 @@ jobs:
           base64 --decode furina-release.jks.b64 > app/furina-release.jks
           test -s app/furina-release.jks
 
+      - name: Prepare device evidence enrollment
+        id: evidence-enrollment
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::$TOKEN"
+          HASH="$(printf '%s' "$TOKEN" | sha256sum | cut -d' ' -f1)"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+          echo "token_hash=$HASH" >> "$GITHUB_OUTPUT"
+
       - name: Build stable signed Furina APK
         working-directory: android-wrapper
         shell: bash
+        env:
+          FURINA_GIT_SHA: ${{ github.sha }}
+          FURINA_EVIDENCE_ENROLLMENT_TOKEN: ${{ steps.evidence-enrollment.outputs.token }}
         run: |
           set -o pipefail
           mkdir -p app/src/main/res/drawable
@@ -229,3 +252,40 @@ jobs:
           path: Furina-Stable.apk
           if-no-files-found: error
           retention-days: 90
+
+      - name: Register official evidence enrollment hash
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          TOKEN_HASH: ${{ steps.evidence-enrollment.outputs.token_hash }}
+          TARGET_COMMIT: ${{ github.sha }}
+          EVIDENCE_ENDPOINT: https://fxebamfwewsvtscrbwxk.supabase.co/functions/v1/furina-device-evidence
+        run: |
+          set -euo pipefail
+          test -n "$TOKEN_HASH"
+          export EXPIRES_AT="$(date -u -d '+90 days' '+%Y-%m-%dT%H:%M:%SZ')"
+          python3 - <<'PY'
+          import json, os
+          body = {
+              "action": "control_enrollment",
+              "targetCommit": os.environ["TARGET_COMMIT"],
+              "tokenHash": os.environ["TOKEN_HASH"],
+              "expiresAt": os.environ["EXPIRES_AT"],
+          }
+          with open("evidence-enrollment.json", "w", encoding="utf-8") as fh:
+              json.dump(body, fh)
+          PY
+          OIDC_JSON="$(curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=furina-device-evidence")"
+          OIDC_TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<< "$OIDC_JSON")"
+          curl --fail-with-body -sS \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary @evidence-enrollment.json \
+            "$EVIDENCE_ENDPOINT" > evidence-enrollment-response.json
+          python3 - <<'PY'
+          import json
+          data = json.load(open("evidence-enrollment-response.json", encoding="utf-8"))
+          if data.get("ok") is not True:
+              raise SystemExit(f"evidence enrollment rejected: {data}")
+          print("Official evidence enrollment registered for exact main build.")
+          PY
