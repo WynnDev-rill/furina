@@ -16,10 +16,7 @@ data class AiAttachment(
     val displayName: String,
 )
 
-/**
- * Provider-neutral model identity. Local GGUF metadata stays in ModelSpec while the
- * orchestration layer only depends on capabilities that matter to prompting.
- */
+/** Provider-neutral model identity and inference limits. */
 data class AiModelRef(
     val providerId: String,
     val id: String,
@@ -30,16 +27,9 @@ data class AiModelRef(
 )
 
 /**
- * Companion context is deliberately layered instead of being one giant mutable prompt.
- *
- * - identityPrompt: stable Furina identity, temperament, style examples and boundaries.
- * - summary/recentHistory: session rehydration after a cold model load.
- * - relevantMemories/relevantHistory: query-dependent retrieval for the current turn.
- * - runtimeContext: compact relationship/emotional/situational state for the current turn.
- *
- * Local models receive coldStartPrompt once and then retain native chat/KV state. Query-
- * dependent retrieval is never frozen into that bootstrap prompt. Stateless online models
- * still receive systemPrompt on every request.
+ * Companion context is layered so local llama.cpp can keep one immutable persona KV prefix.
+ * Session rehydration and query-dependent retrieval are mutable turn context and therefore do
+ * not force the expensive personality prefix to be decoded again after every process restart.
  */
 data class AiContext(
     val sessionId: String,
@@ -49,11 +39,14 @@ data class AiContext(
     val relevantHistory: String,
     val recentHistory: String,
     val runtimeContext: String,
+    val sessionMessageCount: Int = 0,
 ) {
-    val coldStartPrompt: String = buildString {
-        appendLine(identityPrompt.trim())
+    /** Stable local SYSTEM prefix. Its fingerprint is suitable for persistent KV checkpoints. */
+    val personaPrompt: String = identityPrompt.trim()
+
+    /** Mutable session continuity. Local mode injects this only when a session needs rehydration. */
+    val sessionRehydrationPrompt: String = buildString {
         if (summary.isNotBlank() || recentHistory.isNotBlank()) {
-            appendLine()
             appendLine("[PRIVATE SESSION REHYDRATION]")
             appendLine("Background only. Preserve continuity without mechanically repeating it.")
             if (summary.isNotBlank()) appendLine("\nConversation summary:\n${summary.trim()}")
@@ -62,7 +55,16 @@ data class AiContext(
         }
     }.trim()
 
-    /** Stateless-provider prompt. Retrieval belongs here because it is rebuilt per request. */
+    /** Full stateless-provider bootstrap retained for online adapters. */
+    val coldStartPrompt: String = buildString {
+        appendLine(personaPrompt)
+        if (sessionRehydrationPrompt.isNotBlank()) {
+            appendLine()
+            appendLine(sessionRehydrationPrompt)
+        }
+    }.trim()
+
+    /** Stateless-provider prompt. Retrieval is rebuilt per request. */
     val systemPrompt: String = buildString {
         appendLine(coldStartPrompt)
         if (relevantMemories.isNotBlank() || relevantHistory.isNotBlank()) {
@@ -76,7 +78,7 @@ data class AiContext(
     }.trim()
 
     val fingerprint: Int = systemPrompt.hashCode()
-    val identityFingerprint: Int = identityPrompt.hashCode()
+    val identityFingerprint: Int = personaPrompt.hashCode()
     val retrievalFingerprint: Int = listOf(relevantMemories, relevantHistory).hashCode()
 
     val retrievalPrompt: String = buildString {
@@ -115,4 +117,7 @@ interface AiProvider {
     suspend fun unload()
     fun isWarm(model: AiModelRef, context: AiContext): Boolean
     fun resolvedModelId(): String? = null
+
+    /** Called only after a complete assistant turn has been durably stored. */
+    suspend fun checkpointConversation(context: AiContext, messageCount: Int) = Unit
 }
