@@ -2,7 +2,7 @@
 set -euo pipefail
 
 LLAMA_COMMIT="7ba604f1cb61cd14898138e9abc0b4ff2601f180"
-RUNTIME_PATCH_REV="offline-v5.3-mobile-accelerators"
+RUNTIME_PATCH_REV="offline-v5.4-mobile-accelerators"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="${TMPDIR:-/tmp}/furina-llama.cpp"
 SDK_WORK="${TMPDIR:-/tmp}/furina-mobile-gpu-sdk"
@@ -100,6 +100,8 @@ python3 "$ROOT/scripts/apply-offline-checkpoint-chat-policy.py" \
 python3 "$ROOT/scripts/apply-offline-backend-autotune-policy.py" \
   "$WORK/examples/llama.android/lib/src/main/cpp/ai_chat.cpp" \
   "$WORK/examples/llama.android/lib/src/main/java/com/arm/aichat/internal/InferenceEngineImpl.kt"
+python3 "$ROOT/scripts/fix-offline-backend-cpp-includes.py" \
+  "$WORK/examples/llama.android/lib/src/main/cpp/ai_chat.cpp"
 python3 "$ROOT/scripts/apply-mobile-gpu-build-policy.py" \
   "$WORK/examples/llama.android/lib/src/main/cpp/CMakeLists.txt"
 
