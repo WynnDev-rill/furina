@@ -2,10 +2,12 @@
 set -euo pipefail
 
 LLAMA_COMMIT="7ba604f1cb61cd14898138e9abc0b4ff2601f180"
-RUNTIME_PATCH_REV="offline-v5.1-mobile-accelerators"
+RUNTIME_PATCH_REV="offline-v5.2-mobile-accelerators"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="${TMPDIR:-/tmp}/furina-llama.cpp"
-OPENCL_WORK="${TMPDIR:-/tmp}/furina-opencl-sdk"
+SDK_WORK="${TMPDIR:-/tmp}/furina-mobile-gpu-sdk"
+OPENCL_WORK="$SDK_WORK/opencl"
+VULKAN_HEADERS_PREFIX="$SDK_WORK/vulkan-headers"
 LOG="$ROOT/gradle-build.log"
 : > "$LOG"
 exec > >(tee -a "$LOG") 2>&1
@@ -24,6 +26,15 @@ prepare_host_gpu_tools() {
     echo "Vulkan build requires glslc, Vulkan-Hpp, SPIRV-Headers and Ninja on the host." >&2
     exit 1
   fi
+}
+
+prepare_vulkan_headers() {
+  rm -rf "$VULKAN_HEADERS_PREFIX"
+  mkdir -p "$VULKAN_HEADERS_PREFIX/vulkan"
+  cp -a /usr/include/vulkan/. "$VULKAN_HEADERS_PREFIX/vulkan/"
+  test -s "$VULKAN_HEADERS_PREFIX/vulkan/vulkan.hpp"
+  export FURINA_VULKAN_HEADERS="$VULKAN_HEADERS_PREFIX"
+  echo "Prepared isolated Vulkan-Hpp headers at $FURINA_VULKAN_HEADERS"
 }
 
 prepare_opencl_sdk() {
@@ -55,6 +66,7 @@ prepare_opencl_sdk() {
 }
 
 prepare_host_gpu_tools
+prepare_vulkan_headers
 prepare_opencl_sdk
 
 rm -rf "$WORK"
