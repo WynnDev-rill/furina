@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate Furina Engineering Company v5 full-shift control-plane invariants."""
+"""Validate Furina Engineering Company v6 Factory control-plane invariants."""
 from __future__ import annotations
 
 import json
@@ -10,7 +10,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FILES = {
     "company": ROOT / "engineering/COMPANY.md",
+    "factory": ROOT / "engineering/factory/FACTORY_V2.md",
     "worker": ROOT / "engineering/worker/HOURLY_PROMPT.md",
+    "queue_schema": ROOT / "engineering/work-queue/schema.json",
+    "queue_state": ROOT / "engineering/work-queue/state.json",
     "work_package": ROOT / "engineering/work-package/POLICY.md",
     "priority": ROOT / "engineering/prioritization/POLICY.md",
     "triage": ROOT / "engineering/triage/CRITICAL_PATH_POLICY.md",
@@ -23,9 +26,11 @@ FILES = {
     "boss_policy": ROOT / "engineering/boss/BOSS_POLICY.md",
     "boss_schema": ROOT / "engineering/boss/decision.schema.json",
     "decision_gate": ROOT / "scripts/furina-decision-gate.py",
+    "engineering_workflow": ROOT / ".github/workflows/furina-engineering-os.yml",
+    "companion_workflow": ROOT / ".github/workflows/companion-quality.yml",
+    "vercel": ROOT / "vercel.json",
 }
 LEGACY_ORCHESTRATOR = ROOT / ".github/workflows/furina-autonomous-gate.yml"
-OLD_PRIORITY = "priority = impact * confidence * frequency / max(1, effort * regressionRisk)"
 
 
 class ContractError(RuntimeError):
@@ -61,9 +66,40 @@ def require_required_fields(label: str, schema: dict, expected: set[str]) -> Non
         raise ContractError(f"{label} missing required fields: {missing}")
 
 
+def validate_queue(schema: dict, state: dict) -> None:
+    require_required_fields("work-queue/schema.json", schema, {"schemaVersion", "updatedAt", "stagingBaseSha", "items"})
+    for key in ("schemaVersion", "updatedAt", "stagingBaseSha", "items"):
+        if key not in state:
+            raise ContractError(f"work-queue/state.json missing key: {key}")
+    if state.get("schemaVersion") != 1:
+        raise ContractError("work-queue/state.json schemaVersion must be 1")
+    if not isinstance(state.get("items"), list):
+        raise ContractError("work-queue/state.json items must be an array")
+    valid_statuses = {
+        "CANDIDATE", "INTEGRATED", "RELEASED", "BLOCKED_EVIDENCE", "BLOCKED_HUMAN",
+        "QUARANTINED", "SUPERSEDED", "REJECTED",
+    }
+    ids: set[str] = set()
+    for item in state["items"]:
+        if not isinstance(item, dict):
+            raise ContractError("work-queue item must be an object")
+        for key in ("id", "status", "baseSha", "headSha", "rollbackBoundary"):
+            if not item.get(key):
+                raise ContractError(f"work-queue item missing {key}")
+        if item["id"] in ids:
+            raise ContractError(f"duplicate work-queue id: {item['id']}")
+        ids.add(item["id"])
+        if item["status"] not in valid_statuses:
+            raise ContractError(f"invalid work-queue status: {item['status']}")
+
+
 def main() -> int:
-    text = {name: read(path) for name, path in FILES.items() if not name.endswith("_schema")}
+    if LEGACY_ORCHESTRATOR.exists():
+        raise ContractError("legacy external AI autonomous gate must remain removed")
+
+    text = {name: read(path) for name, path in FILES.items() if not name.endswith("_schema") and name != "queue_state"}
     company = text["company"]
+    factory = text["factory"]
     worker = text["worker"]
     priority = text["priority"]
     triage = text["triage"]
@@ -72,89 +108,75 @@ def main() -> int:
     boss = text["boss_policy"]
     work_package = text["work_package"]
 
-    if LEGACY_ORCHESTRATOR.exists():
-        raise ContractError("legacy external AI autonomous gate must be removed in SHIFT_GATED_AUTO_MERGE mode")
-
     require_all("COMPANY.md", company, [
-        "SHIFT_GATED_AUTO_MERGE",
-        "engineering/triage/CRITICAL_PATH_POLICY.md",
-        "stabilize",
-        "Reviewer evidence-reset",
-        "Boss evidence-reset",
-        "Time shortage cancels the attempt, not the work",
-        "RED remains human-authorized and human-merged",
-        "A green build is evidence of build health, not proof of product improvement",
-        "STATIC", "CI", "BEHAVIORAL", "DEVICE",
+        "SHIFT_GATED_AUTO_MERGE", "engineering/factory/FACTORY_V2.md", "company/staging",
+        "Candidate Reviewer", "Reviewer evidence-reset", "Boss evidence-reset",
+        "Stabilize -> Restore -> Optimize -> Polish", "Time shortage cancels the attempt, not the work",
+        "RED remains human-authorized and human-merged", "A green build is evidence of build health, not proof of product improvement",
+        "STATIC", "CI", "BEHAVIORAL", "DEVICE", "NO_CHANGE",
     ])
-    if OLD_PRIORITY in company:
-        raise ContractError("COMPANY.md contains superseded cross-tier priority formula")
+
+    require_all("FACTORY_V2.md", factory, [
+        "CANDIDATE", "INTEGRATION", "RELEASE", "EMERGENCY_INTEGRATION", "company/staging",
+        "FAST", "MEDIUM", "FULL", "engineering/integration/checkpoints/",
+        "one normal release PR per day", "Research sidecars", "no production write or merge authority",
+    ])
+
+    require_all("HOURLY_PROMPT.md", worker, [
+        "Scheduled Dispatcher", "Asia/Jakarta", "`00` -> `RELEASE`", "`06`, `12`, `18` -> `INTEGRATION`",
+        "Acquire a shift lease", "CANDIDATE mode", "INTEGRATION mode", "RELEASE mode",
+        "Reviewer evidence-reset pass", "Boss evidence-reset pass", "expected head SHA", "SHIFT_GATED_AUTO_MERGE",
+    ])
+
+    require_all("WORK_PACKAGE/POLICY.md", work_package, [
+        "engineering/triage/CRITICAL_PATH_POLICY.md", "Critical-path scope boundary", "Candidate Reviewer",
+        "Integration boundary", "Release boundary", "evidence-reset", "time is low",
+    ])
+
+    require_all("REVIEW/INDEPENDENCE_POLICY.md", separation, [
+        "Candidate Reviewer", "not equivalent to independent models", "Evidence-reset rule",
+        "reviewCycleId != engineerCycleId", "bossCycleId != engineerCycleId", "SHIFT_GATED_AUTO_MERGE",
+        "CANDIDATE and INTEGRATION modes have no merge authority",
+    ])
 
     require_all("TRIAGE/CRITICAL_PATH_POLICY.md", triage, [
         "T0_STOP_THE_LINE", "T1_CRITICAL_PATH", "T2_MAJOR", "T3_LOCAL", "T4_POLISH",
         "Critical-path graph", "dependencyCentrality", "scopeReach",
-        "Stabilize -> Restore -> Optimize -> Polish",
-        "Anti-distraction rule", "Bottleneck rule",
-        "highest eligible triage class",
+        "Stabilize -> Restore -> Optimize -> Polish", "highest eligible triage class",
     ])
 
     require_all("PRIORITIZATION/POLICY.md", priority, [
         "triage class", "P0_PRODUCT", "P0_UNBLOCKER", "P1_PRODUCT", "P2_PRODUCT", "META_ENGINEERING",
-        "A lower tier cannot outrank a higher eligible tier",
-        "Critical bottleneck ordering", "dependencyCentrality", "scopeReach",
-        "withinTierScore", "Anti-self-optimization and anti-distraction",
-    ])
-
-    require_all("WORK_PACKAGE/POLICY.md", work_package, [
-        "engineering/triage/CRITICAL_PATH_POLICY.md",
-        "Critical-path scope boundary",
-        "Same-shift phase boundary",
-        "evidence-reset",
-        "time is low",
-    ])
-
-    require_all("REVIEW/INDEPENDENCE_POLICY.md", separation, [
-        "one ChatGPT shift",
-        "not equivalent to independent models",
-        "Evidence-reset rule",
-        "reviewCycleId != engineerCycleId",
-        "bossCycleId != engineerCycleId",
-        "phase separation, not a claim of model independence",
-        "SHIFT_GATED_AUTO_MERGE",
+        "A lower tier cannot outrank a higher eligible tier", "Critical bottleneck ordering",
+        "dependencyCentrality", "scopeReach", "withinTierScore",
     ])
 
     require_all("DECISIONS/AUDIT_POLICY.md", audit, [
-        "FURINA_REVIEW_DECISION_V1", "FURINA_BOSS_DECISION_V1",
-        "same ChatGPT shift", "phase/provenance IDs",
-        "Never edit/reuse an old decision comment",
-        "current PR head",
+        "FURINA_REVIEW_DECISION_V1", "FURINA_BOSS_DECISION_V1", "phase/provenance IDs",
+        "Never edit/reuse an old decision comment", "current PR head",
     ])
-
-    require_all("HOURLY_PROMPT.md", worker, [
-        "one complete Furina Engineering Company shift",
-        "next hourly boundary",
-        "normal", "caution", "checkpoint", "hardStop",
-        "Acquire a shift lease",
-        "engineering/triage/CRITICAL_PATH_POLICY.md",
-        "Reviewer evidence-reset pass",
-        "Boss evidence-reset pass",
-        "expected head SHA",
-        "SHIFT_GATED_AUTO_MERGE",
-    ])
-    if OLD_PRIORITY in worker:
-        raise ContractError("HOURLY_PROMPT.md reintroduced old cross-tier priority formula")
-    if "GitHub Copilot CLI" in worker or "furina-autonomous-gate.yml" in worker:
-        raise ContractError("HOURLY_PROMPT.md still depends on external AI orchestration")
 
     require_all("BOSS_POLICY.md", boss, [
-        "same ChatGPT execution",
-        "evidence reset",
-        "SHIFT_GATED_AUTO_MERGE",
-        "REQUEST_REVISION",
-        "Time shortage cancels the current attempt, not a valuable PR",
-        "Critical-path test",
-        "expected head SHA",
-        "RED remains human-authorized and human-merged",
+        "same ChatGPT execution", "evidence reset", "SHIFT_GATED_AUTO_MERGE", "REQUEST_REVISION",
+        "Time shortage cancels the current attempt, not a valuable PR", "Critical-path test",
+        "expected head SHA", "RED remains human-authorized and human-merged",
     ])
+
+    require_all("furina-engineering-os.yml", text["engineering_workflow"], [
+        "company/staging", "engineering/integration/checkpoints/**", "work-queue/schema.json", "work-queue/state.json",
+    ])
+    require_all("companion-quality.yml", text["companion_workflow"], [
+        "company/staging", "engineering/integration/checkpoints/**", "companion-quality-gate.py",
+    ])
+
+    vercel = read_json(FILES["vercel"])
+    deployment_enabled = vercel.get("git", {}).get("deploymentEnabled", {})
+    if deployment_enabled.get("company/**") is not False:
+        raise ContractError("vercel.json must disable company/** deployments")
+
+    queue_schema = read_json(FILES["queue_schema"])
+    queue_state = read_json(FILES["queue_state"])
+    validate_queue(queue_schema, queue_state)
 
     review = read_json(FILES["review_schema"])
     require_required_fields("review/decision.schema.json", review, {
@@ -193,7 +215,7 @@ def main() -> int:
     if proc.returncode:
         raise ContractError(f"decision semantic self-test failed:\n{proc.stdout}")
 
-    print("Furina Engineering Company v5 full-shift critical-triage policy gate passed")
+    print("Furina Engineering Company v6 Factory policy gate passed")
     return 0
 
 
@@ -201,5 +223,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except ContractError as exc:
-        print(f"Furina Engineering Company v5 policy gate failed: {exc}")
+        print(f"Furina Engineering Company v6 policy gate failed: {exc}")
         raise SystemExit(1)
