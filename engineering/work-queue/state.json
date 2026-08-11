@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-11T18:31:00+07:00",
+  "updatedAt": "2026-08-11T19:12:00+07:00",
   "stagingBaseSha": "7a5c3efa199c7f91a87bf3c0e2d265a5a45515a9",
   "lastIntegration": null,
   "lastRelease": {
@@ -8,5 +8,28 @@
     "releasedAt": "2026-08-11T18:31:00+07:00",
     "candidateIds": []
   },
-  "items": []
+  "items": [
+    {
+      "id": "cand-20260811-19-warm-rehydrate-diagnosis",
+      "createdAt": "2026-08-11T19:08:00+07:00",
+      "shiftId": "factory-v2-20260811-19-candidate",
+      "title": "Pin safe repair boundary for warm session rehydrate",
+      "subsystem": "local-runtime-evidence",
+      "triageClass": "T1_CRITICAL_PATH",
+      "strategicTier": "P0_UNBLOCKER",
+      "autonomyClass": "GREEN",
+      "status": "CANDIDATE",
+      "baseSha": "2465e181b987209172e31db27cb4dc1410d339bd",
+      "headSha": "fd41ec4d5a2ffbd39c949c475e4b622c6b500e56",
+      "validationTier": "FAST",
+      "evidenceLevel": "STATIC",
+      "dependencies": [],
+      "conflictsWith": [],
+      "rollbackBoundary": "Revert only engineering/diagnosis/warm-session-rehydrate-20260811-19.md; no runtime/product source changed.",
+      "expectedMetric": "warm-session repair-path ambiguity and unsafe role-semantics risk",
+      "expectedDelta": "one evidence-grounded native-prefix-reuse direction; explicitly reject moving session continuity into latest USER payload",
+      "verificationWindow": "next runtime implementation candidate, then MEDIUM exact-head CI and target-device warm-prepare/continuity comparison before any product-improvement claim",
+      "notes": "FAST Candidate Reviewer re-fetched 2465e181..fd41ec4d: exactly one 53-line diagnosis artifact added, no runtime/source behavior changed. Static claims were cross-checked against LocalLlamaProvider.prepare/resetConversationStateKeepingModel, AiContext.coldStartPrompt, InferenceEngineImpl.setSystemPrompt, and native processSystemPrompt reset behavior. Accepted as P0 evidence/unblocker only; it does not claim latency or behavioral improvement. Candidate Reviewer challenged the simpler shortcut of moving rehydration into USER context and rejected it because confirmed C2 already shows role contamination risk."
+    }
+  ]
 }
