@@ -11,13 +11,13 @@ permissions:
 
 concurrency:
   group: furina-device-evidence-${{ github.event.issue.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   capture:
     if: github.event.issue.number == 42
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     env:
       EVIDENCE_ENDPOINT: https://fxebamfwewsvtscrbwxk.supabase.co/functions/v1/furina-device-evidence
       GH_TOKEN: ${{ github.token }}
@@ -106,43 +106,32 @@ jobs:
             "$EVIDENCE_ENDPOINT" > control-response.json
           python3 -m json.tool control-response.json
 
-      - name: Wait only while evidence is requested
+      - name: Collect device result once
         if: steps.request.outputs.active == 'true'
         id: collect
         env:
           REQUEST_ID: ${{ steps.request.outputs.request_id }}
         shell: bash
         run: |
-          ready=false
-          for attempt in $(seq 1 30); do
-            OIDC_JSON="$(curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=furina-device-evidence")"
-            OIDC_TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<< "$OIDC_JSON")"
-            python3 - <<'PY'
+          python3 - <<'PY'
           import json, os
           json.dump({"action": "control_collect", "requestId": os.environ["REQUEST_ID"]}, open("collect-request.json", "w"))
           PY
-            curl --fail-with-body -sS \
-              -H "Authorization: Bearer $OIDC_TOKEN" \
-              -H "Content-Type: application/json" \
-              --data-binary @collect-request.json \
-              "$EVIDENCE_ENDPOINT" > collect-response.json
-            if python3 - <<'PY'
+          OIDC_JSON="$(curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=furina-device-evidence")"
+          OIDC_TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<< "$OIDC_JSON")"
+          curl --fail-with-body -sS \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary @collect-request.json \
+            "$EVIDENCE_ENDPOINT" > collect-response.json
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json
           data = json.load(open("collect-response.json", encoding="utf-8"))
-          raise SystemExit(0 if data.get("ready") is True else 1)
+          ready = data.get("ready") is True
+          print(f"ready={'true' if ready else 'false'}")
+          if ready:
+              json.dump(data["result"], open("device-evidence.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
           PY
-            then
-              python3 - <<'PY'
-          import json
-          data = json.load(open("collect-response.json", encoding="utf-8"))
-          json.dump(data["result"], open("device-evidence.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-          PY
-              ready=true
-              break
-            fi
-            sleep 20
-          done
-          echo "ready=$ready" >> "$GITHUB_OUTPUT"
 
       - name: Verify captured provenance
         if: steps.request.outputs.active == 'true' && steps.collect.outputs.ready == 'true'
@@ -196,7 +185,7 @@ jobs:
           EOF
           gh issue comment 42 --repo "$GITHUB_REPOSITORY" --body-file evidence-comment.md
 
-      - name: Publish pending pointer on timeout
+      - name: Publish pending pointer when result is not ready
         if: steps.request.outputs.active == 'true' && steps.collect.outputs.ready != 'true'
         env:
           REQUEST_ID: ${{ steps.request.outputs.request_id }}
@@ -205,7 +194,7 @@ jobs:
           cat > evidence-comment.md <<EOF
           <!-- FURINA_DEVICE_EVIDENCE_PENDING_V1 -->
           \`\`\`json
-          {"requestId":"${REQUEST_ID}","targetCommit":"${TARGET_COMMIT}","workflowRunId":${GITHUB_RUN_ID},"reason":"target_device_result_not_received_within_active_wait_window"}
+          {"requestId":"${REQUEST_ID}","targetCommit":"${TARGET_COMMIT}","workflowRunId":${GITHUB_RUN_ID},"reason":"target_device_result_not_ready_yet"}
           \`\`\`
           EOF
           gh issue comment 42 --repo "$GITHUB_REPOSITORY" --body-file evidence-comment.md
