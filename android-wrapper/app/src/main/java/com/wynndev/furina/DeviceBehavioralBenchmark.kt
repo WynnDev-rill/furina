@@ -93,7 +93,16 @@ class DeviceBehavioralBenchmark(
 
                 val startedAt = SystemClock.elapsedRealtime()
                 val warmBeforePrepare = provider.isWarm(model, context)
+
+                // Explicitly cross a throwaway session boundary before the real scenario session.
+                // LocalLlamaProvider re-applies setSystemPrompt whenever sessionId changes, so this
+                // guarantees the native chat/KV state from the previous scenario cannot survive,
+                // while the loaded GGUF weights remain warm. The second prepare leaves the provider
+                // bound to the exact scenario session used by the generation request.
+                val resetContext = context.copy(sessionId = "$sessionId:isolation-reset")
+                provider.prepare(model, resetContext)
                 provider.prepare(model, context)
+
                 val preparedAt = SystemClock.elapsedRealtime()
                 var firstTokenAt = 0L
                 var emittedChunks = 0
