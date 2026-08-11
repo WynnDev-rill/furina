@@ -119,7 +119,7 @@ def main() -> int:
     require_all("FACTORY_V2.md", factory, [
         "CANDIDATE", "INTEGRATION", "RELEASE", "EMERGENCY_INTEGRATION", "company/staging",
         "FAST", "MEDIUM", "FULL", "engineering/integration/checkpoints/",
-        "one normal release PR per day", "Research sidecars", "no production write or merge authority",
+        "One normal release PR per day", "Research sidecars", "no production write or merge authority",
     ])
 
     require_all("HOURLY_PROMPT.md", worker, [
