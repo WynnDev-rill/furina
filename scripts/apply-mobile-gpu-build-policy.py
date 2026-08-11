@@ -3,7 +3,7 @@
 
 CPU remains compiled and is always the fallback. Vulkan is the generic Adreno path; OpenCL
 uses llama.cpp's Qualcomm-oriented kernels when the target device exposes a compatible driver.
-The bootstrap provides link-time SDK headers/libraries; Android resolves vendor GPU libraries.
+The bootstrap provides isolated link-time SDK headers/libraries; Android resolves vendor drivers.
 """
 from __future__ import annotations
 
@@ -32,10 +32,10 @@ def main() -> None:
             set(OpenCL_INCLUDE_DIR "$ENV{FURINA_OPENCL_PREFIX}/include" CACHE PATH "" FORCE)
             set(OpenCL_LIBRARY "$ENV{FURINA_OPENCL_PREFIX}/lib/libOpenCL.so" CACHE FILEPATH "" FORCE)
         endif()
-        # Android NDK provides vulkan.h/libvulkan but not Vulkan-Hpp. Use host SDK headers for
-        # compilation only while FindVulkan still links the NDK's Android libvulkan.
-        if(EXISTS "/usr/include/vulkan/vulkan.hpp")
-            set(Vulkan_INCLUDE_DIR "/usr/include" CACHE PATH "" FORCE)
+        # Android NDK ships vulkan.h/libvulkan but omits Vulkan-Hpp. The bootstrap copies only
+        # Khronos Vulkan headers into an isolated prefix, avoiding accidental host-libc includes.
+        if(DEFINED ENV{FURINA_VULKAN_HEADERS})
+            include_directories(SYSTEM "$ENV{FURINA_VULKAN_HEADERS}")
         endif()
         if(EXISTS "/usr/share/cmake/SPIRV-Headers")
             set(SPIRV-Headers_DIR "/usr/share/cmake/SPIRV-Headers" CACHE PATH "" FORCE)
