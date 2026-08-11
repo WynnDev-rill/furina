@@ -80,15 +80,19 @@ def main() -> None:
 
         require("build-hexagon-runtime.sh" in bootstrap_text, "Hexagon builder not wired into AAR bootstrap")
         require("libggml-hexagon.so" in bootstrap_text, "AAR must verify Hexagon plugin packaging")
-        for arch in ("v73", "v75", "v79", "v81"):
-            require(f"libggml-htp-${{arch}}.so".replace("${arch}", arch) in bootstrap_text,
-                    f"AAR must verify HTP {arch} skel packaging")
+        require("for arch in v73 v75 v79 v81; do" in bootstrap_text,
+                "AAR must verify all supported HTP skel generations")
+        require('libggml-htp-${arch}.so' in bootstrap_text,
+                "AAR HTP packaging verification pattern missing")
         require("ghcr.io/snapdragon-toolchain/arm64-android:v0.7" in hexagon_build_text,
                 "Hexagon build must use pinned official Snapdragon toolchain image")
         require("arm64-android-snapdragon-release" in hexagon_build_text,
                 "Hexagon build must use upstream Snapdragon preset")
         require("GGML_BACKEND_DL=ON" in hexagon_build_text,
                 "Hexagon must be a dynamic backend, not replace Furina's CPU/GPU runtime")
+        for arch in ("v73", "v75", "v79", "v81"):
+            require(f"libggml-htp-{arch}.so" in hexagon_build_text,
+                    f"Hexagon builder must export HTP {arch} skel")
 
     print("Offline runtime static gate passed: KV/session + CPU/Vulkan/OpenCL/Hexagon adaptive runtime invariants")
 
