@@ -35,6 +35,7 @@ declare global {
 const QUIET_MS = 45_000;
 const RETRY_MS = 60_000;
 const PROBE_THROTTLE_MS = 60_000;
+const SIGNAL_TOPIC = "furina-device-evidence-signal";
 const SUBMITTED_PREFIX = "furina:device-evidence:submitted:";
 
 function nativeBridge() {
@@ -44,7 +45,12 @@ function nativeBridge() {
   return window.FurinaEvidence;
 }
 
-/** Invisible demand-driven engineering evidence agent. */
+/**
+ * Invisible demand-driven engineering evidence agent.
+ *
+ * Realtime carries only a payload-free wake signal. The authoritative request is fetched from the
+ * authenticated Edge Function after that signal; there is no periodic request-data polling.
+ */
 export function FurinaDeviceEvidenceAgent() {
   useEffect(() => {
     const bridge = nativeBridge();
@@ -57,6 +63,7 @@ export function FurinaDeviceEvidenceAgent() {
     let lastProbeAt = 0;
     let quietTimer: number | null = null;
     let retryTimer: number | null = null;
+    let signalChannel: ReturnType<typeof backupSupabase.channel> | null = null;
 
     const clearQuiet = () => {
       if (quietTimer != null) window.clearTimeout(quietTimer);
@@ -116,6 +123,23 @@ export function FurinaDeviceEvidenceAgent() {
       schedulePending();
     };
 
+    const stopSignalChannel = () => {
+      const channel = signalChannel;
+      signalChannel = null;
+      if (channel) void backupSupabase.removeChannel(channel);
+    };
+
+    const ensureSignalChannel = () => {
+      if (disposed || signalChannel || document.visibilityState !== "visible") return;
+      signalChannel = backupSupabase
+        .channel(SIGNAL_TOPIC)
+        .on("broadcast", { event: "request" }, () => {
+          // Broadcast contains no request data. Fetch the authenticated mailbox only on demand.
+          void probe(true);
+        })
+        .subscribe();
+    };
+
     const submit = async (requestId: string, reportJson: string) => {
       if (disposed || !pending || pending.requestId !== requestId) return;
       let result: unknown;
@@ -160,8 +184,16 @@ export function FurinaDeviceEvidenceAgent() {
       if (pending && !isExpired(pending)) schedulePending();
     };
     const onVisible = () => {
-      if (document.visibilityState === "visible") void probe(false);
-      else if (runningRequestId) bridge.cancelBehavioralBenchmark();
+      if (document.visibilityState === "visible") {
+        void backupSupabase.auth.getSession().then(({ data }) => {
+          if (disposed || !data.session) return;
+          ensureSignalChannel();
+          void probe(false);
+        });
+      } else {
+        stopSignalChannel();
+        if (runningRequestId) bridge.cancelBehavioralBenchmark();
+      }
     };
     const onFocus = () => void probe(false);
 
@@ -171,8 +203,11 @@ export function FurinaDeviceEvidenceAgent() {
     window.addEventListener("focus", onFocus);
 
     const { data: authListener } = backupSupabase.auth.onAuthStateChange((_event, session) => {
-      if (session) void probe(true);
-      else {
+      if (session) {
+        ensureSignalChannel();
+        void probe(true);
+      } else {
+        stopSignalChannel();
         pending = null;
         if (runningRequestId) bridge.cancelBehavioralBenchmark();
         runningRequestId = null;
@@ -180,12 +215,18 @@ export function FurinaDeviceEvidenceAgent() {
         clearRetry();
       }
     });
-    void probe(true);
+
+    void backupSupabase.auth.getSession().then(({ data }) => {
+      if (disposed || !data.session) return;
+      ensureSignalChannel();
+      void probe(true);
+    });
 
     return () => {
       disposed = true;
       clearQuiet();
       clearRetry();
+      stopSignalChannel();
       if (runningRequestId) bridge.cancelBehavioralBenchmark();
       document.removeEventListener("pointerdown", onInteraction);
       document.removeEventListener("keydown", onInteraction);
