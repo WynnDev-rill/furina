@@ -19,6 +19,7 @@ class DeviceBehavioralBenchmark(
     private val provider: LocalLlamaProvider,
     private val modelDownloads: ModelDownloadManager,
     private val selectedModelId: () -> String,
+    private val onProgress: (requestId: String, completed: Int, total: Int) -> Unit = { _, _, _ -> },
 ) {
     suspend fun run(rawRequest: String): JSONObject {
         val request = JSONObject(rawRequest)
@@ -55,6 +56,7 @@ class DeviceBehavioralBenchmark(
         val scenarioResults = JSONArray()
         val benchmarkStarted = SystemClock.elapsedRealtime()
         val seenIds = mutableSetOf<String>()
+        onProgress(requestId, 0, scenarios.length())
         try {
             for (index in 0 until scenarios.length()) {
                 val scenario = scenarios.getJSONObject(index)
@@ -143,6 +145,7 @@ class DeviceBehavioralBenchmark(
                                 .put("warmBeforePrepare", warmBeforePrepare)
                         )
                 )
+                onProgress(requestId, index + 1, scenarios.length())
             }
         } finally {
             // Synthetic turns must never remain in native KV/chat state after the capture.
