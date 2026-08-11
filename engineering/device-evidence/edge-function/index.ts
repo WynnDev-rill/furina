@@ -3,6 +3,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.106.2";
 const BUCKET = "furina-backups";
 const REQUEST_PATH = ".engineering/device-evidence/request.json";
 const RESULT_PREFIX = ".engineering/device-evidence/results";
+const SIGNAL_TOPIC = "furina-device-evidence-signal";
 const OWNER_USER_SHA256 = "423e8e5dc4bd553ac5f8ebd9f46725669d206403f78c4613e6b166e17b281ca1";
 const GITHUB_AUDIENCE = "furina-device-evidence";
 const GITHUB_REPOSITORY = "WynnDev-rill/furina";
@@ -144,6 +145,29 @@ async function writeObject(path: string, body: unknown) {
   if (error) throw error;
 }
 
+/** Wake connected foreground devices without exposing request data. */
+async function signalRequest() {
+  const baseUrl = Deno.env.get("SUPABASE_URL");
+  if (!baseUrl) throw new Error("Supabase URL unavailable");
+  const response = await fetch(`${baseUrl}/realtime/v1/api/broadcast`, {
+    method: "POST",
+    headers: {
+      apikey: secretKey(),
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      messages: [
+        {
+          topic: SIGNAL_TOPIC,
+          event: "request",
+          payload: { signal: true },
+        },
+      ],
+    }),
+  });
+  if (!response.ok) throw new Error(`Realtime request signal failed (${response.status})`);
+}
+
 function requireString(value: unknown, name: string, maxLength: number) {
   if (typeof value !== "string" || value.trim().length === 0 || value.length > maxLength) throw new Error(`invalid ${name}`);
   return value.trim();
@@ -239,14 +263,16 @@ Deno.serve(async (req: Request) => {
             return json({ ok: true, requestId: request.requestId, alreadyCompleted: true });
           }
           if (existing.status === "requested" && Date.parse(String(existing.expiresAt)) > Date.now()) {
-            return json({ ok: true, requestId: request.requestId, alreadyRequested: true });
+            await signalRequest();
+            return json({ ok: true, requestId: request.requestId, alreadyRequested: true, signaled: true });
           }
         }
         if (existing?.status === "requested" && Date.parse(String(existing.expiresAt)) > Date.now()) {
           return json({ error: "another evidence request is active" }, 409);
         }
         await writeObject(REQUEST_PATH, request);
-        return json({ ok: true, requestId: request.requestId });
+        await signalRequest();
+        return json({ ok: true, requestId: request.requestId, signaled: true });
       }
       const requestId = requireString(body.requestId, "requestId", 120);
       const request = await readObject(REQUEST_PATH);
