@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "workId": "build259-root-cause-diagnosis-v1",
+  "category": "companion-root-cause-diagnosis",
+  "strategicTier": "P0_PRODUCT",
+  "prediction": {
+    "cycleId": "eng-shift-2026-08-11-17-diagnosis",
+    "recordedAt": "2026-08-11T17:08:00+07:00",
+    "impact": 8.0,
+    "confidence": 9.0,
+    "expectedMetric": "root-cause candidates from Build #259 baseline are separated into confirmed static boundaries versus unresolved behavioral/runtime hypotheses",
+    "expectedDelta": "from four conflated causes to an ordered repair path with C1/C2 source-proven and C3-C5 explicitly unresolved",
+    "verificationWindow": "this shift after exact-head source reinspection and CI/schema validation",
+    "reason": "The canonical baseline already proves severe warm session preparation and low persona quality; the highest-value autonomous action is to prevent an invasive repair from mixing session-prefill, role-semantics, persona, model, and backend causes."
+  },
+  "status": "prediction_only"
+}
