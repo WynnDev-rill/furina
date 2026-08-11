@@ -2,7 +2,7 @@
 set -euo pipefail
 
 LLAMA_COMMIT="7ba604f1cb61cd14898138e9abc0b4ff2601f180"
-RUNTIME_PATCH_REV="offline-v5.4-mobile-accelerators"
+RUNTIME_PATCH_REV="offline-v5.5-mobile-accelerators"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="${TMPDIR:-/tmp}/furina-llama.cpp"
 SDK_WORK="${TMPDIR:-/tmp}/furina-mobile-gpu-sdk"
@@ -16,25 +16,28 @@ exec > >(tee -a "$LOG") 2>&1
 
 prepare_host_gpu_tools() {
   if command -v glslc >/dev/null 2>&1 && command -v ninja >/dev/null 2>&1 && \
-     [[ -d /usr/share/cmake/SPIRV-Headers ]] && [[ -f /usr/include/vulkan/vulkan.hpp ]]; then
+     [[ -d /usr/share/cmake/SPIRV-Headers ]] && [[ -f /usr/include/vulkan/vulkan.hpp ]] && \
+     [[ -f /usr/include/spirv/unified1/spirv.hpp ]]; then
     return
   fi
   if command -v apt-get >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1; then
     sudo apt-get update -qq
     sudo apt-get install -y glslc spirv-headers ninja-build libvulkan-dev
   else
-    echo "Vulkan build requires glslc, Vulkan-Hpp, SPIRV-Headers and Ninja on the host." >&2
+    echo "Vulkan build requires glslc, Vulkan-Hpp, SPIR-V headers and Ninja on the host." >&2
     exit 1
   fi
 }
 
 prepare_vulkan_headers() {
   rm -rf "$VULKAN_HEADERS_PREFIX"
-  mkdir -p "$VULKAN_HEADERS_PREFIX/vulkan"
+  mkdir -p "$VULKAN_HEADERS_PREFIX/vulkan" "$VULKAN_HEADERS_PREFIX/spirv"
   cp -a /usr/include/vulkan/. "$VULKAN_HEADERS_PREFIX/vulkan/"
+  cp -a /usr/include/spirv/. "$VULKAN_HEADERS_PREFIX/spirv/"
   test -s "$VULKAN_HEADERS_PREFIX/vulkan/vulkan.hpp"
+  test -s "$VULKAN_HEADERS_PREFIX/spirv/unified1/spirv.hpp"
   export FURINA_VULKAN_HEADERS="$VULKAN_HEADERS_PREFIX"
-  echo "Prepared isolated Vulkan-Hpp headers at $FURINA_VULKAN_HEADERS"
+  echo "Prepared isolated Vulkan-Hpp + SPIR-V headers at $FURINA_VULKAN_HEADERS"
 }
 
 prepare_opencl_sdk() {
