@@ -17,7 +17,7 @@ class DeviceEvidenceBridge(
     private val webView: WebView,
     store: MemoryStore,
     modelDownloads: ModelDownloadManager,
-    private val withAiPaused: suspend (suspend () -> Unit) -> Unit,
+    private val withAiIdleForEvidence: suspend (suspend () -> Unit) -> Boolean,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val prefs = activity.getSharedPreferences("furina_native", 0)
@@ -43,9 +43,14 @@ class DeviceEvidenceBridge(
             job = scope.launch {
                 try {
                     var report: JSONObject? = null
-                    // Reuse FurinaBridge's mutation boundary so ordinary chat/model preparation
-                    // cannot overlap the benchmark. Web waits for a user-idle window first.
-                    withAiPaused { report = benchmark.run(rawRequest) }
+                    // Evidence is lower priority than chat. FurinaBridge serializes this on the
+                    // normal AI mutex without pendingMutations, so active chat is never cancelled
+                    // and a new user generation can queue while this cancellable job unwinds.
+                    val ran = withAiIdleForEvidence { report = benchmark.run(rawRequest) }
+                    if (!ran) {
+                        emitError(requestId, "ai_busy")
+                        return@launch
+                    }
                     emitDone(requestId, report ?: error("Benchmark selesai tanpa report"))
                 } catch (cancelled: CancellationException) {
                     emitError(requestId, "cancelled")
