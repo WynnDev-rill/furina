@@ -26,7 +26,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
-/** Invisible native bridge for synthetic engineering evidence only. */
+/** Native bridge for synthetic engineering evidence only. */
 class DeviceEvidenceBridge(
     private val activity: MainActivity,
     private val webView: WebView,
@@ -43,6 +43,7 @@ class DeviceEvidenceBridge(
         provider = localProvider,
         modelDownloads = modelDownloads,
         selectedModelId = ::selectedModelId,
+        onProgress = ::emitProgress,
     )
     private val jobLock = Any()
     private val transportMutex = Mutex()
@@ -311,6 +312,13 @@ class DeviceEvidenceBridge(
         eval(
             "window.__furinaDeviceEvidenceRequest && window.__furinaDeviceEvidenceRequest(" +
                 "${JSONObject.quote(requestJson)})"
+        )
+    }
+
+    private fun emitProgress(requestId: String, completed: Int, total: Int) {
+        eval(
+            "window.__furinaDeviceEvidenceProgress && window.__furinaDeviceEvidenceProgress(" +
+                "${JSONObject.quote(requestId)}, $completed, $total)"
         )
     }
 
