@@ -27,17 +27,19 @@ def main() -> None:
 
     replace_once(
         path,
-        '''    const auto *path_to_backend = env->GetStringUTFChars(jnative_lib_dir, 0);
+        '''    const auto *path_to_backend = env->GetStringUTFChars(nativeLibDir, 0);
+    LOGi("Loading backends from %s", path_to_backend);
     ggml_backend_load_all_from_path(path_to_backend);
-    env->ReleaseStringUTFChars(jnative_lib_dir, path_to_backend);''',
-        '''    const auto *path_to_backend = env->GetStringUTFChars(jnative_lib_dir, 0);
+    env->ReleaseStringUTFChars(nativeLibDir, path_to_backend);''',
+        '''    const auto *path_to_backend = env->GetStringUTFChars(nativeLibDir, 0);
+    LOGi("Loading backends from %s", path_to_backend);
     // Qualcomm HTP skel libraries are packaged beside Furina's other native libraries.
     // Hexagon's rpcmem/session loader resolves them through ADSP_LIBRARY_PATH.
     if (path_to_backend && path_to_backend[0] != '\\0') {
         setenv("ADSP_LIBRARY_PATH", path_to_backend, 1);
     }
     ggml_backend_load_all_from_path(path_to_backend);
-    env->ReleaseStringUTFChars(jnative_lib_dir, path_to_backend);''',
+    env->ReleaseStringUTFChars(nativeLibDir, path_to_backend);''',
         "Hexagon ADSP runtime path",
     )
 
