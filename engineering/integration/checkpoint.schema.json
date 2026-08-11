@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Furina Factory Integration Checkpoint",
+  "type": "object",
+  "required": ["schemaVersion", "checkpointId", "createdAt", "subjectSha", "candidateIds"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "checkpointId": {"type": "string", "minLength": 3},
+    "createdAt": {"type": "string", "format": "date-time"},
+    "subjectSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{7,40}$",
+      "description": "Aggregate staging SHA immediately before this checkpoint commit. The workflow validates the checkpoint commit itself; the validated workflow head is recorded later in work-queue.lastIntegration.stagingSha."
+    },
+    "candidateIds": {"type": "array", "items": {"type": "string", "minLength": 3}},
+    "reason": {"type": "string"}
+  },
+  "additionalProperties": true
+}

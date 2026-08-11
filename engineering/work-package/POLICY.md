@@ -1,111 +1,105 @@
-# Furina Engineering Work Package Policy
+# Furina Engineering Work Package Policy v2
 
 ## Purpose
-The scheduled cadence is a coordination boundary, not a one-small-fix limit. Each shift should maximize meaningful product value while keeping one coherent scope that can be tested, reviewed, revised, and reverted as a unit.
 
-Package shape is governed here. Candidate eligibility and priority are governed by `engineering/triage/CRITICAL_PATH_POLICY.md`, `engineering/prioritization/POLICY.md`, and owner-away limits by `engineering/autonomy/UNATTENDED_POLICY.md`.
+Each CANDIDATE shift may select at most one newly chosen coherent high-value work package. The cadence is a work opportunity, not a requirement to create a change.
+
+Candidate eligibility/priority is governed by `engineering/triage/CRITICAL_PATH_POLICY.md`, `engineering/prioritization/POLICY.md`, Factory promotion by `engineering/factory/FACTORY_V2.md`, and owner-away limits by `engineering/autonomy/UNATTENDED_POLICY.md`.
 
 ## Core rule
-Select at most one newly chosen coherent high-value work package per shift.
 
-A package may contain multiple related fixes, refinements, tests, and cleanup only when they share the same critical path/product objective, evidence boundary, and rollback boundary.
+One CANDIDATE shift -> at most one coherent package -> FAST validation -> Candidate Reviewer -> queue.
 
-Examples:
-- offline runtime reliability: model-load failure, crash diagnostics, storage-path robustness, retry behavior, matching tests;
-- memory quality: contradiction handling, deduplication, retrieval/persistence fixes, matching behavioral evidence;
-- chat UX: only when no higher critical path is actionable, combine related loading/error/keyboard/navigation friction under one rollback boundary;
-- concept-aligned major feature: one substantial companion capability plus only the supporting UX/runtime/tests required to make that capability coherent and reversible.
+Do not open a normal product PR merely because a package exists. Promotion is separate from creation.
+
+A package may contain multiple related code/test/cleanup changes only when they share one product objective, one causal path, compatible evidence, and one rollback boundary.
 
 ## Critical-path scope boundary
-When T0/T1 work is actionable, the package must stay focused on stabilizing/restoring that path.
 
-Do not bundle unrelated local bugs, cosmetic polish, opportunistic refactors, or meta-engineering merely because nearby files are open.
+When T0/T1 work is actionable, keep the package focused on stabilizing/restoring that path. Do not bundle unrelated polish/refactors/meta-work.
 
-A tiny incidental change is allowed only if it is required by the critical repair or adds effectively zero separate regression, evidence, and rollback burden.
-
-A blocked T0/T1 evidence/human debt with no autonomous next step does not forbid an independent lower-class package; follow the blocked-debt rule in triage policy.
+Blocked T0/T1 evidence/human debt with no autonomous next step does not freeze independent work; preserve debt and select from the highest eligible non-blocked class.
 
 ## Value threshold
-Do not create a PR for a trivial isolated tweak merely because a scheduled shift ran.
 
 A package should normally do at least one:
 - fix a meaningful user-visible problem or coherent cluster;
-- stabilize/restore a critical product path;
-- materially improve reliability, performance, companion quality, or usability;
-- directly unblock measurement or safe work on a higher-priority path;
-- add a significant concept-aligned companion capability with a measurable benefit;
-- remove recurring engineering friction only when meta-engineering is eligible.
+- stabilize/restore a critical path;
+- materially improve reliability/performance/companion quality/usability;
+- unblock measurement or safe work on a higher-priority path;
+- add a significant concept-aligned capability with measurable benefit;
+- remove recurring engineering friction when meta-engineering is eligible.
 
-If no meaningful eligible package exists, return `NO_CHANGE`.
+Otherwise return `NO_CHANGE`.
 
-## Major-feature package rule
+## Queue contract
 
-Owner-away mode permits large new features, but “large” does not mean unbounded scope.
+Before implementation record enough metadata to satisfy `engineering/work-queue/schema.json`:
+- package ID/title/subsystem;
+- triage and strategic tier;
+- autonomy class;
+- base SHA;
+- dependencies/conflicts;
+- expected metric/delta and verification window;
+- evidence target;
+- exact rollback boundary.
 
-A major feature package must:
-- pass the concept-fit gates in `engineering/autonomy/UNATTENDED_POLICY.md`;
-- have one clear user journey/outcome rather than several unrelated feature ideas;
-- include the minimum supporting architecture/UX/tests needed for that outcome;
-- state expected impact on conversation quality, perceived latency, persona, memory, privacy, RAM/battery/network, and settings complexity;
-- define an evidence plan and rollback boundary before implementation;
-- remain GREEN/YELLOW to auto-merge. Any RED portion is split or blocked for human authority.
+After accepted FAST review, bind `headSha` to the exact staging head and set status `CANDIDATE`.
 
-A feature may be substantial enough to span multiple shifts on one PR. Do not split it into artificial PR fragments merely to satisfy the cadence.
+## Candidate review boundary
 
-## Unattended behavior-change budget
+The Candidate Reviewer is a same-shift FAST filter, not release certification.
 
-Before opening or revising a behavior-affecting YELLOW package, inspect the owner-away unverified-behavior budget.
+It must re-fetch the exact change introduced by the Engineer and challenge root cause, scope, simpler alternatives, dependency/conflict assumptions, regression risk, rollback, and evidence truth. It does not create `FURINA_REVIEW_DECISION_V1`/Boss comments and has no merge authority.
 
-If the package would exceed a subsystem/project ceiling, do not merge it without the missing evidence. Instead choose one of:
-- collect/ingest the required evidence when autonomously possible;
-- add non-behavioral instrumentation/tests needed to unlock evidence;
-- switch to independent work;
-- checkpoint the package as blocked evidence.
+## Integration boundary
 
-The package summary must say whether it consumes an unverified-behavior slot and which subsystem it affects.
+INTEGRATION mode does not choose new feature work by default. It validates the aggregate staging head through an explicit checkpoint and MEDIUM workflows.
+
+Candidates can promote to `INTEGRATED` only when the exact staging head containing them passes the required MEDIUM gate. Integration failure promotes nothing.
+
+## Release boundary
+
+Release certification happens only on the release PR `company/staging -> main` or a justified emergency-release PR.
+
+Release Reviewer and Boss use the evidence-reset protocol. A new staging commit invalidates old exact-head certification. GREEN/YELLOW may merge only after exact-head FULL CI/evidence, Reviewer APPROVE, Boss APPROVE_MERGE, budget eligibility, final expected head SHA match, and mergeability. RED remains human-authorized and human-merged.
+
+## Unverified behavior budget
+
+Before accepting/releasing behavior-affecting YELLOW work, inspect the owner-away budget. Candidate status does not consume a released slot, but a release must be blocked if promotion would exceed a subsystem/project ceiling.
+
+Do not relabel behavior change as structural to bypass the budget.
 
 ## Split criteria
+
 Split work when:
-- changes belong to different triage classes and the lower class is not required by the critical path;
-- evidence types or rollback decisions differ materially;
-- one part can block/revert independently;
+- changes have materially different critical paths;
+- evidence/rollback decisions differ;
+- one portion can block/revert independently;
 - combined review becomes difficult;
-- the package crosses into RED scope;
-- branches/subsystems would create avoidable conflict;
-- one portion would consume a different unattended evidence/merge budget.
+- any portion crosses RED authority;
+- dependencies/conflicts would make aggregate diagnosis ambiguous.
 
-## Same-shift phase boundary
-Engineer, Reviewer, and Boss may occur in the same ChatGPT shift to eliminate idle waiting, but they remain separate evidence passes.
+## Revision and circuit breaker
 
-- Engineer writes code and pushes an exact head.
-- Reviewer must perform the evidence-reset protocol in `engineering/review/INDEPENDENCE_POLICY.md` before certification.
-- Boss must perform its own evidence-reset pass before release decision.
-- Each role uses a distinct phase/provenance ID and separate audit comment.
-- A new commit invalidates prior Reviewer/Boss records.
+Repair a rejected candidate or failed integration only when the shift clock safely permits it. Time is low -> checkpoint rather than rush.
 
-The same-shift design is an efficiency tradeoff; it must not be mislabeled as independent models.
-
-## Revision loop and circuit breaker
-Reviewer/Boss revision returns to the same PR. If the shift clock safely permits implementation + validation + re-review, revise immediately. If time is low, checkpoint the valuable PR for the next shift rather than closing or rushing it.
-
-Before another revision, inspect the unattended circuit breaker. Three substantively repeated failed attempts without stronger evidence quarantine that approach under `engineering/autonomy/UNATTENDED_POLICY.md`; do not keep rewriting the same idea indefinitely.
+Three substantively repeated failed attempts without stronger evidence quarantine the approach under unattended policy.
 
 ## Infrastructure efficiency
+
 - Prefer a small number of purposeful commits.
-- No no-op/cosmetic commits to retrigger CI or deployment.
-- Do not consume Vercel deployment when irrelevant to the claim.
-- Treat temporary provider/quota failure as `external_transient` when appropriate.
-- During owner-away mode, respect the rolling merge ceilings; unused merge capacity is not a reason to create work.
+- Candidate mode: no normal PR, hosted CI, APK build, or Vercel deployment.
+- Integration mode: checkpoint-triggered MEDIUM validation only.
+- Release mode: one aggregate FULL validation/release when warranted.
+- No no-op/cosmetic commits to retrigger CI/deployment.
+- Do not consume Vercel deployment when irrelevant to delivery.
+- Treat transient provider/quota failure as external when appropriate.
 
 ## Prediction contract
-Before implementation, record expected metric/delta and verification window. Use `engineering/calibration/record.schema.json` for accepted work.
 
-Do not claim high value from a self-assigned score alone. Triage class, strategic tier, causal evidence, critical-path position, concept fit, and unattended budgets come first.
+Every accepted package states expected metric/delta and verification window. Do not claim product improvement from self-assigned scores, candidate acceptance, STATIC, or CI beyond what those evidence levels prove.
 
-## Review contract
-Reviewer checks the package as a whole and each included change against the same objective. Boss should approve only when product value clearly outweighs aggregate regression/maintenance cost and the critical path was treated rather than bypassed.
+## Release PR summary
 
-For STATIC/CI-only approval of a behavior-affecting YELLOW package, the review record must explicitly distinguish the structurally proven claim from behavioral evidence debt and confirm the unverified-behavior budget remains within policy.
-
-## PR summary
-Every normal company PR starts with `## Ringkasan Indonesia` and summarizes the full package, triage class, strategic tier, evidence, APK impact, risk/blocker, rollback boundary, unattended-budget impact, and intended decision.
+The normal daily release PR starts with `## Ringkasan Indonesia` and summarizes all promoted candidate IDs, triage/tier, user impact, evidence, APK impact, risk/blocker, rollback boundaries, unattended-budget impact, and intended decision.
