@@ -20,6 +20,8 @@ type EvidenceRequest = {
 
 type NativeEvidenceBridge = {
   evidenceInfo(): string;
+  probeEvidenceRequest(): void;
+  submitBehavioralEvidence(reportJson: string): void;
   runBehavioralBenchmark(requestJson: string): void;
   cancelBehavioralBenchmark(): void;
 };
@@ -27,8 +29,11 @@ type NativeEvidenceBridge = {
 declare global {
   interface Window {
     FurinaEvidence?: NativeEvidenceBridge;
+    __furinaDeviceEvidenceRequest?: (requestJson: string) => void;
     __furinaDeviceEvidenceDone?: (requestId: string, reportJson: string) => void;
+    __furinaDeviceEvidenceSubmitted?: (requestId: string) => void;
     __furinaDeviceEvidenceError?: (requestId: string, message: string) => void;
+    __furinaDeviceEvidenceTransportError?: (operation: string, requestId: string, message: string) => void;
   }
 }
 
@@ -48,8 +53,9 @@ function nativeBridge() {
 /**
  * Invisible demand-driven engineering evidence agent.
  *
- * Realtime carries only a payload-free wake signal. The authoritative request is fetched from the
- * authenticated Edge Function after that signal; there is no periodic request-data polling.
+ * Realtime carries only a payload-free public wake signal. Request fetch and result upload are
+ * authenticated by a dedicated AndroidKeyStore device key inside the native bridge, not by the
+ * user's Google/Supabase login. There is no periodic request-data polling.
  */
 export function FurinaDeviceEvidenceAgent() {
   useEffect(() => {
@@ -59,10 +65,12 @@ export function FurinaDeviceEvidenceAgent() {
     let disposed = false;
     let pending: EvidenceRequest | null = null;
     let runningRequestId: string | null = null;
+    let pendingReport: { requestId: string; reportJson: string } | null = null;
     let lastInteractionAt = Date.now();
     let lastProbeAt = 0;
     let quietTimer: number | null = null;
     let retryTimer: number | null = null;
+    let uploadRetryTimer: number | null = null;
     let signalChannel: ReturnType<typeof backupSupabase.channel> | null = null;
 
     const clearQuiet = () => {
@@ -73,6 +81,10 @@ export function FurinaDeviceEvidenceAgent() {
       if (retryTimer != null) window.clearTimeout(retryTimer);
       retryTimer = null;
     };
+    const clearUploadRetry = () => {
+      if (uploadRetryTimer != null) window.clearTimeout(uploadRetryTimer);
+      uploadRetryTimer = null;
+    };
     const isExpired = (request: EvidenceRequest) => {
       const expires = Date.parse(request.expiresAt);
       return !Number.isFinite(expires) || expires <= Date.now();
@@ -81,11 +93,18 @@ export function FurinaDeviceEvidenceAgent() {
 
     const schedulePending = () => {
       clearQuiet();
-      if (disposed || !pending || runningRequestId || isExpired(pending) || alreadySubmitted(pending.requestId)) return;
+      if (
+        disposed ||
+        !pending ||
+        runningRequestId ||
+        pendingReport ||
+        isExpired(pending) ||
+        alreadySubmitted(pending.requestId)
+      ) return;
       const remaining = Math.max(0, QUIET_MS - (Date.now() - lastInteractionAt));
       quietTimer = window.setTimeout(() => {
         quietTimer = null;
-        if (disposed || !pending || runningRequestId || isExpired(pending)) return;
+        if (disposed || !pending || runningRequestId || pendingReport || isExpired(pending)) return;
         if (Date.now() - lastInteractionAt < QUIET_MS) {
           schedulePending();
           return;
@@ -101,26 +120,16 @@ export function FurinaDeviceEvidenceAgent() {
       }, remaining);
     };
 
-    const probe = async (force = false) => {
+    const probe = (force = false) => {
       if (disposed || document.visibilityState !== "visible") return;
       const now = Date.now();
       if (!force && now - lastProbeAt < PROBE_THROTTLE_MS) return;
       lastProbeAt = now;
-      const { data: auth } = await backupSupabase.auth.getSession();
-      if (disposed || !auth.session) return;
-      const { data, error } = await backupSupabase.functions.invoke("furina-device-evidence", {
-        body: { action: "request" },
-      });
-      if (disposed || error) return;
-      const request = (data as { request?: EvidenceRequest | null } | null)?.request ?? null;
-      if (!request || request.schemaVersion !== 1 || isExpired(request) || alreadySubmitted(request.requestId)) {
-        pending = null;
-        clearQuiet();
-        clearRetry();
-        return;
+      try {
+        bridge.probeEvidenceRequest();
+      } catch {
+        // Native transport is fail-closed; lifecycle/realtime events can probe again later.
       }
-      pending = request;
-      schedulePending();
     };
 
     const stopSignalChannel = () => {
@@ -134,107 +143,132 @@ export function FurinaDeviceEvidenceAgent() {
       signalChannel = backupSupabase
         .channel(SIGNAL_TOPIC)
         .on("broadcast", { event: "request" }, () => {
-          // Broadcast contains no request data. Fetch the authenticated mailbox only on demand.
-          void probe(true);
+          // The broadcast contains no request, user, model, or credential data.
+          probe(true);
         })
         .subscribe();
     };
 
-    const submit = async (requestId: string, reportJson: string) => {
-      if (disposed || !pending || pending.requestId !== requestId) return;
-      let result: unknown;
+    const retryUpload = () => {
+      clearUploadRetry();
+      if (disposed || !pendingReport || !pending || isExpired(pending)) return;
+      uploadRetryTimer = window.setTimeout(() => {
+        uploadRetryTimer = null;
+        if (disposed || !pendingReport || !pending || isExpired(pending)) return;
+        try {
+          bridge.submitBehavioralEvidence(pendingReport.reportJson);
+        } catch {
+          retryUpload();
+        }
+      }, RETRY_MS);
+    };
+
+    window.__furinaDeviceEvidenceRequest = (requestJson) => {
+      if (disposed) return;
+      if (!requestJson) {
+        if (!pendingReport) {
+          pending = null;
+          runningRequestId = null;
+          clearQuiet();
+          clearRetry();
+        }
+        return;
+      }
+      let request: EvidenceRequest;
       try {
-        result = JSON.parse(reportJson);
+        request = JSON.parse(requestJson) as EvidenceRequest;
       } catch {
-        runningRequestId = null;
         return;
       }
-      const { data: auth } = await backupSupabase.auth.getSession();
-      if (disposed || !auth.session) {
-        runningRequestId = null;
-        return;
-      }
-      const { error } = await backupSupabase.functions.invoke("furina-device-evidence", {
-        body: { action: "result", result },
-      });
-      runningRequestId = null;
-      if (!error) {
-        localStorage.setItem(`${SUBMITTED_PREFIX}${requestId}`, "1");
+      if (request.schemaVersion !== 1 || isExpired(request) || alreadySubmitted(request.requestId)) {
         pending = null;
+        runningRequestId = null;
         clearQuiet();
         clearRetry();
-      } else if (pending && !isExpired(pending)) {
+        return;
+      }
+      pending = request;
+      schedulePending();
+    };
+
+    window.__furinaDeviceEvidenceDone = (requestId, reportJson) => {
+      if (disposed || !pending || pending.requestId !== requestId || runningRequestId !== requestId) return;
+      pendingReport = { requestId, reportJson };
+      try {
+        bridge.submitBehavioralEvidence(reportJson);
+      } catch {
+        retryUpload();
+      }
+    };
+
+    window.__furinaDeviceEvidenceSubmitted = (requestId) => {
+      if (disposed || pendingReport?.requestId !== requestId) return;
+      localStorage.setItem(`${SUBMITTED_PREFIX}${requestId}`, "1");
+      pendingReport = null;
+      pending = null;
+      runningRequestId = null;
+      clearQuiet();
+      clearRetry();
+      clearUploadRetry();
+    };
+
+    window.__furinaDeviceEvidenceError = (requestId) => {
+      if (runningRequestId === requestId) runningRequestId = null;
+      if (pending?.requestId === requestId && !isExpired(pending) && !pendingReport) {
+        clearRetry();
         retryTimer = window.setTimeout(schedulePending, RETRY_MS);
       }
     };
 
-    window.__furinaDeviceEvidenceDone = (requestId, reportJson) => void submit(requestId, reportJson);
-    window.__furinaDeviceEvidenceError = (requestId) => {
-      if (runningRequestId === requestId) runningRequestId = null;
-      if (pending?.requestId === requestId && !isExpired(pending)) {
-        clearRetry();
-        retryTimer = window.setTimeout(schedulePending, RETRY_MS);
+    window.__furinaDeviceEvidenceTransportError = (operation, requestId) => {
+      if (operation === "submit" && pendingReport?.requestId === requestId) {
+        // Keep the completed raw capture in memory and retry only transport. Never spend another
+        // local-model run merely because the network/backend was temporarily unavailable.
+        retryUpload();
       }
     };
 
     const onInteraction = () => {
       lastInteractionAt = Date.now();
       clearQuiet();
-      if (runningRequestId) bridge.cancelBehavioralBenchmark();
-      if (pending && !isExpired(pending)) schedulePending();
+      if (runningRequestId && !pendingReport) bridge.cancelBehavioralBenchmark();
+      if (pending && !isExpired(pending) && !pendingReport) schedulePending();
     };
     const onVisible = () => {
       if (document.visibilityState === "visible") {
-        void backupSupabase.auth.getSession().then(({ data }) => {
-          if (disposed || !data.session) return;
-          ensureSignalChannel();
-          void probe(false);
-        });
+        ensureSignalChannel();
+        probe(false);
       } else {
         stopSignalChannel();
-        if (runningRequestId) bridge.cancelBehavioralBenchmark();
+        if (runningRequestId && !pendingReport) bridge.cancelBehavioralBenchmark();
       }
     };
-    const onFocus = () => void probe(false);
+    const onFocus = () => probe(false);
 
     document.addEventListener("pointerdown", onInteraction, { passive: true });
     document.addEventListener("keydown", onInteraction, { passive: true });
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onFocus);
 
-    const { data: authListener } = backupSupabase.auth.onAuthStateChange((_event, session) => {
-      if (session) {
-        ensureSignalChannel();
-        void probe(true);
-      } else {
-        stopSignalChannel();
-        pending = null;
-        if (runningRequestId) bridge.cancelBehavioralBenchmark();
-        runningRequestId = null;
-        clearQuiet();
-        clearRetry();
-      }
-    });
-
-    void backupSupabase.auth.getSession().then(({ data }) => {
-      if (disposed || !data.session) return;
-      ensureSignalChannel();
-      void probe(true);
-    });
+    ensureSignalChannel();
+    probe(true);
 
     return () => {
       disposed = true;
       clearQuiet();
       clearRetry();
+      clearUploadRetry();
       stopSignalChannel();
-      if (runningRequestId) bridge.cancelBehavioralBenchmark();
+      if (runningRequestId && !pendingReport) bridge.cancelBehavioralBenchmark();
       document.removeEventListener("pointerdown", onInteraction);
       document.removeEventListener("keydown", onInteraction);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onFocus);
-      authListener.subscription.unsubscribe();
+      delete window.__furinaDeviceEvidenceRequest;
       delete window.__furinaDeviceEvidenceDone;
+      delete window.__furinaDeviceEvidenceSubmitted;
       delete window.__furinaDeviceEvidenceError;
+      delete window.__furinaDeviceEvidenceTransportError;
     };
   }, []);
 
