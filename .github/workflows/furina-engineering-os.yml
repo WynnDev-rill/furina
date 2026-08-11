@@ -2,6 +2,11 @@ name: Furina Engineering OS
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - company/staging
+    paths:
+      - 'engineering/integration/checkpoints/**'
   pull_request:
     paths:
       - 'android-wrapper/**'
@@ -27,8 +32,10 @@ jobs:
           python3 -m json.tool engineering/calibration/record.schema.json >/dev/null
           python3 -m json.tool engineering/review/decision.schema.json >/dev/null
           python3 -m json.tool engineering/boss/decision.schema.json >/dev/null
+          python3 -m json.tool engineering/work-queue/schema.json >/dev/null
+          python3 -m json.tool engineering/work-queue/state.json >/dev/null
 
-      - name: Validate Engineering Company v5 policy
+      - name: Validate Engineering Company v6 policy
         run: python3 scripts/furina-company-policy-gate.py
 
       - name: Test decision semantics
