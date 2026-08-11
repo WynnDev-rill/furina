@@ -2,7 +2,7 @@
 set -euo pipefail
 
 LLAMA_COMMIT="7ba604f1cb61cd14898138e9abc0b4ff2601f180"
-RUNTIME_PATCH_REV="offline-v5.5-mobile-accelerators"
+RUNTIME_PATCH_REV="offline-v5.6-mobile-accelerators"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="${TMPDIR:-/tmp}/furina-llama.cpp"
 SDK_WORK="${TMPDIR:-/tmp}/furina-mobile-gpu-sdk"
@@ -135,13 +135,18 @@ mkdir -p "$ROOT/android-wrapper/app/libs"
 AAR="$ROOT/android-wrapper/app/libs/llama-android.aar"
 cp "$WORK/examples/llama.android/lib/build/outputs/aar/lib-release.aar" "$AAR"
 
-# Fail closed if Gradle ever stops packaging the dynamic accelerator modules. The temporary
-# Khronos ICD loader is link-time only and must never shadow Qualcomm's vendor libOpenCL.so.
+# The Khronos ICD loader is used only to satisfy the cross-link. Runtime must resolve the
+# Qualcomm vendor libOpenCL.so declared optional in AndroidManifest, not ship our temporary ICD.
+if unzip -l "$AAR" | grep -q 'jni/arm64-v8a/libOpenCL.so'; then
+  zip -q -d "$AAR" 'jni/arm64-v8a/libOpenCL.so'
+fi
+
+# Fail closed if Gradle ever stops packaging the actual dynamic accelerator modules.
 unzip -l "$AAR" | grep -q 'jni/arm64-v8a/libggml-vulkan.so'
 unzip -l "$AAR" | grep -q 'jni/arm64-v8a/libggml-opencl.so'
 unzip -l "$AAR" | grep -q 'jni/arm64-v8a/libggml-cpu'
 if unzip -l "$AAR" | grep -q 'jni/arm64-v8a/libOpenCL.so'; then
-  echo "Refusing AAR that bundles the temporary OpenCL ICD loader" >&2
+  echo "Refusing AAR that still bundles the temporary OpenCL ICD loader" >&2
   exit 1
 fi
 
