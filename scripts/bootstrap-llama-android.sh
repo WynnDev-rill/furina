@@ -2,9 +2,12 @@
 set -euo pipefail
 
 LLAMA_COMMIT="7ba604f1cb61cd14898138e9abc0b4ff2601f180"
-RUNTIME_PATCH_REV="offline-v4.2"
+RUNTIME_PATCH_REV="offline-v4.3"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="${TMPDIR:-/tmp}/furina-llama.cpp"
+LOG="$ROOT/gradle-build.log"
+: > "$LOG"
+exec > >(tee -a "$LOG") 2>&1
 
 rm -rf "$WORK"
 git clone --filter=blob:none https://github.com/ggml-org/llama.cpp.git "$WORK"
@@ -39,7 +42,7 @@ sed -i 's/listOf("arm64-v8a", "x86_64")/listOf("arm64-v8a")/' \
 
 pushd "$WORK/examples/llama.android" >/dev/null
 chmod +x gradlew
-./gradlew :lib:assembleRelease --no-daemon --stacktrace 2>&1 | tee "$ROOT/gradle-build.log"
+./gradlew :lib:assembleRelease --no-daemon --stacktrace
 popd >/dev/null
 
 mkdir -p "$ROOT/android-wrapper/app/libs"
