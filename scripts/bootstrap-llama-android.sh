@@ -2,13 +2,14 @@
 set -euo pipefail
 
 LLAMA_COMMIT="7ba604f1cb61cd14898138e9abc0b4ff2601f180"
-RUNTIME_PATCH_REV="offline-v5.6-mobile-accelerators"
+RUNTIME_PATCH_REV="offline-v6.0-hexagon"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="${TMPDIR:-/tmp}/furina-llama.cpp"
 SDK_WORK="${TMPDIR:-/tmp}/furina-mobile-gpu-sdk"
 OPENCL_WORK="$SDK_WORK/opencl"
 VULKAN_HEADERS_PREFIX="$SDK_WORK/vulkan-headers"
 LOG="$ROOT/gradle-build.log"
+HEXAGON_EXPECTED=0
 : > "$LOG"
 exec > >(tee -a "$LOG") 2>&1
 
@@ -105,10 +106,23 @@ python3 "$ROOT/scripts/apply-offline-backend-autotune-policy.py" \
   "$WORK/examples/llama.android/lib/src/main/java/com/arm/aichat/internal/InferenceEngineImpl.kt"
 python3 "$ROOT/scripts/fix-offline-backend-cpp-includes.py" \
   "$WORK/examples/llama.android/lib/src/main/cpp/ai_chat.cpp"
+python3 "$ROOT/scripts/apply-hexagon-runtime-env-policy.py" \
+  "$WORK/examples/llama.android/lib/src/main/cpp/ai_chat.cpp"
 python3 "$ROOT/scripts/apply-mobile-gpu-build-policy.py" \
   "$WORK/examples/llama.android/lib/src/main/cpp/CMakeLists.txt"
 
 echo "Applying Furina runtime patch revision: $RUNTIME_PATCH_REV"
+
+# Build the experimental Qualcomm HTP plugin only where Docker is available. GitHub-hosted
+# Linux runners satisfy this path; local Android developers retain CPU/Vulkan/OpenCL fallback.
+HEXAGON_OUT="$WORK/examples/llama.android/lib/src/main/jniLibs/arm64-v8a"
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  echo "Building optional Snapdragon Hexagon/HTP runtime from pinned llama.cpp..."
+  bash "$ROOT/scripts/build-hexagon-runtime.sh" "$WORK" "$HEXAGON_OUT"
+  HEXAGON_EXPECTED=1
+else
+  echo "Docker unavailable; skipping optional Hexagon backend. CPU/Vulkan/OpenCL remain enabled."
+fi
 
 # Furina targets physical Android phones. Do not spend CI time or APK space on x86_64.
 sed -i 's/listOf("arm64-v8a", "x86_64")/listOf("arm64-v8a")/' \
@@ -145,9 +159,15 @@ fi
 unzip -l "$AAR" | grep -q 'jni/arm64-v8a/libggml-vulkan.so'
 unzip -l "$AAR" | grep -q 'jni/arm64-v8a/libggml-opencl.so'
 unzip -l "$AAR" | grep -q 'jni/arm64-v8a/libggml-cpu'
+if [[ "$HEXAGON_EXPECTED" -eq 1 ]]; then
+  unzip -l "$AAR" | grep -q 'jni/arm64-v8a/libggml-hexagon.so'
+  for arch in v73 v75 v79 v81; do
+    unzip -l "$AAR" | grep -q "jni/arm64-v8a/libggml-htp-${arch}.so"
+  done
+fi
 if unzip -l "$AAR" | grep -q 'jni/arm64-v8a/libOpenCL.so'; then
   echo "Refusing AAR that still bundles the temporary OpenCL ICD loader" >&2
   exit 1
 fi
 
-echo "Pinned llama.cpp Android AAR installed with CPU + Vulkan + OpenCL modules at $AAR"
+echo "Pinned llama.cpp Android AAR installed with CPU + Vulkan + OpenCL$([[ "$HEXAGON_EXPECTED" -eq 1 ]] && echo ' + Hexagon/HTP') modules at $AAR"
