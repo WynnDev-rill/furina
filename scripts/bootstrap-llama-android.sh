@@ -10,8 +10,8 @@ git clone --filter=blob:none https://github.com/ggml-org/llama.cpp.git "$WORK"
 git -C "$WORK" checkout "$LLAMA_COMMIT"
 
 # Overlay the audited Android sample runtime, then apply Furina's deterministic
-# companion and mobile stability policies. All patches fail closed if the
-# pinned source layout changes.
+# companion, mobile-stability, and warm-session SYSTEM-prefix policies. Keeping
+# this bootstrap in the AAR cache key makes every native policy change explicit.
 cp "$ROOT/scripts/overlays/ai_chat.cpp" "$WORK/examples/llama.android/lib/src/main/cpp/ai_chat.cpp"
 cp "$ROOT/scripts/overlays/InferenceEngineImpl.kt" "$WORK/examples/llama.android/lib/src/main/java/com/arm/aichat/internal/InferenceEngineImpl.kt"
 python3 "$ROOT/scripts/apply-companion-runtime-policy.py" \
