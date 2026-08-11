@@ -34,6 +34,7 @@ jobs:
           python3 -m json.tool engineering/boss/decision.schema.json >/dev/null
           python3 -m json.tool engineering/work-queue/schema.json >/dev/null
           python3 -m json.tool engineering/work-queue/state.json >/dev/null
+          python3 -m json.tool engineering/integration/checkpoint.schema.json >/dev/null
 
       - name: Validate Engineering Company v6 policy
         run: python3 scripts/furina-company-policy-gate.py
