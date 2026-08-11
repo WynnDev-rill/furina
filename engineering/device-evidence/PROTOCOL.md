@@ -109,9 +109,9 @@ Raw capture must not contain rubric scores. Scoring is a separate evidence-reset
 ## Engineering consumption
 A ready capture is published as a GitHub Actions artifact with a `FURINA_DEVICE_EVIDENCE_READY_V1` issue comment pointer. Before using it, the shift must directly fetch the workflow artifact and verify request ID, checksum, exact target commit, benchmark version, scenario set, `actualModelRun`, and privacy fields.
 
-If an Actions wait window ends before the device responds, keep the same non-expired request in issue #42. A later issue-state update re-enters the idempotent request/collect workflow; an already completed backend result is collected instead of rerunning the device benchmark.
+The control workflow never stays alive waiting for the target device. Each issue-state update performs one idempotent request submission followed by one immediate collect attempt. If the device result is not ready, the run publishes a pending pointer and exits. The same non-expired request remains authoritative in issue #42; a later engineering shift re-enters the workflow and collects an already completed backend result without rerunning the device benchmark.
 
 After scoring raw outputs against the canonical judge manifest, create a schema-valid behavioral record only if all required provenance/evidence conditions are satisfied. A device capture for an older installed build can diagnose that build but cannot approve a newer behavioral change.
 
 ## Failure behavior
-Missing/invalid device enrollment, invalid challenge/signature, model unavailable, target SHA mismatch, expired request, timeout, malformed output, checksum mismatch, moved provenance, unavailable artifact, or control-plane signal failure all fail closed. Record the blocker/recheck condition; do not fabricate outputs or downgrade the evidence requirement.
+Missing/invalid device enrollment, invalid challenge/signature, model unavailable, target SHA mismatch, expired request, malformed output, checksum mismatch, moved provenance, unavailable artifact, or control-plane signal failure all fail closed. Record the blocker/recheck condition; do not fabricate outputs or downgrade the evidence requirement.
