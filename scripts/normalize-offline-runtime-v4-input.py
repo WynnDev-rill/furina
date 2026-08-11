@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Normalize one known post-stability llama.cpp anchor before the v4 adaptive patch.
+"""Normalize one harmless pinned llama.android diagnostic typo before the v4 patch.
 
-The stability policy intentionally shrinks n_ubatch to 64/128. The adaptive v4 policy adds
-Flash Attention AUTO immediately after that setting and uses explanatory comments as a
-fail-closed anchor. Keep the normalization isolated so both policies remain independently
-auditable.
+The audited overlay includes an extra ')' inside the init-context error message. Runtime v4
+uses the surrounding block as a fail-closed anchor when isolating temporary benchmark contexts.
+Normalize only that message; do not touch runtime behavior or n_ubatch comments.
 """
 from __future__ import annotations
 
@@ -17,15 +16,11 @@ def main() -> None:
         raise SystemExit("usage: normalize-offline-runtime-v4-input.py <ai_chat.cpp>")
     path = Path(sys.argv[1])
     text = path.read_text(encoding="utf-8")
-    old = "    ctx_params.n_ubatch = g_low_memory_mode ? 64 : 128;\n"
-    new = (
-        "    // Physical micro-batch size changes scratch memory and prompt throughput,\n"
-        "    // not model quality. Use the smaller shape only under RAM pressure.\n"
-        "    ctx_params.n_ubatch = g_low_memory_mode ? 64 : 128;\n"
-    )
+    old = 'LOGe("%s: llama_new_context_with_model() returned null)", __func__);'
+    new = 'LOGe("%s: llama_new_context_with_model() returned null", __func__);'
     count = text.count(old)
     if count != 1:
-        raise SystemExit(f"v4 n_ubatch normalization: expected exactly one match, found {count}")
+        raise SystemExit(f"v4 init-context normalization: expected exactly one match, found {count}")
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
