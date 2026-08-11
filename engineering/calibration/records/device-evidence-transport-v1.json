@@ -13,5 +13,15 @@
     "verificationWindow": "first target-device request after the evidence-agent APK is installed",
     "reason": "The executable benchmark exists but P0 behavioral decisions lack real local Android model outputs."
   },
-  "status": "prediction_only"
+  "observation": {
+    "cycleId": "eng-shift-2026-08-11-16-evidence",
+    "recordedAt": "2026-08-11T16:15:00+07:00",
+    "observedMetric": "16/16 exact Build #259 scenarios captured on target Android with actualModelRun=true and independently scoreable outputs",
+    "observedDelta": "from no target-device behavioral output to one checksum/provenance/privacy-validated complete capture",
+    "outcome": "better",
+    "calibration": "calibrated",
+    "evidenceLevel": "DEVICE",
+    "reason": "Request device-20260811-14-a produced all 16 synthetic outputs for exact commit 7cd7a490..., with checksum 3fa045be..., matching benchmark v1 and privacy flags. The transport prediction was achieved; behavioral quality itself is scored separately and is not implied by transport success."
+  },
+  "status": "observed"
 }
