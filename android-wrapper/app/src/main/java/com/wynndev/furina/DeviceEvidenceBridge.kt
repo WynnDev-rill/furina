@@ -31,20 +31,13 @@ class DeviceEvidenceBridge(
     private val activity: MainActivity,
     private val webView: WebView,
     store: MemoryStore,
-    modelDownloads: ModelDownloadManager,
-    private val withAiIdleForEvidence: suspend (suspend () -> Unit) -> Boolean,
+    private val modelDownloads: ModelDownloadManager,
+    private val withAiIdleForEvidence: suspend (suspend (LocalLlamaProvider) -> Unit) -> Boolean,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val prefs = activity.getSharedPreferences("furina_native", 0)
     private val evidencePrefs = activity.getSharedPreferences("furina_device_evidence", 0)
-    private val localProvider = LocalLlamaProvider(activity.applicationContext, modelDownloads) { _, _, _ -> }
-    private val benchmark = DeviceBehavioralBenchmark(
-        contextEngine = ContextEngine(activity.applicationContext, store),
-        provider = localProvider,
-        modelDownloads = modelDownloads,
-        selectedModelId = ::selectedModelId,
-        onProgress = ::emitProgress,
-    )
+    private val contextEngine = ContextEngine(activity.applicationContext, store)
     private val jobLock = Any()
     private val transportMutex = Mutex()
     private var activeJob: Job? = null
@@ -101,10 +94,18 @@ class DeviceEvidenceBridge(
             job = scope.launch {
                 try {
                     var report: JSONObject? = null
-                    // Evidence is lower priority than chat. FurinaBridge serializes this on the
-                    // normal AI mutex without pendingMutations, so active chat is never cancelled
-                    // and a new user generation can queue while this cancellable job unwinds.
-                    val ran = withAiIdleForEvidence { report = benchmark.run(rawRequest) }
+                    // Evidence is lower priority than chat. FurinaBridge owns the single shared
+                    // LocalLlamaProvider and AI mutex so an already-loaded GGUF can be reused
+                    // instead of being unloaded/reloaded solely for benchmark capture.
+                    val ran = withAiIdleForEvidence { sharedProvider ->
+                        report = DeviceBehavioralBenchmark(
+                            contextEngine = contextEngine,
+                            provider = sharedProvider,
+                            modelDownloads = modelDownloads,
+                            selectedModelId = ::selectedModelId,
+                            onProgress = ::emitProgress,
+                        ).run(rawRequest)
+                    }
                     if (!ran) {
                         emitError(requestId, "ai_busy")
                         return@launch
@@ -116,9 +117,6 @@ class DeviceEvidenceBridge(
                 } catch (error: Throwable) {
                     emitError(requestId, error.message ?: "device benchmark failed")
                 }
-                // DeviceBehavioralBenchmark owns provider cleanup only after it actually enters
-                // the benchmark. Never unload here when the idle gate refused the run because the
-                // normal Furina provider shares the same native inference engine.
             }
             activeJob = job
             job.invokeOnCompletion {
@@ -142,6 +140,7 @@ class DeviceEvidenceBridge(
         .put("persistentWrites", false)
         .put("loginRequired", false)
         .put("credential", "AndroidKeyStore RSA device key")
+        .put("benchmarkRuntime", "shared-local-provider-v2")
         .toString()
 
     fun destroy() {
