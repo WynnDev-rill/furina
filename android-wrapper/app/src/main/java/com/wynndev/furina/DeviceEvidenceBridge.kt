@@ -57,9 +57,10 @@ class DeviceEvidenceBridge(
                     throw cancelled
                 } catch (error: Throwable) {
                     emitError(requestId, error.message ?: "device benchmark failed")
-                } finally {
-                    try { localProvider.unload() } catch (_: Throwable) {}
                 }
+                // DeviceBehavioralBenchmark owns provider cleanup only after it actually enters
+                // the benchmark. Never unload here when the idle gate refused the run because the
+                // normal Furina provider shares the same native inference engine.
             }
             activeJob = job
             job.invokeOnCompletion {
