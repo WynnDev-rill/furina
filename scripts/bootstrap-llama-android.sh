@@ -2,7 +2,7 @@
 set -euo pipefail
 
 LLAMA_COMMIT="7ba604f1cb61cd14898138e9abc0b4ff2601f180"
-RUNTIME_PATCH_REV="offline-v4.6"
+RUNTIME_PATCH_REV="offline-v4.7"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="${TMPDIR:-/tmp}/furina-llama.cpp"
 LOG="$ROOT/gradle-build.log"
@@ -44,7 +44,20 @@ sed -i 's/listOf("arm64-v8a", "x86_64")/listOf("arm64-v8a")/' \
 
 pushd "$WORK/examples/llama.android" >/dev/null
 chmod +x gradlew
-./gradlew :lib:assembleRelease --no-daemon --stacktrace
+# GitHub's Gradle CDN can occasionally exceed the wrapper's short default read timeout.
+# Keep the pinned distribution but allow enough time for one large download and retry transient I/O.
+printf '\nnetworkTimeout=120000\n' >> gradle/wrapper/gradle-wrapper.properties
+for attempt in 1 2 3; do
+  if ./gradlew :lib:assembleRelease --no-daemon --stacktrace; then
+    break
+  fi
+  if [[ "$attempt" -eq 3 ]]; then
+    echo "Pinned llama.android Gradle build failed after $attempt attempts" >&2
+    exit 1
+  fi
+  echo "Gradle attempt $attempt failed; retrying in $((attempt * 8))s..." >&2
+  sleep $((attempt * 8))
+done
 popd >/dev/null
 
 mkdir -p "$ROOT/android-wrapper/app/libs"
