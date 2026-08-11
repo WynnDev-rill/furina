@@ -90,7 +90,7 @@ class MainActivity : ComponentActivity() {
         val backupManager = BackupManager(this, store)
         bridge = FurinaBridge(this, webView, store, modelDownloads, backupManager)
         cloudBridge = CloudBackupBridge(this, webView, backupManager, bridge::withAiPaused)
-        evidenceBridge = DeviceEvidenceBridge(this, webView, store, modelDownloads, bridge::withAiPaused)
+        evidenceBridge = DeviceEvidenceBridge(this, webView, store, modelDownloads, bridge::withAiIdleForEvidence)
         webView.addJavascriptInterface(bridge, "FurinaNative")
         webView.addJavascriptInterface(cloudBridge, "FurinaCloud")
         webView.addJavascriptInterface(evidenceBridge, "FurinaEvidence")
