@@ -7,6 +7,15 @@ def buildNumber = (System.getenv('GITHUB_RUN_NUMBER') ?: '1') as Integer
 def gitSha = (System.getenv('FURINA_GIT_SHA') ?: System.getenv('GITHUB_SHA') ?: '').replaceAll('[^0-9a-fA-F]', '').toLowerCase()
 def evidenceEnrollmentToken = (System.getenv('FURINA_EVIDENCE_ENROLLMENT_TOKEN') ?: '').replaceAll('[^0-9a-fA-F]', '').toLowerCase()
 
+def releaseKeystore = file('furina-release.jks')
+def releaseStorePassword = System.getenv('FURINA_KEYSTORE_PASSWORD')
+def releaseKeyAlias = System.getenv('FURINA_KEY_ALIAS')
+def releaseKeyPassword = System.getenv('FURINA_KEY_PASSWORD')
+def releaseSigningReady = releaseKeystore.exists() &&
+        releaseStorePassword?.trim() &&
+        releaseKeyAlias?.trim() &&
+        releaseKeyPassword?.trim()
+
 android {
     namespace 'com.wynndev.furina'
     compileSdk 36
@@ -24,10 +33,15 @@ android {
 
     signingConfigs {
         release {
-            storeFile file('furina-release.jks')
-            storePassword System.getenv('FURINA_KEYSTORE_PASSWORD') ?: 'furina-stable-2026'
-            keyAlias System.getenv('FURINA_KEY_ALIAS') ?: 'furina'
-            keyPassword System.getenv('FURINA_KEY_PASSWORD') ?: 'furina-stable-2026'
+            // Release signing material is injected by trusted CI/local environment only.
+            // An unsigned release configuration is intentionally allowed for untrusted
+            // fork validation, which never receives repository secrets.
+            if (releaseSigningReady) {
+                storeFile releaseKeystore
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
         }
     }
 
@@ -39,7 +53,9 @@ android {
         release {
             debuggable false
             minifyEnabled false
-            signingConfig signingConfigs.release
+            if (releaseSigningReady) {
+                signingConfig signingConfigs.release
+            }
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
