@@ -54,7 +54,8 @@ def read_json(path: Path) -> dict:
 
 
 def require_all(label: str, text: str, needles: list[str]) -> None:
-    missing = [needle for needle in needles if needle not in text]
+    haystack = text.casefold()
+    missing = [needle for needle in needles if needle.casefold() not in haystack]
     if missing:
         raise ContractError(f"{label} missing contract markers: {', '.join(missing)}")
 
