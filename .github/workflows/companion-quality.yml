@@ -11,8 +11,14 @@ on:
     paths:
       - 'android-wrapper/app/src/main/java/com/wynndev/furina/**'
       - 'scripts/overlays/**'
+      - 'scripts/fixtures/**'
       - 'scripts/apply-companion-runtime-policy.py'
       - 'scripts/apply-offline-stability-policy.py'
+      - 'scripts/apply-warm-session-reset-policy.py'
+      - 'scripts/normalize-offline-runtime-v4-input.py'
+      - 'scripts/apply-offline-runtime-v4-policy.py'
+      - 'scripts/apply-offline-checkpoint-chat-policy.py'
+      - 'scripts/offline-runtime-v4-static-gate.py'
       - 'scripts/companion-quality-gate.py'
       - 'scripts/offline-load-safety-gate.py'
       - 'scripts/bootstrap-llama-android.sh'
@@ -29,5 +35,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify layered companion pipeline
         run: python3 scripts/companion-quality-gate.py
+      - name: Verify full offline runtime v4 patch chain
+        run: python3 scripts/offline-runtime-v4-static-gate.py
       - name: Verify Android offline load safety
         run: python3 scripts/offline-load-safety-gate.py

@@ -51,11 +51,23 @@ def verify_layered_context_contract() -> None:
     context = read("android-wrapper/app/src/main/java/com/wynndev/furina/ContextEngine.kt")
     local = read("android-wrapper/app/src/main/java/com/wynndev/furina/LocalLlamaProvider.kt")
     unified = read("android-wrapper/app/src/main/java/com/wynndev/furina/UnifiedAiEngine.kt")
+    bootstrap = read("scripts/bootstrap-llama-android.sh")
+    warm_reset = read("scripts/apply-warm-session-reset-policy.py")
+    runtime_v4 = read("scripts/apply-offline-runtime-v4-policy.py")
 
-    require("val coldStartPrompt" in contracts, "local cold start needs a query-independent rehydration layer")
+    require("val personaPrompt" in contracts,
+            "local runtime needs a stable persona-only SYSTEM prefix")
+    require("val sessionRehydrationPrompt" in contracts,
+            "session continuity must be separable from immutable persona KV")
+    require("val coldStartPrompt" in contracts,
+            "stateless providers still need a complete cold-start prompt")
     cold_section = contracts.split("val coldStartPrompt", 1)[1].split("val systemPrompt", 1)[0]
     require("relevantMemories" not in cold_section and "relevantHistory" not in cold_section,
             "query retrieval must never be frozen into local cold start")
+    persona_section = contracts.split("val personaPrompt", 1)[1].split("val sessionRehydrationPrompt", 1)[0]
+    require("summary" not in persona_section and "recentHistory" not in persona_section,
+            "immutable persona prefix must not contain session history")
+
     require("store.relevantOldContext" in context, "episodic history must use role-safe SQLite/FTS retrieval")
     require("companion.relevantHistory" not in context, "role-guessing history path must not be used")
     require("store.relevantMemories" in context, "hot-path memory retrieval must stay deterministic and DB-backed")
@@ -66,11 +78,34 @@ def verify_layered_context_contract() -> None:
     summary_pos = unified.find("store.updateSessionSummary(sessionId)")
     delay_pos = unified.find("delay(6_000L)")
     require(summary_pos > delay_pos >= 0, "session summary compaction must run after the idle delay")
-    require("engine.setSystemPrompt(context.coldStartPrompt)" in local,
-            "local provider must hydrate stable context only")
+
+    require("engine.setSystemPrompt(context.personaPrompt)" in local,
+            "local provider must prefill only the stable persona SYSTEM prefix")
+    require("engine.setSystemPrompt(context.coldStartPrompt)" not in local,
+            "local provider must not repeatedly prefill session rehydration as personality")
+    require("restorePersonaCheckpoint" in local and "restoreExactSessionCheckpoint" in local,
+            "cold starts must prefer persistent persona/session KV restore")
+    require("engine.resetConversationKeepingSystemPrompt()" in local,
+            "session changes must preserve the prefetched SYSTEM prefix")
+    require("checkpointConversation" in local and "checkpointConversation" in unified,
+            "durable turns must be checkpointed after visible generation")
+    require("messageCountForSession" in unified,
+            "session checkpoint validation must use durable message count")
     require("[PRIVATE RESPONSE CONTEXT]" in local, "local turn context needs an explicit private boundary")
     wrapper = local.split('appendLine("[PRIVATE RESPONSE CONTEXT]")', 1)[1]
     require("append(request.userMessage)" in wrapper, "latest user message must be placed after background context")
+
+    require("apply-warm-session-reset-policy.py" in bootstrap and "apply-offline-runtime-v4-policy.py" in bootstrap,
+            "pinned llama.android build must include persistent-KV runtime policies")
+    require("resetConversationKeepingSystemPromptNative" in warm_reset,
+            "native conversation reset must preserve SYSTEM KV")
+    require("llama_state_seq_get_data" in runtime_v4 and "llama_state_seq_set_data" in runtime_v4,
+            "runtime v4 must persist and restore llama.cpp sequence KV")
+    require("shift_context_for" in runtime_v4,
+            "context pressure must slide mutable KV while preserving SYSTEM prefix")
+    require("ensureRuntimeProfile" in runtime_v4 and "currentThermalStatus" in runtime_v4,
+            "offline runtime needs persisted device tuning and thermal control")
+
     require("React as a person before answering as an assistant" not in context,
             "identity must not impose a mandatory reaction-before-answer pattern")
     require("must never create a mandatory prelude" in context,
@@ -245,7 +280,7 @@ def main() -> None:
     print(
         "Furina companion quality gate passed: "
         f"{behavioral_count} executable behavioral benchmark scenarios + "
-        f"{pipeline_count} deterministic pipeline scenarios + lifecycle/backup invariants"
+        f"{pipeline_count} deterministic pipeline scenarios + lifecycle/backup/persistent-KV invariants"
     )
 
 

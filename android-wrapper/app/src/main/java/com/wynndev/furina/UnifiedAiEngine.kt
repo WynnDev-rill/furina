@@ -25,6 +25,12 @@ class UnifiedAiEngine(
     private val contextEngine: ContextEngine,
     private val providers: Map<String, AiProvider>,
 ) {
+    companion object {
+        // Full llama.cpp sequence snapshots can be large. Persona KV is saved separately once;
+        // exact session KV is only an opportunistic accelerator, never the source of truth.
+        private const val SESSION_CHECKPOINT_EVERY_MESSAGES = 8
+    }
+
     private val maintenanceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var maintenanceJob: Job? = null
 
@@ -38,15 +44,13 @@ class UnifiedAiEngine(
         characterName: String,
         persona: String,
     ) {
-        // Prewarming must never freeze retrieval for the previous user message into the
-        // local model. Empty query builds only stable identity + session rehydration.
         val context = contextEngine.build(
             sessionId = sessionId,
             query = "",
             characterName = characterName,
             customPersona = persona,
             contextWindowTokens = model.contextWindowTokens,
-        )
+        ).copy(sessionMessageCount = store.messageCountForSession(sessionId))
         provider(providerId).prepare(model, context)
     }
 
@@ -65,7 +69,6 @@ class UnifiedAiEngine(
         var firstTokenAt = 0L
         var tokenCount = 0
 
-        // Only lightweight deterministic state updates run before inference.
         contextEngine.observeUserTurn(sessionId, userText)
         val context = contextEngine.build(
             sessionId = sessionId,
@@ -73,7 +76,7 @@ class UnifiedAiEngine(
             characterName = characterName,
             customPersona = persona,
             contextWindowTokens = model.contextWindowTokens,
-        )
+        ).copy(sessionMessageCount = store.messageCountForSession(sessionId))
         val activeProvider = provider(providerId)
         val warmStart = activeProvider.isWarm(model, context)
         activeProvider.prepare(model, context)
@@ -87,9 +90,7 @@ class UnifiedAiEngine(
             model = model,
             context = context,
             userMessage = userText,
-            // Do not infer answer length from input length. The model is allowed to finish its
-            // thought and stop naturally on EOS/EOG. maxOutputTokens remains only a runaway/
-            // context safety horizon, not a conversational length target.
+            // Local runtime uses this as a hard runaway horizon; EOG normally ends much earlier.
             predictLength = model.maxOutputTokens,
         )
         try {
@@ -106,10 +107,23 @@ class UnifiedAiEngine(
         val finalText = reply.toString().trim()
         check(finalText.isNotBlank()) { "Model tidak menghasilkan jawaban" }
         val assistantId = store.addMessage(sessionId, "assistant", finalText)
+        val durableMessageCount = store.messageCountForSession(sessionId)
+        val checkpointContext = context.copy(sessionMessageCount = durableMessageCount)
 
-        // Summary compaction, reflection and contradiction reconciliation are all post-response
-        // idle work. None of them delays the visible completion callback or the next TTFT.
-        scheduleIdleMaintenance(sessionId, userText)
+        // Full session KV is intentionally sparse because the binary sequence state can be
+        // tens/hundreds of MB. Missing snapshots are harmless: cold start restores the compact
+        // persona KV and rehydrates continuity from SQLite. Snapshotting never delays streaming.
+        val shouldCheckpointSession = activeProvider.capabilities.offline &&
+            durableMessageCount >= SESSION_CHECKPOINT_EVERY_MESSAGES &&
+            durableMessageCount % SESSION_CHECKPOINT_EVERY_MESSAGES == 0
+        scheduleIdleMaintenance(
+            sessionId = sessionId,
+            userText = userText,
+            activeProvider = activeProvider,
+            checkpointContext = checkpointContext,
+            durableMessageCount = durableMessageCount,
+            shouldCheckpointSession = shouldCheckpointSession,
+        )
 
         val finishedAt = SystemClock.elapsedRealtime()
         val firstTokenMs = if (firstTokenAt > 0L) firstTokenAt - startedAt else finishedAt - startedAt
@@ -121,7 +135,7 @@ class UnifiedAiEngine(
             .put("warmStart", warmStart)
             .put("provider", activeProvider.id)
             .put("model", activeProvider.resolvedModelId() ?: model.id)
-            .put("continuity", "companion-v3-layered")
+            .put("continuity", "companion-v4-persistent-kv")
             .put("qualityFlags", qualityFlags(userText, finalText))
         return UnifiedGenerationResult(userId, assistantId, metrics)
     }
@@ -139,16 +153,24 @@ class UnifiedAiEngine(
         maintenanceScope.cancel()
     }
 
-    /**
-     * Heavy memory work is postponed until the conversation has been idle. A new user turn
-     * cancels the pending job before it starts.
-     */
-    private fun scheduleIdleMaintenance(sessionId: String, userText: String) {
+    private fun scheduleIdleMaintenance(
+        sessionId: String,
+        userText: String,
+        activeProvider: AiProvider,
+        checkpointContext: AiContext,
+        durableMessageCount: Int,
+        shouldCheckpointSession: Boolean,
+    ) {
         maintenanceJob?.cancel()
         lateinit var job: Job
         job = maintenanceScope.launch {
             try {
                 delay(6_000L)
+                if (shouldCheckpointSession) {
+                    runCatching {
+                        activeProvider.checkpointConversation(checkpointContext, durableMessageCount)
+                    }
+                }
                 runCatching { contextEngine.runMaintenance(sessionId, userText) }
                 runCatching { store.updateSessionSummary(sessionId) }
             } finally {
@@ -175,8 +197,6 @@ class UnifiedAiEngine(
             flags.put("private_context_leak")
         }
 
-        // Overlong is telemetry only. It does not stop or truncate generation; behavioral
-        // directives in ContextEngine should teach the model when a human-sized reply is enough.
         if (normalizedUser.length <= 50 && normalizedResponse.length > 520) {
             flags.put("overlong_short_turn")
         }
