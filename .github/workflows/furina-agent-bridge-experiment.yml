@@ -1,0 +1,58 @@
+name: Build Furina Agent Bridge Experiment
+
+on:
+  push:
+    branches:
+      - experiment/furina-agent-termux
+    paths:
+      - 'experiments/furina-agent-termux.tar.gz.b64'
+      - 'experiments/FURINA_AGENT_TERMUX.md'
+      - '.github/workflows/furina-agent-bridge-experiment.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bridge-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Expand isolated source bundle
+        run: |
+          mkdir -p experiments
+          base64 -d experiments/furina-agent-termux.tar.gz.b64 | tar -xzf - -C experiments
+          test -f experiments/furina-agent-termux/settings.gradle
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK
+        run: yes | sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Run core tests
+        working-directory: experiments/furina-agent-termux
+        run: PYTHONPATH=core python3 -m unittest discover -s tests -v
+
+      - name: Build bridge APK
+        working-directory: experiments/furina-agent-termux
+        run: gradle :bridge:app:assembleDebug --stacktrace
+
+      - name: Rename APK
+        run: cp experiments/furina-agent-termux/bridge/app/build/outputs/apk/debug/app-debug.apk Furina-Agent-Bridge.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Furina-Agent-Bridge
+          path: Furina-Agent-Bridge.apk
+          if-no-files-found: error
