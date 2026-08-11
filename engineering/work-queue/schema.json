@@ -5,16 +5,16 @@
   "required": ["schemaVersion", "updatedAt", "stagingBaseSha", "items"],
   "properties": {
     "schemaVersion": {"const": 1},
-    "updatedAt": {"type": "string"},
-    "stagingBaseSha": {"type": "string", "minLength": 7},
+    "updatedAt": {"type": "string", "format": "date-time"},
+    "stagingBaseSha": {"type": "string", "pattern": "^[0-9a-f]{7,40}$"},
     "lastIntegration": {
       "type": ["object", "null"],
       "properties": {
-        "checkpointId": {"type": "string"},
-        "stagingSha": {"type": "string"},
-        "validatedAt": {"type": "string"},
+        "checkpointId": {"type": "string", "minLength": 3},
+        "stagingSha": {"type": "string", "pattern": "^[0-9a-f]{7,40}$"},
+        "validatedAt": {"type": "string", "format": "date-time"},
         "status": {"enum": ["GREEN", "RED", "PENDING"]},
-        "candidateIds": {"type": "array", "items": {"type": "string"}}
+        "candidateIds": {"type": "array", "items": {"type": "string", "minLength": 3}}
       },
       "required": ["checkpointId", "stagingSha", "validatedAt", "status", "candidateIds"],
       "additionalProperties": true
@@ -22,9 +22,9 @@
     "lastRelease": {
       "type": ["object", "null"],
       "properties": {
-        "mainSha": {"type": "string"},
-        "releasedAt": {"type": "string"},
-        "candidateIds": {"type": "array", "items": {"type": "string"}}
+        "mainSha": {"type": "string", "pattern": "^[0-9a-f]{7,40}$"},
+        "releasedAt": {"type": "string", "format": "date-time"},
+        "candidateIds": {"type": "array", "items": {"type": "string", "minLength": 3}}
       },
       "required": ["mainSha", "releasedAt", "candidateIds"],
       "additionalProperties": true
@@ -41,24 +41,24 @@
         ],
         "properties": {
           "id": {"type": "string", "minLength": 3},
-          "createdAt": {"type": "string"},
-          "shiftId": {"type": "string"},
-          "title": {"type": "string"},
-          "subsystem": {"type": "string"},
+          "createdAt": {"type": "string", "format": "date-time"},
+          "shiftId": {"type": "string", "minLength": 3},
+          "title": {"type": "string", "minLength": 3},
+          "subsystem": {"type": "string", "minLength": 2},
           "triageClass": {"enum": ["T0_STOP_THE_LINE", "T1_CRITICAL_PATH", "T2_MAJOR", "T3_LOCAL", "T4_POLISH"]},
-          "strategicTier": {"type": "string"},
+          "strategicTier": {"type": "string", "minLength": 2},
           "autonomyClass": {"enum": ["GREEN", "YELLOW", "RED"]},
           "status": {"enum": ["CANDIDATE", "INTEGRATED", "RELEASED", "BLOCKED_EVIDENCE", "BLOCKED_HUMAN", "QUARANTINED", "SUPERSEDED", "REJECTED"]},
-          "baseSha": {"type": "string", "minLength": 7},
-          "headSha": {"type": "string", "minLength": 7},
+          "baseSha": {"type": "string", "pattern": "^[0-9a-f]{7,40}$"},
+          "headSha": {"type": "string", "pattern": "^[0-9a-f]{7,40}$"},
           "validationTier": {"enum": ["FAST", "MEDIUM", "FULL"]},
           "evidenceLevel": {"enum": ["STATIC", "CI", "BEHAVIORAL", "DEVICE"]},
-          "dependencies": {"type": "array", "items": {"type": "string"}},
-          "conflictsWith": {"type": "array", "items": {"type": "string"}},
-          "rollbackBoundary": {"type": "string"},
-          "expectedMetric": {"type": "string"},
-          "expectedDelta": {"type": "string"},
-          "verificationWindow": {"type": "string"},
+          "dependencies": {"type": "array", "items": {"type": "string", "minLength": 3}},
+          "conflictsWith": {"type": "array", "items": {"type": "string", "minLength": 3}},
+          "rollbackBoundary": {"type": "string", "minLength": 3},
+          "expectedMetric": {"type": "string", "minLength": 2},
+          "expectedDelta": {"type": "string", "minLength": 2},
+          "verificationWindow": {"type": "string", "minLength": 2},
           "notes": {"type": "string"}
         },
         "additionalProperties": true
