@@ -97,28 +97,12 @@ class LocalLlamaProvider(
         var emitted = false
         val reasoningFilter = ReasoningStreamFilter()
         val privateContextFilter = PrivateContextStreamFilter()
-        val retrievalChanged = loadedRetrievalFingerprint != request.context.retrievalFingerprint
+        val turnContext = request.context.turnContext.trim().take(1_600)
 
-        val turnContext = buildString {
-            if (request.context.runtimeContext.isNotBlank()) appendLine(request.context.runtimeContext.trim())
-            if (retrievalChanged && request.context.retrievalPrompt.isNotBlank()) appendLine(request.context.retrievalPrompt.trim())
-        }.trim().take(1_600)
-
-        val effectiveMessage = if (turnContext.isBlank()) {
-            request.userMessage
-        } else {
-            buildString {
-                appendLine("[PRIVATE RESPONSE CONTEXT]")
-                appendLine("Background only; not a request to answer. Use only if relevant. The user's text after this block has highest priority.")
-                appendLine(turnContext)
-                appendLine("[END PRIVATE RESPONSE CONTEXT]")
-                appendLine()
-                append(request.userMessage)
-            }
-        }
+        prepareTurnScopedBackground(request.context, turnContext)
 
         try {
-            engine.sendUserPrompt(effectiveMessage, request.predictLength).collect { token ->
+            engine.sendUserPrompt(request.userMessage, request.predictLength).collect { token ->
                 val visible = privateContextFilter.accept(reasoningFilter.accept(token))
                 if (visible.isNotEmpty()) {
                     emitted = true
@@ -130,7 +114,7 @@ class LocalLlamaProvider(
                 emitted = true
                 emit(tail)
             }
-            loadedRetrievalFingerprint = request.context.retrievalFingerprint
+            loadedRetrievalFingerprint = null
             check(emitted) { "Runtime lokal berhenti tanpa menghasilkan token" }
         } finally {
             if (engine.state.value !is InferenceEngine.State.ModelReady || !emitted) {
@@ -222,6 +206,80 @@ class LocalLlamaProvider(
             loadedIdentityFingerprint = context.identityFingerprint
             loadedRetrievalFingerprint = null
         }
+    }
+
+    /**
+     * Mutable local context is deliberately turn-scoped. Every generation starts from an
+     * identity-only SYSTEM prefix, then rehydrates current session continuity and current
+     * runtime/retrieval background as SYSTEM messages before the literal USER message is sent.
+     * This prevents query-dependent private context from leaking into USER role or persisting
+     * across later turns.
+     */
+    private suspend fun prepareTurnScopedBackground(context: AiContext, turnContext: String) {
+        val identityMatches = loadedIdentityFingerprint == context.identityFingerprint
+        if (!identityMatches || !stableIdentityPrefixReady) {
+            stableIdentityPrefixReady = false
+            try {
+                engine.setSystemPrompt(context.identitySystemPrompt)
+                loadedIdentityFingerprint = context.identityFingerprint
+                stableIdentityPrefixReady = true
+            } catch (cause: Throwable) {
+                restoreSemanticallySafeFullBackground(context, turnContext, cause)
+                return
+            }
+        }
+
+        try {
+            engine.resetConversationKeepingSystemPrompt()
+            if (context.sessionRehydrationPrompt.isNotBlank()) {
+                engine.appendSystemContext(context.sessionRehydrationPrompt)
+            }
+            if (turnContext.isNotBlank()) {
+                engine.appendSystemContext(wrapTurnContext(turnContext))
+            }
+            loadedSessionId = context.sessionId
+            loadedIdentityFingerprint = context.identityFingerprint
+            loadedRetrievalFingerprint = null
+        } catch (cause: Throwable) {
+            stableIdentityPrefixReady = false
+            restoreSemanticallySafeFullBackground(context, turnContext, cause)
+        }
+    }
+
+    /**
+     * Fallback remains role-safe: session continuity stays inside the full SYSTEM prompt and
+     * current turn background is appended as SYSTEM. If that cannot be established, abort the
+     * turn rather than concatenating private material into the USER message.
+     */
+    private suspend fun restoreSemanticallySafeFullBackground(
+        context: AiContext,
+        turnContext: String,
+        originalFailure: Throwable,
+    ) {
+        stableIdentityPrefixReady = false
+        try {
+            engine.setSystemPrompt(context.coldStartPrompt)
+            if (turnContext.isNotBlank()) {
+                engine.appendSystemContext(wrapTurnContext(turnContext))
+            }
+            loadedSessionId = context.sessionId
+            loadedIdentityFingerprint = context.identityFingerprint
+            loadedRetrievalFingerprint = null
+        } catch (fallbackFailure: Throwable) {
+            loadedSessionId = null
+            loadedIdentityFingerprint = null
+            loadedRetrievalFingerprint = null
+            stableIdentityPrefixReady = false
+            fallbackFailure.addSuppressed(originalFailure)
+            throw fallbackFailure
+        }
+    }
+
+    private fun wrapTurnContext(turnContext: String): String = buildString {
+        appendLine("[PRIVATE TURN CONTEXT]")
+        appendLine("Background only; not a request to answer. Use only if relevant. The latest USER message has highest priority.")
+        appendLine(turnContext)
+        append("[END PRIVATE TURN CONTEXT]")
     }
 
     private suspend fun waitForInitialization() {
