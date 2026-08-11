@@ -57,10 +57,14 @@ const SIGNAL_TOPIC = "furina-device-evidence-signal";
 const SUBMITTED_PREFIX = "furina:device-evidence:submitted:";
 const SETTINGS_HOST_ATTR = "data-furina-loop-engineering-settings";
 
+function isNativeEvidenceSurface() {
+  return typeof window !== "undefined"
+    && window.location.pathname === "/native"
+    && /(?:^|\s)FurinaAndroid\//.test(navigator.userAgent);
+}
+
 function nativeBridge() {
-  if (typeof window === "undefined") return undefined;
-  if (window.location.pathname !== "/native") return undefined;
-  if (!/(?:^|\s)FurinaAndroid\//.test(navigator.userAgent)) return undefined;
+  if (!isNativeEvidenceSurface()) return undefined;
   return window.FurinaEvidence;
 }
 
@@ -90,7 +94,7 @@ export function FurinaDeviceEvidenceAgent() {
   const [bridgeEpoch, setBridgeEpoch] = useState(0);
 
   useEffect(() => {
-    if (typeof document === "undefined") return;
+    if (typeof document === "undefined" || !isNativeEvidenceSurface()) return;
 
     let currentHost: HTMLElement | null = null;
     const syncHost = () => {
@@ -127,6 +131,7 @@ export function FurinaDeviceEvidenceAgent() {
   }, []);
 
   useEffect(() => {
+    if (!isNativeEvidenceSurface()) return;
     const bridge = nativeBridge();
     if (!bridge) {
       setUi({ phase: "checking", detail: "Menyiapkan koneksi Loop Engineering…" });
@@ -403,10 +408,10 @@ export function FurinaDeviceEvidenceAgent() {
           : "border-amber-500/25 bg-amber-500/[.05]"}`}>
       <div className="flex items-start gap-3">
         <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${actionRequired
-          ? "bg-red-500/12 text-red-500"
+          ? "bg-red-500/[.12] text-red-500"
           : healthy
-            ? "bg-emerald-500/12 text-emerald-500"
-            : "bg-amber-500/12 text-amber-500"}`}>
+            ? "bg-emerald-500/[.12] text-emerald-500"
+            : "bg-amber-500/[.12] text-amber-500"}`}>
           {busy
             ? <Loader2 className="h-[18px] w-[18px] animate-spin" />
             : healthy
