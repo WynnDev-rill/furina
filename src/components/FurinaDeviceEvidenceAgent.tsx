@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { AlertCircle, CheckCircle2, Database, Loader2 } from "lucide-react";
+import { createPortal } from "react-dom";
+import { AlertTriangle, CheckCircle2, Database, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { backupSupabase } from "@/integrations/supabase/backup-client";
 
@@ -29,7 +30,7 @@ type NativeEvidenceBridge = {
 };
 
 type EvidenceUiState = {
-  phase: "idle" | "requested" | "running" | "uploading" | "done";
+  phase: "checking" | "idle" | "requested" | "running" | "uploading" | "done" | "error";
   requestId?: string;
   detail?: string;
   completed?: number;
@@ -40,6 +41,7 @@ declare global {
   interface Window {
     FurinaEvidence?: NativeEvidenceBridge;
     __furinaStartDeviceEvidence?: () => void;
+    __furinaRefreshDeviceEvidence?: () => void;
     __furinaDeviceEvidenceRequest?: (requestJson: string) => void;
     __furinaDeviceEvidenceProgress?: (requestId: string, completed: number, total: number) => void;
     __furinaDeviceEvidenceDone?: (requestId: string, reportJson: string) => void;
@@ -53,28 +55,89 @@ const UPLOAD_RETRY_MS = 60_000;
 const PROBE_THROTTLE_MS = 60_000;
 const SIGNAL_TOPIC = "furina-device-evidence-signal";
 const SUBMITTED_PREFIX = "furina:device-evidence:submitted:";
+const SETTINGS_HOST_ATTR = "data-furina-loop-engineering-settings";
+
+function isNativeEvidenceSurface() {
+  return typeof window !== "undefined"
+    && window.location.pathname === "/native"
+    && /(?:^|\s)FurinaAndroid\//.test(navigator.userAgent);
+}
 
 function nativeBridge() {
-  if (typeof window === "undefined") return undefined;
-  if (window.location.pathname !== "/native") return undefined;
-  if (!/(?:^|\s)FurinaAndroid\//.test(navigator.userAgent)) return undefined;
+  if (!isNativeEvidenceSurface()) return undefined;
   return window.FurinaEvidence;
+}
+
+function findSettingsScroller() {
+  if (typeof document === "undefined") return null;
+  const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'));
+  const settings = dialogs.find((dialog) => {
+    const text = dialog.textContent || "";
+    return text.includes("Pengaturan") && text.includes("Identitas, mesin AI, suara, memori, dan backup.");
+  });
+  if (!settings) return null;
+  return Array.from(settings.querySelectorAll<HTMLElement>("div")).find((node) =>
+    node.classList.contains("overflow-y-auto") && node.classList.contains("flex-1")
+  ) ?? settings;
 }
 
 /**
  * Demand-driven engineering evidence agent.
  *
- * Realtime carries only a payload-free public wake signal. Request fetch and result upload are
- * authenticated by a dedicated AndroidKeyStore device key inside the native bridge, not by the
- * user's Google/Supabase login. There is no periodic request-data polling and no automatic model
- * benchmark: the user explicitly starts a requested capture from the temporary in-app card.
+ * The agent stays invisible in the chat surface. A compact status card is mounted at the top of
+ * Furina Settings whenever that sheet is open, so the user can always tell whether Loop
+ * Engineering needs device data. The local benchmark never starts automatically.
  */
 export function FurinaDeviceEvidenceAgent() {
-  const [ui, setUi] = useState<EvidenceUiState>({ phase: "idle" });
+  const [ui, setUi] = useState<EvidenceUiState>({ phase: "checking" });
+  const [settingsHost, setSettingsHost] = useState<HTMLElement | null>(null);
+  const [bridgeEpoch, setBridgeEpoch] = useState(0);
 
   useEffect(() => {
+    if (typeof document === "undefined" || !isNativeEvidenceSurface()) return;
+
+    let currentHost: HTMLElement | null = null;
+    const syncHost = () => {
+      const target = findSettingsScroller();
+      if (!target) {
+        currentHost = null;
+        setSettingsHost(null);
+        return;
+      }
+      const existing = target.querySelector<HTMLElement>(`[${SETTINGS_HOST_ATTR}]`);
+      if (existing) {
+        currentHost = existing;
+        setSettingsHost(existing);
+        return;
+      }
+      const host = document.createElement("div");
+      host.setAttribute(SETTINGS_HOST_ATTR, "true");
+      host.className = "mb-6";
+      target.prepend(host);
+      currentHost = host;
+      setSettingsHost(host);
+    };
+
+    syncHost();
+    const observer = new MutationObserver(() => {
+      if (currentHost && document.body.contains(currentHost)) return;
+      syncHost();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+      if (currentHost?.parentElement) currentHost.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isNativeEvidenceSurface()) return;
     const bridge = nativeBridge();
-    if (!bridge) return;
+    if (!bridge) {
+      setUi({ phase: "checking", detail: "Menyiapkan koneksi Loop Engineering…" });
+      const retry = window.setTimeout(() => setBridgeEpoch((value) => value + 1), 1_000);
+      return () => window.clearTimeout(retry);
+    }
 
     let disposed = false;
     let pending: EvidenceRequest | null = null;
@@ -104,10 +167,13 @@ export function FurinaDeviceEvidenceAgent() {
       const now = Date.now();
       if (!force && now - lastProbeAt < PROBE_THROTTLE_MS) return;
       lastProbeAt = now;
+      if (!pending && !runningRequestId && !pendingReport) {
+        setUi({ phase: "checking", detail: "Memeriksa apakah perbaikan berikutnya memerlukan data perangkat…" });
+      }
       try {
         bridge.probeEvidenceRequest();
       } catch {
-        // Native transport is fail-closed; lifecycle/realtime events can probe again later.
+        setUi({ phase: "error", detail: "Status belum dapat diperiksa. Coba lagi saat jaringan siap." });
       }
     };
 
@@ -122,7 +188,6 @@ export function FurinaDeviceEvidenceAgent() {
       signalChannel = backupSupabase
         .channel(SIGNAL_TOPIC)
         .on("broadcast", { event: "request" }, () => {
-          // The broadcast contains no request, user, model, or credential data.
           probe(true);
         })
         .subscribe();
@@ -141,6 +206,8 @@ export function FurinaDeviceEvidenceAgent() {
         }
       }, UPLOAD_RETRY_MS);
     };
+
+    window.__furinaRefreshDeviceEvidence = () => probe(true);
 
     window.__furinaStartDeviceEvidence = () => {
       if (disposed || !pending || runningRequestId || pendingReport) return;
@@ -164,7 +231,7 @@ export function FurinaDeviceEvidenceAgent() {
         setUi({
           phase: "requested",
           requestId: request.requestId,
-          detail: "Pengambilan data gagal dimulai. Coba lagi saat model AI lokal sudah siap.",
+          detail: "Pengambilan data gagal dimulai. Pastikan model AI lokal sudah siap.",
         });
       }
     };
@@ -182,6 +249,7 @@ export function FurinaDeviceEvidenceAgent() {
       try {
         request = JSON.parse(requestJson) as EvidenceRequest;
       } catch {
+        setUi({ phase: "error", detail: "Permintaan data engineering tidak dapat dibaca." });
         return;
       }
       if (request.schemaVersion !== 1 || isExpired(request) || alreadySubmitted(request.requestId)) {
@@ -250,9 +318,11 @@ export function FurinaDeviceEvidenceAgent() {
     };
 
     window.__furinaDeviceEvidenceTransportError = (operation, requestId) => {
+      if (operation === "probe" && !runningRequestId && !pendingReport) {
+        setUi({ phase: "error", detail: "Tidak dapat memeriksa status Loop Engineering. Periksa jaringan lalu coba lagi." });
+        return;
+      }
       if (operation === "submit" && pendingReport?.requestId === requestId) {
-        // Keep the completed raw capture in memory and retry only transport. Never spend another
-        // local-model run merely because the network/backend was temporarily unavailable.
         setUi({ phase: "uploading", requestId, detail: "Jaringan/backend belum siap. Hasil tersimpan sementara dan akan dikirim ulang." });
         retryUpload();
       }
@@ -283,6 +353,7 @@ export function FurinaDeviceEvidenceAgent() {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onFocus);
       delete window.__furinaStartDeviceEvidence;
+      delete window.__furinaRefreshDeviceEvidence;
       delete window.__furinaDeviceEvidenceRequest;
       delete window.__furinaDeviceEvidenceProgress;
       delete window.__furinaDeviceEvidenceDone;
@@ -290,56 +361,102 @@ export function FurinaDeviceEvidenceAgent() {
       delete window.__furinaDeviceEvidenceError;
       delete window.__furinaDeviceEvidenceTransportError;
     };
-  }, []);
+  }, [bridgeEpoch]);
 
-  if (ui.phase === "idle") return null;
+  if (!settingsHost) return null;
 
-  const runningProgress = ui.phase === "running" && ui.total
-    ? `${Math.min(ui.completed ?? 0, ui.total)}/${ui.total} skenario`
+  const actionRequired = ui.phase === "requested";
+  const healthy = ui.phase === "idle" || ui.phase === "done";
+  const busy = ui.phase === "checking" || ui.phase === "running" || ui.phase === "uploading";
+  const progress = ui.phase === "running" && ui.total
+    ? `${Math.min(ui.completed ?? 0, ui.total)}/${ui.total}`
     : null;
-  const title = ui.phase === "requested"
-    ? "Loop Engineering memerlukan data untuk perbaikan berikutnya"
-    : ui.phase === "running"
-      ? "Pengambilan data sedang berjalan"
-      : ui.phase === "uploading"
-        ? "Mengirim hasil ke Loop Engineering"
-        : "Data perbaikan sudah dikirim";
-  const defaultDetail = ui.phase === "requested"
-    ? "Tekan Mulai saat kamu siap. Hanya skenario uji sintetis yang diproses; percakapan dan memori pribadimu tidak dikirim."
-    : ui.phase === "running"
-      ? "Biarkan Furina tetap terbuka sampai selesai. Tidak perlu menggunakan percakapan AI."
-      : ui.phase === "uploading"
-        ? "Benchmark sudah selesai. Furina sedang mengirim hasilnya ke backend engineering."
-        : "Loop Engineering dapat menggunakan hasil ini pada shift berikutnya.";
 
-  return (
-    <div className="pointer-events-none fixed inset-x-0 top-[84px] z-[80] px-3">
-      <div role="status" aria-live="polite" className="pointer-events-auto mx-auto max-w-md rounded-2xl border border-primary/25 bg-background/95 p-4 text-foreground shadow-2xl backdrop-blur-xl">
-        <div className="flex items-start gap-3">
-          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            {ui.phase === "running" || ui.phase === "uploading"
-              ? <Loader2 className="h-[18px] w-[18px] animate-spin" />
-              : ui.phase === "done"
-                ? <CheckCircle2 className="h-[18px] w-[18px]" />
+  const statusLabel = actionRequired
+    ? "Data diperlukan"
+    : healthy
+      ? ui.phase === "done" ? "Data terkirim" : "Tidak perlu tindakan"
+      : ui.phase === "error"
+        ? "Status belum tersedia"
+        : ui.phase === "running"
+          ? `Mengambil data${progress ? ` · ${progress}` : ""}`
+          : ui.phase === "uploading"
+            ? "Mengirim data"
+            : "Memeriksa";
+
+  const detail = ui.detail || (actionRequired
+    ? "Perbaikan berikutnya menunggu data perangkat. Tekan tombol di bawah saat kamu siap."
+    : ui.phase === "idle"
+      ? "Loop Engineering tidak sedang membutuhkan data tambahan dari perangkat ini."
+      : ui.phase === "running"
+        ? "Biarkan Furina tetap terbuka sampai seluruh skenario selesai."
+        : ui.phase === "uploading"
+          ? "Benchmark selesai dan hasil sedang dikirim ke backend engineering."
+          : ui.phase === "done"
+            ? "Hasil sudah tersedia untuk shift Loop Engineering berikutnya."
+            : ui.phase === "error"
+              ? "Status kebutuhan data belum dapat dipastikan."
+              : "Memeriksa kebutuhan data engineering terbaru…");
+
+  return createPortal(
+    <section className={`rounded-2xl border p-4 shadow-sm ${actionRequired
+      ? "border-red-500/35 bg-red-500/[.07]"
+      : healthy
+        ? "border-emerald-500/30 bg-emerald-500/[.06]"
+        : ui.phase === "error"
+          ? "border-amber-500/30 bg-amber-500/[.06]"
+          : "border-amber-500/25 bg-amber-500/[.05]"}`}>
+      <div className="flex items-start gap-3">
+        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${actionRequired
+          ? "bg-red-500/[.12] text-red-500"
+          : healthy
+            ? "bg-emerald-500/[.12] text-emerald-500"
+            : "bg-amber-500/[.12] text-amber-500"}`}>
+          {busy
+            ? <Loader2 className="h-[18px] w-[18px] animate-spin" />
+            : healthy
+              ? <CheckCircle2 className="h-[18px] w-[18px]" />
+              : ui.phase === "error"
+                ? <AlertTriangle className="h-[18px] w-[18px]" />
                 : <Database className="h-[18px] w-[18px]" />}
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold leading-snug">{title}</p>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{ui.detail || defaultDetail}</p>
-            {runningProgress && <p className="mt-2 text-xs font-medium tabular-nums text-primary">{runningProgress}</p>}
-            {ui.phase === "requested" && (
-              <>
-                <p className="mt-2 flex items-start gap-1.5 text-[10px] leading-relaxed text-muted-foreground">
-                  <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />Pastikan model AI lokal sudah terunduh dan tidak sedang menghasilkan jawaban.
-                </p>
-                <Button className="mt-3 min-h-10 w-full rounded-xl" onClick={() => window.__furinaStartDeviceEvidence?.()}>
-                  Mulai pengambilan data
-                </Button>
-              </>
-            )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold">Loop Engineering</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">Data untuk perbaikan aplikasi</p>
+            </div>
+            <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${actionRequired
+              ? "border-red-500/25 bg-red-500/10 text-red-500"
+              : healthy
+                ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-500"
+                : "border-amber-500/25 bg-amber-500/10 text-amber-500"}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${actionRequired ? "bg-red-500" : healthy ? "bg-emerald-500" : "bg-amber-500"}`} />
+              {statusLabel}
+            </span>
           </div>
+
+          <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">{detail}</p>
+          <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground/80">Hanya skenario uji sintetis yang diproses. Percakapan dan memori pribadi tidak dikirim.</p>
+
+          {actionRequired ? (
+            <Button className="mt-3 min-h-10 w-full rounded-xl bg-red-500 text-white hover:bg-red-500/90" onClick={() => window.__furinaStartDeviceEvidence?.()}>
+              <Database className="mr-2 h-4 w-4" />Mulai pengambilan data
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-2 h-9 px-2 text-xs text-muted-foreground"
+              disabled={ui.phase === "running" || ui.phase === "uploading"}
+              onClick={() => window.__furinaRefreshDeviceEvidence?.()}
+            >
+              <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${ui.phase === "checking" ? "animate-spin" : ""}`} />Periksa lagi
+            </Button>
+          )}
         </div>
       </div>
-    </div>
+    </section>,
+    settingsHost,
   );
 }

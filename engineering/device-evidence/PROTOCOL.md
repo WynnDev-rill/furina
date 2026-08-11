@@ -3,7 +3,7 @@
 ## Purpose
 Provide the engineering company with truthful target-Android local-model captures without continuous request-data polling, Google/Supabase user login, GitHub credentials in the APK, or personal conversation data in engineering evidence.
 
-The APK exposes no permanent benchmark control. A temporary evidence card appears only while engineering has a valid active device request for the exact installed build, and the benchmark starts only after the user explicitly presses the start action.
+Furina Settings contains a permanent compact **Loop Engineering** status card. It is green when no user action is required, red only when an exact-build evidence request is waiting for the user to start capture, and uses a neutral in-progress state while checking/running/uploading. The benchmark starts only after the user explicitly presses the start action.
 
 This protocol is an evidence transport. It does not weaken `engineering/evidence/behavioral-run.schema.json`: raw device capture is not canonical BEHAVIORAL evidence until generated outputs are independently scored and assembled into that schema.
 
@@ -47,7 +47,7 @@ A foreground Furina native session subscribes to that signal using the project's
 
 If Furina is fully closed or Android suspends the WebView, Realtime is not treated as a guaranteed background wake mechanism. The stored request remains authoritative and is discovered automatically the next time the native session becomes active. Discovery alone never starts model inference.
 
-When a valid request is discovered, Furina shows a temporary in-app card stating that Loop Engineering requires data for the next repair. The card is absent when no valid request exists. The user may explicitly start the benchmark from that card; there is no automatic idle-time benchmark.
+The Settings card is visible independently of request state. A valid request changes the card from green/no-action to red/action-required and exposes the explicit **Mulai pengambilan data** action. No automatic idle-time benchmark exists. A lightweight **Periksa lagi** action lets the user force a fresh status probe without starting inference.
 
 ## Device request/result authentication
 Request fetch and result upload use a short-lived challenge rather than a reusable bearer credential.
@@ -65,16 +65,16 @@ The backend verifies the signature against the pinned public key and consumes th
 No long-lived server secret, service-role key, GitHub token, private key, or user access token is embedded in the APK.
 
 ## Device behavior
-When no active request exists, the APK performs no benchmark and no periodic evidence-data fetch. A foreground session may keep the lightweight public Realtime signal subscription open; no model run or request payload transfer occurs until a request signal or lifecycle fallback probe happens.
+When no active request exists, the APK performs no benchmark and no periodic evidence-data fetch. A foreground session may keep the lightweight public Realtime signal subscription open; no model run or request payload transfer occurs until a request signal, lifecycle fallback probe, or explicit status refresh happens. The Settings card remains green and clearly states that no action is required.
 
 When the pinned device receives a valid active request:
-- show the temporary engineering-data card only for that active request;
+- change the permanent Settings card to red/action-required for that request;
 - do not run inference until the user explicitly presses the start action;
 - if ordinary Furina inference is currently busy, refuse/defer the benchmark and keep the request available for manual retry;
 - never cancel an ordinary Furina generation merely to collect evidence;
 - require exact `targetCommit == BuildConfig.GIT_SHA`;
 - require the selected local model to be installed;
-- expose benchmark progress to the temporary card as completed/total synthetic scenarios;
+- expose benchmark progress as completed/total synthetic scenarios in the Settings card;
 - run only the synthetic scenario setup and latest user turn;
 - bypass `UnifiedAiEngine.generate()` so synthetic turns are never persisted into user conversation/memory/relationship maintenance;
 - discard all persistence-derived continuity fields before inference;
@@ -84,7 +84,7 @@ When the pinned device receives a valid active request:
 
 If result upload temporarily fails, the web agent retries the already-produced raw report instead of spending another local-model run only because transport failed.
 
-The evidence card is status-only except for the explicit start action. No benchmark conversation, personal chat message, or user-memory entry is created. The card disappears when there is no active request and briefly confirms successful upload before hiding.
+The Settings card is status-only except for explicit start/refresh actions. No benchmark conversation, personal chat message, or user-memory entry is created. After a successful upload it confirms completion, then returns to the green no-action state.
 
 ## Transport trust boundary
 The build workflow authenticates enrollment setup with GitHub Actions OIDC. The engineering control workflow authenticates request/collect operations with a separately bound GitHub Actions OIDC provenance. The device authenticates request/result operations with its Android Keystore key. These authorities are intentionally separate.
