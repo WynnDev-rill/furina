@@ -27,8 +27,8 @@ A T0 stop-the-line or urgent T1 repair may escalate to an **EMERGENCY_INTEGRATIO
 
 ## Branch and deployment model
 
-- `main`: released source of truth.
-- `company/staging`: accumulated accepted candidate work awaiting integration/release.
+- `main`: released source of truth and last released queue snapshot.
+- `company/staging`: accumulated accepted candidate work plus the **canonical mutable work queue** used by unattended shifts.
 - `company/**`, `integration/**`, `research/**`: Vercel deployment disabled by `vercel.json`.
 - Normal candidate work does **not** open a PR.
 - Integration checkpoints do **not** merge to `main`.
@@ -36,7 +36,7 @@ A T0 stop-the-line or urgent T1 repair may escalate to an **EMERGENCY_INTEGRATIO
 
 ## Machine-readable work queue
 
-Canonical state: `engineering/work-queue/state.json` validated by `engineering/work-queue/schema.json`.
+Canonical mutable state is `engineering/work-queue/state.json` **on `company/staging`** and is validated by `engineering/work-queue/schema.json`. The copy on `main` is the last released snapshot and may intentionally lag staging between releases.
 
 Statuses:
 
@@ -78,28 +78,28 @@ Release opens or updates one PR from `company/staging` to `main`. Existing PR-tr
 
 ## Candidate mode
 
-1. Acquire issue #42 lease and reconcile `main`, `company/staging`, queue, open release PR, evidence debt, owner attention, budgets, circuit breakers, and new evidence.
+1. Acquire issue #42 lease and reconcile `main`, `company/staging`, the **staging copy** of the queue, open release PR, evidence debt, owner attention, budgets, circuit breakers, and new evidence.
 2. If staging is behind/diverged from `main`, repair that control-plane state before new work.
 3. Apply critical-path triage and select at most one coherent package. `NO_CHANGE` is valid.
 4. Implement directly on `company/staging` with a small purposeful commit set.
 5. Perform FAST validation.
 6. Run a **Candidate Reviewer** pass: re-fetch the exact staging diff introduced by this shift and try to falsify the implementation, scope, dependency, regression, and rollback claims. This is a quality filter, not release certification and creates no Reviewer/Boss PR decision record.
-7. If accepted, append/update the work-queue item as `CANDIDATE`; if not, revert/repair within the safe clock or record `REJECTED`/blocked state.
+7. If accepted, append/update the staging work-queue item as `CANDIDATE`; if not, revert/repair within the safe clock or record `REJECTED`/blocked state.
 8. Update issue #42 and release the lease. Do not open a PR merely because the hour ran.
 
 ## Integration mode
 
-1. Acquire lease; reconcile exact `main`, staging, queue, and any previous integration result.
+1. Acquire lease; reconcile exact `main`, staging, the staging queue, and any previous integration result.
 2. Do not manufacture a new product feature merely to fill the integration hour.
 3. Inspect pending candidate dependencies/conflicts and remove/supersede work that became obsolete.
 4. Write one checkpoint record under `engineering/integration/checkpoints/` containing the staging SHA and candidate IDs intended for validation.
-5. Observe the exact staging MEDIUM workflows. If green, mark those exact-head candidates `INTEGRATED` and store the integration run metadata. If red, promote nothing and isolate the failure; a narrow repair is allowed only when the shift clock permits.
+5. Observe the exact staging MEDIUM workflows. If green, mark those exact-head candidates `INTEGRATED` in the staging queue and store the integration run metadata. If red, promote nothing and isolate the failure; a narrow repair is allowed only when the shift clock permits.
 6. No normal merge to `main`.
 
 ## Release mode
 
-1. Acquire lease and reconcile all state.
-2. If staging equals `main` and no release-worthy work exists, record `NO_CHANGE` and stop.
+1. Acquire lease and reconcile all state, reading the mutable queue from staging.
+2. If there are no release-worthy `INTEGRATED`/eligible candidate changes, record `NO_CHANGE`; queue-only control-state divergence is not itself a reason to release.
 3. Perform a final integration checkpoint for the exact staging head unless an exact-head MEDIUM success already exists after the latest candidate commit.
 4. Require green MEDIUM validation before opening/updating the release PR.
 5. Open/update a single release PR `company/staging -> main` with one coherent daily summary of candidate IDs, user impact, evidence, risks, APK impact, and rollback boundaries.
@@ -107,7 +107,7 @@ Release opens or updates one PR from `company/staging` to `main`. Existing PR-tr
 7. Run Reviewer evidence-reset and record the machine-readable PR decision.
 8. Only after Reviewer `APPROVE`, run Boss evidence-reset and record the decision.
 9. GREEN/YELLOW `APPROVE_MERGE` may exact-SHA merge when budgets and mergeability remain valid. RED never auto-merges.
-10. Mark included queue items `RELEASED`, update `lastRelease`, reconcile issue #42, then reset/fast-forward `company/staging` to the merged `main` SHA before future candidate work.
+10. After merge, reset/fast-forward `company/staging` to the merged `main` SHA, then write one staging-only control-state commit that marks included queue items `RELEASED`, updates `lastRelease`/`stagingBaseSha`, and keeps staging as the canonical mutable queue. This control-state commit does not by itself justify another release.
 
 ## Candidate accumulation safety
 
@@ -128,6 +128,7 @@ Research sidecars are optional and become useful only when they investigate inde
 - Candidate mode: no PR, no normal hosted CI, no APK build, no Vercel deployment.
 - Integration mode: deliberate MEDIUM checks only when a checkpoint is written.
 - Release mode: FULL PR CI and APK build only when relevant; main deploy occurs at most once in the normal daily cycle.
+- APK workflow path filters must remain limited to runtime/build-affecting inputs; control-plane `scripts/**` changes alone must not rebuild the APK.
 - Do not use no-op commits to trigger validation. Checkpoint files are explicit evidence-control artifacts, not no-op retries.
 - External quota/provider failures are recorded and rechecked; do not rewrite healthy code to satisfy them.
 
