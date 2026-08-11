@@ -162,6 +162,34 @@ class LocalLlamaProvider(
         }
     }
 
+    /**
+     * Clear synthetic/chat KV state while retaining already-mapped model weights.
+     *
+     * setSystemPrompt is the same native boundary used when switching sessions, so a successful
+     * blank reset removes the previous conversation without forcing a multi-gigabyte GGUF reload.
+     * Callers must fall back to unload() when false is returned.
+     */
+    suspend fun resetConversationStateKeepingModel(): Boolean = loadMutex.withLock {
+        if (loadedModelId == null || engine.state.value !is InferenceEngine.State.ModelReady) {
+            loadedSessionId = null
+            loadedIdentityFingerprint = null
+            loadedRetrievalFingerprint = null
+            return@withLock false
+        }
+        return@withLock try {
+            engine.setSystemPrompt("")
+            loadedSessionId = null
+            loadedIdentityFingerprint = null
+            loadedRetrievalFingerprint = null
+            true
+        } catch (_: Throwable) {
+            loadedSessionId = null
+            loadedIdentityFingerprint = null
+            loadedRetrievalFingerprint = null
+            false
+        }
+    }
+
     override suspend fun unload() = withContext(Dispatchers.IO) {
         try {
             when (engine.state.value) {

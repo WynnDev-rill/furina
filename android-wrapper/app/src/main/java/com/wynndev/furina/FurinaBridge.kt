@@ -399,18 +399,16 @@ class FurinaBridge(
     }
 
     /**
-     * Hidden engineering evidence must never preempt ordinary chat. Wait for the same native AI
-     * mutex, then refuse if a user generation/prepare or destructive mutation is still active.
-     * A user generation created after this check simply queues on aiOperationMutex; cancelling the
-     * benchmark releases it without rejecting the user's message through pendingMutations.
+     * Engineering evidence never preempts ordinary chat. It enters the same native AI mutex and
+     * receives the exact LocalLlamaProvider already owned by FurinaBridge. Reusing that provider
+     * keeps mapped GGUF weights warm when available; evidence itself resets scenario/chat KV state.
      */
-    suspend fun withAiIdleForEvidence(block: suspend () -> Unit): Boolean = aiOperationMutex.withLock {
+    suspend fun withAiIdleForEvidence(block: suspend (LocalLlamaProvider) -> Unit): Boolean = aiOperationMutex.withLock {
         val busy = synchronized(jobLock) {
             generationJob?.isActive == true || prepareJob?.isActive == true
         }
         if (busy || pendingMutations.get() > 0) return@withLock false
-        aiEngine.unload()
-        block()
+        block(localProvider)
         true
     }
 
