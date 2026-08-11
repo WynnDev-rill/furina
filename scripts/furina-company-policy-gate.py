@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 FILES = {
@@ -67,31 +70,107 @@ def require_required_fields(label: str, schema: dict, expected: set[str]) -> Non
         raise ContractError(f"{label} missing required fields: {missing}")
 
 
+def _type_matches(value: Any, expected: str) -> bool:
+    if expected == "object":
+        return isinstance(value, dict)
+    if expected == "array":
+        return isinstance(value, list)
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if expected == "boolean":
+        return isinstance(value, bool)
+    if expected == "null":
+        return value is None
+    raise ContractError(f"unsupported work-queue schema type: {expected}")
+
+
+def _validate_datetime(value: str, path: str) -> None:
+    candidate = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError as exc:
+        raise ContractError(f"{path} must be ISO-8601 date-time: {value!r}") from exc
+    if parsed.tzinfo is None:
+        raise ContractError(f"{path} date-time must include timezone: {value!r}")
+
+
+def validate_schema_value(value: Any, schema: dict, path: str) -> None:
+    """Dependency-free validator for the JSON-Schema subset used by the work queue."""
+    if "const" in schema and value != schema["const"]:
+        raise ContractError(f"{path} must equal {schema['const']!r}")
+
+    if "enum" in schema and value not in schema["enum"]:
+        raise ContractError(f"{path} has invalid value {value!r}; expected one of {schema['enum']!r}")
+
+    declared_type = schema.get("type")
+    if declared_type is not None:
+        allowed = declared_type if isinstance(declared_type, list) else [declared_type]
+        if not any(_type_matches(value, expected) for expected in allowed):
+            raise ContractError(f"{path} has wrong type; expected {allowed!r}, got {type(value).__name__}")
+
+    if value is None:
+        return
+
+    if isinstance(value, str):
+        min_length = schema.get("minLength")
+        if min_length is not None and len(value) < min_length:
+            raise ContractError(f"{path} must have at least {min_length} characters")
+        pattern = schema.get("pattern")
+        if pattern is not None and re.fullmatch(pattern, value) is None:
+            raise ContractError(f"{path} does not match required pattern {pattern!r}: {value!r}")
+        if schema.get("format") == "date-time":
+            _validate_datetime(value, path)
+
+    if isinstance(value, dict):
+        required = schema.get("required", [])
+        missing = [key for key in required if key not in value]
+        if missing:
+            raise ContractError(f"{path} missing required fields: {missing}")
+        properties = schema.get("properties", {})
+        for key, child_schema in properties.items():
+            if key in value:
+                validate_schema_value(value[key], child_schema, f"{path}.{key}")
+        if schema.get("additionalProperties") is False:
+            unknown = sorted(set(value) - set(properties))
+            if unknown:
+                raise ContractError(f"{path} has unsupported fields: {unknown}")
+
+    if isinstance(value, list) and "items" in schema:
+        item_schema = schema["items"]
+        for index, item in enumerate(value):
+            validate_schema_value(item, item_schema, f"{path}[{index}]")
+
+
 def validate_queue(schema: dict, state: dict) -> None:
-    require_required_fields("work-queue/schema.json", schema, {"schemaVersion", "updatedAt", "stagingBaseSha", "items"})
-    for key in ("schemaVersion", "updatedAt", "stagingBaseSha", "items"):
-        if key not in state:
-            raise ContractError(f"work-queue/state.json missing key: {key}")
-    if state.get("schemaVersion") != 1:
-        raise ContractError("work-queue/state.json schemaVersion must be 1")
-    if not isinstance(state.get("items"), list):
-        raise ContractError("work-queue/state.json items must be an array")
-    valid_statuses = {
-        "CANDIDATE", "INTEGRATED", "RELEASED", "BLOCKED_EVIDENCE", "BLOCKED_HUMAN",
-        "QUARANTINED", "SUPERSEDED", "REJECTED",
+    expected_top = {"schemaVersion", "updatedAt", "stagingBaseSha", "items"}
+    expected_item = {
+        "id", "createdAt", "shiftId", "title", "subsystem", "triageClass",
+        "strategicTier", "autonomyClass", "status", "baseSha", "headSha",
+        "validationTier", "evidenceLevel", "dependencies", "conflictsWith",
+        "rollbackBoundary", "expectedMetric", "expectedDelta", "verificationWindow",
     }
+    require_required_fields("work-queue/schema.json", schema, expected_top)
+    item_schema = schema.get("properties", {}).get("items", {}).get("items", {})
+    require_required_fields("work-queue item schema", item_schema, expected_item)
+    validate_schema_value(state, schema, "work-queue/state.json")
+
     ids: set[str] = set()
-    for item in state["items"]:
-        if not isinstance(item, dict):
-            raise ContractError("work-queue item must be an object")
-        for key in ("id", "status", "baseSha", "headSha", "rollbackBoundary"):
-            if not item.get(key):
-                raise ContractError(f"work-queue item missing {key}")
-        if item["id"] in ids:
-            raise ContractError(f"duplicate work-queue id: {item['id']}")
-        ids.add(item["id"])
-        if item["status"] not in valid_statuses:
-            raise ContractError(f"invalid work-queue status: {item['status']}")
+    for index, item in enumerate(state.get("items", [])):
+        item_id = item["id"]
+        if item_id in ids:
+            raise ContractError(f"duplicate work-queue id: {item_id}")
+        ids.add(item_id)
+        if item_id in item.get("dependencies", []):
+            raise ContractError(f"work-queue item {item_id} cannot depend on itself")
+        if item_id in item.get("conflictsWith", []):
+            raise ContractError(f"work-queue item {item_id} cannot conflict with itself")
+        overlap = sorted(set(item.get("dependencies", [])) & set(item.get("conflictsWith", [])))
+        if overlap:
+            raise ContractError(f"work-queue item {item_id} both depends on and conflicts with: {overlap}")
 
 
 def main() -> int:
@@ -121,12 +200,14 @@ def main() -> int:
         "CANDIDATE", "INTEGRATION", "RELEASE", "EMERGENCY_INTEGRATION", "company/staging",
         "FAST", "MEDIUM", "FULL", "engineering/integration/checkpoints/",
         "One normal release PR per day", "Research sidecars", "no production write or merge authority",
+        "canonical mutable work queue",
     ])
 
     require_all("HOURLY_PROMPT.md", worker, [
         "Scheduled Dispatcher", "Asia/Jakarta", "`00` -> `RELEASE`", "`06`, `12`, `18` -> `INTEGRATION`",
         "Acquire a shift lease", "CANDIDATE mode", "INTEGRATION mode", "RELEASE mode",
         "Reviewer evidence-reset pass", "Boss evidence-reset pass", "expected head SHA", "SHIFT_GATED_AUTO_MERGE",
+        "canonical mutable copy is always read from `company/staging`",
     ])
 
     require_all("WORK_PACKAGE/POLICY.md", work_package, [
