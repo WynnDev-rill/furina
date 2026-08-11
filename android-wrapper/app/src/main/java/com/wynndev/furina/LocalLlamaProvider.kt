@@ -3,6 +3,7 @@ package com.wynndev.furina
 import android.content.Context
 import com.arm.aichat.AiChat
 import com.arm.aichat.InferenceEngine
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -21,9 +22,16 @@ class LocalLlamaProvider(
     override val id = "local-llama"
     override val capabilities = AiProviderCapabilities(streaming = true, offline = true)
 
+    companion object {
+        /** Increment whenever native KV layout/chat framing compatibility changes. */
+        private const val CHECKPOINT_SCHEMA = "kv4-llama-7ba604f1"
+        private const val MAX_TURN_CONTEXT_CHARS = 2_400
+    }
+
     private val appContext = context.applicationContext
     private val engine: InferenceEngine = AiChat.getInferenceEngine(appContext)
     private val loadMutex = Mutex()
+    private val checkpointDir = File(appContext.filesDir, "offline-kv-v4").apply { mkdirs() }
 
     @Volatile private var loadedModelId: String? = null
     @Volatile private var loadedSessionId: String? = null
@@ -35,19 +43,9 @@ class LocalLlamaProvider(
 
     override suspend fun prepare(model: AiModelRef, context: AiContext) = loadMutex.withLock {
         val spec = ModelCatalog.byId(model.id) ?: error("Model lokal tidak dikenal: ${model.id}")
+
         if (isWarm(model, context)) {
-            // Keep native chat/KV history warm. Only session or identity changes justify
-            // rebuilding the stable bootstrap prompt. Query retrieval stays per-turn.
-            if (loadedSessionId != context.sessionId || loadedIdentityFingerprint != context.identityFingerprint) {
-                ProcessExitDiagnostics.mark(appContext, "offline-prompt-rehydrate")
-                onState("prompting", spec.id, 0.85)
-                engine.setSystemPrompt(context.coldStartPrompt)
-                loadedSessionId = context.sessionId
-                loadedIdentityFingerprint = context.identityFingerprint
-                loadedRetrievalFingerprint = null
-                ProcessExitDiagnostics.mark(appContext, "idle")
-                onState("ready", spec.id, 1.0)
-            }
+            prepareWarmSession(spec, context)
             return@withLock
         }
 
@@ -56,7 +54,10 @@ class LocalLlamaProvider(
                 engine.state.first { it is InferenceEngine.State.ModelReady || it is InferenceEngine.State.Error }
             }
         }
-        if (isWarm(model, context)) return@withLock
+        if (isWarm(model, context)) {
+            prepareWarmSession(spec, context)
+            return@withLock
+        }
 
         ProcessExitDiagnostics.mark(appContext, "offline-verify")
         onState("preparing", spec.id, 0.0)
@@ -68,9 +69,6 @@ class LocalLlamaProvider(
             }
         }
 
-        // llama.cpp's Android binding is designed to load through an app-private file path.
-        // Existing installs are migrated once from external/FUSE-backed storage without a
-        // redownload; the copy is hashed while streaming and source removal happens last.
         ProcessExitDiagnostics.mark(appContext, "offline-storage-migrate")
         val file = withContext(Dispatchers.IO) {
             modelDownloads.ensureRuntimeModel(spec) { done, total ->
@@ -87,15 +85,71 @@ class LocalLlamaProvider(
         ProcessExitDiagnostics.mark(appContext, "offline-engine-load")
         onState("loading", spec.id, 0.15)
         engine.loadModel(file.absolutePath)
+        loadedModelId = spec.id
+
+        // First run does a tiny CPU thread sweep. Later process starts reuse the persisted winner.
+        ProcessExitDiagnostics.mark(appContext, "offline-runtime-profile")
+        runCatching { engine.ensureRuntimeProfile() }
+
+        // Prefer an exact durable conversation checkpoint. If none exists, restore the stable
+        // persona prefix. Only a genuinely new/changed personality pays the long prefill cost.
+        if (restoreExactSessionCheckpoint(spec, context)) {
+            markReady(spec)
+            return@withLock
+        }
+        if (restorePersonaCheckpoint(spec, context)) {
+            loadedSessionId = null
+            loadedRetrievalFingerprint = null
+            markReady(spec)
+            return@withLock
+        }
+
         ProcessExitDiagnostics.mark(appContext, "offline-system-prompt")
         onState("prompting", spec.id, 0.85)
-        engine.setSystemPrompt(context.coldStartPrompt)
-        loadedModelId = spec.id
-        loadedSessionId = context.sessionId
+        engine.setSystemPrompt(context.personaPrompt)
         loadedIdentityFingerprint = context.identityFingerprint
+        loadedSessionId = null
         loadedRetrievalFingerprint = null
-        ProcessExitDiagnostics.mark(appContext, "idle")
-        onState("ready", spec.id, 1.0)
+        savePersonaCheckpoint(spec, context)
+        markReady(spec)
+    }
+
+    private suspend fun prepareWarmSession(spec: ModelSpec, context: AiContext) {
+        val identityChanged = loadedIdentityFingerprint != context.identityFingerprint
+        if (identityChanged) {
+            ProcessExitDiagnostics.mark(appContext, "offline-identity-switch")
+            if (!restorePersonaCheckpoint(spec, context)) {
+                onState("prompting", spec.id, 0.85)
+                engine.setSystemPrompt(context.personaPrompt)
+                loadedIdentityFingerprint = context.identityFingerprint
+                savePersonaCheckpoint(spec, context)
+            }
+            loadedSessionId = null
+            loadedRetrievalFingerprint = null
+            markReady(spec)
+            return
+        }
+
+        if (loadedSessionId == context.sessionId) return
+
+        ProcessExitDiagnostics.mark(appContext, "offline-session-switch")
+        if (restoreExactSessionCheckpoint(spec, context)) {
+            markReady(spec)
+            return
+        }
+
+        // No disk snapshot for this exact durable session. Keep mapped weights and immutable
+        // persona KV, remove only the old USER/ASSISTANT suffix, then rehydrate on first turn.
+        val reset = runCatching { engine.resetConversationKeepingSystemPrompt() }.isSuccess
+        if (!reset) {
+            onState("prompting", spec.id, 0.85)
+            engine.setSystemPrompt(context.personaPrompt)
+            loadedIdentityFingerprint = context.identityFingerprint
+            savePersonaCheckpoint(spec, context)
+        }
+        loadedSessionId = null
+        loadedRetrievalFingerprint = null
+        markReady(spec)
     }
 
     override fun stream(request: AiGenerationRequest): Flow<String> = flow {
@@ -104,18 +158,20 @@ class LocalLlamaProvider(
         val reasoningFilter = ReasoningStreamFilter()
         val privateContextFilter = PrivateContextStreamFilter()
         val retrievalChanged = loadedRetrievalFingerprint != request.context.retrievalFingerprint
+        val sessionNeedsRehydration = loadedSessionId != request.context.sessionId
 
         val turnContext = buildString {
+            if (sessionNeedsRehydration && request.context.sessionRehydrationPrompt.isNotBlank()) {
+                appendLine(request.context.sessionRehydrationPrompt.trim())
+            }
             if (request.context.runtimeContext.isNotBlank()) {
                 appendLine(request.context.runtimeContext.trim())
             }
             if (retrievalChanged && request.context.retrievalPrompt.isNotBlank()) {
                 appendLine(request.context.retrievalPrompt.trim())
             }
-        }.trim().take(1_600)
+        }.trim().take(MAX_TURN_CONTEXT_CHARS)
 
-        // The native API accepts one user-role message. Keep background context short,
-        // explicitly non-commanding, and place the real current user message last.
         val effectiveMessage = if (turnContext.isBlank()) {
             request.userMessage
         } else {
@@ -142,11 +198,10 @@ class LocalLlamaProvider(
                 emitted = true
                 emit(tail)
             }
-            loadedRetrievalFingerprint = request.context.retrievalFingerprint
             check(emitted) { "Runtime lokal berhenti tanpa menghasilkan token" }
+            loadedSessionId = request.context.sessionId
+            loadedRetrievalFingerprint = request.context.retrievalFingerprint
         } finally {
-            // A cancelled flow can leave partially decoded assistant tokens in native KV.
-            // Force a clean session rehydrate before the next turn.
             if (engine.state.value !is InferenceEngine.State.ModelReady || !emitted) {
                 loadedSessionId = null
                 loadedRetrievalFingerprint = null
@@ -162,13 +217,21 @@ class LocalLlamaProvider(
         }
     }
 
-    /**
-     * Clear synthetic/chat KV state while retaining already-mapped model weights.
-     *
-     * setSystemPrompt is the same native boundary used when switching sessions, so a successful
-     * blank reset removes the previous conversation without forcing a multi-gigabyte GGUF reload.
-     * Callers must fall back to unload() when false is returned.
-     */
+    override suspend fun checkpointConversation(context: AiContext, messageCount: Int) = loadMutex.withLock {
+        val modelId = loadedModelId ?: return@withLock
+        val spec = ModelCatalog.byId(modelId) ?: return@withLock
+        if (engine.state.value !is InferenceEngine.State.ModelReady) return@withLock
+        if (loadedSessionId != context.sessionId || loadedIdentityFingerprint != context.identityFingerprint) return@withLock
+        if (messageCount <= 0) return@withLock
+
+        val target = sessionCheckpointFile(spec, context, messageCount)
+        target.parentFile?.mkdirs()
+        val saved = runCatching { engine.saveCheckpoint(target.absolutePath) }.getOrDefault(false)
+        if (saved) cleanupOldSessionCheckpoints(spec, context, keep = target)
+        else target.delete()
+    }
+
+    /** Clear mutable chat state while retaining mapped weights and the prefetched SYSTEM prefix. */
     suspend fun resetConversationStateKeepingModel(): Boolean = loadMutex.withLock {
         if (loadedModelId == null || engine.state.value !is InferenceEngine.State.ModelReady) {
             loadedSessionId = null
@@ -177,9 +240,8 @@ class LocalLlamaProvider(
             return@withLock false
         }
         return@withLock try {
-            engine.setSystemPrompt("")
+            engine.resetConversationKeepingSystemPrompt()
             loadedSessionId = null
-            loadedIdentityFingerprint = null
             loadedRetrievalFingerprint = null
             true
         } catch (_: Throwable) {
@@ -202,6 +264,68 @@ class LocalLlamaProvider(
             loadedIdentityFingerprint = null
             loadedRetrievalFingerprint = null
         }
+    }
+
+    private suspend fun restorePersonaCheckpoint(spec: ModelSpec, context: AiContext): Boolean {
+        val file = personaCheckpointFile(spec, context)
+        if (!file.isFile || file.length() <= 64L) return false
+        ProcessExitDiagnostics.mark(appContext, "offline-persona-restore")
+        val restored = runCatching { engine.restoreCheckpoint(file.absolutePath) }.getOrDefault(false)
+        if (!restored) {
+            file.delete()
+            return false
+        }
+        loadedIdentityFingerprint = context.identityFingerprint
+        return true
+    }
+
+    private suspend fun restoreExactSessionCheckpoint(spec: ModelSpec, context: AiContext): Boolean {
+        if (context.sessionMessageCount <= 0) return false
+        val file = sessionCheckpointFile(spec, context, context.sessionMessageCount)
+        if (!file.isFile || file.length() <= 64L) return false
+        ProcessExitDiagnostics.mark(appContext, "offline-session-restore")
+        val restored = runCatching { engine.restoreCheckpoint(file.absolutePath) }.getOrDefault(false)
+        if (!restored) {
+            file.delete()
+            return false
+        }
+        loadedIdentityFingerprint = context.identityFingerprint
+        loadedSessionId = context.sessionId
+        loadedRetrievalFingerprint = null
+        return true
+    }
+
+    private suspend fun savePersonaCheckpoint(spec: ModelSpec, context: AiContext) {
+        val target = personaCheckpointFile(spec, context)
+        target.parentFile?.mkdirs()
+        val saved = runCatching { engine.saveCheckpoint(target.absolutePath) }.getOrDefault(false)
+        if (!saved) target.delete()
+    }
+
+    private fun checkpointIdentity(spec: ModelSpec, context: AiContext): String =
+        "${spec.sha256.take(16)}-${context.identityFingerprint.toUInt().toString(16)}-$CHECKPOINT_SCHEMA"
+
+    private fun personaCheckpointFile(spec: ModelSpec, context: AiContext): File =
+        File(checkpointDir, "persona-${checkpointIdentity(spec, context)}.bin")
+
+    private fun sessionPrefix(spec: ModelSpec, context: AiContext): String {
+        val sessionHash = context.sessionId.hashCode().toUInt().toString(16)
+        return "session-$sessionHash-${checkpointIdentity(spec, context)}-"
+    }
+
+    private fun sessionCheckpointFile(spec: ModelSpec, context: AiContext, messageCount: Int): File =
+        File(checkpointDir, "${sessionPrefix(spec, context)}$messageCount.bin")
+
+    private fun cleanupOldSessionCheckpoints(spec: ModelSpec, context: AiContext, keep: File) {
+        val prefix = sessionPrefix(spec, context)
+        checkpointDir.listFiles()?.forEach { file ->
+            if (file != keep && file.name.startsWith(prefix)) file.delete()
+        }
+    }
+
+    private fun markReady(spec: ModelSpec) {
+        ProcessExitDiagnostics.mark(appContext, "idle")
+        onState("ready", spec.id, 1.0)
     }
 
     private suspend fun waitForInitialization() {
@@ -291,7 +415,8 @@ class LocalLlamaProvider(
                             (candidate.contains("CONTEXT", ignoreCase = true) ||
                                 candidate.contains("CONTINUITY", ignoreCase = true) ||
                                 candidate.contains("STATE", ignoreCase = true) ||
-                                candidate.contains("PATTERN", ignoreCase = true))
+                                candidate.contains("PATTERN", ignoreCase = true) ||
+                                candidate.contains("REHYDRATION", ignoreCase = true))
                         val endMarker = privateMarker && candidate.contains("END", ignoreCase = true)
                         if (privateMarker) suppressPrivateBlock = !endMarker
                         else if (!suppressPrivateBlock) output.append(candidate)
