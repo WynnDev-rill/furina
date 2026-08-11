@@ -13,6 +13,9 @@ on:
       - 'scripts/**'
       - 'engineering/**'
       - '.github/workflows/furina-engineering-os.yml'
+      - '.github/workflows/build-furina-apk.yml'
+      - '.gitignore'
+      - '.env.example'
 
 permissions:
   contents: read
@@ -22,6 +25,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate public repository safety
+        run: python3 scripts/public-repo-safety-gate.py
 
       - name: Validate Engineering OS JSON
         run: |
@@ -45,6 +51,7 @@ jobs:
       - name: Compile active control-plane scripts
         run: |
           python3 -m py_compile \
+            scripts/public-repo-safety-gate.py \
             scripts/furina-company-policy-gate.py \
             scripts/furina-decision-gate.py
 
