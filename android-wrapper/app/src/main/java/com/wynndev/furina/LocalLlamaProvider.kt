@@ -29,6 +29,7 @@ class LocalLlamaProvider(
     @Volatile private var loadedSessionId: String? = null
     @Volatile private var loadedIdentityFingerprint: Int? = null
     @Volatile private var loadedRetrievalFingerprint: Int? = null
+    @Volatile private var stableIdentityPrefixReady = false
 
     override fun isWarm(model: AiModelRef, context: AiContext): Boolean =
         loadedModelId == model.id && engine.state.value is InferenceEngine.State.ModelReady
@@ -36,15 +37,10 @@ class LocalLlamaProvider(
     override suspend fun prepare(model: AiModelRef, context: AiContext) = loadMutex.withLock {
         val spec = ModelCatalog.byId(model.id) ?: error("Model lokal tidak dikenal: ${model.id}")
         if (isWarm(model, context)) {
-            // Keep native chat/KV history warm. Only session or identity changes justify
-            // rebuilding the stable bootstrap prompt. Query retrieval stays per-turn.
             if (loadedSessionId != context.sessionId || loadedIdentityFingerprint != context.identityFingerprint) {
                 ProcessExitDiagnostics.mark(appContext, "offline-prompt-rehydrate")
                 onState("prompting", spec.id, 0.85)
-                engine.setSystemPrompt(context.coldStartPrompt)
-                loadedSessionId = context.sessionId
-                loadedIdentityFingerprint = context.identityFingerprint
-                loadedRetrievalFingerprint = null
+                rehydrateWarmContext(context)
                 ProcessExitDiagnostics.mark(appContext, "idle")
                 onState("ready", spec.id, 1.0)
             }
@@ -91,6 +87,7 @@ class LocalLlamaProvider(
         loadedSessionId = context.sessionId
         loadedIdentityFingerprint = context.identityFingerprint
         loadedRetrievalFingerprint = null
+        stableIdentityPrefixReady = false
         ProcessExitDiagnostics.mark(appContext, "idle")
         onState("ready", spec.id, 1.0)
     }
@@ -139,14 +136,17 @@ class LocalLlamaProvider(
             if (engine.state.value !is InferenceEngine.State.ModelReady || !emitted) {
                 loadedSessionId = null
                 loadedRetrievalFingerprint = null
+                if (engine.state.value !is InferenceEngine.State.ModelReady) stableIdentityPrefixReady = false
             }
         }
     }.onCompletion { cause ->
         if (cause != null) {
             loadedSessionId = null
             loadedRetrievalFingerprint = null
+            if (engine.state.value !is InferenceEngine.State.ModelReady) stableIdentityPrefixReady = false
         }
         if (cause == null && engine.state.value is InferenceEngine.State.Error) {
+            stableIdentityPrefixReady = false
             throw IllegalStateException("Runtime lokal masuk ke status error setelah generasi")
         }
     }
@@ -158,9 +158,8 @@ class LocalLlamaProvider(
      * next session. Failure invalidates identity too and forces the existing full prompt fallback.
      */
     suspend fun resetConversationStateKeepingModel(): Boolean = loadMutex.withLock {
-        if (loadedModelId == null || engine.state.value !is InferenceEngine.State.ModelReady) {
+        if (loadedModelId == null || engine.state.value !is InferenceEngine.State.ModelReady || !stableIdentityPrefixReady) {
             loadedSessionId = null
-            loadedIdentityFingerprint = null
             loadedRetrievalFingerprint = null
             return@withLock false
         }
@@ -173,6 +172,7 @@ class LocalLlamaProvider(
             loadedSessionId = null
             loadedIdentityFingerprint = null
             loadedRetrievalFingerprint = null
+            stableIdentityPrefixReady = false
             false
         }
     }
@@ -187,6 +187,38 @@ class LocalLlamaProvider(
             loadedModelId = null
             loadedSessionId = null
             loadedIdentityFingerprint = null
+            loadedRetrievalFingerprint = null
+            stableIdentityPrefixReady = false
+        }
+    }
+
+    private suspend fun rehydrateWarmContext(context: AiContext) {
+        val sameIdentity = loadedIdentityFingerprint == context.identityFingerprint
+        val fastResetSucceeded = sameIdentity && stableIdentityPrefixReady && try {
+            engine.resetConversationKeepingSystemPrompt()
+            true
+        } catch (_: Throwable) {
+            stableIdentityPrefixReady = false
+            false
+        }
+
+        if (!fastResetSucceeded) {
+            engine.setSystemPrompt(context.identitySystemPrompt)
+            stableIdentityPrefixReady = true
+        }
+
+        try {
+            if (context.sessionRehydrationPrompt.isNotBlank()) {
+                engine.appendSystemContext(context.sessionRehydrationPrompt)
+            }
+            loadedSessionId = context.sessionId
+            loadedIdentityFingerprint = context.identityFingerprint
+            loadedRetrievalFingerprint = null
+        } catch (_: Throwable) {
+            stableIdentityPrefixReady = false
+            engine.setSystemPrompt(context.coldStartPrompt)
+            loadedSessionId = context.sessionId
+            loadedIdentityFingerprint = context.identityFingerprint
             loadedRetrievalFingerprint = null
         }
     }
