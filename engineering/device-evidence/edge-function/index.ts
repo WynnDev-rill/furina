@@ -5,7 +5,7 @@ const REQUEST_PATH = ".engineering/device-evidence/request.json";
 const RESULT_PREFIX = ".engineering/device-evidence/results";
 const DEVICE_PATH = ".engineering/device-evidence/device.json";
 const ENROLLMENT_PREFIX = ".engineering/device-evidence/enrollments";
-const CHALLENGE_PREFIX = ".engineering/device-evidence/challenges";
+const CHALLENGE_PATH = ".engineering/device-evidence/challenge.json";
 const SIGNAL_TOPIC = "furina-device-evidence-signal";
 const GITHUB_AUDIENCE = "furina-device-evidence";
 const GITHUB_REPOSITORY = "WynnDev-rill/furina";
@@ -282,10 +282,6 @@ function validateResult(result: unknown, request: Record<string, unknown>) {
   return record;
 }
 
-function challengePath(deviceId: string, challengeId: string) {
-  return `${CHALLENGE_PREFIX}/${deviceId}/${challengeId}.json`;
-}
-
 function enrollmentPath(commit: string) {
   return `${ENROLLMENT_PREFIX}/${commit}.json`;
 }
@@ -306,13 +302,12 @@ async function verifyDeviceCall(body: Record<string, unknown>, action: "request"
     throw new HttpError(403, "device not registered");
   }
 
-  const path = challengePath(deviceId, challengeId);
-  const challenge = await readObject(path);
-  if (!challenge || challenge.deviceId !== deviceId || challenge.nonce !== nonce) {
+  const challenge = await readObject(CHALLENGE_PATH);
+  if (!challenge || challenge.deviceId !== deviceId || challenge.challengeId !== challengeId || challenge.nonce !== nonce) {
     throw new HttpError(401, "invalid device challenge");
   }
-  if (challenge.usedAt || Date.parse(String(challenge.expiresAt)) <= Date.now()) {
-    await deleteObject(path);
+  if (Date.parse(String(challenge.expiresAt)) <= Date.now()) {
+    await deleteObject(CHALLENGE_PATH);
     throw new HttpError(401, "expired device challenge");
   }
 
@@ -327,7 +322,7 @@ async function verifyDeviceCall(body: Record<string, unknown>, action: "request"
   try {
     signature = decodeBase64(signatureEncoded);
   } catch {
-    await deleteObject(path);
+    await deleteObject(CHALLENGE_PATH);
     throw new HttpError(401, "invalid device signature encoding");
   }
   const key = await importDeviceKey(String(device.publicKeySpki));
@@ -337,7 +332,7 @@ async function verifyDeviceCall(body: Record<string, unknown>, action: "request"
     signature,
     new TextEncoder().encode(canonical),
   );
-  await deleteObject(path);
+  await deleteObject(CHALLENGE_PATH);
   if (!verified) throw new HttpError(401, "invalid device signature");
   return { deviceId, appCommit, resultRaw };
 }
@@ -464,7 +459,7 @@ Deno.serve(async (req: Request) => {
       const challengeId = randomHex(32);
       const nonce = randomHex(32);
       const expiresAt = new Date(Date.now() + CHALLENGE_TTL_MS).toISOString();
-      await writeObject(challengePath(deviceId, challengeId), {
+      await writeObject(CHALLENGE_PATH, {
         schemaVersion: 1,
         deviceId,
         challengeId,
