@@ -94,7 +94,8 @@ data class AiContext(
     }.trim()
 
     val fingerprint: Int = systemPrompt.hashCode()
-    val identityFingerprint: Int = identitySystemPrompt.hashCode()
+    // Preserve the pre-split fingerprint contract exactly; callers may use it for warm-state identity checks.
+    val identityFingerprint: Int = identityPrompt.hashCode()
     val sessionContinuityFingerprint: Int = sessionRehydrationPrompt.hashCode()
     val retrievalFingerprint: Int = listOf(relevantMemories, relevantHistory).hashCode()
 
