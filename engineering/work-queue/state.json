@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-11T21:11:00+07:00",
+  "updatedAt": "2026-08-11T22:09:00+07:00",
   "stagingBaseSha": "7a5c3efa199c7f91a87bf3c0e2d265a5a45515a9",
   "lastIntegration": null,
   "lastRelease": {
@@ -74,6 +74,28 @@
       "expectedDelta": "make stable identitySystemPrompt and mutable sessionRehydrationPrompt independently addressable while preserving coldStartPrompt output/fingerprint semantics and keeping continuity out of USER role",
       "verificationWindow": "next candidate may wire the native reset/rehydrate path only after proving a SYSTEM/background injection mechanism; MEDIUM compile/quality checks before promotion and target-device latency/continuity evidence before performance claims",
       "notes": "FAST Candidate Reviewer re-fetched exact a251d100..0de50bcd: two commits modify only AiContracts.kt (+26/-6). The first split identity and session continuity; adversarial review caught that deriving identityFingerprint from trimmed identitySystemPrompt could subtly change warm-state semantics, so the second commit restored identityFingerprint = identityPrompt.hashCode(). coldStartPrompt still composes the same trimmed identity plus the same PRIVATE SESSION REHYDRATION block, preserving the existing full-prefill fallback. sessionRehydrationPrompt is explicitly documented as SYSTEM/background material and is not moved into USER role. No LocalLlamaProvider behavior, hosted CI, APK build, merge, or latency/persona claim is included."
+    },
+    {
+      "id": "cand-20260811-22-system-background-injection-proof",
+      "createdAt": "2026-08-11T22:09:00+07:00",
+      "shiftId": "factory-v2-20260811-22-candidate",
+      "title": "Prove fail-closed SYSTEM/background session rehydrate injection path",
+      "subsystem": "local-runtime-evidence",
+      "triageClass": "T1_CRITICAL_PATH",
+      "strategicTier": "P0_UNBLOCKER",
+      "autonomyClass": "GREEN",
+      "status": "CANDIDATE",
+      "baseSha": "ab2472285c2dc7edd3558627cbcdf95ee668240a",
+      "headSha": "da20872a8b7ffdb4b158962931b27c824a23062f",
+      "validationTier": "FAST",
+      "evidenceLevel": "STATIC",
+      "dependencies": ["cand-20260811-20-system-prefix-reset-primitive", "cand-20260811-21-separate-identity-session-contract"],
+      "conflictsWith": [],
+      "rollbackBoundary": "Revert only engineering/diagnosis/system-background-injection-20260811-22.md; no runtime/product source changed.",
+      "expectedMetric": "remaining ambiguity around how to rehydrate mutable session continuity without rebuilding or contaminating the stable identity prefix",
+      "expectedDelta": "one fail-closed native/API contract: decode session continuity as a second incremental SYSTEM message after system_prompt_position, never move that boundary, and preserve a distinct USER turn",
+      "verificationWindow": "next runtime candidate encodes these invariants in the pinned AAR/provider; then MEDIUM exact-head compile/quality checks and DEVICE/BEHAVIORAL latency/session-isolation evidence before any performance claim",
+      "notes": "FAST Candidate Reviewer re-fetched exact ab247228..da20872a: one 83-line diagnosis artifact only. Cross-checks against AiContext, LocalLlamaProvider, the pinned ai_chat.cpp processSystemPrompt/processUserPrompt behavior, Furina's Jinja incremental formatter patch, and the accepted reset primitive show that a second ROLE_SYSTEM incremental decode after the stable system_prompt_position can carry session continuity and be removed by the next reset. Reviewer rejected using processSystemPrompt because it resets long-term state and advances the preserved boundary, and again rejected USER injection because confirmed C2 already identifies role contamination. Risks are explicitly bounded: consecutive SYSTEM template behavior, overflow, partial failure fingerprints, and AAR cache invalidation require implementation/MEDIUM validation. No runtime, CI, APK, latency, persona, or memory-quality improvement is claimed."
     }
   ]
 }
