@@ -1,9 +1,9 @@
 # Furina On-Demand Device Evidence Protocol
 
 ## Purpose
-Provide the engineering company with truthful target-Android local-model captures without adding a benchmark button, continuous request-data polling, GitHub credentials to the APK, or personal conversation data to engineering evidence.
+Provide the engineering company with truthful target-Android local-model captures without adding a benchmark button, continuous request-data polling, Google/Supabase user login, GitHub credentials in the APK, or personal conversation data in engineering evidence.
 
-This protocol is an evidence transport. It does not weaken `engineering/evidence/behavioral-run.schema.json`: raw device capture is not canonical BEHAVIORAL evidence until the generated outputs are independently scored and assembled into that schema.
+This protocol is an evidence transport. It does not weaken `engineering/evidence/behavioral-run.schema.json`: raw device capture is not canonical BEHAVIORAL evidence until generated outputs are independently scored and assembled into that schema.
 
 ## Request rule
 Create a device request only when current triage/review actually requires behavioral or device evidence that an installed target build can provide. Do not create speculative requests merely because an hourly shift ran.
@@ -24,37 +24,70 @@ The mutable `FURINA_LAB_STATE` object in issue #42 carries at most one `deviceEv
 
 Editing issue #42 with `status=requested` triggers `.github/workflows/furina-device-evidence.yml`. The workflow generates the model-input manifest from the exact requested commit and sends only that manifest to the device mailbox. Judge expectations never enter device input.
 
+## Official-build device enrollment
+The engineering evidence identity is independent of the user's backup/login account.
+
+For a successful non-PR `main` APK build:
+1. GitHub Actions generates a random 256-bit one-time enrollment token and masks it from Actions logs.
+2. The raw token is passed only to Gradle and embedded in that exact official APK as `BuildConfig.EVIDENCE_ENROLLMENT_TOKEN`.
+3. The workflow sends only `SHA-256(token)` plus the exact `github.sha` and expiry to the Edge Function.
+4. That control operation uses GitHub Actions OIDC with audience `furina-device-evidence`. The Edge Function accepts it only from this repository, `refs/heads/main`, and `.github/workflows/build-furina-apk.yml@refs/heads/main`, with the OIDC `sha` equal to the enrollment commit.
+5. On first evidence probe, Android creates an RSA-2048 signing key in Android Keystore and registers its public key using the one-time token. The backend consumes the enrollment for that exact commit and pins the engineering evidence identity to the device.
+
+The APK derives its stable device identifier from the application package plus Android `ANDROID_ID`, then hashes it before transport. No Google account, Supabase Auth user, email, personal profile, backup recovery key, or GitHub credential participates in enrollment.
+
+Normal APK updates preserve the Android Keystore key. A later official `main` APK can refresh exact-build enrollment for the same pinned device with a new one-time token. A different device ID is rejected by the private engineering mailbox.
+
 ## Demand-driven wake-up
-The Edge Function stores the authoritative request, then emits a Supabase Realtime Broadcast on `furina-device-evidence-signal`. The broadcast is deliberately only a generic wake signal; it carries no scenario data, target SHA, user data, credentials, or evidence payload.
+The Edge Function stores the authoritative request, then emits a Supabase Realtime Broadcast on `furina-device-evidence-signal`. The broadcast is deliberately only a generic public wake signal; it carries no scenario data, target SHA, device ID, user data, credentials, or evidence payload.
 
-An authenticated foreground Furina session subscribes to that signal. On receipt it performs one authenticated request fetch. This is event-driven request discovery, not periodic request-data polling. Lifecycle probes on app/session activation, focus, or return to foreground remain only as reconnect/missed-signal fallback.
+A foreground Furina native session subscribes to that signal using the project's public Supabase client. On receipt it asks the native evidence bridge to perform one signed request fetch. This is event-driven request discovery, not periodic request-data polling. Lifecycle probes on app activation, focus, or return to foreground remain only as reconnect/missed-signal fallback.
 
-If Furina is fully closed or Android suspends the WebView, Realtime is not treated as a guaranteed background wake mechanism. The stored request remains authoritative and is discovered automatically the next time the native session becomes active. No button is required.
+If Furina is fully closed or Android suspends the WebView, Realtime is not treated as a guaranteed background wake mechanism. The stored request remains authoritative and is discovered automatically the next time the native session becomes active. No benchmark button or user login is required.
+
+## Device request/result authentication
+Request fetch and result upload use a short-lived challenge rather than a reusable bearer credential.
+
+For each operation the registered device obtains a random challenge from the Edge Function and signs a canonical message with its Android Keystore private key. The signature binds:
+- protocol domain;
+- operation (`request` or `result`);
+- hashed device identifier;
+- challenge ID and nonce;
+- exact APK commit;
+- SHA-256 of the raw result payload for uploads.
+
+The backend verifies the signature against the pinned public key and consumes the challenge. A valid signature still does not bypass provenance checks: a request is returned only when its `targetCommit` matches the installed APK commit, and a result must match that same request/commit/benchmark version.
+
+No long-lived server secret, service-role key, GitHub token, private key, or user access token is embedded in the APK.
 
 ## Device behavior
-When no active request exists, the APK performs no benchmark and no periodic evidence fetch. A foreground authenticated session may keep the lightweight Realtime signal subscription open; no model run or request payload transfer occurs until a request signal or lifecycle fallback probe happens.
+When no active request exists, the APK performs no benchmark and no periodic evidence-data fetch. A foreground session may keep the lightweight public Realtime signal subscription open; no model run or request payload transfer occurs until a request signal or lifecycle fallback probe happens.
 
-When an authenticated owner device receives a valid active request:
+When the pinned device receives a valid active request:
 - wait for a user-idle window;
 - cancel/defer if the user interacts;
+- never cancel an ordinary Furina generation merely to collect evidence;
 - require exact `targetCommit == BuildConfig.GIT_SHA`;
 - require the selected local model to be installed;
 - run only the synthetic scenario setup and latest user turn;
 - bypass `UnifiedAiEngine.generate()` so synthetic turns are never persisted into user conversation/memory/relationship maintenance;
 - discard all persistence-derived continuity fields before inference;
+- isolate every scenario with an explicit throwaway native session boundary followed by the exact scenario session, forcing `setSystemPrompt`/chat-KV reset while reusing loaded GGUF weights;
 - unload native benchmark state after capture;
 - upload raw generated outputs plus bounded runtime metadata and explicit privacy flags.
 
-No UI, notification, or chat message is created by the evidence agent.
+If result upload temporarily fails, the web agent retries the already-produced raw report instead of spending another local-model run only because transport failed.
+
+No UI, notification, chat message, or benchmark conversation is created by the evidence agent.
 
 ## Transport trust boundary
-The APK uses the existing Furina backup Supabase session; no GitHub credential or Supabase admin credential is placed in the client. If no authorized session exists, the evidence agent stays inert.
+The build workflow authenticates enrollment setup with GitHub Actions OIDC. The engineering control workflow authenticates request/collect operations with a separately bound GitHub Actions OIDC provenance. The device authenticates request/result operations with its Android Keystore key. These authorities are intentionally separate.
 
-The control workflow authenticates to the Edge Function with GitHub Actions OIDC bound to this repository, the main-branch device-evidence workflow, and the `furina-device-evidence` audience. The Edge Function keeps request/result objects in a private engineering prefix that normal client RLS cannot read directly.
+The Edge Function stores enrollment records, the pinned device public key, request/result objects, and short-lived challenges under a private engineering prefix in the existing private storage bucket. Normal clients do not receive service-role access to that prefix.
 
-The Realtime wake channel is public because its payload contains only `{ "signal": true }`. Public visibility of that generic signal grants no request access: request fetch and result upload still require the authorized Furina Supabase user session, while engineering control operations still require the bound GitHub OIDC identity.
+The Realtime wake channel is public because its payload contains only `{ "signal": true }`. Public visibility of that generic signal grants no request or evidence access; those still require the registered device signature and exact-build match.
 
-Never put API keys, auth tokens, recovery keys, personal messages, memory rows, or user identifiers in evidence artifacts/comments.
+Never put API keys, raw enrollment tokens, auth tokens, recovery keys, personal messages, memory rows, or user identifiers in evidence artifacts/comments.
 
 ## Capture result
 The raw result must bind:
@@ -78,7 +111,7 @@ A ready capture is published as a GitHub Actions artifact with a `FURINA_DEVICE_
 
 If an Actions wait window ends before the device responds, keep the same non-expired request in issue #42. A later issue-state update re-enters the idempotent request/collect workflow; an already completed backend result is collected instead of rerunning the device benchmark.
 
-After scoring the raw outputs against the canonical judge manifest, create a schema-valid behavioral record only if all required provenance/evidence conditions are satisfied. A device capture for an older installed build can diagnose that build but cannot approve a newer behavioral change.
+After scoring raw outputs against the canonical judge manifest, create a schema-valid behavioral record only if all required provenance/evidence conditions are satisfied. A device capture for an older installed build can diagnose that build but cannot approve a newer behavioral change.
 
 ## Failure behavior
-Missing auth, model unavailable, target SHA mismatch, expired request, timeout, malformed output, checksum mismatch, moved provenance, unavailable artifact, or control-plane signal failure all fail closed. Record the blocker/recheck condition; do not fabricate outputs or downgrade the evidence requirement.
+Missing/invalid device enrollment, invalid challenge/signature, model unavailable, target SHA mismatch, expired request, timeout, malformed output, checksum mismatch, moved provenance, unavailable artifact, or control-plane signal failure all fail closed. Record the blocker/recheck condition; do not fabricate outputs or downgrade the evidence requirement.
