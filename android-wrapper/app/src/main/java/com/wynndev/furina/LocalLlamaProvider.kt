@@ -68,9 +68,6 @@ class LocalLlamaProvider(
             }
         }
 
-        // llama.cpp's Android binding is designed to load through an app-private file path.
-        // Existing installs are migrated once from external/FUSE-backed storage without a
-        // redownload; the copy is hashed while streaming and source removal happens last.
         ProcessExitDiagnostics.mark(appContext, "offline-storage-migrate")
         val file = withContext(Dispatchers.IO) {
             modelDownloads.ensureRuntimeModel(spec) { done, total ->
@@ -106,16 +103,10 @@ class LocalLlamaProvider(
         val retrievalChanged = loadedRetrievalFingerprint != request.context.retrievalFingerprint
 
         val turnContext = buildString {
-            if (request.context.runtimeContext.isNotBlank()) {
-                appendLine(request.context.runtimeContext.trim())
-            }
-            if (retrievalChanged && request.context.retrievalPrompt.isNotBlank()) {
-                appendLine(request.context.retrievalPrompt.trim())
-            }
+            if (request.context.runtimeContext.isNotBlank()) appendLine(request.context.runtimeContext.trim())
+            if (retrievalChanged && request.context.retrievalPrompt.isNotBlank()) appendLine(request.context.retrievalPrompt.trim())
         }.trim().take(1_600)
 
-        // The native API accepts one user-role message. Keep background context short,
-        // explicitly non-commanding, and place the real current user message last.
         val effectiveMessage = if (turnContext.isBlank()) {
             request.userMessage
         } else {
@@ -145,8 +136,6 @@ class LocalLlamaProvider(
             loadedRetrievalFingerprint = request.context.retrievalFingerprint
             check(emitted) { "Runtime lokal berhenti tanpa menghasilkan token" }
         } finally {
-            // A cancelled flow can leave partially decoded assistant tokens in native KV.
-            // Force a clean session rehydrate before the next turn.
             if (engine.state.value !is InferenceEngine.State.ModelReady || !emitted) {
                 loadedSessionId = null
                 loadedRetrievalFingerprint = null
@@ -163,11 +152,10 @@ class LocalLlamaProvider(
     }
 
     /**
-     * Clear synthetic/chat KV state while retaining already-mapped model weights.
-     *
-     * setSystemPrompt is the same native boundary used when switching sessions, so a successful
-     * blank reset removes the previous conversation without forcing a multi-gigabyte GGUF reload.
-     * Callers must fall back to unload() when false is returned.
+     * Clear mutable USER/ASSISTANT chat state while retaining mapped model weights and the
+     * already-prefilled SYSTEM prefix. A successful reset deliberately preserves the identity
+     * fingerprint; session/retrieval fingerprints are invalidated so callers must rehydrate the
+     * next session. Failure invalidates identity too and forces the existing full prompt fallback.
      */
     suspend fun resetConversationStateKeepingModel(): Boolean = loadMutex.withLock {
         if (loadedModelId == null || engine.state.value !is InferenceEngine.State.ModelReady) {
@@ -177,9 +165,8 @@ class LocalLlamaProvider(
             return@withLock false
         }
         return@withLock try {
-            engine.setSystemPrompt("")
+            engine.resetConversationKeepingSystemPrompt()
             loadedSessionId = null
-            loadedIdentityFingerprint = null
             loadedRetrievalFingerprint = null
             true
         } catch (_: Throwable) {
@@ -214,7 +201,6 @@ class LocalLlamaProvider(
         if (engine.state.value is InferenceEngine.State.Error) unload()
     }
 
-    /** Fallback guard if a GGUF emits hidden reasoning despite non-thinking template settings. */
     private class ReasoningStreamFilter {
         private enum class Mode { UNDECIDED, THINKING, ANSWER }
         private var mode = Mode.UNDECIDED
