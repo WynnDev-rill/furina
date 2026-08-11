@@ -139,8 +139,8 @@ async function writeObject(path: string, body: unknown) {
   const serialized = JSON.stringify(body);
   const { error } = await adminClient().storage.from(BUCKET).upload(
     path,
-    new Blob([serialized], { type: "application/json" }),
-    { upsert: true, contentType: "application/json", cacheControl: "0" },
+    new Blob([serialized], { type: "application/octet-stream" }),
+    { upsert: true, contentType: "application/octet-stream", cacheControl: "0" },
   );
   if (error) throw error;
 }
