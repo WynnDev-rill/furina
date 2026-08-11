@@ -25,6 +25,12 @@ class UnifiedAiEngine(
     private val contextEngine: ContextEngine,
     private val providers: Map<String, AiProvider>,
 ) {
+    companion object {
+        // Full llama.cpp sequence snapshots can be large. Persona KV is saved separately once;
+        // exact session KV is only an opportunistic accelerator, never the source of truth.
+        private const val SESSION_CHECKPOINT_EVERY_MESSAGES = 8
+    }
+
     private val maintenanceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var maintenanceJob: Job? = null
 
@@ -104,15 +110,19 @@ class UnifiedAiEngine(
         val durableMessageCount = store.messageCountForSession(sessionId)
         val checkpointContext = context.copy(sessionMessageCount = durableMessageCount)
 
-        // KV checkpointing, summary compaction and reflection are idle work. They never delay
-        // the visible completion callback; a new user turn cancels the pending snapshot before
-        // native generation mutates the same llama.cpp state.
+        // Full session KV is intentionally sparse because the binary sequence state can be
+        // tens/hundreds of MB. Missing snapshots are harmless: cold start restores the compact
+        // persona KV and rehydrates continuity from SQLite. Snapshotting never delays streaming.
+        val shouldCheckpointSession = activeProvider.capabilities.offline &&
+            durableMessageCount >= SESSION_CHECKPOINT_EVERY_MESSAGES &&
+            durableMessageCount % SESSION_CHECKPOINT_EVERY_MESSAGES == 0
         scheduleIdleMaintenance(
             sessionId = sessionId,
             userText = userText,
             activeProvider = activeProvider,
             checkpointContext = checkpointContext,
             durableMessageCount = durableMessageCount,
+            shouldCheckpointSession = shouldCheckpointSession,
         )
 
         val finishedAt = SystemClock.elapsedRealtime()
@@ -149,16 +159,17 @@ class UnifiedAiEngine(
         activeProvider: AiProvider,
         checkpointContext: AiContext,
         durableMessageCount: Int,
+        shouldCheckpointSession: Boolean,
     ) {
         maintenanceJob?.cancel()
         lateinit var job: Job
         job = maintenanceScope.launch {
             try {
                 delay(6_000L)
-                // Snapshot first: it represents exactly the durable conversation that produced
-                // this reply. A later summary update does not change message count or native KV.
-                runCatching {
-                    activeProvider.checkpointConversation(checkpointContext, durableMessageCount)
+                if (shouldCheckpointSession) {
+                    runCatching {
+                        activeProvider.checkpointConversation(checkpointContext, durableMessageCount)
+                    }
                 }
                 runCatching { contextEngine.runMaintenance(sessionId, userText) }
                 runCatching { store.updateSessionSummary(sessionId) }
