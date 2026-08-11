@@ -12,6 +12,7 @@ on:
       - 'scripts/overlays/**'
       - 'scripts/apply-companion-runtime-policy.py'
       - 'scripts/apply-offline-stability-policy.py'
+      - 'scripts/public-repo-safety-gate.py'
       - '.agents/**'
       - 'package.json'
       - 'package-lock.json'
@@ -23,10 +24,13 @@ on:
       - 'scripts/overlays/**'
       - 'scripts/apply-companion-runtime-policy.py'
       - 'scripts/apply-offline-stability-policy.py'
+      - 'scripts/public-repo-safety-gate.py'
       - '.agents/**'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/build-furina-apk.yml'
+      - '.gitignore'
+      - '.env.example'
 
 permissions:
   contents: read
@@ -47,6 +51,9 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Validate public repository safety
+        run: python3 scripts/public-repo-safety-gate.py
+
       - name: Set up Node 22
         uses: actions/setup-node@v4
         with:
@@ -55,6 +62,7 @@ jobs:
 
       - name: Validate web companion route
         run: |
+          cp .env.example .env
           npm install --no-audit --no-fund --prefer-offline
           npm run build
           test -s src/routes/native.tsx
@@ -199,9 +207,15 @@ jobs:
           gradle-version: '8.14.3'
 
       - name: Restore stable Furina signing key
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         working-directory: android-wrapper
+        env:
+          FURINA_RELEASE_KEYSTORE_B64: ${{ secrets.FURINA_RELEASE_KEYSTORE_B64 }}
         run: |
-          base64 --decode furina-release.jks.b64 > app/furina-release.jks
+          set -euo pipefail
+          test -n "$FURINA_RELEASE_KEYSTORE_B64"
+          printf '%s' "$FURINA_RELEASE_KEYSTORE_B64" | base64 --decode > app/furina-release.jks
+          chmod 600 app/furina-release.jks
           test -s app/furina-release.jks
 
       - name: Prepare device evidence enrollment
@@ -216,13 +230,31 @@ jobs:
           echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
           echo "token_hash=$HASH" >> "$GITHUB_OUTPUT"
 
+      - name: Validate Android build for external fork
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        working-directory: android-wrapper
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p app/src/main/res/drawable
+          cp ../public/icon-192.png app/src/main/res/drawable/furina_icon.png
+          gradle --no-daemon --stacktrace --build-cache lintRelease assembleDebug 2>&1 | tee ../gradle-build.log
+
       - name: Build stable signed Furina APK
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         working-directory: android-wrapper
         shell: bash
         env:
           FURINA_GIT_SHA: ${{ github.sha }}
           FURINA_EVIDENCE_ENROLLMENT_TOKEN: ${{ steps.evidence-enrollment.outputs.token }}
+          FURINA_KEYSTORE_PASSWORD: ${{ secrets.FURINA_KEYSTORE_PASSWORD }}
+          FURINA_KEY_ALIAS: ${{ secrets.FURINA_KEY_ALIAS }}
+          FURINA_KEY_PASSWORD: ${{ secrets.FURINA_KEY_PASSWORD }}
         run: |
+          set -euo pipefail
+          test -n "$FURINA_KEYSTORE_PASSWORD"
+          test -n "$FURINA_KEY_ALIAS"
+          test -n "$FURINA_KEY_PASSWORD"
           set -o pipefail
           mkdir -p app/src/main/res/drawable
           cp ../public/icon-192.png app/src/main/res/drawable/furina_icon.png
@@ -238,6 +270,7 @@ jobs:
           retention-days: 14
 
       - name: Verify stable APK identity, signing, and permissions
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         run: |
           APK=android-wrapper/app/build/outputs/apk/release/app-release.apk
           test -s "$APK"
@@ -254,6 +287,7 @@ jobs:
           ls -lh Furina-Stable.apk
 
       - name: Upload Furina stable APK
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/upload-artifact@v4
         with:
           name: Furina-Stable-${{ github.run_number }}

@@ -15,8 +15,20 @@ dist-ssr
 .nitro
 *.local
 
-# Generated Android signing material
+# Local environment files. Commit only the documented public example.
+.env
+.env.*
+!.env.example
+
+# Android signing/private-key material must never be committed.
 android-wrapper/app/furina-release.jks
+android-wrapper/furina-release.jks.b64
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
 
 # Wrangler / Cloudflare
 .wrangler/
