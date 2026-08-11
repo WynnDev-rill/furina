@@ -21,7 +21,7 @@ Read:
 - applicable evidence/calibration/device protocols
 - issue #42
 
-The **canonical mutable copy of `engineering/work-queue/state.json` is always read from `company/staging` when that branch exists**. The copy on `main` is only the last released snapshot and may intentionally lag.
+The **canonical mutable copy is always read from `company/staging`** when that branch exists; specifically, `engineering/work-queue/state.json` on that branch is authoritative. The copy on `main` is only the last released snapshot and may intentionally lag.
 
 ## Mode selection
 
@@ -39,7 +39,7 @@ Use the next hourly boundary:
 - `checkpoint`: 5–12 minutes;
 - `hardStop`: <5 minutes.
 
-Time shortage cancels the attempt, not the work. Acquire issue #42 lease before mutating staging/release state; never overlap a valid lease.
+Time shortage cancels the attempt, not the work. Acquire a shift lease in issue #42 before mutating staging/release state; never overlap a valid lease.
 
 ## Common reconciliation
 
