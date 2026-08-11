@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-11T19:12:00+07:00",
+  "updatedAt": "2026-08-11T20:13:00+07:00",
   "stagingBaseSha": "7a5c3efa199c7f91a87bf3c0e2d265a5a45515a9",
   "lastIntegration": null,
   "lastRelease": {
@@ -30,6 +30,28 @@
       "expectedDelta": "one evidence-grounded native-prefix-reuse direction; explicitly reject moving session continuity into latest USER payload",
       "verificationWindow": "next runtime implementation candidate, then MEDIUM exact-head CI and target-device warm-prepare/continuity comparison before any product-improvement claim",
       "notes": "FAST Candidate Reviewer re-fetched 2465e181..fd41ec4d: exactly one 53-line diagnosis artifact added, no runtime/source behavior changed. Static claims were cross-checked against LocalLlamaProvider.prepare/resetConversationStateKeepingModel, AiContext.coldStartPrompt, InferenceEngineImpl.setSystemPrompt, and native processSystemPrompt reset behavior. Accepted as P0 evidence/unblocker only; it does not claim latency or behavioral improvement. Candidate Reviewer challenged the simpler shortcut of moving rehydration into USER context and rejected it because confirmed C2 already shows role contamination risk."
+    },
+    {
+      "id": "cand-20260811-20-system-prefix-reset-primitive",
+      "createdAt": "2026-08-11T20:13:00+07:00",
+      "shiftId": "factory-v2-20260811-20-candidate",
+      "title": "Replace impossible blank reset with a real native SYSTEM-prefix reset primitive",
+      "subsystem": "local-runtime",
+      "triageClass": "T1_CRITICAL_PATH",
+      "strategicTier": "P0_UNBLOCKER",
+      "autonomyClass": "YELLOW",
+      "status": "CANDIDATE",
+      "baseSha": "02f7707f054b74acc86ffcd59fb24919b486b6dd",
+      "headSha": "fd7cb6b170cfb4e0616be39b2db4bab1158b0417",
+      "validationTier": "FAST",
+      "evidenceLevel": "STATIC",
+      "dependencies": ["cand-20260811-19-warm-rehydrate-diagnosis"],
+      "conflictsWith": [],
+      "rollbackBoundary": "Revert fd7cb6b..652f27e implementation commits as one package; existing full setSystemPrompt(coldStartPrompt) session-switch path remains unchanged and is the fail-closed behavior.",
+      "expectedMetric": "native conversation-reset correctness and readiness for later stable-prefix session rehydrate work",
+      "expectedDelta": "remove the guaranteed blank-setSystemPrompt failure; retain prefetched SYSTEM KV and mapped weights while clearing USER/ASSISTANT KV/chat state, without claiming ordinary session-switch latency improvement yet",
+      "verificationWindow": "MEDIUM exact-head AAR/app compile plus deterministic quality checks; then target-device benchmark cleanup/session-isolation evidence before using the primitive for ordinary session switching or making latency claims",
+      "notes": "FAST Candidate Reviewer re-fetched exact 02f7707f..fd7cb6b range: three implementation commits touch only LocalLlamaProvider, bootstrap wiring, and a fail-closed pinned-source patch script. The patch extends upstream InferenceEngine, adds a JNI reset that refuses missing SYSTEM boundaries, trims template chat history to SYSTEM only, removes KV strictly after system_prompt_position, resets short-term/sampler state, and makes LocalLlamaProvider preserve identity fingerprint only on successful reset. Adversarial review rejected treating this as the complete warm-rehydrate fix: current coldStartPrompt still mixes identity with session continuity, so ordinary prepare() intentionally remains on full setSystemPrompt for session changes. The candidate fixes the previously impossible reset prerequisite only. The new patch script is transitively cache-invalidated now because bootstrap changed; future edits to that script should also update bootstrap or the APK cache key/path list. No hosted CI/APK/device claim was made."
     }
   ]
 }
