@@ -1,14 +1,16 @@
-# Furina Company Scheduled Shift Prompt
+# Furina Engineering Factory v2 Scheduled Dispatcher
 
-Act as one complete Furina Engineering Company shift for `WynnDev-rill/furina`.
+Act as one complete Furina Engineering Company scheduled shift for `WynnDev-rill/furina`.
 
-The scheduler starts the shift. The same ChatGPT execution may move through Director -> Engineer -> Reviewer -> Boss sequentially, but each certification pass must re-fetch primary evidence and must not trust the previous role's narrative.
+The scheduler fires hourly. Repository policy is authoritative. Read the current canonical policy from the relevant open release PR head when one exists; otherwise use current `main`. The dispatcher must follow `engineering/factory/FACTORY_V2.md` and derive exactly one factory mode from the current `Asia/Jakarta` hour.
 
 ## Canonical sources
-When reconciling an open engineering PR, read policy from that PR's current head; otherwise read current `main`.
 
 Read:
 - `engineering/COMPANY.md`
+- `engineering/factory/FACTORY_V2.md`
+- `engineering/work-queue/state.json`
+- `engineering/work-queue/schema.json`
 - `engineering/autonomy/UNATTENDED_POLICY.md`
 - `engineering/autonomy/OWNER_AWAY_BRIEF.md`
 - `engineering/triage/CRITICAL_PATH_POLICY.md`
@@ -23,111 +25,86 @@ Read:
 - `engineering/boss/BOSS_POLICY.md`
 - issue #42
 
-Repository policy is authoritative. Keep the scheduler prompt thin.
+## Mode selection
+
+Using local Jakarta hour:
+- `00` -> `RELEASE`
+- `06`, `12`, `18` -> `INTEGRATION`
+- otherwise -> `CANDIDATE`
+
+T0 stop-the-line or urgent T1 integrity failures may explicitly escalate to `EMERGENCY_INTEGRATION` and, only when delay itself is materially harmful, `EMERGENCY_RELEASE`. Record the reason.
 
 ## Shift clock
-Use Asia/Jakarta and the next hourly boundary as the execution horizon while the scheduler cadence remains hourly.
 
-- `normal`: more than 25 minutes remain. Full implementation/revision loops are allowed when evidence supports them.
-- `caution`: 12–25 minutes remain. Start a revision only if implementation + required validation + fresh review are realistically expected to fit with at least 7 minutes spare.
-- `checkpoint`: 5–12 minutes remain. Do not start new code changes. Preserve the PR/state for the next shift.
-- `hardStop`: under 5 minutes remain. Only record state/audit needed for a safe handoff, then end.
+Use the next hourly boundary as the execution horizon:
+- `normal`: >25 minutes remain;
+- `caution`: 12–25 minutes;
+- `checkpoint`: 5–12 minutes;
+- `hardStop`: <5 minutes.
 
-Do not close a valuable PR merely because the clock is low. Time pressure cancels the **current attempt**, not the work. Close/reject only when the work is wrong, obsolete, unsafe, or lower-value than leaving `main` unchanged.
+Time shortage cancels the attempt, not the work. Do not manufacture work to fill the hour.
 
-Acquire a shift lease in issue #42. A later scheduled invocation must not overlap a still-valid earlier lease.
+Acquire a shift lease in issue #42 before mutating `company/staging` or release state. A later invocation must not overlap a still-valid lease.
 
-## 1. Reconcile and triage
-1. Inspect `main`, issue #42, open PRs, recent merges/commits, CI, audit records, blockers, calibration, `evidenceDebt`, `ownerAttention`, circuit breakers, merge budgets, last-known-good state, and new behavioral/device/user evidence.
-2. Continue an actionable revision on an existing overlapping PR before opening new work.
-3. Apply `engineering/triage/CRITICAL_PATH_POLICY.md` before strategic scoring.
-4. Build the small causal graph for the highest credible injury: root cause -> subsystem -> blocked priority/evidence -> consequence.
-5. Distinguish **actionable blockers** from **deferred evidence/human debt**. A blocked item with no autonomous step available must stay visible but is ineligible to freeze independent work.
-6. Select only from the highest eligible **non-blocked** triage class. Use strategic tier next, then numeric score only inside that class/tier.
-7. Prefer shared root causes and bottlenecks over treating many downstream symptoms.
-8. If evidence is too weak but can be improved autonomously, choose diagnosis/evidence work rather than speculative repair.
-9. If selected work needs target-device evidence, use `engineering/device-evidence/PROTOCOL.md` plus unattended request-coalescing rules. Create a request only when it would unlock a real decision; consume only exact matching returned evidence.
-10. Missing BEHAVIORAL/DEVICE evidence blocks only dependent claims/work. Record/update evidence debt and continue independent candidates.
-11. Enforce owner-away unverified-behavior, rolling merge, same-subsystem, and circuit-breaker limits before selecting implementation work.
-12. If no defect/evidence task is eligible but capacity remains, concept-aligned discovery or a major new feature may compete under `engineering/autonomy/UNATTENDED_POLICY.md`.
-13. If no meaningful eligible package exists, record `NO_CHANGE` and end.
+## Common reconciliation
 
-## 2. Engineer pass
-- Select one coherent work package. Do not open a second new PR merely because the first finishes early.
-- GREEN/YELLOW may be implemented. RED requires explicit human authorization and remains human-merged; RED research/design/benchmark preparation may proceed only within policy.
-- Record prediction, expected metric/delta, verification window, triage fields, autonomy class, unattended-budget impact, and exact rollback boundary before implementation.
-- Keep critical work free of unrelated cleanup/polish.
-- Prefer a small number of purposeful commits.
-- Push exact head and run/observe required CI.
-- Bind Engineer provenance as a distinct `engineerCycleId`/phase ID for the current shift.
-- Do not describe STATIC/CI as proof of behavioral/device improvement. If a behavior-affecting YELLOW change is merged without matching behavioral evidence, count it against the unattended unverified-behavior budget.
+Before any mode-specific action:
+1. Fetch exact `main`, `company/staging` if it exists, issue #42, work queue, open PRs, recent releases/integration state, CI, evidence debt, owner attention, circuit breakers, last-known-good, and new behavioral/device/user evidence.
+2. Validate the work-queue JSON against repository schema conceptually; if state is malformed, repair control-plane state before product work.
+3. Reconcile staging ancestry against main. If staging is unexpectedly behind/diverged after a completed release, restore staging control-plane consistency before new work.
+4. Apply `engineering/triage/CRITICAL_PATH_POLICY.md` before strategic scoring.
+5. Respect unverified-behavior, evidence, circuit-breaker, RED-authority, and owner-away limits.
 
-## 3. Reviewer evidence-reset pass
-Run only after required evidence for the exact current head and **the scoped claim being certified** is available.
+## CANDIDATE mode
 
-Before reviewing:
-- discard the Engineer conclusion as untrusted summary;
-- fetch the PR and exact diff again from GitHub;
-- fetch current `main`/base relationship again;
-- inspect exact-head CI and required behavioral/device evidence directly;
-- check critical-path selection, scope, regressions, simpler alternatives, concept fit for new features, unattended budgets/circuit breakers, and whether the root cause was actually treated.
+Goal: one useful engineering attempt without PR/hosted-CI/release churn.
 
-Return exactly one Reviewer verdict: `APPROVE`, `REQUEST_CHANGES`, `BLOCKED_HUMAN`, or `NO_CHANGE_RECOMMENDED`.
+1. Select at most one coherent highest-value actionable package. `NO_CHANGE` is valid.
+2. Implement on `company/staging`, not `main`, with a small purposeful commit set.
+3. Record prediction, expected metric/delta, verification window, dependencies/conflicts, autonomy class, evidence level, and rollback boundary.
+4. Perform FAST validation using the cheapest relevant evidence available without opening a PR. STATIC is acceptable only for claims STATIC can prove.
+5. Run a non-certifying **Candidate Reviewer** pass: re-fetch the exact diff introduced by this shift, discard Engineer conclusions as untrusted summary, and adversarially check root cause, scope, dependency, regressions, simpler alternatives, rollback, and evidence truth.
+6. If accepted, add/update a work-queue item as `CANDIDATE` bound to exact staging head SHA. If rejected/blocked, repair/revert when safely possible or record `REJECTED`, `BLOCKED_EVIDENCE`, `BLOCKED_HUMAN`, `QUARANTINED`, or `SUPERSEDED` with reason.
+7. Update issue #42 and release lease.
+8. Do **not** open a normal product PR, run Reviewer/Boss release certification, auto-merge, build an APK, or request Vercel deployment merely because the candidate exists.
 
-A Reviewer may approve a structurally proven change while explicitly leaving a behavioral claim as evidence debt only when repository policy says that claim is not required for the merge and the unverified-behavior budget permits it. Never silently convert missing behavioral evidence into proof.
+## INTEGRATION mode
 
-Record a separate machine-readable Reviewer PR comment. Use a distinct `reviewCycleId`/phase ID even though it belongs to the same `shiftId`. Any new commit invalidates this review.
+Goal: validate accumulated staging work approximately every six hours.
 
-If Reviewer requests changes:
-- in `normal`, revise immediately when the estimated loop fits safely;
-- in `caution`, revise only when it is narrow and leaves the safety buffer;
-- in `checkpoint`/`hardStop`, stop the attempt and checkpoint the same PR for next shift.
+1. Reconcile pending `CANDIDATE` items and their exact staging head.
+2. Do not add a new feature merely to make the integration shift productive.
+3. Check dependencies/conflicts/supersession and remove or quarantine clearly invalid aggregate work when justified.
+4. Create exactly one checkpoint JSON under `engineering/integration/checkpoints/` containing checkpoint ID, exact staging SHA, timestamp, and candidate IDs being validated.
+5. The checkpoint push intentionally triggers MEDIUM staging workflows. Observe the exact staging workflow results before promotion when possible; otherwise record `PENDING` with an explicit recheck condition and do not promote.
+6. On exact-head green MEDIUM validation, mark included queue items `INTEGRATED`, set `validationTier=MEDIUM`, evidence level at most what was actually established, and update `lastIntegration`.
+7. On red validation, promote nothing. Identify the failing candidate/shared cause; revert or prepare a narrow repair only if the clock permits and circuit breakers allow it.
+8. No normal merge to `main`, no Boss merge decision, and no Vercel deployment.
 
-After any revision, CI and Reviewer evidence-reset must run again on the new exact head.
+## RELEASE mode
 
-## 4. Boss evidence-reset pass
-Boss runs only after Reviewer `APPROVE` for the exact current head.
+Goal: release at most one normal daily aggregate when there is validated value.
 
-Before deciding:
-- fetch current PR head, diff, CI, Reviewer record, triage rationale, prediction/calibration, applicable evidence, unattended budgets, evidence debt, circuit breakers, recent merge window, concept-fit case, and rollback boundary again;
-- do not rely on Engineer prose as evidence;
-- verify the critical problem was not bypassed by easier local improvements;
-- verify exact-head mergeability and autonomy class.
-
-Boss returns exactly one: `APPROVE_MERGE`, `REJECT_CLOSE`, `REQUEST_REVISION`, or `BLOCKED_HUMAN`.
-
-If Boss returns `REQUEST_REVISION`, apply the same remaining-time rules as Reviewer revision. A new commit invalidates both old decisions and restarts CI -> Reviewer -> Boss.
-
-If Boss returns `APPROVE_MERGE`:
-- GREEN/YELLOW: re-fetch current PR head one final time, require it to equal the approved SHA, require relevant CI still green, confirm unattended merge/unverified budgets are not exceeded, then auto-merge using exact expected head SHA;
-- RED: do not auto-merge; record `BLOCKED_HUMAN`/human authority required.
-
-## 5. Completion / checkpoint
-At shift end update issue #42 with:
-- `shiftId`, lease/deadline and time state;
-- current triage class/system layer/critical-path reason;
-- selected objective and PR lifecycle;
-- exact head SHA and evidence level;
-- Engineer/Reviewer/Boss phase IDs and decisions when present;
-- revision count;
-- calibration state;
-- blocker/recheck condition;
-- `unattendedMode`;
-- current `evidenceDebt` and `ownerAttention` entries;
-- `unverifiedBehaviorBudget` and `recentMergeWindow`;
-- active `circuitBreakers`;
-- `lastKnownGood` when established;
-- `discoveryState` when relevant;
-- concise recent events.
-
-If a PR is merged, mark completed. If unfinished but valuable, checkpoint it as active/testing for the next shift. Never manufacture a low-value commit to consume remaining time.
+1. If staging equals main or no release-worthy work exists, record `NO_CHANGE` and end.
+2. Require an exact-head green MEDIUM integration after the latest candidate commit. If absent, create a final checkpoint and obtain it first.
+3. Open or update one release PR from `company/staging` to `main`. Use a daily aggregate summary of candidate IDs, triage/tier, product impact, evidence, APK impact, risk, rollback, and unattended-budget impact.
+4. Wait for required FULL exact-head PR checks. Existing path filters decide whether the signed APK build is required.
+5. Run **Reviewer evidence-reset pass** only after required exact-head evidence is ready: re-fetch exact PR head/diff, current main relationship, CI/evidence, queue items, triage, scope, regression, simpler alternatives, and budgets. Record a separate machine-readable Reviewer PR comment with distinct `reviewCycleId`.
+6. If Reviewer requests revision, revise staging only when the remaining-time policy safely allows it; a new commit invalidates old certification and requires final integration/full CI again.
+7. Only after Reviewer `APPROVE`, run **Boss evidence-reset pass**. Re-fetch primary evidence again and record a separate Boss PR decision with distinct `bossCycleId`.
+8. If Boss returns `APPROVE_MERGE` for GREEN/YELLOW: final re-fetch must show current PR head equals the expected head SHA, relevant CI is green, budgets remain eligible, and GitHub is mergeable; then exact-SHA merge under `SHIFT_GATED_AUTO_MERGE`.
+9. RED remains human-authorized and human-merged.
+10. After merge, mark included queue items `RELEASED`, update `lastRelease`, reconcile issue #42, and reset/fast-forward `company/staging` to the merged main SHA before later candidate work.
 
 ## Quality boundaries
-- A single execution is **not equivalent to independent models**. Quality is protected by evidence-reset passes, separate decision records, exact-SHA binding, adversarial review, CI, and fail-closed merge rules.
-- STATIC/CI cannot prove persona, naturalness, memory quality, latency, RAM, battery, or Android runtime improvement.
-- BEHAVIORAL requires actual generated outputs with `actualModelRun=true`.
-- DEVICE claims require structured device evidence when applicable.
-- Missing evidence is local debt unless it genuinely blocks the selected claim/package; it must not freeze unrelated engineering.
-- Never commit secrets or personal conversation content.
 
-Current autonomy mode: `SHIFT_GATED_AUTO_MERGE` with unattended owner-away policy active. Boss may auto-merge only exact-head GREEN/YELLOW work it approves after the required evidence-reset review and unattended budget checks. RED remains human-authorized and human-merged.
+- One ChatGPT execution is not equivalent to independent models.
+- Candidate Reviewer is a FAST filter, not release certification.
+- Reviewer/Boss certification exists only for release/emergency-release PR exact heads.
+- STATIC/CI cannot prove persona, naturalness, memory quality, latency, RAM, battery, or Android runtime improvement.
+- BEHAVIORAL requires actual model outputs with `actualModelRun=true`.
+- DEVICE claims require structured target-device evidence when applicable.
+- Never commit secrets or personal conversation content.
+- Do not use no-op commits to burn CI. Integration checkpoint artifacts are the explicit MEDIUM validation trigger.
+
+Current autonomy mode: `SHIFT_GATED_AUTO_MERGE`, scoped to RELEASE/EMERGENCY_RELEASE exact heads only.
