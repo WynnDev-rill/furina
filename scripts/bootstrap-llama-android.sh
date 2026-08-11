@@ -2,6 +2,7 @@
 set -euo pipefail
 
 LLAMA_COMMIT="7ba604f1cb61cd14898138e9abc0b4ff2601f180"
+RUNTIME_PATCH_REV="offline-v4.1"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="${TMPDIR:-/tmp}/furina-llama.cpp"
 
@@ -23,10 +24,14 @@ python3 "$ROOT/scripts/apply-warm-session-reset-policy.py" \
   "$WORK/examples/llama.android/lib/src/main/cpp/ai_chat.cpp" \
   "$WORK/examples/llama.android/lib/src/main/java/com/arm/aichat/InferenceEngine.kt" \
   "$WORK/examples/llama.android/lib/src/main/java/com/arm/aichat/internal/InferenceEngineImpl.kt"
+python3 "$ROOT/scripts/normalize-offline-runtime-v4-input.py" \
+  "$WORK/examples/llama.android/lib/src/main/cpp/ai_chat.cpp"
 python3 "$ROOT/scripts/apply-offline-runtime-v4-policy.py" \
   "$WORK/examples/llama.android/lib/src/main/cpp/ai_chat.cpp" \
   "$WORK/examples/llama.android/lib/src/main/java/com/arm/aichat/InferenceEngine.kt" \
   "$WORK/examples/llama.android/lib/src/main/java/com/arm/aichat/internal/InferenceEngineImpl.kt"
+
+echo "Applying Furina runtime patch revision: $RUNTIME_PATCH_REV"
 
 # Furina targets physical Android phones. Do not spend CI time or APK space on x86_64.
 sed -i 's/listOf("arm64-v8a", "x86_64")/listOf("arm64-v8a")/' \
