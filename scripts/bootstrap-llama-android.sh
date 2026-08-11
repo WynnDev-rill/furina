@@ -2,7 +2,7 @@
 set -euo pipefail
 
 LLAMA_COMMIT="7ba604f1cb61cd14898138e9abc0b4ff2601f180"
-RUNTIME_PATCH_REV="offline-v5.0-mobile-accelerators"
+RUNTIME_PATCH_REV="offline-v5.1-mobile-accelerators"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="${TMPDIR:-/tmp}/furina-llama.cpp"
 OPENCL_WORK="${TMPDIR:-/tmp}/furina-opencl-sdk"
@@ -14,14 +14,14 @@ exec > >(tee -a "$LOG") 2>&1
 
 prepare_host_gpu_tools() {
   if command -v glslc >/dev/null 2>&1 && command -v ninja >/dev/null 2>&1 && \
-     [[ -d /usr/share/cmake/SPIRV-Headers ]]; then
+     [[ -d /usr/share/cmake/SPIRV-Headers ]] && [[ -f /usr/include/vulkan/vulkan.hpp ]]; then
     return
   fi
   if command -v apt-get >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1; then
     sudo apt-get update -qq
-    sudo apt-get install -y glslc spirv-headers ninja-build
+    sudo apt-get install -y glslc spirv-headers ninja-build libvulkan-dev
   else
-    echo "Vulkan build requires glslc, SPIRV-Headers and Ninja on the host." >&2
+    echo "Vulkan build requires glslc, Vulkan-Hpp, SPIRV-Headers and Ninja on the host." >&2
     exit 1
   fi
 }
