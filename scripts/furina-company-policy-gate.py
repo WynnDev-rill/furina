@@ -17,6 +17,7 @@ FILES = {
     "worker": ROOT / "engineering/worker/HOURLY_PROMPT.md",
     "queue_schema": ROOT / "engineering/work-queue/schema.json",
     "queue_state": ROOT / "engineering/work-queue/state.json",
+    "integration_schema": ROOT / "engineering/integration/checkpoint.schema.json",
     "work_package": ROOT / "engineering/work-package/POLICY.md",
     "priority": ROOT / "engineering/prioritization/POLICY.md",
     "triage": ROOT / "engineering/triage/CRITICAL_PATH_POLICY.md",
@@ -33,6 +34,7 @@ FILES = {
     "companion_workflow": ROOT / ".github/workflows/companion-quality.yml",
     "vercel": ROOT / "vercel.json",
 }
+CHECKPOINT_DIR = ROOT / "engineering/integration/checkpoints"
 LEGACY_ORCHESTRATOR = ROOT / ".github/workflows/furina-autonomous-gate.yml"
 
 
@@ -85,7 +87,7 @@ def _type_matches(value: Any, expected: str) -> bool:
         return isinstance(value, bool)
     if expected == "null":
         return value is None
-    raise ContractError(f"unsupported work-queue schema type: {expected}")
+    raise ContractError(f"unsupported Factory JSON schema type: {expected}")
 
 
 def _validate_datetime(value: str, path: str) -> None:
@@ -99,7 +101,7 @@ def _validate_datetime(value: str, path: str) -> None:
 
 
 def validate_schema_value(value: Any, schema: dict, path: str) -> None:
-    """Dependency-free validator for the JSON-Schema subset used by the work queue."""
+    """Dependency-free validator for the JSON-Schema subset used by Factory state."""
     if "const" in schema and value != schema["const"]:
         raise ContractError(f"{path} must equal {schema['const']!r}")
 
@@ -140,12 +142,11 @@ def validate_schema_value(value: Any, schema: dict, path: str) -> None:
                 raise ContractError(f"{path} has unsupported fields: {unknown}")
 
     if isinstance(value, list) and "items" in schema:
-        item_schema = schema["items"]
         for index, item in enumerate(value):
-            validate_schema_value(item, item_schema, f"{path}[{index}]")
+            validate_schema_value(item, schema["items"], f"{path}[{index}]")
 
 
-def validate_queue(schema: dict, state: dict) -> None:
+def validate_queue(schema: dict, state: dict) -> set[str]:
     expected_top = {"schemaVersion", "updatedAt", "stagingBaseSha", "items"}
     expected_item = {
         "id", "createdAt", "shiftId", "title", "subsystem", "triageClass",
@@ -159,7 +160,7 @@ def validate_queue(schema: dict, state: dict) -> None:
     validate_schema_value(state, schema, "work-queue/state.json")
 
     ids: set[str] = set()
-    for index, item in enumerate(state.get("items", [])):
+    for item in state.get("items", []):
         item_id = item["id"]
         if item_id in ids:
             raise ContractError(f"duplicate work-queue id: {item_id}")
@@ -171,6 +172,28 @@ def validate_queue(schema: dict, state: dict) -> None:
         overlap = sorted(set(item.get("dependencies", [])) & set(item.get("conflictsWith", [])))
         if overlap:
             raise ContractError(f"work-queue item {item_id} both depends on and conflicts with: {overlap}")
+    return ids
+
+
+def validate_checkpoints(schema: dict, queue_ids: set[str]) -> None:
+    require_required_fields(
+        "integration/checkpoint.schema.json",
+        schema,
+        {"schemaVersion", "checkpointId", "createdAt", "subjectSha", "candidateIds"},
+    )
+    if not CHECKPOINT_DIR.exists():
+        return
+    seen_ids: set[str] = set()
+    for path in sorted(CHECKPOINT_DIR.glob("*.json")):
+        checkpoint = read_json(path)
+        validate_schema_value(checkpoint, schema, str(path.relative_to(ROOT)))
+        checkpoint_id = checkpoint["checkpointId"]
+        if checkpoint_id in seen_ids:
+            raise ContractError(f"duplicate integration checkpointId: {checkpoint_id}")
+        seen_ids.add(checkpoint_id)
+        unknown = sorted(set(checkpoint["candidateIds"]) - queue_ids)
+        if unknown:
+            raise ContractError(f"{path.relative_to(ROOT)} references unknown candidateIds: {unknown}")
 
 
 def main() -> int:
@@ -200,14 +223,14 @@ def main() -> int:
         "CANDIDATE", "INTEGRATION", "RELEASE", "EMERGENCY_INTEGRATION", "company/staging",
         "FAST", "MEDIUM", "FULL", "engineering/integration/checkpoints/",
         "One normal release PR per day", "Research sidecars", "no production write or merge authority",
-        "canonical mutable work queue",
+        "canonical mutable work queue", "subjectSha", "force-reset",
     ])
 
     require_all("HOURLY_PROMPT.md", worker, [
         "Scheduled Dispatcher", "Asia/Jakarta", "`00` -> `RELEASE`", "`06`, `12`, `18` -> `INTEGRATION`",
         "Acquire a shift lease", "CANDIDATE mode", "INTEGRATION mode", "RELEASE mode",
         "Reviewer evidence-reset pass", "Boss evidence-reset pass", "expected head SHA", "SHIFT_GATED_AUTO_MERGE",
-        "canonical mutable copy is always read from `company/staging`",
+        "canonical mutable copy is always read from `company/staging`", "subjectSha", "force-reset",
     ])
 
     require_all("WORK_PACKAGE/POLICY.md", work_package, [
@@ -258,7 +281,9 @@ def main() -> int:
 
     queue_schema = read_json(FILES["queue_schema"])
     queue_state = read_json(FILES["queue_state"])
-    validate_queue(queue_schema, queue_state)
+    queue_ids = validate_queue(queue_schema, queue_state)
+    integration_schema = read_json(FILES["integration_schema"])
+    validate_checkpoints(integration_schema, queue_ids)
 
     review = read_json(FILES["review_schema"])
     require_required_fields("review/decision.schema.json", review, {
