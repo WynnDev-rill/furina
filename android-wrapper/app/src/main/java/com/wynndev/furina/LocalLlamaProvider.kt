@@ -203,6 +203,7 @@ class LocalLlamaProvider(
         }
 
         if (!fastResetSucceeded) {
+            stableIdentityPrefixReady = false
             engine.setSystemPrompt(context.identitySystemPrompt)
             stableIdentityPrefixReady = true
         }
