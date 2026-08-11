@@ -37,9 +37,12 @@ data class AiModelRef(
  * - relevantMemories/relevantHistory: query-dependent retrieval for the current turn.
  * - runtimeContext: compact relationship/emotional/situational state for the current turn.
  *
- * Local models receive coldStartPrompt once and then retain native chat/KV state. Query-
- * dependent retrieval is never frozen into that bootstrap prompt. Stateless online models
- * still receive systemPrompt on every request.
+ * Stable identity and mutable session continuity are represented separately so the local
+ * runtime can eventually retain an identity-only SYSTEM KV prefix across session switches.
+ * coldStartPrompt intentionally composes both layers for the existing fail-closed path, so
+ * this contract split alone does not change inference behavior. Query-dependent retrieval
+ * is never frozen into that bootstrap prompt. Stateless online models still receive
+ * systemPrompt on every request.
  */
 data class AiContext(
     val sessionId: String,
@@ -50,15 +53,30 @@ data class AiContext(
     val recentHistory: String,
     val runtimeContext: String,
 ) {
-    val coldStartPrompt: String = buildString {
-        appendLine(identityPrompt.trim())
+    /** Stable SYSTEM material that is safe to fingerprint/reuse independently of a session. */
+    val identitySystemPrompt: String = identityPrompt.trim()
+
+    /**
+     * Private session-scoped continuity. This is SYSTEM/background material, never a USER turn.
+     * Keeping it separate prevents future warm-rehydrate optimization from contaminating the
+     * latest user message merely to avoid rebuilding the stable identity prefix.
+     */
+    val sessionRehydrationPrompt: String = buildString {
         if (summary.isNotBlank() || recentHistory.isNotBlank()) {
-            appendLine()
             appendLine("[PRIVATE SESSION REHYDRATION]")
             appendLine("Background only. Preserve continuity without mechanically repeating it.")
             if (summary.isNotBlank()) appendLine("\nConversation summary:\n${summary.trim()}")
             if (recentHistory.isNotBlank()) appendLine("\nRecent messages:\n${recentHistory.trim()}")
             appendLine("[END PRIVATE SESSION REHYDRATION]")
+        }
+    }.trim()
+
+    /** Existing cold/full-prefill behavior, now composed from explicit stable/mutable layers. */
+    val coldStartPrompt: String = buildString {
+        appendLine(identitySystemPrompt)
+        if (sessionRehydrationPrompt.isNotBlank()) {
+            appendLine()
+            appendLine(sessionRehydrationPrompt)
         }
     }.trim()
 
@@ -76,7 +94,8 @@ data class AiContext(
     }.trim()
 
     val fingerprint: Int = systemPrompt.hashCode()
-    val identityFingerprint: Int = identityPrompt.hashCode()
+    val identityFingerprint: Int = identitySystemPrompt.hashCode()
+    val sessionContinuityFingerprint: Int = sessionRehydrationPrompt.hashCode()
     val retrievalFingerprint: Int = listOf(relevantMemories, relevantHistory).hashCode()
 
     val retrievalPrompt: String = buildString {
