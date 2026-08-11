@@ -10,7 +10,6 @@ LLAMA_SRC="$(cd "$1" && pwd)"
 OUT_DIR="$2"
 IMAGE="ghcr.io/snapdragon-toolchain/arm64-android:v0.7"
 BUILD_DIR="build-furina-hexagon"
-PKG_DIR="pkg-furina-hexagon"
 
 command -v docker >/dev/null 2>&1 || {
   echo "Docker is required for the official Snapdragon Hexagon toolchain" >&2
@@ -21,12 +20,11 @@ docker info >/dev/null 2>&1 || {
   exit 3
 }
 
-rm -rf "$LLAMA_SRC/$BUILD_DIR" "$LLAMA_SRC/$PKG_DIR"
+rm -rf "$LLAMA_SRC/$BUILD_DIR"
 cp "$LLAMA_SRC/docs/backend/snapdragon/CMakeUserPresets.json" "$LLAMA_SRC/CMakeUserPresets.json"
 
 # Use the upstream Snapdragon toolchain image and the preset shipped by the same pinned llama.cpp
-# commit. Keeping Hexagon in a separate build avoids contaminating the normal NDK/Vulkan/OpenCL
-# AAR build while still producing ABI-compatible dynamic ggml backend modules.
+# commit. Build only the five runtime targets Furina packages instead of the whole llama.cpp tree.
 docker run --rm --pull=missing --platform linux/amd64 \
   --user "$(id -u):$(id -g)" \
   -e HOME=/tmp \
@@ -44,8 +42,8 @@ docker run --rm --pull=missing --platform linux/amd64 \
       -DLLAMA_BUILD_TESTS=OFF \\
       -DLLAMA_BUILD_EXAMPLES=OFF \\
       -DLLAMA_BUILD_SERVER=OFF
-    cmake --build '$BUILD_DIR' --config Release -j 2
-    cmake --install '$BUILD_DIR' --prefix '$PKG_DIR'
+    cmake --build '$BUILD_DIR' --config Release --target \\
+      ggml-hexagon htp-v73 htp-v75 htp-v79 htp-v81 -j 2
   "
 
 mkdir -p "$OUT_DIR"
@@ -53,7 +51,7 @@ mkdir -p "$OUT_DIR"
 copy_required() {
   local name="$1"
   local found
-  found="$(find "$LLAMA_SRC/$PKG_DIR" "$LLAMA_SRC/$BUILD_DIR" -type f -name "$name" -print -quit)"
+  found="$(find "$LLAMA_SRC/$BUILD_DIR" -type f -name "$name" -print -quit)"
   if [[ -z "$found" ]]; then
     echo "Hexagon build did not produce required $name" >&2
     exit 4
