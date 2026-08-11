@@ -114,7 +114,10 @@ jobs:
           grep -q 'EVIDENCE_ENROLLMENT_TOKEN' android-wrapper/app/build.gradle
           grep -q 'furina_engineering_evidence_v1' android-wrapper/app/src/main/java/com/wynndev/furina/DeviceEvidenceBridge.kt
           grep -q 'loginRequired", false' android-wrapper/app/src/main/java/com/wynndev/furina/DeviceEvidenceBridge.kt
-          grep -q 'provider.prepare(model, resetContext)' android-wrapper/app/src/main/java/com/wynndev/furina/DeviceBehavioralBenchmark.kt
+          grep -q 'resetConversationStateKeepingModel' android-wrapper/app/src/main/java/com/wynndev/furina/LocalLlamaProvider.kt
+          grep -q 'block(localProvider)' android-wrapper/app/src/main/java/com/wynndev/furina/FurinaBridge.kt
+          test "$(grep -c 'provider.prepare(model, context)' android-wrapper/app/src/main/java/com/wynndev/furina/DeviceBehavioralBenchmark.kt)" -eq 1
+          ! grep -q 'provider.prepare(model, resetContext)' android-wrapper/app/src/main/java/com/wynndev/furina/DeviceBehavioralBenchmark.kt
           grep -q 'control_enrollment' engineering/device-evidence/edge-function/index.ts
           ! grep -q 'requireOwnerUser' engineering/device-evidence/edge-function/index.ts
           ! grep -q 'auth.getSession' src/components/FurinaDeviceEvidenceAgent.tsx
