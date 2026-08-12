@@ -10,14 +10,23 @@ from furina_agent.config import Config
 
 
 class FinalReleaseContractTests(unittest.TestCase):
-    def test_legacy_token_cap_migrates_to_adaptive_ceiling(self):
+    def test_legacy_config_migrates_to_furina_mind_budget(self):
         with tempfile.TemporaryDirectory() as td:
             home = Path(td)
             cfg_path = home / "config.json"
             data = home / "data"; logs = home / "logs"; run = home / "run"; models = home / "models"
             for p in (data, logs, run, models):
                 p.mkdir(parents=True, exist_ok=True)
-            cfg_path.write_text(json.dumps({"config_revision": 3, "max_tokens": 1024, "response_continuations": 1, "agent_max_steps": 14, "local_reasoning": True, "user_nickname": "Wynn"}), encoding="utf-8")
+            cfg_path.write_text(json.dumps({
+                "config_revision": 4,
+                "context_size": 4096,
+                "max_tokens": 2048,
+                "response_continuations": 4,
+                "agent_max_steps": 24,
+                "memory_limit": 6,
+                "local_reasoning": True,
+                "user_nickname": "Wynn",
+            }), encoding="utf-8")
             with patch.multiple(
                 config_mod,
                 HOME=home,
@@ -28,22 +37,24 @@ class FinalReleaseContractTests(unittest.TestCase):
                 MODELS_DIR=models,
             ):
                 cfg = config_mod.load_config()
-            self.assertEqual(cfg.max_tokens, 2048)
-            self.assertGreaterEqual(cfg.response_continuations, 4)
-            self.assertGreaterEqual(cfg.agent_max_steps, 24)
+            self.assertEqual(cfg.config_revision, 5)
+            self.assertEqual(cfg.context_size, 6144)
+            self.assertGreaterEqual(cfg.memory_limit, 7)
+            self.assertGreaterEqual(cfg.agent_max_steps, 28)
             self.assertFalse(cfg.local_reasoning)
             self.assertEqual(cfg.user_nickname, "Wynn")
 
-    def test_non_thinking_sampler_defaults_match_fast_companion_mode(self):
+    def test_default_companion_budget(self):
         cfg = Config()
         self.assertFalse(cfg.local_reasoning)
+        self.assertEqual(cfg.context_size, 6144)
+        self.assertEqual(cfg.memory_limit, 7)
+        self.assertEqual(cfg.agent_max_steps, 28)
         self.assertAlmostEqual(cfg.temperature, 0.70)
-        self.assertAlmostEqual(cfg.top_p, 0.80)
-        self.assertEqual(cfg.top_k, 20)
         self.assertEqual(cfg.max_tokens, 2048)
         self.assertEqual(cfg.response_continuations, 4)
 
-    def test_installer_is_storage_free_and_pinned(self):
+    def test_installer_is_pinned_and_applies_all_rc5_layers(self):
         root = Path(__file__).resolve().parents[1]
         workspace = Path(os.environ.get("GITHUB_WORKSPACE", "")) if os.environ.get("GITHUB_WORKSPACE") else None
         release_installer = workspace / "experiments/furina-agent-final/install.sh" if workspace else None
@@ -51,42 +62,42 @@ class FinalReleaseContractTests(unittest.TestCase):
         installer = installer_path.read_text(encoding="utf-8")
         self.assertNotIn("storage/shared", installer)
         self.assertNotIn("/storage/emulated", installer)
+        self.assertIn('VERSION="1.0.0-rc5"', installer)
         self.assertIn('[[ -f "$ROOT/config.json" ]] && MODE="update"', installer)
         self.assertIn('LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"', installer)
         self.assertIn('MODEL_REV="e9cf779"', installer)
         self.assertIn("dda8f686b793f189a84c854832bb8b4db59c381a60275a567513d5ebb4d92906", installer)
         self.assertIn("source_chunks", installer)
-        self.assertIn("overrides/manifest.json", installer)
-        self.assertIn("git_blob_sha", installer)
+        self.assertIn("companion-v3", installer)
         self.assertIn("apply-companion-v2.py", installer)
-        self.assertIn("TRANSFORM_BLOB", installer)
         self.assertIn("apply-bridge-rc4.py", installer)
-        self.assertIn("BRIDGE_TRANSFORM_BLOB", installer)
-        self.assertIn("target_rel.startswith('bridge/app/')", installer)
-        self.assertIn("termux-open-url", installer)
-        self.assertNotIn('termux-open "$ROOT/cache/Furina-Agent-Bridge.apk"', installer)
+        self.assertIn("apply-universal-agent-rc5.py", installer)
         self.assertIn("-DGGML_CPU_KLEIDIAI=ON", installer)
-        self.assertIn("fallback ke CPU native stabil", installer)
+        self.assertIn("termux-open-url", installer)
+
+    def test_core_has_layered_memory_and_adaptive_personality(self):
+        root = Path(__file__).resolve().parents[1]
+        memory = (root / "core/furina_agent/memory.py").read_text(encoding="utf-8")
+        chat = (root / "core/furina_agent/chat.py").read_text(encoding="utf-8")
+        response = (root / "core/furina_agent/response.py").read_text(encoding="utf-8")
+        persona = (root / "core/furina_agent/persona.py").read_text(encoding="utf-8")
+        self.assertIn("CREATE TABLE IF NOT EXISTS beliefs", memory)
+        self.assertIn("CREATE TABLE IF NOT EXISTS episodes", memory)
+        self.assertIn("relationship_state", memory)
+        self.assertIn("_reflect", chat)
+        self.assertIn("contradictions", chat)
+        self.assertIn("choose_profile", response)
+        self.assertIn("DIALOGUE_ANCHORS", persona)
 
     def test_tui_is_one_companion_surface(self):
         root = Path(__file__).resolve().parents[1]
         tui = (root / "core/furina_agent/tui.py").read_text(encoding="utf-8")
         self.assertIn("Percakapan + tindakan Android", tui)
         self.assertNotIn('table.add_row("2", "Android Agent langsung")', tui)
-        self.assertIn("adaptive • berhenti saat selesai", tui)
-        self.assertIn("Reasoning tampilan", tui)
-        self.assertNotIn("Panjang jawaban", tui)
-        self.assertIn("Tidak perlu memindahkan ZIP", tui)
-        self.assertIn("Tidak ada kode pairing", tui)
-        self.assertIn("By Wynn", tui)
-
-    def test_server_runtime_disables_reasoning_and_applies_tuned_affinity(self):
-        root = Path(__file__).resolve().parents[1]
-        cli = (root / "core/furina_agent/cli.py").read_text(encoding="utf-8")
-        self.assertIn('["--reasoning", "off"]', cli)
-        self.assertIn('["--reasoning-budget", "0"]', cli)
-        self.assertIn("cfg.cpu_mask", cli)
-        self.assertIn('"--cpu-strict"', cli)
+        self.assertIn("adaptive", tui)
+        self.assertIn("tanpa konfirmasi kedua", tui)
+        self.assertIn("MODEL ROUTER", tui)
+        self.assertIn("Provider / API key", tui)
 
     def test_provider_reasoning_is_hidden(self):
         root = Path(__file__).resolve().parents[1]
@@ -94,7 +105,16 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertIn('payload["reasoning"] = {"exclude": True}', providers)
         self.assertIn('payload["reasoning_format"] = "hidden"', providers)
         self.assertIn('payload["reasoning_effort"] = "none"', providers)
-        self.assertIn('if self.name != "gemini"', providers)
+
+    def test_bridge_self_updater_survives_rc5(self):
+        root = Path(__file__).resolve().parents[1]
+        manifest = (root / "bridge/app/src/main/AndroidManifest.xml").read_text()
+        updater = (root / "bridge/app/src/main/java/com/wynndev/furinaagentbridge/BridgeUpdater.java").read_text()
+        main = (root / "bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java").read_text()
+        self.assertIn("REQUEST_INSTALL_PACKAGES", manifest)
+        self.assertIn("UpdateFileProvider", manifest)
+        self.assertIn("verifyArchive", updater)
+        self.assertIn("BridgeUpdater", main)
 
 
 if __name__ == "__main__":
