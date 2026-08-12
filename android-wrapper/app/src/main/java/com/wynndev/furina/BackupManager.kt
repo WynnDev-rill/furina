@@ -33,6 +33,7 @@ class BackupManager(
         private const val COMPANION_ENTRY = "companion_intelligence.json"
         private const val COMPANION_PREFS = "furina_companion_intelligence_v2"
         private const val MAX_COMPANION_BYTES = 2 * 1024 * 1024
+        private const val MIN_ENCRYPTED_BACKUP_BYTES = 64L
     }
 
     private val prefs = context.getSharedPreferences("furina_backup", Context.MODE_PRIVATE)
@@ -76,13 +77,42 @@ class BackupManager(
 
         val now = System.currentTimeMillis()
         val fileName = "Furina-${now}.furina"
-        val doc = root.createFile("application/octet-stream", fileName)
-            ?: throw IllegalStateException("Gagal membuat file backup")
+        val tempName = "Furina-${now}.partial"
+        val temp = root.createFile("application/octet-stream", tempName)
+            ?: throw IllegalStateException("Gagal membuat file backup sementara")
 
-        context.contentResolver.openOutputStream(doc.uri, "w")!!.use(::writeEncryptedSnapshot)
-        prefs.edit().putLong("last_backup", now).apply()
-        prune(root)
-        return fileName
+        try {
+            context.contentResolver.openOutputStream(temp.uri, "w")?.use(::writeEncryptedSnapshot)
+                ?: throw IllegalStateException("File backup sementara tidak dapat ditulis")
+            require(temp.length() >= MIN_ENCRYPTED_BACKUP_BYTES) { "Backup tidak lengkap" }
+            promoteBackup(root, temp, fileName)
+            prefs.edit().putLong("last_backup", now).apply()
+            prune(root)
+            return fileName
+        } catch (error: Throwable) {
+            runCatching { temp.delete() }
+            throw error
+        }
+    }
+
+    /** Rename when supported; otherwise copy to a final name and remove both sides on failure. */
+    private fun promoteBackup(root: DocumentFile, temp: DocumentFile, finalName: String) {
+        if (temp.renameTo(finalName)) return
+
+        val finalDoc = root.createFile("application/octet-stream", finalName)
+            ?: throw IllegalStateException("Gagal mempromosikan file backup")
+        try {
+            val input = context.contentResolver.openInputStream(temp.uri)
+                ?: throw IllegalStateException("Backup sementara tidak dapat dibaca")
+            val output = context.contentResolver.openOutputStream(finalDoc.uri, "w")
+                ?: throw IllegalStateException("Backup final tidak dapat ditulis")
+            input.use { source -> output.use { target -> source.copyTo(target, 1024 * 1024) } }
+            require(finalDoc.length() >= MIN_ENCRYPTED_BACKUP_BYTES) { "Backup final tidak lengkap" }
+            require(temp.delete()) { "Backup sementara tidak dapat dibersihkan" }
+        } catch (error: Throwable) {
+            runCatching { finalDoc.delete() }
+            throw error
+        }
     }
 
     fun autoBackupIfDue(): String? {
@@ -240,6 +270,9 @@ class BackupManager(
         root.listFiles().filter { it.isFile && it.name?.startsWith("Furina-") == true && it.name?.endsWith(".furina") == true }
             .sortedByDescending { it.lastModified() }
             .drop(KEEP_BACKUPS)
+            .forEach { it.delete() }
+        // Failed/abandoned temporary files are never considered valid backups.
+        root.listFiles().filter { it.isFile && it.name?.startsWith("Furina-") == true && it.name?.endsWith(".partial") == true }
             .forEach { it.delete() }
     }
 
