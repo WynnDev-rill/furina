@@ -69,9 +69,14 @@ class ContextEngine(context: Context, private val store: MemoryStore) {
             ).bounded(budget.memoryChars)
         }
         val olderHistory = if (!useContinuity) "" else {
-            // Search only meaningful terms. Generic words such as "sekarang" or "berapa"
-            // otherwise make a 4B model over-weight unrelated old turns.
-            store.relevantOldContext(retrievalQuery, sessionId, budget.historyItems)
+            // Historical assistant prose is not a style authority. Pull extra candidates so
+            // assistant rows cannot consume the small-model retrieval budget, then keep USER only.
+            store.relevantOldContext(retrievalQuery, sessionId, budget.historyItems * 3)
+                .lineSequence()
+                .map(String::trim)
+                .filter { it.startsWith("USER:") }
+                .take(budget.historyItems)
+                .joinToString("\n")
                 .bounded(budget.historyChars)
         }
 
