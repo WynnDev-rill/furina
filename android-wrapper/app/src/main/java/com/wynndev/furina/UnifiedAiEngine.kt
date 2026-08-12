@@ -25,12 +25,6 @@ class UnifiedAiEngine(
     private val contextEngine: ContextEngine,
     private val providers: Map<String, AiProvider>,
 ) {
-    companion object {
-        // Full llama.cpp sequence snapshots can be large. Persona KV is saved separately once;
-        // exact session KV is only an opportunistic accelerator, never the source of truth.
-        private const val SESSION_CHECKPOINT_EVERY_MESSAGES = 8
-    }
-
     private val maintenanceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var maintenanceJob: Job? = null
 
@@ -107,23 +101,12 @@ class UnifiedAiEngine(
         val finalText = reply.toString().trim()
         check(finalText.isNotBlank()) { "Model tidak menghasilkan jawaban" }
         val assistantId = store.addMessage(sessionId, "assistant", finalText)
-        val durableMessageCount = store.messageCountForSession(sessionId)
-        val checkpointContext = context.copy(sessionMessageCount = durableMessageCount)
 
-        // Full session KV is intentionally sparse because the binary sequence state can be
-        // tens/hundreds of MB. Missing snapshots are harmless: cold start restores the compact
-        // persona KV and rehydrates continuity from SQLite. Snapshotting never delays streaming.
-        val shouldCheckpointSession = activeProvider.capabilities.offline &&
-            durableMessageCount >= SESSION_CHECKPOINT_EVERY_MESSAGES &&
-            durableMessageCount % SESSION_CHECKPOINT_EVERY_MESSAGES == 0
-        scheduleIdleMaintenance(
-            sessionId = sessionId,
-            userText = userText,
-            activeProvider = activeProvider,
-            checkpointContext = checkpointContext,
-            durableMessageCount = durableMessageCount,
-            shouldCheckpointSession = shouldCheckpointSession,
-        )
+        // Continuity is reconstructed from durable SQLite context on each turn. Full sequence
+        // checkpoints are deliberately not written because the role-safe local path resets back
+        // to the immutable SYSTEM/persona prefix before every generation, making those large
+        // session snapshots pure I/O/storage overhead. Persona-prefix checkpoints remain native.
+        scheduleIdleMaintenance(sessionId, userText)
 
         val finishedAt = SystemClock.elapsedRealtime()
         val firstTokenMs = if (firstTokenAt > 0L) firstTokenAt - startedAt else finishedAt - startedAt
@@ -135,7 +118,7 @@ class UnifiedAiEngine(
             .put("warmStart", warmStart)
             .put("provider", activeProvider.id)
             .put("model", activeProvider.resolvedModelId() ?: model.id)
-            .put("continuity", "companion-v4-persistent-kv")
+            .put("continuity", "companion-v4-role-safe-rehydration")
             .put("qualityFlags", qualityFlags(userText, finalText))
         return UnifiedGenerationResult(userId, assistantId, metrics)
     }
@@ -156,21 +139,12 @@ class UnifiedAiEngine(
     private fun scheduleIdleMaintenance(
         sessionId: String,
         userText: String,
-        activeProvider: AiProvider,
-        checkpointContext: AiContext,
-        durableMessageCount: Int,
-        shouldCheckpointSession: Boolean,
     ) {
         maintenanceJob?.cancel()
         lateinit var job: Job
         job = maintenanceScope.launch {
             try {
                 delay(6_000L)
-                if (shouldCheckpointSession) {
-                    runCatching {
-                        activeProvider.checkpointConversation(checkpointContext, durableMessageCount)
-                    }
-                }
                 runCatching { contextEngine.runMaintenance(sessionId, userText) }
                 runCatching { store.updateSessionSummary(sessionId) }
             } finally {
