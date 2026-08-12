@@ -38,12 +38,7 @@ data class FurinaUpdateInfo(
     val notes: List<String>,
 )
 
-/**
- * Native APK updater for Furina's direct-distribution builds.
- *
- * Every downloaded APK is bound to the release manifest by digest, package name, version code,
- * and signing certificate before Android's installer is opened.
- */
+/** Native APK updater for Furina's direct-distribution builds. */
 class UpdateManager(private val activity: MainActivity) {
     private val executor = Executors.newSingleThreadExecutor()
     private val preferences = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -63,12 +58,7 @@ class UpdateManager(private val activity: MainActivity) {
 
     fun register() {
         if (registered) return
-        ContextCompat.registerReceiver(
-            activity,
-            receiver,
-            IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
-            ContextCompat.RECEIVER_NOT_EXPORTED,
-        )
+        ContextCompat.registerReceiver(activity, receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), ContextCompat.RECEIVER_NOT_EXPORTED)
         registered = true
     }
 
@@ -82,9 +72,17 @@ class UpdateManager(private val activity: MainActivity) {
 
     fun checkForUpdate() {
         executor.execute {
-            val info = runCatching { fetchManifest() }.getOrNull() ?: return@execute
             val current = currentVersionCode()
-            if (info.versionCode <= current) {
+            val fetched = runCatching { fetchManifest() }.getOrNull()
+            val info = if (fetched != null) {
+                cacheValidatedPolicy(fetched)
+                fetched
+            } else {
+                // Only a policy previously fetched and cryptographically/structurally validated
+                // may enforce offline. A fresh install with no cached policy remains usable offline.
+                cachedMandatoryPolicy(current) ?: return@execute
+            }
+            if (info.versionCode <= current && current >= info.minimumVersionCode) {
                 clearCompletedUpdateState(current)
                 return@execute
             }
@@ -129,6 +127,39 @@ class UpdateManager(private val activity: MainActivity) {
         }
     }
 
+    private fun cacheValidatedPolicy(info: FurinaUpdateInfo) {
+        preferences.edit().putString(KEY_CACHED_POLICY, JSONObject()
+            .put("versionCode", info.versionCode)
+            .put("versionName", info.versionName)
+            .put("minimumVersionCode", info.minimumVersionCode)
+            .put("mandatory", info.mandatory)
+            .put("apkUrl", info.apkUrl)
+            .put("sha256", info.sha256)
+            .put("packageName", info.packageName)
+            .put("signerSha256", info.signerSha256)
+            .put("title", info.title)
+            .put("notes", JSONArray(info.notes))
+            .toString()).apply()
+    }
+
+    private fun cachedMandatoryPolicy(current: Long): FurinaUpdateInfo? = runCatching {
+        val raw = preferences.getString(KEY_CACHED_POLICY, null) ?: return@runCatching null
+        val json = JSONObject(raw)
+        val info = FurinaUpdateInfo(
+            versionCode = json.getLong("versionCode"),
+            versionName = json.getString("versionName"),
+            minimumVersionCode = json.getLong("minimumVersionCode"),
+            mandatory = json.getBoolean("mandatory"),
+            apkUrl = json.getString("apkUrl").also { require(it.startsWith(TRUSTED_RELEASE_PREFIX)) },
+            sha256 = json.getString("sha256").normalizedDigest(),
+            packageName = json.getString("packageName").also { require(it == activity.packageName) },
+            signerSha256 = json.getString("signerSha256").normalizedDigest(),
+            title = json.optString("title", "Pembaruan Furina diperlukan"),
+            notes = json.optJSONArray("notes").toStringList(),
+        )
+        if ((info.mandatory || current < info.minimumVersionCode) && current < info.versionCode) info else null
+    }.getOrNull()
+
     private fun showUpdateDialog(info: FurinaUpdateInfo, currentVersionCode: Long) {
         if (activity.isFinishing || activity.isDestroyed || updateDialogVisible) return
         val forced = info.mandatory || currentVersionCode < info.minimumVersionCode
@@ -144,26 +175,12 @@ class UpdateManager(private val activity: MainActivity) {
         val dialog = AlertDialog.Builder(activity)
             .setTitle(info.title)
             .setMessage(message)
-            .setPositiveButton("Perbarui") { _, _ ->
-                updateDialogVisible = false
-                startDownload(info)
-            }
+            .setPositiveButton("Perbarui") { _, _ -> updateDialogVisible = false; startDownload(info) }
             .apply {
-                if (forced) {
-                    setNegativeButton("Keluar") { _, _ ->
-                        updateDialogVisible = false
-                        activity.finishAndRemoveTask()
-                    }
-                } else {
-                    setNegativeButton("Nanti") { _, _ -> updateDialogVisible = false }
-                }
-            }
-            .create()
-
-        dialog.setOnCancelListener {
-            updateDialogVisible = false
-            if (forced) activity.finishAndRemoveTask()
-        }
+                if (forced) setNegativeButton("Keluar") { _, _ -> updateDialogVisible = false; activity.finishAndRemoveTask() }
+                else setNegativeButton("Nanti") { _, _ -> updateDialogVisible = false }
+            }.create()
+        dialog.setOnCancelListener { updateDialogVisible = false; if (forced) activity.finishAndRemoveTask() }
         dialog.setCancelable(!forced)
         dialog.setCanceledOnTouchOutside(false)
         dialog.show()
@@ -192,9 +209,7 @@ class UpdateManager(private val activity: MainActivity) {
                     .apply()
                 Toast.makeText(activity, "Pembaruan sedang diunduh", Toast.LENGTH_LONG).show()
             }
-            .onFailure {
-                Toast.makeText(activity, "Pembaruan gagal diunduh. Periksa koneksi lalu coba lagi.", Toast.LENGTH_LONG).show()
-            }
+            .onFailure { Toast.makeText(activity, "Pembaruan gagal diunduh. Periksa koneksi lalu coba lagi.", Toast.LENGTH_LONG).show() }
     }
 
     fun tryInstallPending() {
@@ -209,27 +224,21 @@ class UpdateManager(private val activity: MainActivity) {
 
         val query = DownloadManager.Query().setFilterById(id)
         val successful = runCatching {
-            downloadManager.query(query).use { cursor ->
-                cursor.moveToFirst() &&
-                    cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)) == DownloadManager.STATUS_SUCCESSFUL
-            }
+            downloadManager.query(query).use { cursor -> cursor.moveToFirst() && cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)) == DownloadManager.STATUS_SUCCESSFUL }
         }.getOrDefault(false)
         if (!successful) return
 
         val verified = runCatching { verifyDownloadedApk(target) }.getOrDefault(false)
         if (!verified) {
             runCatching { downloadManager.remove(id) }
+            cleanupUpdateFiles(target)
             clearPendingDownloadState()
             Toast.makeText(activity, "Pembaruan ditolak karena file APK tidak cocok dengan rilis Furina.", Toast.LENGTH_LONG).show()
             return
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !activity.packageManager.canRequestPackageInstalls()) {
-            val settingsIntent = Intent(
-                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                Uri.parse("package:${activity.packageName}"),
-            )
-            runCatching { activity.startActivity(settingsIntent) }
+            runCatching { activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}"))) }
             Toast.makeText(activity, "Izinkan Furina memasang pembaruan, lalu kembali ke aplikasi.", Toast.LENGTH_LONG).show()
             return
         }
@@ -240,9 +249,7 @@ class UpdateManager(private val activity: MainActivity) {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         runCatching { activity.startActivity(installIntent) }
-            .onFailure {
-                Toast.makeText(activity, "Installer Android tidak dapat dibuka.", Toast.LENGTH_LONG).show()
-            }
+            .onFailure { Toast.makeText(activity, "Installer Android tidak dapat dibuka.", Toast.LENGTH_LONG).show() }
     }
 
     private fun verifyDownloadedApk(targetVersion: Long): Boolean {
@@ -250,104 +257,68 @@ class UpdateManager(private val activity: MainActivity) {
         val expectedPackage = preferences.getString(KEY_TARGET_PACKAGE, null)?.trim() ?: return false
         val expectedSigner = preferences.getString(KEY_TARGET_SIGNER_SHA256, null)?.normalizedDigest() ?: return false
         if (expectedPackage != activity.packageName) return false
-
         val apk = File(activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), updateFileName(targetVersion))
-        if (!apk.isFile || apk.length() <= 0L) return false
-        if (sha256(apk) != expectedSha) return false
-
+        if (!apk.isFile || apk.length() <= 0L || sha256(apk) != expectedSha) return false
         val archive = packageArchiveInfo(apk) ?: return false
-        if (archive.packageName != expectedPackage) return false
-        if (PackageInfoCompat.getLongVersionCode(archive) != targetVersion) return false
-
-        val archiveSigners = signerDigests(archive)
-        if (expectedSigner !in archiveSigners) return false
-
+        if (archive.packageName != expectedPackage || PackageInfoCompat.getLongVersionCode(archive) != targetVersion) return false
+        if (expectedSigner !in signerDigests(archive)) return false
         val installed = packageInfo(activity.packageName) ?: return false
-        val installedSigners = signerDigests(installed)
-        if (expectedSigner !in installedSigners) return false
-        return true
+        return expectedSigner in signerDigests(installed)
     }
 
     private fun packageArchiveInfo(apk: File): PackageInfo? =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            activity.packageManager.getPackageArchiveInfo(
-                apk.absolutePath,
-                PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong()),
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            activity.packageManager.getPackageArchiveInfo(apk.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) activity.packageManager.getPackageArchiveInfo(apk.absolutePath, PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong()))
+        else { @Suppress("DEPRECATION") activity.packageManager.getPackageArchiveInfo(apk.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES) }
 
     private fun packageInfo(packageName: String): PackageInfo? = runCatching {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            activity.packageManager.getPackageInfo(
-                packageName,
-                PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong()),
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            activity.packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) activity.packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong()))
+        else { @Suppress("DEPRECATION") activity.packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES) }
     }.getOrNull()
 
     private fun signerDigests(info: PackageInfo): Set<String> {
-        val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            info.signingInfo?.apkContentsSigners.orEmpty()
-        } else {
-            @Suppress("DEPRECATION")
-            info.signatures.orEmpty()
-        }
-        return signatures.mapTo(linkedSetOf()) { signature ->
-            MessageDigest.getInstance("SHA-256")
-                .digest(signature.toByteArray())
-                .joinToString("") { "%02x".format(it) }
-        }
+        val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.signingInfo?.apkContentsSigners.orEmpty()
+        else { @Suppress("DEPRECATION") info.signatures.orEmpty() }
+        return signatures.mapTo(linkedSetOf()) { signature -> MessageDigest.getInstance("SHA-256").digest(signature.toByteArray()).joinToString("") { "%02x".format(it) } }
     }
 
     private fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
         FileInputStream(file).use { input ->
             val buffer = ByteArray(1024 * 1024)
-            while (true) {
-                val read = input.read(buffer)
-                if (read <= 0) break
-                digest.update(buffer, 0, read)
-            }
+            while (true) { val read = input.read(buffer); if (read <= 0) break; digest.update(buffer, 0, read) }
         }
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
-    private fun currentVersionCode(): Long = runCatching {
-        PackageInfoCompat.getLongVersionCode(
-            activity.packageManager.getPackageInfo(activity.packageName, 0),
-        )
-    }.getOrDefault(0L)
+    private fun currentVersionCode(): Long = runCatching { PackageInfoCompat.getLongVersionCode(activity.packageManager.getPackageInfo(activity.packageName, 0)) }.getOrDefault(0L)
 
     private fun clearCompletedUpdateState(currentVersionCode: Long) {
         val target = preferences.getLong(KEY_TARGET_VERSION, -1L)
-        if (target <= 0L || currentVersionCode < target) return
+        if (target > 0L && currentVersionCode < target) return
+        val id = preferences.getLong(KEY_DOWNLOAD_ID, -1L)
+        if (id > 0L) runCatching { downloadManager.remove(id) }
+        cleanupUpdateFiles(currentVersionCode)
         clearPendingDownloadState()
+    }
+
+    private fun cleanupUpdateFiles(upToVersion: Long) {
+        val dir = activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: return
+        dir.listFiles()?.forEach { file ->
+            val match = UPDATE_FILE_REGEX.matchEntire(file.name) ?: return@forEach
+            val version = match.groupValues[1].toLongOrNull() ?: return@forEach
+            if (version <= upToVersion) runCatching { file.delete() }
+        }
     }
 
     private fun clearPendingDownloadState() {
         preferences.edit()
-            .remove(KEY_DOWNLOAD_ID)
-            .remove(KEY_TARGET_VERSION)
-            .remove(KEY_TARGET_SHA256)
-            .remove(KEY_TARGET_PACKAGE)
-            .remove(KEY_TARGET_SIGNER_SHA256)
-            .remove(KEY_PENDING_INSTALL)
-            .apply()
+            .remove(KEY_DOWNLOAD_ID).remove(KEY_TARGET_VERSION).remove(KEY_TARGET_SHA256)
+            .remove(KEY_TARGET_PACKAGE).remove(KEY_TARGET_SIGNER_SHA256).remove(KEY_PENDING_INSTALL).apply()
     }
 
     private fun JSONArray?.toStringList(): List<String> {
         if (this == null) return emptyList()
-        return buildList {
-            for (index in 0 until length()) {
-                optString(index).trim().takeIf { it.isNotEmpty() }?.let(::add)
-            }
-        }
+        return buildList { for (index in 0 until length()) optString(index).trim().takeIf { it.isNotEmpty() }?.let(::add) }
     }
 
     private fun String.normalizedDigest(): String {
@@ -366,10 +337,10 @@ class UpdateManager(private val activity: MainActivity) {
         private const val KEY_TARGET_PACKAGE = "target_package"
         private const val KEY_TARGET_SIGNER_SHA256 = "target_signer_sha256"
         private const val KEY_PENDING_INSTALL = "pending_install"
+        private const val KEY_CACHED_POLICY = "cached_validated_policy"
         private const val APK_MIME = "application/vnd.android.package-archive"
-        private const val UPDATE_MANIFEST_URL =
-            "https://github.com/WynnDev-rill/furina/releases/latest/download/update.json"
-        private const val TRUSTED_RELEASE_PREFIX =
-            "https://github.com/WynnDev-rill/furina/releases/"
+        private val UPDATE_FILE_REGEX = Regex("Furina-update-(\\d+)\\.apk")
+        private const val UPDATE_MANIFEST_URL = "https://github.com/WynnDev-rill/furina/releases/latest/download/update.json"
+        private const val TRUSTED_RELEASE_PREFIX = "https://github.com/WynnDev-rill/furina/releases/"
     }
 }
