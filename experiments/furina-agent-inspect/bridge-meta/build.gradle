@@ -1,0 +1,43 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.wynndev.furinaagentbridge'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.wynndev.furinaagentbridge'
+        minSdk 30
+        targetSdk 35
+        versionCode 10001
+        versionName '1.0.0-rc1'
+    }
+
+    signingConfigs {
+        release {
+            def ks = System.getenv('FURINA_AGENT_KEYSTORE_PATH')
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv('FURINA_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('FURINA_KEY_ALIAS')
+                keyPassword System.getenv('FURINA_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (System.getenv('FURINA_AGENT_KEYSTORE_PATH')) {
+                signingConfig signingConfigs.release
+            }
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
