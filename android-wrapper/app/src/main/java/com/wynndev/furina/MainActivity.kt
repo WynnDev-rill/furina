@@ -1,5 +1,9 @@
 package com.wynndev.furina
 
+import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
@@ -34,11 +38,14 @@ class MainActivity : ComponentActivity() {
     private lateinit var bridge: FurinaBridge
     private lateinit var cloudBridge: CloudBackupBridge
     private lateinit var evidenceBridge: DeviceEvidenceBridge
+    private lateinit var backupManager: BackupManager
     private lateinit var loadingOverlay: View
     private var loadingStartedAt = 0L
     private var loadingDismissed = false
     private var pageReady = false
     private var pendingAuthCallback: String? = null
+    private var bridgesAttached = false
+    private var offlineFallbackLoaded = false
 
     private val folderPicker = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -49,6 +56,7 @@ class MainActivity : ComponentActivity() {
                 )
             } catch (_: Throwable) {}
             bridge.onBackupFolderSelected(uri)
+            showRecoveryKeyDialog(backupManager.getOrCreateRecoveryKey())
         }
     }
 
@@ -71,7 +79,7 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(Color.rgb(5, 7, 18))
             settings.javaScriptEnabled = true
             settings.javaScriptCanOpenWindowsAutomatically = false
-            settings.setSupportMultipleWindows(true)
+            settings.setSupportMultipleWindows(false)
             settings.domStorageEnabled = true
             settings.cacheMode = WebSettings.LOAD_DEFAULT
             settings.allowFileAccess = false
@@ -80,25 +88,27 @@ class MainActivity : ComponentActivity() {
             settings.mediaPlaybackRequiresUserGesture = false
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             settings.safeBrowsingEnabled = true
-            settings.userAgentString = settings.userAgentString + " FurinaAndroid/4.3"
+            settings.userAgentString = settings.userAgentString + " FurinaAndroid/4.4"
         }
         applySystemTheme(true)
         WebView.setWebContentsDebuggingEnabled(false)
 
         val store = MemoryStore(this)
         val modelDownloads = ModelDownloadManager(this)
-        val backupManager = BackupManager(this, store)
+        backupManager = BackupManager(this, store)
         bridge = FurinaBridge(this, webView, store, modelDownloads, backupManager)
         cloudBridge = CloudBackupBridge(this, webView, backupManager, bridge::withAiPaused)
         evidenceBridge = DeviceEvidenceBridge(this, webView, store, modelDownloads, bridge::withAiIdleForEvidence)
-        webView.addJavascriptInterface(bridge, "FurinaNative")
-        webView.addJavascriptInterface(cloudBridge, "FurinaCloud")
-        webView.addJavascriptInterface(evidenceBridge, "FurinaEvidence")
+        attachNativeBridges()
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val uri = request?.url ?: return true
                 if (isTrustedAppUri(uri)) return false
+
+                // Untrusted subframes are blocked. Main-frame external links are handed to the OS,
+                // so the bridge stays attached to the trusted Furina page left behind in WebView.
+                if (request.isForMainFrame.not()) return true
                 val scheme = uri.scheme?.lowercase()
                 if (scheme !in SAFE_EXTERNAL_SCHEMES) return true
                 return try {
@@ -107,9 +117,17 @@ class MainActivity : ComponentActivity() {
                 } catch (_: Throwable) { true }
             }
 
+            override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                val uri = runCatching { Uri.parse(url) }.getOrNull()
+                if (uri?.host.equals(APP_HOST, ignoreCase = true)) offlineFallbackLoaded = false
+                if (uri == null || !isTrustedAppUri(uri)) detachNativeBridges() else attachNativeBridges()
+                pageReady = false
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
                 val uri = runCatching { Uri.parse(url) }.getOrNull()
                 if (uri != null && isTrustedAppUri(uri)) {
+                    attachNativeBridges()
                     pageReady = true
                     installNativeVisualPolish(view)
                     bridge.notifyNativeReady()
@@ -119,13 +137,15 @@ class MainActivity : ComponentActivity() {
             }
 
             override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
-                if (request?.isForMainFrame == true && (errorResponse?.statusCode ?: 0) >= 400) {
-                    showLoadError("Server Furina mengembalikan ${errorResponse?.statusCode ?: "error"}.")
+                if (request?.isForMainFrame == true && (errorResponse?.statusCode ?: 0) >= 400 && !offlineFallbackLoaded) {
+                    loadOfflineShell("Server Furina mengembalikan ${errorResponse?.statusCode ?: "error"}.")
                 }
             }
 
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: android.webkit.WebResourceError?) {
-                if (request?.isForMainFrame == true) showLoadError("Antarmuka Furina belum dapat dimuat. Periksa koneksi lalu coba lagi.")
+                if (request?.isForMainFrame == true && !offlineFallbackLoaded) {
+                    loadOfflineShell("Furina Online tidak dapat dijangkau. Mode lokal tetap tersedia.")
+                }
             }
         }
 
@@ -144,6 +164,7 @@ class MainActivity : ComponentActivity() {
 
         handleAuthIntent(intent)
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
+            attachNativeBridges()
             webView.loadUrl(APP_URL)
         }
 
@@ -158,6 +179,22 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleAuthIntent(intent)
+    }
+
+    private fun attachNativeBridges() {
+        if (bridgesAttached) return
+        webView.addJavascriptInterface(bridge, "FurinaNative")
+        webView.addJavascriptInterface(cloudBridge, "FurinaCloud")
+        webView.addJavascriptInterface(evidenceBridge, "FurinaEvidence")
+        bridgesAttached = true
+    }
+
+    private fun detachNativeBridges() {
+        if (!bridgesAttached) return
+        webView.removeJavascriptInterface("FurinaNative")
+        webView.removeJavascriptInterface("FurinaCloud")
+        webView.removeJavascriptInterface("FurinaEvidence")
+        bridgesAttached = false
     }
 
     private fun handleAuthIntent(intent: Intent?) {
@@ -185,6 +222,39 @@ class MainActivity : ComponentActivity() {
                 }
             }, delay)
         }
+    }
+
+    private fun loadOfflineShell(reason: String) {
+        offlineFallbackLoaded = true
+        attachNativeBridges()
+        val html = runCatching {
+            assets.open(OFFLINE_ASSET).bufferedReader(Charsets.UTF_8).use { it.readText() }
+        }.getOrElse {
+            showLoadError("Shell offline tidak tersedia. $reason")
+            return
+        }
+        Toast.makeText(this, "Furina beralih ke mode offline", Toast.LENGTH_SHORT).show()
+        webView.loadDataWithBaseURL(OFFLINE_URL, html, "text/html", "UTF-8", null)
+    }
+
+    private fun showRecoveryKeyDialog(key: String) {
+        val valueView = TextView(this).apply {
+            text = key
+            setTextIsSelectable(true)
+            typeface = Typeface.MONOSPACE
+            setPadding(dp(20), dp(12), dp(20), dp(8))
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Recovery key Furina")
+            .setMessage("Simpan key ini di tempat aman. Key diperlukan untuk membuka backup terenkripsi di perangkat baru.")
+            .setView(valueView)
+            .setPositiveButton("Salin") { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Furina recovery key", key))
+                Toast.makeText(this, "Recovery key disalin", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Tutup", null)
+            .show()
     }
 
     private fun buildLoadingOverlay(): View {
@@ -289,6 +359,12 @@ class MainActivity : ComponentActivity() {
               style.id = 'furina-native-polish';
               style.textContent = `$css`;
               document.head.appendChild(style);
+              if (!document.querySelector('meta[http-equiv="Content-Security-Policy"]')) {
+                const csp = document.createElement('meta');
+                csp.httpEquiv = 'Content-Security-Policy';
+                csp.content = "frame-src 'none'; object-src 'none'; base-uri 'self'";
+                document.head.appendChild(csp);
+              }
             })();
         """.trimIndent()
         view?.evaluateJavascript(script, null)
@@ -317,7 +393,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun isTrustedAppUri(uri: Uri): Boolean =
-        uri.scheme.equals("https", ignoreCase = true) && uri.host.equals(APP_HOST, ignoreCase = true)
+        uri.scheme.equals("https", ignoreCase = true) &&
+            (uri.host.equals(APP_HOST, ignoreCase = true) || uri.host.equals(OFFLINE_HOST, ignoreCase = true))
 
     private fun showLoadError(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
@@ -326,7 +403,8 @@ class MainActivity : ComponentActivity() {
             <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#050712;color:#fff;font-family:system-ui;padding:24px;box-sizing:border-box}.card{max-width:360px;text-align:center;background:#0c1022;border:1px solid #26304d;border-radius:20px;padding:24px}h1{font-size:22px;margin:0 0 10px}p{color:#b8c2d9;line-height:1.55}button{min-height:48px;border:0;border-radius:14px;padding:0 22px;background:#38bdf8;color:#03111b;font-weight:700}</style>
             <body><main class="card"><h1>Furina belum bisa dibuka</h1><p>${message.replace("<", "&lt;")}</p><button onclick="location.href='$APP_URL'">Coba lagi</button></main></body></html>
         """.trimIndent()
-        webView.loadDataWithBaseURL(APP_URL, html, "text/html", "UTF-8", null)
+        attachNativeBridges()
+        webView.loadDataWithBaseURL(OFFLINE_URL, html, "text/html", "UTF-8", null)
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -337,13 +415,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        // Stop cloud/evidence jobs first because FurinaBridge owns the shared MemoryStore lifecycle.
         cloudBridge.destroy()
         evidenceBridge.destroy()
         bridge.destroy()
-        webView.removeJavascriptInterface("FurinaNative")
-        webView.removeJavascriptInterface("FurinaCloud")
-        webView.removeJavascriptInterface("FurinaEvidence")
+        detachNativeBridges()
         webView.destroy()
         super.onDestroy()
     }
@@ -351,6 +426,9 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val APP_HOST = "furina-pi.vercel.app"
         private const val APP_URL = "https://furina-pi.vercel.app/native"
+        private const val OFFLINE_HOST = "furina.local"
+        private const val OFFLINE_URL = "https://furina.local/native"
+        private const val OFFLINE_ASSET = "furina-offline.html"
         private const val AUTH_SCHEME = "com.wynndev.furina"
         private const val MIN_LOADING_MS = 720L
         private val SAFE_EXTERNAL_SCHEMES = setOf("https", "http", "mailto", "tel")

@@ -42,7 +42,9 @@ class ModelDownloadWorker(
         val expectedBytes = inputData.getLong(ModelDownloadKeys.KEY_EXPECTED_BYTES, 0L)
         if (expectedBytes <= 0L) return Result.failure()
 
-        val modelDir = File(applicationContext.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), "models").apply { mkdirs() }
+        // Download directly into no-backup private storage. This is the same location llama.cpp
+        // mmaps later, so a successful 2–3 GB download no longer needs a second full-size copy.
+        val modelDir = File(applicationContext.noBackupFilesDir, "models").apply { mkdirs() }
         val finalFile = File(modelDir, fileName)
         val partialFile = File(modelDir, "$fileName.part")
         val notificationId = 7100 + (modelId.hashCode() and 0x3ff)
@@ -63,6 +65,9 @@ class ModelDownloadWorker(
                 .putLong("downloaded:$modelId", expectedBytes)
                 .remove("error:$modelId")
                 .remove("verified:$modelId")
+                .remove("verified_size:$modelId")
+                .remove("verified_mtime:$modelId")
+                .remove("verified_path:$modelId")
                 .remove("verification_error:$modelId")
                 .apply()
             notificationManager.notify(notificationId, completionNotification(modelName))
@@ -96,8 +101,6 @@ class ModelDownloadWorker(
             target.delete()
             existing = 0L
         }
-        // A previous worker may have written the last byte before Android stopped it.
-        // Promote that complete .part in doWork instead of issuing Range at EOF (416).
         if (existing == expectedBytes) return
 
         val connection = (URL(downloadUrl).openConnection() as HttpURLConnection).apply {
@@ -105,7 +108,7 @@ class ModelDownloadWorker(
             readTimeout = 60_000
             instanceFollowRedirects = true
             setRequestProperty("Accept", "application/octet-stream")
-            setRequestProperty("User-Agent", "FurinaAndroid/4.1")
+            setRequestProperty("User-Agent", "FurinaAndroid/4.4")
             if (existing > 0L) setRequestProperty("Range", "bytes=$existing-")
         }
 
@@ -135,6 +138,7 @@ class ModelDownloadWorker(
                         }
                     }
                     output.flush()
+                    output.fd.sync()
                 }
             }
         } finally {
