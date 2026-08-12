@@ -15,10 +15,30 @@ def _read(path: str) -> str:
 
 
 def _battery() -> dict:
+    # Prefer direct sysfs reads: they are effectively free and cannot block on
+    # a missing Termux:API companion app.
+    base = "/sys/class/power_supply/battery"
+    capacity = _read(base + "/capacity")
+    status = _read(base + "/status")
+    temp = _read(base + "/temp")
+    if capacity or status or temp:
+        out: dict = {"status": status or None}
+        try:
+            out["percent"] = int(capacity)
+        except Exception:
+            out["percent"] = None
+        try:
+            value = float(temp)
+            out["temperature_c"] = value / 10.0 if value > 80 else value
+        except Exception:
+            out["temperature_c"] = None
+        return out
+
+    # Optional richer fallback when Termux:API is actually installed.
     command = shutil.which("termux-battery-status")
     if command:
         try:
-            result = subprocess.run([command], capture_output=True, text=True, timeout=2, check=False)
+            result = subprocess.run([command], capture_output=True, text=True, timeout=0.7, check=False)
             if result.returncode == 0:
                 obj = json.loads(result.stdout)
                 return {
@@ -28,22 +48,7 @@ def _battery() -> dict:
                 }
         except Exception:
             pass
-
-    base = "/sys/class/power_supply/battery"
-    capacity = _read(base + "/capacity")
-    status = _read(base + "/status")
-    temp = _read(base + "/temp")
-    out: dict = {"status": status or None}
-    try:
-        out["percent"] = int(capacity)
-    except Exception:
-        out["percent"] = None
-    try:
-        value = float(temp)
-        out["temperature_c"] = value / 10.0 if value > 80 else value
-    except Exception:
-        out["temperature_c"] = None
-    return out
+    return {"percent": None, "status": None, "temperature_c": None}
 
 
 def _memory() -> dict:
@@ -74,7 +79,7 @@ def _networks() -> list[str]:
     return active[:6]
 
 
-def snapshot(store, cache_seconds: int = 20) -> dict:
+def snapshot(store, cache_seconds: int = 30) -> dict:
     now = time.time()
     cached = store.get_state("device_sensor_snapshot", {})
     if isinstance(cached, dict) and now - float(cached.get("at", 0) or 0) < cache_seconds:
