@@ -44,10 +44,13 @@ jobs:
           mkdir -p /tmp/furina-agent-src
           tar -xzf "$ARCHIVE" -C /tmp/furina-agent-src
           patch -p0 -d /tmp/furina-agent-src < "$SRC_META/patches/api30-inputstream.patch"
+          patch -p0 -d /tmp/furina-agent-src < "$SRC_META/patches/runtime-online-agent.patch"
           test -f /tmp/furina-agent-src/termux/core/furina_agent/cli.py
           test -f /tmp/furina-agent-src/termux/bridge/app/build.gradle
           ! grep -q 'readNBytes' /tmp/furina-agent-src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/LocalBridgeServer.java
           grep -q 'readExact' /tmp/furina-agent-src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/LocalBridgeServer.java
+          grep -q 'free = low.endswith(":free") or bool(' /tmp/furina-agent-src/termux/core/furina_agent/providers.py
+          grep -q 'WhatsApp/aplikasi pesan' /tmp/furina-agent-src/termux/core/furina_agent/agent.py
 
       - name: Validate shell and Python core
         working-directory: /tmp/furina-agent-src/termux
@@ -57,6 +60,21 @@ jobs:
           bash -n install.sh upgrade.sh uninstall.sh
           PYTHONPATH=core python3 -m compileall -q core tests
           PYTHONPATH=core python3 -m unittest discover -s tests -v
+          PYTHONPATH=core python3 - <<'PY'
+          from furina_agent.config import Config
+          from furina_agent.providers import ModelInfo, OpenAICompatibleProvider
+
+          provider = OpenAICompatibleProvider("groq", "test-key", Config())
+          info = provider._model_info({"id": "plain-chat-model", "pricing": {}})
+          assert info is not None
+          assert type(info.free) is bool and info.free is False, repr(info.free)
+
+          malformed = ModelInfo("same-score-a", {}, free={})
+          normal = ModelInfo("same-score-b", {}, free=False)
+          ranked = provider._rank_models([malformed, normal])
+          assert len(ranked) == 2
+          print("provider schema/ranking regression: PASS")
+          PY
 
       - name: Set up Java 17
         uses: actions/setup-java@v5
