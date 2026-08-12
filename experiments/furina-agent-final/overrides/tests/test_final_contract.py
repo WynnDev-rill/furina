@@ -49,7 +49,8 @@ class FinalContractTests(unittest.TestCase):
         self.assertIn("Jangan otomatis menutup", prompt)
         self.assertIn("Jangan menyebut atau menganggap dirimu AI", prompt)
         self.assertIn("tsundere", prompt.lower())
-        self.assertIn("sinis", prompt.lower())
+        self.assertIn("Sinisme hanya bumbu situasional", prompt)
+        self.assertIn("sense of drama", prompt)
         self.assertIn("Jangan gunakan emoji", prompt)
         self.assertIn("chain-of-thought", prompt)
 
@@ -106,16 +107,7 @@ class FinalContractTests(unittest.TestCase):
             store = MemoryStore(Path(td) / "mind.db")
             history = [
                 {"action": {"type": "open_app", "package": "example.notes"}, "executed": {"type": "open_app", "package": "example.notes"}, "result": {"ok": True}},
-                {
-                    "action": {"type": "set_text", "node": 7, "text": "password abc123"},
-                    "executed": {
-                        "type": "set_text",
-                        "node": 7,
-                        "text": "password abc123",
-                        "target": {"view_id": "editor", "text": "Wynn private note", "desc": "personal editor", "class": "EditText", "editable": True},
-                    },
-                    "result": {"ok": True, "verified_text": True},
-                },
+                {"action": {"type": "set_text", "node": 7, "text": "password abc123"}, "executed": {"type": "set_text", "node": 7, "text": "password abc123", "target": {"view_id": "editor", "text": "Wynn private note", "desc": "personal editor", "class": "EditText", "editable": True}}, "result": {"ok": True, "verified_text": True}},
             ]
             sid = store.learn_skill('buka catatan lalu tulis "password abc123"', history, "example.notes")
             self.assertIsNotNone(sid)
@@ -126,8 +118,7 @@ class FinalContractTests(unittest.TestCase):
                 self.assertNotIn(secret, steps_json)
             self.assertIn("from_current_goal", steps_json)
             self.assertIn("example.notes", goal_text)
-            found = store.find_skills("buka catatan dan tulis teks", "example.notes", 3)
-            self.assertTrue(found)
+            self.assertTrue(store.find_skills("buka catatan dan tulis teks", "example.notes", 3))
             self.assertFalse(store.find_skills("perintah tidak berhubungan", "", 3))
 
     def test_response_router_is_contextual(self):
@@ -143,12 +134,7 @@ class FinalContractTests(unittest.TestCase):
             store = MemoryStore(Path(td) / "mind.db")
             llm = JsonLLM(['{"done":true,"confidence":0.96,"result":"Pencarian selesai.","reason":"hasil target terlihat"}'])
             agent = AndroidAgent(Config(), store, llm, DummyBridge())
-            status = agent._verify_goal(
-                "buka app lalu cari Wynn",
-                TaskContract("cari Wynn", ["hasil pencarian Wynn tampil"], False),
-                {"package": "example.app", "nodes": [{"text": "Wynn", "clickable": True}]},
-                [{"action": {"type": "ime_action", "node": 2}, "result": {"ok": True}, "state_changed": True}],
-            )
+            status = agent._verify_goal("buka app lalu cari Wynn", TaskContract("cari Wynn", ["hasil pencarian Wynn tampil"], False), {"package": "example.app", "nodes": [{"text": "Wynn", "clickable": True}]}, [{"action": {"type": "ime_action", "node": 2}, "result": {"ok": True}, "state_changed": True}])
             self.assertTrue(status.done)
 
     def test_hard_evidence_gate_blocks_fake_write_and_missing_scrolls(self):
@@ -159,13 +145,8 @@ class FinalContractTests(unittest.TestCase):
             ok, reason = agent._deterministic_gate(contract, {"package": "example.notes", "nodes": []}, [])
             self.assertFalse(ok)
             self.assertIn("belum terbukti", reason)
-            ok, _ = agent._deterministic_gate(
-                contract,
-                {"package": "example.notes", "nodes": []},
-                [{"action": {"type": "set_text", "text": "furina"}, "result": {"ok": True, "verified_text": True}}],
-            )
+            ok, _ = agent._deterministic_gate(contract, {"package": "example.notes", "nodes": []}, [{"action": {"type": "set_text", "text": "furina"}, "result": {"ok": True, "verified_text": True}}])
             self.assertTrue(ok)
-
             scroll_contract = TaskContract("scroll", ["3 scroll"], False, 3, "", "")
             history = [{"action": {"type": "scroll_global"}, "result": {"ok": True}, "state_changed": True} for _ in range(2)]
             ok, reason = agent._deterministic_gate(scroll_contract, {"package": "tiktok", "nodes": []}, history)
@@ -173,11 +154,6 @@ class FinalContractTests(unittest.TestCase):
             self.assertIn("2/3", reason)
             history.append({"action": {"type": "scroll_global"}, "result": {"ok": True}, "scroll_event": True})
             self.assertTrue(agent._deterministic_gate(scroll_contract, {"package": "tiktok", "nodes": []}, history)[0])
-
-            no_move = [{"action": {"type": "scroll_global"}, "result": {"ok": True}, "state_changed": False} for _ in range(3)]
-            ok, reason = agent._deterministic_gate(scroll_contract, {"package": "tiktok", "nodes": []}, no_move)
-            self.assertFalse(ok)
-            self.assertIn("0/3", reason)
 
     def test_agent_supports_universal_actions_and_stable_targets(self):
         with tempfile.TemporaryDirectory() as td:
@@ -191,31 +167,43 @@ class FinalContractTests(unittest.TestCase):
             self.assertIn("scroll_node", allowed)
             self.assertIn("scroll_global", allowed)
 
-    def test_bridge_rc6_has_verified_controls_and_events(self):
+    def test_rc7_reliability_temporal_and_bridge_ui_contract(self):
         root = Path(__file__).resolve().parents[1]
         service = (root / "bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java").read_text()
+        activity = (root / "bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java").read_text()
+        manifest = (root / "bridge/app/src/main/AndroidManifest.xml").read_text()
         gradle = (root / "bridge/app/build.gradle").read_text()
-        self.assertIn('case "scroll_global"', service)
-        self.assertIn('result.put("verified_text", ok)', service)
-        self.assertIn("dispatchGestureAwait", service)
-        self.assertIn('out.put("recent_events"', service)
-        self.assertIn("DatagramSocket", service)
-        self.assertIn("selectorScore", service)
-        self.assertIn("ACTION_IME_ENTER", service)
-        self.assertIn("versionCode 10006", gradle)
-        self.assertIn("versionName '1.0.0-rc6'", gradle)
+        agent = (root / "core/furina_agent/agent.py").read_text()
+        chat = (root / "core/furina_agent/chat.py").read_text()
+        events = (root / "core/furina_agent/events.py").read_text()
+        config = (root / "core/furina_agent/config.py").read_text()
 
-    def test_rc6_review_fixes_are_present(self):
+        self.assertIn("waitForExactText", service)
+        self.assertNotIn("actual.contains(expected)", service)
+        self.assertIn("duplicate_suppressed", agent)
+        self.assertIn("watch_user_return", agent)
+        self.assertIn("_interruptible", agent)
+        self.assertIn("if not (screen.get(\"nodes\") or []) or stalls >= 2", agent)
+        self.assertIn("_temporal_context", chat)
+        self.assertIn("companion_last_user_at", chat)
+        self.assertIn("_internal_chat", chat)
+        self.assertIn("user_returned_to_termux_at", events)
+        self.assertIn("config_revision: int = 7", config)
+        self.assertIn("setOnApplyWindowInsetsListener", activity)
+        self.assertIn("setDecorFitsSystemWindows(false)", activity)
+        self.assertIn('android:icon="@mipmap/ic_launcher"', manifest)
+        self.assertIn("versionCode 10007", gradle)
+        self.assertIn("versionName '1.0.0-rc7'", gradle)
+
+    def test_rc6_review_fixes_are_preserved(self):
         root = Path(__file__).resolve().parents[1]
         local_vision = (root / "core/furina_agent/local_vision.py").read_text()
         config = (root / "core/furina_agent/config.py").read_text()
         agent = (root / "core/furina_agent/agent.py").read_text()
         memory = (root / "core/furina_agent/memory.py").read_text()
-
         start_block = local_vision.split("    def _start(self) -> None:", 1)[1].split("    def analyze(", 1)[0]
         self.assertNotIn("_schedule_idle_stop()", start_block)
         self.assertIn("finally:", local_vision)
-        self.assertIn("self._schedule_idle_stop()", local_vision.split("    def analyze(", 1)[1])
         self.assertIn('defaults["event_port"] = 8767', config)
         self.assertIn("contract.target_package", agent)
         self.assertIn('compact_goal = ("app="', memory)

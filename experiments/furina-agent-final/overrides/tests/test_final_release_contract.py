@@ -10,7 +10,7 @@ from furina_agent.config import Config
 
 
 class FinalReleaseContractTests(unittest.TestCase):
-    def test_legacy_config_migrates_to_rc6_cognition(self):
+    def test_legacy_config_migrates_to_rc7_companion(self):
         with tempfile.TemporaryDirectory() as td:
             home = Path(td)
             cfg_path = home / "config.json"
@@ -37,9 +37,10 @@ class FinalReleaseContractTests(unittest.TestCase):
                 MODELS_DIR=models,
             ):
                 cfg = config_mod.load_config()
-            self.assertEqual(cfg.config_revision, 6)
+            self.assertEqual(cfg.config_revision, 7)
             self.assertEqual(cfg.context_size, 6144)
             self.assertGreaterEqual(cfg.memory_limit, 7)
+            self.assertGreaterEqual(cfg.context_budget_chars, 6000)
             self.assertGreaterEqual(cfg.agent_max_steps, 28)
             self.assertFalse(cfg.local_reasoning)
             self.assertTrue(cfg.embedding_enabled)
@@ -53,6 +54,7 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertFalse(cfg.local_reasoning)
         self.assertEqual(cfg.context_size, 6144)
         self.assertEqual(cfg.memory_limit, 7)
+        self.assertEqual(cfg.context_budget_chars, 12000)
         self.assertEqual(cfg.agent_max_steps, 28)
         self.assertAlmostEqual(cfg.temperature, 0.70)
         self.assertEqual(cfg.max_tokens, 2048)
@@ -61,7 +63,7 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertEqual(cfg.vision_port, 8082)
         self.assertEqual(cfg.event_port, 8767)
 
-    def test_installer_is_pinned_and_applies_all_rc6_layers(self):
+    def test_installer_is_pinned_and_applies_all_rc7_layers(self):
         root = Path(__file__).resolve().parents[1]
         workspace = Path(os.environ.get("GITHUB_WORKSPACE", "")) if os.environ.get("GITHUB_WORKSPACE") else None
         release_installer = workspace / "experiments/furina-agent-final/install.sh" if workspace else None
@@ -69,7 +71,7 @@ class FinalReleaseContractTests(unittest.TestCase):
         installer = installer_path.read_text(encoding="utf-8")
         self.assertNotIn("storage/shared", installer)
         self.assertNotIn("/storage/emulated", installer)
-        self.assertIn('VERSION="1.0.0-rc6"', installer)
+        self.assertIn('VERSION="1.0.0-rc7"', installer)
         self.assertIn('[[ -f "$ROOT/config.json" ]] && MODE="update"', installer)
         self.assertIn('LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"', installer)
         self.assertIn('MODEL_REV="e9cf779"', installer)
@@ -84,11 +86,13 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertIn("apply-universal-agent-rc5.py", installer)
         self.assertIn("apply-core-rc6.py", installer)
         self.assertIn("apply-bridge-rc6.py", installer)
+        self.assertIn("apply-core-rc7.py", installer)
+        self.assertIn("apply-bridge-rc7.py", installer)
         self.assertIn("llama-embedding", installer)
         self.assertIn("-DGGML_CPU_KLEIDIAI=ON", installer)
         self.assertIn("termux-open-url", installer)
 
-    def test_core_has_hybrid_memory_skills_events_and_local_perception(self):
+    def test_core_has_hybrid_memory_skills_events_and_rc7_continuity(self):
         root = Path(__file__).resolve().parents[1]
         memory = (root / "core/furina_agent/memory.py").read_text(encoding="utf-8")
         chat = (root / "core/furina_agent/chat.py").read_text(encoding="utf-8")
@@ -104,12 +108,16 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertIn("relationship_state", memory)
         self.assertIn("backfill_vectors", chat)
         self.assertIn("DEVICE CONTEXT", chat)
+        self.assertIn("_temporal_context", chat)
+        self.assertIn("_internal_chat", chat)
         self.assertIn("_reflect", chat)
         self.assertIn("contradictions", chat)
         self.assertIn("choose_profile", response)
-        self.assertIn("DIALOGUE_ANCHORS", persona)
+        self.assertIn("Sinisme hanya bumbu situasional", persona)
         self.assertIn("_deterministic_gate", agent)
         self.assertIn("agent_cancelled_user_return", agent)
+        self.assertIn("watch_user_return", agent)
+        self.assertIn("duplicate_suppressed", agent)
         self.assertIn("LEARNED SKILL HINTS", agent)
         self.assertIn("LocalVision", routing)
 
@@ -132,7 +140,7 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertIn('payload["reasoning_format"] = "hidden"', providers)
         self.assertIn('payload["reasoning_effort"] = "none"', providers)
 
-    def test_bridge_self_updater_survives_rc6(self):
+    def test_bridge_self_updater_and_adaptive_ui_survive_rc7(self):
         root = Path(__file__).resolve().parents[1]
         manifest = (root / "bridge/app/src/main/AndroidManifest.xml").read_text()
         updater = (root / "bridge/app/src/main/java/com/wynndev/furinaagentbridge/BridgeUpdater.java").read_text()
@@ -140,9 +148,12 @@ class FinalReleaseContractTests(unittest.TestCase):
         service = (root / "bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java").read_text()
         self.assertIn("REQUEST_INSTALL_PACKAGES", manifest)
         self.assertIn("UpdateFileProvider", manifest)
+        self.assertIn('android:icon="@mipmap/ic_launcher"', manifest)
         self.assertIn("verifyArchive", updater)
         self.assertIn("BridgeUpdater", main)
+        self.assertIn("setOnApplyWindowInsetsListener", main)
         self.assertIn("dispatchGestureAwait", service)
+        self.assertIn("waitForExactText", service)
         self.assertIn("recent_events", service)
 
 

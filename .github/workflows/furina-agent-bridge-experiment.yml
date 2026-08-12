@@ -4,8 +4,7 @@ on:
   push:
     branches:
       - experiment/furina-agent-termux
-      - feat/furina-rc6-cognition-control
-      - fix/furina-rc6-review-p2
+      - feat/furina-rc7-companion-reliability
     paths:
       - 'experiments/furina-agent-final/**'
       - '.github/workflows/furina-agent-bridge-experiment.yml'
@@ -23,15 +22,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      TAG: furina-agent-v1.0.0-rc6
-      APK_NAME: Furina-Agent-Bridge-v1.0.0-rc6.apk
+      TAG: furina-agent-v1.0.0-rc7
+      APK_NAME: Furina-Agent-Bridge-v1.0.0-rc7.apk
       EXPECTED_SOURCE_SHA: 6b51c907c8a79ab6af06ef891b5013ce8ed964bdc168cf0e71751eacf4161fea
 
     steps:
       - name: Checkout isolated experiment branch
         uses: actions/checkout@v4
 
-      - name: Reassemble and layer Furina RC6
+      - name: Reassemble and layer Furina RC7
         shell: bash
         run: |
           set -euo pipefail
@@ -65,16 +64,21 @@ jobs:
           python3 "$META/overrides/apply-core-rc6.py" /tmp/furina-agent-src/termux
           python3 "$META/overrides/apply-core-rc6-postfix.py" /tmp/furina-agent-src/termux
           python3 "$META/overrides/apply-bridge-rc6.py" /tmp/furina-agent-src/termux
+          python3 "$META/overrides/apply-core-rc7.py" /tmp/furina-agent-src/termux
+          python3 "$META/overrides/apply-bridge-rc7.py" /tmp/furina-agent-src/termux
           cp "$META/overrides/tests/test_final_contract.py" /tmp/furina-agent-src/termux/tests/test_final_contract.py
           cp "$META/overrides/tests/test_final_release_contract.py" /tmp/furina-agent-src/termux/tests/test_final_release_contract.py
 
           ROOT=/tmp/furina-agent-src/termux
-          grep -q 'VERSION = "1.0.0-rc6"' "$ROOT/core/furina_agent/version.py"
-          grep -q 'config_revision: int = 6' "$ROOT/core/furina_agent/config.py"
+          grep -q 'VERSION = "1.0.0-rc7"' "$ROOT/core/furina_agent/version.py"
+          grep -q 'config_revision: int = 7' "$ROOT/core/furina_agent/config.py"
           grep -q 'defaults\["event_port"\] = 8767' "$ROOT/core/furina_agent/config.py"
           grep -q 'TaskContract' "$ROOT/core/furina_agent/agent.py"
           grep -q '_deterministic_gate' "$ROOT/core/furina_agent/agent.py"
           grep -q 'agent_cancelled_user_return' "$ROOT/core/furina_agent/agent.py"
+          grep -q 'watch_user_return' "$ROOT/core/furina_agent/agent.py"
+          grep -q '_interruptible' "$ROOT/core/furina_agent/agent.py"
+          grep -q 'duplicate_suppressed' "$ROOT/core/furina_agent/agent.py"
           grep -q 'LEARNED SKILL HINTS' "$ROOT/core/furina_agent/agent.py"
           grep -q 'contract.target_package' "$ROOT/core/furina_agent/agent.py"
           grep -q 'CREATE TABLE IF NOT EXISTS memory_vectors' "$ROOT/core/furina_agent/memory.py"
@@ -82,21 +86,34 @@ jobs:
           grep -q 'query_vec = self._embed_text(query)' "$ROOT/core/furina_agent/memory.py"
           grep -q 'compact_goal = ("app="' "$ROOT/core/furina_agent/memory.py"
           ! grep -q 'compact_goal = " ".join(str(goal).split())' "$ROOT/core/furina_agent/memory.py"
+          grep -q '_temporal_context' "$ROOT/core/furina_agent/chat.py"
+          grep -q '_internal_chat' "$ROOT/core/furina_agent/chat.py"
+          grep -q 'companion_last_user_at' "$ROOT/core/furina_agent/chat.py"
+          grep -q 'user_returned_to_termux_at' "$ROOT/core/furina_agent/events.py"
           grep -q 'DeviceEventDaemon' "$ROOT/core/furina_agent/companion.py"
           grep -q 'LocalVision' "$ROOT/core/furina_agent/routing.py"
           grep -q 'finally:' "$ROOT/core/furina_agent/local_vision.py"
           grep -q 'DIALOGUE_ANCHORS' "$ROOT/core/furina_agent/persona.py"
+          grep -q 'Sinisme hanya bumbu situasional' "$ROOT/core/furina_agent/persona.py"
           grep -q 'FURINA MIND' "$ROOT/core/furina_agent/tui.py"
           grep -q 'hybrid semantic' "$ROOT/core/furina_agent/tui.py"
           grep -q 'selectorScore' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
           grep -q 'case "scroll_global"' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
-          grep -q 'verified_text' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
+          grep -q 'waitForExactText' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
+          ! grep -q 'actual.contains(expected)' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
           grep -q 'dispatchGestureAwait' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
           grep -q 'recent_events' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
-          grep -q 'versionCode 10006' "$ROOT/bridge/app/build.gradle"
-          grep -q "versionName '1.0.0-rc6'" "$ROOT/bridge/app/build.gradle"
+          grep -q 'setOnApplyWindowInsetsListener' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java"
+          grep -q 'setDecorFitsSystemWindows(false)' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java"
+          grep -q 'android:icon="@mipmap/ic_launcher"' "$ROOT/bridge/app/src/main/AndroidManifest.xml"
+          test -f "$ROOT/bridge/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"
+          grep -q 'BridgeUpdater' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java"
+          grep -q 'verifyArchive' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/BridgeUpdater.java"
+          grep -q 'REQUEST_INSTALL_PACKAGES' "$ROOT/bridge/app/src/main/AndroidManifest.xml"
+          grep -q 'versionCode 10007' "$ROOT/bridge/app/build.gradle"
+          grep -q "versionName '1.0.0-rc7'" "$ROOT/bridge/app/build.gradle"
 
-      - name: Validate installer and RC6 regression suite
+      - name: Validate installer and RC7 regression suite
         working-directory: /tmp/furina-agent-src/termux
         shell: bash
         run: |
@@ -164,8 +181,8 @@ jobs:
           SHA="$(sha256sum "$APK_NAME" | awk '{print $1}')"
           SIGNER="$(printf '%s\n' "$CERT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
           test "$PACKAGE" = com.wynndev.furinaagentbridge
-          test "$CODE" = 10006
-          test "$NAME" = 1.0.0-rc6
+          test "$CODE" = 10007
+          test "$NAME" = 1.0.0-rc7
           test "${#SHA}" -eq 64 && test "${#SIGNER}" -eq 64
           export PACKAGE CODE NAME SHA SIGNER
           python3 - <<'PY'
@@ -174,7 +191,7 @@ jobs:
             'version':os.environ['NAME'],'version_code':int(os.environ['CODE']),
             'package_name':os.environ['PACKAGE'],'sha256':os.environ['SHA'],
             'signer_sha256':os.environ['SIGNER'],
-            'apk_url':'https://github.com/WynnDev-rill/furina/releases/download/furina-agent-v1.0.0-rc6/Furina-Agent-Bridge-v1.0.0-rc6.apk'
+            'apk_url':'https://github.com/WynnDev-rill/furina/releases/download/furina-agent-v1.0.0-rc7/Furina-Agent-Bridge-v1.0.0-rc7.apk'
           }
           open('bridge.json','w',encoding='utf-8').write(json.dumps(data,indent=2)+'\n')
           PY
@@ -182,9 +199,9 @@ jobs:
       - name: Upload CI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Furina-Agent-Final-v1.0.0-rc6
+          name: Furina-Agent-Final-v1.0.0-rc7
           path: |
-            Furina-Agent-Bridge-v1.0.0-rc6.apk
+            Furina-Agent-Bridge-v1.0.0-rc7.apk
             bridge.json
           if-no-files-found: error
 
@@ -200,7 +217,7 @@ jobs:
             gh release edit "$TAG" --prerelease --repo "$GITHUB_REPOSITORY"
           else
             gh release create "$TAG" "$APK_NAME" bridge.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-              --title "Furina Agent 1.0.0 RC6 — By Wynn" \
-              --notes "RC6: verified text/gesture execution, cancel-on-return-to-Termux, local hybrid vector+FTS memory, event-driven device context, local multimodal perception, learned action skills, and post-review privacy/lifecycle fixes." \
+              --title "Furina Agent 1.0.0 RC7 — By Wynn" \
+              --notes "RC7: more authentic Furina personality, temporal/session awareness, local-only memory housekeeping, bounded prompt context, fast cancel-on-return-to-Termux, vision only on real stalls, duplicate-write suppression, exact idempotent text input, adaptive Bridge icon/system bars, while preserving RC6 hybrid memory and local perception." \
               --prerelease
           fi
