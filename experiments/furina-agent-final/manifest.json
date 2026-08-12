@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0-rc2",
+  "version": "1.0.0-rc3",
   "channel": "final-candidate",
   "source_sha256": "6b51c907c8a79ab6af06ef891b5013ce8ed964bdc168cf0e71751eacf4161fea",
   "source_bytes": 48149,
@@ -11,7 +11,7 @@
     "source-04.b64",
     "source-05.b64"
   ],
-  "bridge_version": "1.0.0-rc2",
-  "bridge_version_code": 10002,
-  "bridge_release_base": "https://github.com/WynnDev-rill/furina/releases/download/furina-agent-v1.0.0-rc2"
+  "bridge_version": "1.0.0-rc3",
+  "bridge_version_code": 10003,
+  "bridge_release_base": "https://github.com/WynnDev-rill/furina/releases/download/furina-agent-v1.0.0-rc3"
 }
