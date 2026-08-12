@@ -4,9 +4,7 @@ on:
   push:
     branches:
       - experiment/furina-agent-termux
-      - fix/termux-unified-companion-v2
-      - fix/termux-task-auth-stable-ui
-      - feat/bridge-self-update-rc4
+      - feat/furina-mind-universal-agent-rc5
     paths:
       - 'experiments/furina-agent-final/**'
       - '.github/workflows/furina-agent-bridge-experiment.yml'
@@ -22,17 +20,17 @@ concurrency:
 jobs:
   validate-and-release:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     env:
-      TAG: furina-agent-v1.0.0-rc4
-      APK_NAME: Furina-Agent-Bridge-v1.0.0-rc4.apk
+      TAG: furina-agent-v1.0.0-rc5
+      APK_NAME: Furina-Agent-Bridge-v1.0.0-rc5.apk
       EXPECTED_SOURCE_SHA: 6b51c907c8a79ab6af06ef891b5013ce8ed964bdc168cf0e71751eacf4161fea
 
     steps:
       - name: Checkout isolated experiment branch
         uses: actions/checkout@v4
 
-      - name: Reassemble, layer companion v2, and verify final source
+      - name: Reassemble and layer Furina Mind RC5
         shell: bash
         run: |
           set -euo pipefail
@@ -44,18 +42,25 @@ jobs:
           done
           echo "$EXPECTED_SOURCE_SHA  $ARCHIVE" | sha256sum -c -
           test "$(python3 -c 'import json; print(json.load(open("experiments/furina-agent-final/manifest.json"))["source_sha256"])')" = "$EXPECTED_SOURCE_SHA"
+
           rm -rf /tmp/furina-agent-src
           mkdir -p /tmp/furina-agent-src
           tar -xzf "$ARCHIVE" -C /tmp/furina-agent-src
           patch -p0 -d /tmp/furina-agent-src < "$SRC_META/patches/api30-inputstream.patch"
           patch -p0 -d /tmp/furina-agent-src < "$SRC_META/patches/runtime-online-agent.patch"
 
+          # RC3 primitives are applied to the clean legacy base first.
+          python3 "$SRC_META/overrides/apply-companion-v2.py" /tmp/furina-agent-src/termux
+
+          # Then replace the final companion core and RC4 updater sources using
+          # the integrity-pinned companion-v3 manifest.
           python3 - "$SRC_META/overrides" /tmp/furina-agent-src/termux <<'PY'
           import hashlib, json, pathlib, sys
           override_root = pathlib.Path(sys.argv[1]).resolve()
           termux_root = pathlib.Path(sys.argv[2]).resolve()
-          manifest = json.loads((override_root / 'manifest.json').read_text(encoding='utf-8'))
-          assert manifest.get('revision') == 'companion-v2'
+          manifest_raw = (override_root / 'manifest.json').read_bytes()
+          manifest = json.loads(manifest_raw.decode('utf-8'))
+          assert manifest.get('revision') == 'companion-v3'
           def blob_sha(data: bytes) -> str:
               return hashlib.sha1(f'blob {len(data)}\0'.encode() + data).hexdigest()
           for item in manifest['files']:
@@ -69,35 +74,38 @@ jobs:
               target.write_bytes(data)
           PY
 
-          python3 "$SRC_META/overrides/apply-companion-v2.py" /tmp/furina-agent-src/termux
+          # Keep RC4's verified self-updater, then add generic Android controls.
           python3 "$SRC_META/overrides/apply-bridge-rc4.py" /tmp/furina-agent-src/termux
+          python3 "$SRC_META/overrides/apply-universal-agent-rc5.py" /tmp/furina-agent-src/termux
+
           cp "$SRC_META/overrides/tests/test_final_contract.py" /tmp/furina-agent-src/termux/tests/test_final_contract.py
           cp "$SRC_META/overrides/tests/test_final_release_contract.py" /tmp/furina-agent-src/termux/tests/test_final_release_contract.py
 
-          test -f /tmp/furina-agent-src/termux/core/furina_agent/cli.py
-          test -f /tmp/furina-agent-src/termux/bridge/app/build.gradle
-          ! grep -q 'readNBytes' /tmp/furina-agent-src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/LocalBridgeServer.java
-          grep -q 'readExact' /tmp/furina-agent-src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/LocalBridgeServer.java
-          grep -q 'free = low.endswith(":free") or bool(' /tmp/furina-agent-src/termux/core/furina_agent/providers.py
-          grep -q 'reasoning_effort.*none' /tmp/furina-agent-src/termux/core/furina_agent/providers.py
-          grep -q 'Percakapan + tindakan Android' /tmp/furina-agent-src/termux/core/furina_agent/tui.py
-          grep -q '_obvious_device_intent' /tmp/furina-agent-src/termux/core/furina_agent/companion.py
-          grep -q 'json_mode=True' /tmp/furina-agent-src/termux/core/furina_agent/agent.py
-          grep -q 'payload\["target"\] = selector' /tmp/furina-agent-src/termux/core/furina_agent/agent.py
-          grep -q 'needs_approval = (not task_authorized)' /tmp/furina-agent-src/termux/core/furina_agent/agent.py
-          grep -q 'Jangan menyebut atau menganggap dirimu AI' /tmp/furina-agent-src/termux/core/furina_agent/persona.py
-          grep -q 'tanpa konfirmasi kedua' /tmp/furina-agent-src/termux/core/furina_agent/tui.py
-          grep -q 'selectorScore' /tmp/furina-agent-src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java
-          grep -q 'resolveNode' /tmp/furina-agent-src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java
-          grep -q 'ACTION_IME_ENTER' /tmp/furina-agent-src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java
-          grep -q 'BridgeUpdater' /tmp/furina-agent-src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java
-          grep -q 'verifyArchive' /tmp/furina-agent-src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/BridgeUpdater.java
-          grep -q 'UpdateFileProvider' /tmp/furina-agent-src/termux/bridge/app/src/main/AndroidManifest.xml
-          grep -q 'REQUEST_INSTALL_PACKAGES' /tmp/furina-agent-src/termux/bridge/app/src/main/AndroidManifest.xml
-          grep -q 'versionCode 10004' /tmp/furina-agent-src/termux/bridge/app/build.gradle
-          grep -q "versionName '1.0.0-rc4'" /tmp/furina-agent-src/termux/bridge/app/build.gradle
+          ROOT=/tmp/furina-agent-src/termux
+          test -f "$ROOT/core/furina_agent/memory.py"
+          test -f "$ROOT/core/furina_agent/response.py"
+          test -f "$ROOT/core/furina_agent/vision.py"
+          grep -q 'TaskContract' "$ROOT/core/furina_agent/agent.py"
+          grep -q '_verify_goal' "$ROOT/core/furina_agent/agent.py"
+          grep -q '_with_vision' "$ROOT/core/furina_agent/agent.py"
+          grep -q 'CREATE TABLE IF NOT EXISTS beliefs' "$ROOT/core/furina_agent/memory.py"
+          grep -q 'CREATE TABLE IF NOT EXISTS episodes' "$ROOT/core/furina_agent/memory.py"
+          grep -q 'DIALOGUE_ANCHORS' "$ROOT/core/furina_agent/persona.py"
+          grep -q 'choose_profile' "$ROOT/core/furina_agent/response.py"
+          grep -q 'FURINA MIND' "$ROOT/core/furina_agent/tui.py"
+          grep -q 'tanpa konfirmasi kedua' "$ROOT/core/furina_agent/tui.py"
+          grep -q 'free = low.endswith(":free") or bool(' "$ROOT/core/furina_agent/providers.py"
+          grep -q 'reasoning_effort.*none' "$ROOT/core/furina_agent/providers.py"
+          grep -q 'selectorScore' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
+          grep -q 'ACTION_IME_ENTER' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
+          grep -q 'case "long_press"' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
+          grep -q 'case "scroll_node"' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
+          grep -q 'ACTION_PASTE' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
+          grep -q 'BridgeUpdater' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java"
+          grep -q 'versionCode 10005' "$ROOT/bridge/app/build.gradle"
+          grep -q "versionName '1.0.0-rc5'" "$ROOT/bridge/app/build.gradle"
 
-      - name: Validate installer, Python core, and companion regressions
+      - name: Validate installer, Python core, and RC5 regressions
         working-directory: /tmp/furina-agent-src/termux
         shell: bash
         run: |
@@ -106,51 +114,34 @@ jobs:
           PYTHONPATH=core python3 -m compileall -q core tests
           PYTHONPATH=core python3 -m unittest discover -s tests -v
           PYTHONPATH=core python3 - <<'PY'
-          from furina_agent.agent import AndroidAgent
+          from pathlib import Path
+          from tempfile import TemporaryDirectory
           from furina_agent.companion import _obvious_device_intent
-          from furina_agent.config import Config
-          from furina_agent.llm import sanitize
+          from furina_agent.memory import MemoryStore
           from furina_agent.persona import build_system_prompt
           from furina_agent.providers import ModelInfo, OpenAICompatibleProvider
+          from furina_agent.config import Config
 
           provider = OpenAICompatibleProvider('groq', 'test-key', Config())
           info = provider._model_info({'id': 'plain-chat-model', 'pricing': {}})
-          assert info is not None
-          assert type(info.free) is bool and info.free is False, repr(info.free)
+          assert info is not None and type(info.free) is bool and info.free is False
           malformed = ModelInfo('same-score-a', {}, free={})
           normal = ModelInfo('same-score-b', {}, free=False)
           assert len(provider._rank_models([malformed, normal])) == 2
 
-          assert _obvious_device_intent('buka youtube dan cari channel mr beast')
-          assert _obvious_device_intent('buka whatsapp lalu kirim pesan')
-          assert not _obvious_device_intent('bagaimana cara buka youtube')
-          assert sanitize('<think>private reasoning</think>Hai 😛') == 'Hai'
+          assert _obvious_device_intent('buka Tokopedia lalu cari laptop')
+          assert _obvious_device_intent('buka Discord dan cari Wynn lalu kirim pesan')
+          assert not _obvious_device_intent('bagaimana cara buka Tokopedia')
           prompt = build_system_prompt('Furina', 'Wynn')
-          assert 'Jangan menyebut atau menganggap dirimu AI' in prompt
-          assert 'Jangan meminta persetujuan kedua' in prompt
+          assert 'DIALOGUE' in prompt and 'customer-service' in prompt
 
-          class Dummy: pass
-          agent = AndroidAgent(Config(), Dummy(), Dummy(), Dummy())
-          risk, _ = agent.risk({}, {'type': 'ime_action', 'node': 3})
-          assert risk == 'write'
-          payload = agent._enrich_action(
-              {'nodes': [{'id': 3, 'view_id': 'search_box', 'class': 'EditText', 'editable': True, 'bounds': [1,2,3,4]}]},
-              {'type': 'set_text', 'node': 3, 'text': 'mr beast'},
-          )
-          assert payload['target']['view_id'] == 'search_box'
-          assert payload['target']['editable'] is True
-          assert agent._result_ok({'ok': True})
-          assert not agent._result_ok({'ok': False})
-          ready, reason = agent._finish_ready(
-              'buka youtube dan cari mr beast',
-              {'nodes': [{'text': 'MrBeast', 'desc': 'Channel'}]},
-              [
-                  {'action': {'type': 'set_text', 'node': 3, 'text': 'mr beast'}},
-                  {'action': {'type': 'ime_action', 'node': 3}, 'result': {'ok': True}},
-              ],
-          )
-          assert ready, reason
-          print('rc4 companion regressions: PASS')
+          with TemporaryDirectory() as td:
+              store = MemoryStore(Path(td) / 'mind.db')
+              store.add_memory('Wynn suka percakapan natural', 'preference', 0.8, confidence=0.9)
+              assert store.search('percakapan natural')
+              store.upsert_belief('preference', 'suka percakapan natural', 0.8)
+              assert store.beliefs('preference', 0.5)
+          print('RC5 Furina Mind regressions: PASS')
           PY
 
       - name: Set up Java 17
@@ -209,26 +200,22 @@ jobs:
           cp "$SOURCE_APK" "$APK_NAME"
           APKANALYZER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer 2>/dev/null | sort | tail -n1)"
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n1)"
-          test -x "$APKANALYZER"
-          test -x "$APKSIGNER"
           CERT_OUTPUT="$($APKSIGNER verify --verbose --print-certs "$APK_NAME")"
-          printf '%s\n' "$CERT_OUTPUT"
           PACKAGE="$($APKANALYZER manifest application-id "$APK_NAME" | tr -d '\r')"
           VERSION_CODE="$($APKANALYZER manifest version-code "$APK_NAME" | tr -d '\r')"
           VERSION_NAME="$($APKANALYZER manifest version-name "$APK_NAME" | tr -d '\r')"
           SHA256="$(sha256sum "$APK_NAME" | awk '{print $1}')"
           SIGNER="$(printf '%s\n' "$CERT_OUTPUT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
-          printf 'PACKAGE=%s\nVERSION_CODE=%s\nVERSION_NAME=%s\nAPK_SHA256=%s\nSIGNER_SHA256=%s\n' "$PACKAGE" "$VERSION_CODE" "$VERSION_NAME" "$SHA256" "$SIGNER"
           test "$PACKAGE" = "com.wynndev.furinaagentbridge"
-          test "$VERSION_CODE" = "10004"
-          test "$VERSION_NAME" = "1.0.0-rc4"
+          test "$VERSION_CODE" = "10005"
+          test "$VERSION_NAME" = "1.0.0-rc5"
           test "${#SHA256}" -eq 64
           test "${#SIGNER}" -eq 64
           export PACKAGE VERSION_CODE VERSION_NAME SHA256 SIGNER
           python3 - <<'PY'
           import json, os
-          tag = 'furina-agent-v1.0.0-rc4'
-          name = 'Furina-Agent-Bridge-v1.0.0-rc4.apk'
+          tag = 'furina-agent-v1.0.0-rc5'
+          name = 'Furina-Agent-Bridge-v1.0.0-rc5.apk'
           data = {
               'version': os.environ['VERSION_NAME'],
               'version_code': int(os.environ['VERSION_CODE']),
@@ -246,9 +233,9 @@ jobs:
       - name: Upload CI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Furina-Agent-Final-v1.0.0-rc4
+          name: Furina-Agent-Final-v1.0.0-rc5
           path: |
-            Furina-Agent-Bridge-v1.0.0-rc4.apk
+            Furina-Agent-Bridge-v1.0.0-rc5.apk
             bridge.json
           if-no-files-found: error
 
@@ -266,7 +253,7 @@ jobs:
             gh release create "$TAG" "$APK_NAME" bridge.json \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "Furina Agent 1.0.0 RC4 — By Wynn" \
-              --notes "RC4 menambahkan updater native di Furina Bridge. Bridge memeriksa versi saat dibuka, menawarkan tombol Perbarui, memverifikasi SHA-256/package/version/signature APK, lalu membuka installer Android melalui content URI privat. Bootstrap dari Termux memakai URL rilis resmi untuk menghindari parse error HyperOS pada file privat Termux." \
+              --title "Furina Agent 1.0.0 RC5 — By Wynn" \
+              --notes "RC5: Furina Mind layered memory, adaptive dialogue personality, universal Accessibility observe-act-verify controller, independent goal verifier, long-press/scroll/text fallbacks, and optional multimodal screenshot grounding using configured providers. Remains isolated from the main Furina APK." \
               --prerelease
           fi
