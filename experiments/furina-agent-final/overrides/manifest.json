@@ -8,6 +8,10 @@
     {"path": "core/furina_agent/persona.py", "target": "core/furina_agent/persona.py", "git_blob_sha": "d46ccc48d906acbf2f5ca9f4bb5166fb69533b81"},
     {"path": "core/furina_agent/providers.py", "target": "core/furina_agent/providers.py", "git_blob_sha": "a8de9ee6b94d16ce36e3fca0a905d0bf1e2ea2fb"},
     {"path": "core/furina_agent/routing.py", "target": "core/furina_agent/routing.py", "git_blob_sha": "fb4da3c4590cf5d7b7f3c849c13c806ae8411c25"},
-    {"path": "core/furina_agent/tui.py", "target": "core/furina_agent/tui.py", "git_blob_sha": "16004d096432c34d11f3e76525c6498c7af252ce"}
+    {"path": "core/furina_agent/tui.py", "target": "core/furina_agent/tui.py", "git_blob_sha": "16004d096432c34d11f3e76525c6498c7af252ce"},
+    {"path": "bridge/MainActivity.java", "target": "bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java", "git_blob_sha": "303588e965146488525bd77bd4d515e59123a0ec"},
+    {"path": "bridge/BridgeUpdater.java", "target": "bridge/app/src/main/java/com/wynndev/furinaagentbridge/BridgeUpdater.java", "git_blob_sha": "10bf46e38600a20ced2cefab23b382ac0c56798c"},
+    {"path": "bridge/UpdateFileProvider.java", "target": "bridge/app/src/main/java/com/wynndev/furinaagentbridge/UpdateFileProvider.java", "git_blob_sha": "7b63b167cab100866c529ef39296a5e3135643de"},
+    {"path": "bridge/AndroidManifest.xml", "target": "bridge/app/src/main/AndroidManifest.xml", "git_blob_sha": "a7e71fbfb90603574f6c5ece7902a9e9529c7cbe"}
   ]
 }
