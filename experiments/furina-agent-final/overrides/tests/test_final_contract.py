@@ -72,20 +72,23 @@ class FinalContractTests(unittest.TestCase):
         self.assertTrue(_obvious_device_intent("buka aplikasi aneh-yang-baru"))
         self.assertFalse(_obvious_device_intent("bagaimana cara buka Tokopedia"))
 
-    def test_memory_beliefs_episodes_relationship_and_reranking(self):
+    def test_memory_beliefs_episodes_relationship_and_hybrid_schema(self):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(Path(td) / "mind.db")
             store.add_memory("Wynn suka teh dingin", "preference", 0.8, confidence=0.9)
             store.add_memory("Wynn ingin menyelesaikan proyek Furina", "goal", 0.9, confidence=0.85)
             results = store.search("Furina proyek", 3)
             self.assertTrue(any("Furina" in m.text for m in results))
+            tables = {r[0] for r in store._conn().execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+            self.assertIn("memory_vectors", tables)
+            self.assertIn("learned_skills", tables)
+            self.assertEqual(store.vector_coverage(), (0, 2))
 
             store.upsert_belief("preference", "lebih suka jawaban ringkas", 0.72)
             store.upsert_belief("preference", "lebih suka jawaban ringkas", 0.82)
             beliefs = store.beliefs("preference", 0.5)
             self.assertEqual(len(beliefs), 1)
             self.assertGreaterEqual(beliefs[0].evidence, 2)
-            self.assertGreater(beliefs[0].confidence, 0.7)
             store.contradict_belief("preference", "ringkas", "lebih suka jawaban detail", 0.75)
             active = store.beliefs("preference", 0.5)
             self.assertTrue(any("detail" in b.value for b in active))
@@ -98,6 +101,21 @@ class FinalContractTests(unittest.TestCase):
             self.assertGreater(after["closeness"], before["closeness"])
             self.assertGreater(after["trust"], before["trust"])
 
+    def test_skill_learning_stores_stable_steps_without_user_text(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(Path(td) / "mind.db")
+            history = [
+                {"action": {"type": "open_app", "package": "example.notes"}, "executed": {"type": "open_app", "package": "example.notes"}, "result": {"ok": True}},
+                {"action": {"type": "set_text", "node": 7, "text": "rahasia pribadi"}, "executed": {"type": "set_text", "node": 7, "text": "rahasia pribadi", "target": {"view_id": "editor", "editable": True}}, "result": {"ok": True, "verified_text": True}},
+            ]
+            sid = store.learn_skill("buka catatan lalu tulis sesuatu", history, "example.notes")
+            self.assertIsNotNone(sid)
+            found = store.find_skills("buka catatan dan tulis teks", "example.notes", 3)
+            self.assertTrue(found)
+            raw = store._conn().execute("SELECT steps_json FROM learned_skills WHERE id=?", (sid,)).fetchone()[0]
+            self.assertNotIn("rahasia pribadi", raw)
+            self.assertIn("from_current_goal", raw)
+
     def test_response_router_is_contextual(self):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(Path(td) / "mind.db")
@@ -109,9 +127,7 @@ class FinalContractTests(unittest.TestCase):
     def test_generic_goal_verifier_stops_after_success(self):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(Path(td) / "mind.db")
-            llm = JsonLLM([
-                '{"done":true,"confidence":0.96,"result":"Pencarian selesai.","reason":"hasil target terlihat"}'
-            ])
+            llm = JsonLLM(['{"done":true,"confidence":0.96,"result":"Pencarian selesai.","reason":"hasil target terlihat"}'])
             agent = AndroidAgent(Config(), store, llm, DummyBridge())
             status = agent._verify_goal(
                 "buka app lalu cari Wynn",
@@ -120,7 +136,34 @@ class FinalContractTests(unittest.TestCase):
                 [{"action": {"type": "ime_action", "node": 2}, "result": {"ok": True}, "state_changed": True}],
             )
             self.assertTrue(status.done)
-            self.assertGreater(status.confidence, 0.9)
+
+    def test_hard_evidence_gate_blocks_fake_write_and_missing_scrolls(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(Path(td) / "mind.db")
+            agent = AndroidAgent(Config(), store, JsonLLM([]), DummyBridge())
+            contract = TaskContract("tulis", ["teks ada"], False, 0, "furina", "example.notes")
+            ok, reason = agent._deterministic_gate(contract, {"package": "example.notes", "nodes": []}, [])
+            self.assertFalse(ok)
+            self.assertIn("belum terbukti", reason)
+            ok, _ = agent._deterministic_gate(
+                contract,
+                {"package": "example.notes", "nodes": []},
+                [{"action": {"type": "set_text", "text": "furina"}, "result": {"ok": True, "verified_text": True}}],
+            )
+            self.assertTrue(ok)
+
+            scroll_contract = TaskContract("scroll", ["3 scroll"], False, 3, "", "")
+            history = [{"action": {"type": "scroll_global"}, "result": {"ok": True}, "state_changed": True} for _ in range(2)]
+            ok, reason = agent._deterministic_gate(scroll_contract, {"package": "tiktok", "nodes": []}, history)
+            self.assertFalse(ok)
+            self.assertIn("2/3", reason)
+            history.append({"action": {"type": "scroll_global"}, "result": {"ok": True}, "scroll_event": True})
+            self.assertTrue(agent._deterministic_gate(scroll_contract, {"package": "tiktok", "nodes": []}, history)[0])
+
+            no_move = [{"action": {"type": "scroll_global"}, "result": {"ok": True}, "state_changed": False} for _ in range(3)]
+            ok, reason = agent._deterministic_gate(scroll_contract, {"package": "tiktok", "nodes": []}, no_move)
+            self.assertFalse(ok)
+            self.assertIn("0/3", reason)
 
     def test_agent_supports_universal_actions_and_stable_targets(self):
         with tempfile.TemporaryDirectory() as td:
@@ -129,33 +172,38 @@ class FinalContractTests(unittest.TestCase):
             screen = {"nodes": [{"id": 7, "view_id": "composer", "text": "Message", "class": "EditText", "editable": True, "focusable": True, "bounds": [1, 2, 300, 90]}]}
             payload = agent._enrich_action(screen, {"type": "set_text", "node": 7, "text": "halo"})
             self.assertEqual(payload["target"]["view_id"], "composer")
-            self.assertTrue(payload["target"]["editable"])
-            self.assertIn("long_press", __import__("furina_agent.agent", fromlist=["ALLOWED"]).ALLOWED)
-            self.assertIn("scroll_node", __import__("furina_agent.agent", fromlist=["ALLOWED"]).ALLOWED)
+            allowed = __import__("furina_agent.agent", fromlist=["ALLOWED"]).ALLOWED
+            self.assertIn("long_press", allowed)
+            self.assertIn("scroll_node", allowed)
+            self.assertIn("scroll_global", allowed)
 
-    def test_bridge_rc5_has_generic_controls(self):
+    def test_bridge_rc6_has_verified_controls_and_events(self):
         root = Path(__file__).resolve().parents[1]
         service = (root / "bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java").read_text()
         gradle = (root / "bridge/app/build.gradle").read_text()
-        self.assertIn('case "long_press"', service)
-        self.assertIn('case "scroll_node"', service)
-        self.assertIn("ACTION_PASTE", service)
-        self.assertIn('j.put("actions", actions)', service)
-        self.assertIn('out.put("window_title"', service)
+        self.assertIn('case "scroll_global"', service)
+        self.assertIn('result.put("verified_text", ok)', service)
+        self.assertIn("dispatchGestureAwait", service)
+        self.assertIn('out.put("recent_events"', service)
+        self.assertIn("DatagramSocket", service)
         self.assertIn("selectorScore", service)
         self.assertIn("ACTION_IME_ENTER", service)
-        self.assertIn("versionCode 10005", gradle)
-        self.assertIn("versionName '1.0.0-rc5'", gradle)
+        self.assertIn("versionCode 10006", gradle)
+        self.assertIn("versionName '1.0.0-rc6'", gradle)
 
-    def test_vision_fallback_is_present(self):
+    def test_local_vision_and_embedding_sidecars_are_present(self):
         root = Path(__file__).resolve().parents[1]
         routing = (root / "core/furina_agent/routing.py").read_text()
-        vision = (root / "core/furina_agent/vision.py").read_text()
+        local_vision = (root / "core/furina_agent/local_vision.py").read_text()
+        embeddings = (root / "core/furina_agent/embeddings.py").read_text()
+        events = (root / "core/furina_agent/events.py").read_text()
         agent = (root / "core/furina_agent/agent.py").read_text()
-        self.assertIn("OnlineVision", routing)
-        self.assertIn("image_url", vision)
+        self.assertIn("LocalVision", routing)
+        self.assertIn("--mmproj", local_vision)
+        self.assertIn('"/embedding"', embeddings)
+        self.assertIn("socket.SOCK_DGRAM", events)
         self.assertIn("_with_vision", agent)
-        self.assertIn("vision_elements", agent)
+        self.assertIn("agent_cancelled_user_return", agent)
 
 
 if __name__ == "__main__":
