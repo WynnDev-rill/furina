@@ -69,6 +69,7 @@ jobs:
           python3 "$META/overrides/apply-core-rc7.py" /tmp/furina-agent-src/termux
           python3 "$META/overrides/apply-bridge-rc7.py" /tmp/furina-agent-src/termux
           python3 "$META/overrides/apply-core-rc8.py" /tmp/furina-agent-src/termux
+          python3 "$META/overrides/apply-core-rc8-postfix.py" /tmp/furina-agent-src/termux
           cp "$META/overrides/tests/test_final_contract.py" /tmp/furina-agent-src/termux/tests/test_final_contract.py
           cp "$META/overrides/tests/test_final_release_contract.py" /tmp/furina-agent-src/termux/tests/test_final_release_contract.py
 
