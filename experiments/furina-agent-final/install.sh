@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-VERSION="1.0.0-rc1"
+VERSION="1.0.0-rc2"
 ROOT="$HOME/.furina-agent"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 MANIFEST_URL="$BASE/manifest.json"
@@ -9,6 +9,8 @@ RUNTIME_PATCH_URL="$BASE/patches/runtime-online-agent.patch"
 RUNTIME_PATCH_SHA256="bef40bd02af2eb9714f1197337a0f1a5f3ad5fa9ff1e71adfa073141c3756549"
 OVERRIDE_MANIFEST_URL="$BASE/overrides/manifest.json"
 OVERRIDE_MANIFEST_BLOB="e534a664140220efd4f7de2ca302a7ee0926a2fc"
+IME_PATCH_URL="$BASE/patches/companion-v2-ime.patch"
+IME_PATCH_SHA256="4f379183aa5ce788d100501e5c569d3484eb70917a5091cfeec4f862e79b0162"
 LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"
 MODEL_REV="e9cf779"
 MODEL_NAME="Qwen3.5-4B-Deckard-HERETIC-UNCENSORED-Thinking.i1-Q4_K_M.gguf"
@@ -98,6 +100,12 @@ for item in manifest.get('files', []):
 print('Unified companion overrides: OK')
 PY
 
+# Add API-30 IME submit support after the core overrides are in place. This is
+# pinned independently so YouTube/Search behavior cannot silently drift.
+curl -fsSL --retry 3 "$IME_PATCH_URL" -o "$TMP/companion-v2-ime.patch"
+echo "$IME_PATCH_SHA256  $TMP/companion-v2-ime.patch" | sha256sum -c -
+patch -p0 -d "$TMP/src" < "$TMP/companion-v2-ime.patch"
+
 SRC="$TMP/src/termux"
 test -f "$SRC/core/furina_agent/cli.py"
 grep -q 'free = low.endswith(":free") or bool(' "$SRC/core/furina_agent/providers.py"
@@ -105,6 +113,9 @@ grep -q 'reasoning_effort.*none' "$SRC/core/furina_agent/providers.py"
 grep -q 'Percakapan + tindakan Android' "$SRC/core/furina_agent/tui.py"
 grep -q '_obvious_device_intent' "$SRC/core/furina_agent/companion.py"
 grep -q 'json_mode=True' "$SRC/core/furina_agent/agent.py"
+grep -q 'ime_action' "$SRC/core/furina_agent/agent.py"
+grep -q 'ACTION_IME_ENTER' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
+grep -q 'versionCode 10002' "$SRC/bridge/app/build.gradle"
 
 printf '[3/7] Memasang Core secara atomik...\n'
 rm -rf "$ROOT/core.new"
