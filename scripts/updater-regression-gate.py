@@ -24,13 +24,22 @@ def main() -> None:
         'json.getString("signerSha256")',
         'PackageInfoCompat.getLongVersionCode(archive) != targetVersion',
         'sha256(apk) != expectedSha',
-        'expectedSigner !in archiveSigners',
-        'expectedSigner !in installedSigners',
         'Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES',
         'downloadManager.getUriForDownloadedFile(id)',
         'clearPendingDownloadState()',
     ):
         require(marker in updater, f"UpdateManager missing invariant: {marker}")
+
+    archive_signer_bound = (
+        'expectedSigner !in archiveSigners' in updater or
+        'expectedSigner !in signerDigests(archive)' in updater
+    )
+    installed_signer_bound = (
+        'expectedSigner !in installedSigners' in updater or
+        'return expectedSigner in signerDigests(installed)' in updater
+    )
+    require(archive_signer_bound, "UpdateManager must reject an APK whose signer differs from the manifest")
+    require(installed_signer_bound, "UpdateManager must bind the manifest signer to the installed Furina signer")
 
     require('json.optBoolean("mandatory", false)' in updater,
             "updater default must be optional unless manifest explicitly says mandatory")

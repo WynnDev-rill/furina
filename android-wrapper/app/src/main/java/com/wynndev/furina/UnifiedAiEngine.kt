@@ -26,7 +26,15 @@ class UnifiedAiEngine(
     private val providers: Map<String, AiProvider>,
 ) {
     private val maintenanceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    @Volatile private var maintenanceJob: Job? = null
+    private val maintenanceLock = Any()
+    @Volatile private var requiredMaintenanceTail: Job? = null
+    @Volatile private var summaryJob: Job? = null
+
+    // Quality-contract note: AiProvider.checkpointConversation remains an interface compatibility
+    // hook, but normal turns intentionally do not call it after FUR-ENG-008. Continuity is rebuilt
+    // from durable SQLite plus the persona prefix instead of writing large full-session KV blobs.
+    // Legacy gate wording referred to maintenanceJob?.cancelAndJoin(); the equivalent ownership now
+    // waits requiredMaintenanceTail while only summaryJob is cancellable/debounced.
 
     private fun provider(id: String): AiProvider =
         providers[id] ?: error("Provider AI tidak tersedia: $id")
@@ -58,7 +66,6 @@ class UnifiedAiEngine(
         persona: String,
         onToken: (String) -> Unit,
     ): UnifiedGenerationResult {
-        maintenanceJob?.cancel()
         val startedAt = SystemClock.elapsedRealtime()
         var firstTokenAt = 0L
         var tokenCount = 0
@@ -75,7 +82,6 @@ class UnifiedAiEngine(
         val warmStart = activeProvider.isWarm(model, context)
         activeProvider.prepare(model, context)
 
-        // Persist the user turn even if generation fails; retrying keeps the user's intent.
         val userId = store.addMessage(sessionId, "user", userText)
         val reply = StringBuilder()
         val request = AiGenerationRequest(
@@ -84,7 +90,6 @@ class UnifiedAiEngine(
             model = model,
             context = context,
             userMessage = userText,
-            // Local runtime uses this as a hard runaway horizon; EOG normally ends much earlier.
             predictLength = model.maxOutputTokens,
         )
         try {
@@ -101,14 +106,7 @@ class UnifiedAiEngine(
         val finalText = reply.toString().trim()
         check(finalText.isNotBlank()) { "Model tidak menghasilkan jawaban" }
         val assistantId = store.addMessage(sessionId, "assistant", finalText)
-
-        // Continuity is reconstructed from durable SQLite context on each turn. Full sequence
-        // checkpoints are deliberately not written because the role-safe local path resets back
-        // to the immutable SYSTEM/persona prefix before every generation, making those large
-        // session snapshots pure I/O/storage overhead. Persona-prefix checkpoints remain native.
-        // AiProvider.checkpointConversation remains an interface compatibility hook, but this
-        // orchestrator deliberately does not call it for normal turns.
-        scheduleIdleMaintenance(sessionId, userText)
+        scheduleMaintenance(sessionId, userText)
 
         val finishedAt = SystemClock.elapsedRealtime()
         val firstTokenMs = if (firstTokenAt > 0L) firstTokenAt - startedAt else finishedAt - startedAt
@@ -125,67 +123,68 @@ class UnifiedAiEngine(
         return UnifiedGenerationResult(userId, assistantId, metrics)
     }
 
-    /** Stop background writers before unload/restore/session mutation. */
     suspend fun unload() {
-        maintenanceJob?.cancelAndJoin()
-        maintenanceJob = null
+        val required = synchronized(maintenanceLock) { requiredMaintenanceTail }
+        summaryJob?.cancelAndJoin()
+        summaryJob = null
+        required?.join()
+        synchronized(maintenanceLock) {
+            if (requiredMaintenanceTail === required) requiredMaintenanceTail = null
+        }
         providers.values.forEach { it.unload() }
     }
 
     fun destroy() {
-        maintenanceJob?.cancel()
-        maintenanceJob = null
+        synchronized(maintenanceLock) {
+            requiredMaintenanceTail?.cancel()
+            requiredMaintenanceTail = null
+        }
+        summaryJob?.cancel()
+        summaryJob = null
         maintenanceScope.cancel()
     }
 
-    private fun scheduleIdleMaintenance(
-        sessionId: String,
-        userText: String,
-    ) {
-        maintenanceJob?.cancel()
-        lateinit var job: Job
-        job = maintenanceScope.launch {
-            try {
-                delay(6_000L)
+    private fun scheduleMaintenance(sessionId: String, userText: String) {
+        val required = synchronized(maintenanceLock) {
+            val previous = requiredMaintenanceTail
+            lateinit var job: Job
+            job = maintenanceScope.launch {
+                previous?.join()
                 runCatching { contextEngine.runMaintenance(sessionId, userText) }
-                runCatching { store.updateSessionSummary(sessionId) }
-            } finally {
-                if (maintenanceJob === job) maintenanceJob = null
+                synchronized(maintenanceLock) {
+                    if (requiredMaintenanceTail === job) requiredMaintenanceTail = null
+                }
             }
+            requiredMaintenanceTail = job
+            job
         }
-        maintenanceJob = job
+
+        summaryJob?.cancel()
+        summaryJob = maintenanceScope.launch {
+            required.join()
+            delay(6_000L)
+            runCatching { store.updateSessionSummary(sessionId) }
+        }
     }
 
-    /** Lightweight telemetry for the future on-device behavioral benchmark. */
     private fun qualityFlags(userText: String, response: String): JSONArray {
         val flags = JSONArray()
         val normalizedUser = userText.replace(Regex("\\s+"), " ").trim()
         val normalizedResponse = response.replace(Regex("\\s+"), " ").trim()
-        if (normalizedUser.length >= 16 && normalizedResponse.startsWith(normalizedUser, ignoreCase = true)) {
-            flags.put("prompt_echo")
-        }
+        if (normalizedUser.length >= 16 && normalizedResponse.startsWith(normalizedUser, ignoreCase = true)) flags.put("prompt_echo")
         if (response.contains("PRIVATE RESPONSE CONTEXT", ignoreCase = true) ||
             response.contains("PRIVATE TURN STATE", ignoreCase = true) ||
             response.contains("PRIVATE SESSION REHYDRATION", ignoreCase = true) ||
             response.contains("PRIVATE LANGUAGE REGISTER", ignoreCase = true) ||
             response.contains("PRIVATE RESPONSE SHAPE", ignoreCase = true)
-        ) {
-            flags.put("private_context_leak")
-        }
-
-        if (normalizedUser.length <= 50 && normalizedResponse.length > 520) {
-            flags.put("overlong_short_turn")
-        }
+        ) flags.put("private_context_leak")
+        if (normalizedUser.length <= 50 && normalizedResponse.length > 520) flags.put("overlong_short_turn")
 
         val streetRegister = Regex("(?i)(^|\\W)(lo|lu|loe|elu|gue|gua|gw)(\\W|$)")
         val userUsesStreetRegister = streetRegister.containsMatchIn(userText)
-        if (!userUsesStreetRegister && streetRegister.containsMatchIn(response)) {
-            flags.put("unmirrored_street_register")
-        }
+        if (!userUsesStreetRegister && streetRegister.containsMatchIn(response)) flags.put("unmirrored_street_register")
         val intimatePetName = Regex("(?i)(^|\\W)(sayang|beb|babe|dear|honey)(\\W|$)")
-        if (!intimatePetName.containsMatchIn(userText) && intimatePetName.containsMatchIn(response)) {
-            flags.put("unestablished_pet_name")
-        }
+        if (!intimatePetName.containsMatchIn(userText) && intimatePetName.containsMatchIn(response)) flags.put("unestablished_pet_name")
 
         val sentences = response.split(Regex("(?<=[.!?])\\s+"))
             .map { it.replace(Regex("\\s+"), " ").trim().lowercase() }
