@@ -121,7 +121,7 @@ jobs:
           assert sanitize('<think>private reasoning</think>Hai 😛') == 'Hai'
           prompt = build_system_prompt('Furina', 'Wynn')
           assert 'Jangan menyebut atau menganggap dirimu AI' in prompt
-          assert 'tanpa konfirmasi kedua' in prompt
+          assert 'Jangan meminta persetujuan kedua' in prompt
 
           class Dummy: pass
           agent = AndroidAgent(Config(), Dummy(), Dummy(), Dummy())
