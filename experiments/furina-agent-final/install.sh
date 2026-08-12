@@ -1,18 +1,20 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-VERSION="1.0.0-rc4"
+VERSION="1.0.0-rc5"
 ROOT="$HOME/.furina-agent"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 MANIFEST_URL="$BASE/manifest.json"
 RUNTIME_PATCH_URL="$BASE/patches/runtime-online-agent.patch"
 RUNTIME_PATCH_SHA256="bef40bd02af2eb9714f1197337a0f1a5f3ad5fa9ff1e71adfa073141c3756549"
 OVERRIDE_MANIFEST_URL="$BASE/overrides/manifest.json"
-OVERRIDE_MANIFEST_BLOB="9bd5616020dd3f7755c7f168d8e8658c26d9228a"
+OVERRIDE_MANIFEST_BLOB="aa672a4544367ab272fbdba38ccc90e93b7d46c9"
 TRANSFORM_URL="$BASE/overrides/apply-companion-v2.py"
 TRANSFORM_BLOB="cfd65bcfdfd930518ae75e8d44e34559a0f33914"
 BRIDGE_TRANSFORM_URL="$BASE/overrides/apply-bridge-rc4.py"
 BRIDGE_TRANSFORM_BLOB="aa7444fdb843c6d707925e5a62d5189e2b4fbb64"
+UNIVERSAL_TRANSFORM_URL="$BASE/overrides/apply-universal-agent-rc5.py"
+UNIVERSAL_TRANSFORM_BLOB="0b94916eec7bb68e371b9c7cdda8e2fc503a7dbd"
 LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"
 MODEL_REV="e9cf779"
 MODEL_NAME="Qwen3.5-4B-Deckard-HERETIC-UNCENSORED-Thinking.i1-Q4_K_M.gguf"
@@ -41,7 +43,18 @@ mkdir -p "$ROOT"/{bin,models,logs,run,data,cache}
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-printf '[2/7] Mengambil Furina Core final...\n'
+verify_git_blob() {
+  python - "$1" "$2" <<'PY'
+import hashlib, pathlib, sys
+path, expected = sys.argv[1:]
+data = pathlib.Path(path).read_bytes()
+actual = hashlib.sha1(f"blob {len(data)}\0".encode() + data).hexdigest()
+if actual != expected:
+    raise SystemExit(f'Integritas file berubah; update dibatalkan: {path} {actual}')
+PY
+}
+
+printf '[2/7] Mengambil Furina Core + Furina Mind RC5...\n'
 curl -fsSL --retry 3 "$MANIFEST_URL" -o "$TMP/manifest.json"
 python - "$TMP/manifest.json" "$BASE" "$TMP" <<'PY'
 import base64, hashlib, json, pathlib, sys, urllib.request
@@ -65,6 +78,13 @@ curl -fsSL --retry 3 "$RUNTIME_PATCH_URL" -o "$TMP/runtime-online-agent.patch"
 echo "$RUNTIME_PATCH_SHA256  $TMP/runtime-online-agent.patch" | sha256sum -c -
 patch -p0 -d "$TMP/src" < "$TMP/runtime-online-agent.patch"
 
+# Legacy RC3 transform is applied to the clean base first. It supplies the
+# stable Accessibility selector and IME primitive on which RC5 builds.
+curl -fsSL --retry 3 "$TRANSFORM_URL" -o "$TMP/apply-companion-v2.py"
+verify_git_blob "$TMP/apply-companion-v2.py" "$TRANSFORM_BLOB"
+python "$TMP/apply-companion-v2.py" "$TMP/src/termux"
+
+# Companion-v3 source overrides are integrity-pinned and become the final core.
 curl -fsSL --retry 3 "$OVERRIDE_MANIFEST_URL" -o "$TMP/override-manifest.json"
 python - "$TMP/override-manifest.json" "$OVERRIDE_MANIFEST_BLOB" "$BASE" "$TMP/src/termux" <<'PY'
 import hashlib, json, pathlib, sys, urllib.request
@@ -72,13 +92,12 @@ manifest_path, expected_manifest_blob, base, termux_root = sys.argv[1:]
 manifest_raw = pathlib.Path(manifest_path).read_bytes()
 
 def git_blob_sha(data: bytes) -> str:
-    header = f"blob {len(data)}\0".encode()
-    return hashlib.sha1(header + data).hexdigest()
+    return hashlib.sha1(f"blob {len(data)}\0".encode() + data).hexdigest()
 
 if git_blob_sha(manifest_raw) != expected_manifest_blob:
     raise SystemExit('Manifest override Furina berubah; update dibatalkan.')
 manifest = json.loads(manifest_raw.decode('utf-8'))
-if manifest.get('revision') != 'companion-v2':
+if manifest.get('revision') != 'companion-v3':
     raise SystemExit('Revision override Furina tidak dikenali.')
 root = pathlib.Path(termux_root).resolve()
 for item in manifest.get('files', []):
@@ -97,51 +116,45 @@ for item in manifest.get('files', []):
         raise SystemExit('Target override keluar dari root.')
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
-print('Unified companion + Bridge overrides: OK')
+print('Furina Mind companion-v3 overrides: OK')
 PY
 
-# Transformasi Core + Bridge RC3 lama tetap dipakai untuk selector UI stabil,
-# verifikasi hasil aksi, dan ACTION_IME_ENTER.
-curl -fsSL --retry 3 "$TRANSFORM_URL" -o "$TMP/apply-companion-v2.py"
-python - "$TMP/apply-companion-v2.py" "$TRANSFORM_BLOB" <<'PY'
-import hashlib, pathlib, sys
-path, expected = sys.argv[1:]
-data = pathlib.Path(path).read_bytes()
-actual = hashlib.sha1(f"blob {len(data)}\0".encode() + data).hexdigest()
-if actual != expected:
-    raise SystemExit(f'Transform companion-v2 berubah; update dibatalkan: {actual}')
-PY
-python "$TMP/apply-companion-v2.py" "$TMP/src/termux"
-
-# RC4 menambahkan updater native Bridge dan menaikkan identitas APK.
+# Preserve RC4's secure in-app updater, then layer the universal RC5 controls.
 curl -fsSL --retry 3 "$BRIDGE_TRANSFORM_URL" -o "$TMP/apply-bridge-rc4.py"
-python - "$TMP/apply-bridge-rc4.py" "$BRIDGE_TRANSFORM_BLOB" <<'PY'
-import hashlib, pathlib, sys
-path, expected = sys.argv[1:]
-data = pathlib.Path(path).read_bytes()
-actual = hashlib.sha1(f"blob {len(data)}\0".encode() + data).hexdigest()
-if actual != expected:
-    raise SystemExit(f'Transform Bridge RC4 berubah; update dibatalkan: {actual}')
-PY
+verify_git_blob "$TMP/apply-bridge-rc4.py" "$BRIDGE_TRANSFORM_BLOB"
 python "$TMP/apply-bridge-rc4.py" "$TMP/src/termux"
+
+curl -fsSL --retry 3 "$UNIVERSAL_TRANSFORM_URL" -o "$TMP/apply-universal-agent-rc5.py"
+verify_git_blob "$TMP/apply-universal-agent-rc5.py" "$UNIVERSAL_TRANSFORM_BLOB"
+python "$TMP/apply-universal-agent-rc5.py" "$TMP/src/termux"
 
 SRC="$TMP/src/termux"
 test -f "$SRC/core/furina_agent/cli.py"
+test -f "$SRC/core/furina_agent/memory.py"
+test -f "$SRC/core/furina_agent/response.py"
+test -f "$SRC/core/furina_agent/vision.py"
 grep -q 'free = low.endswith(":free") or bool(' "$SRC/core/furina_agent/providers.py"
 grep -q 'reasoning_effort.*none' "$SRC/core/furina_agent/providers.py"
 grep -q 'Percakapan + tindakan Android' "$SRC/core/furina_agent/tui.py"
+grep -q 'FURINA MIND' "$SRC/core/furina_agent/tui.py"
+grep -q 'tanpa konfirmasi kedua' "$SRC/core/furina_agent/tui.py"
 grep -q '_obvious_device_intent' "$SRC/core/furina_agent/companion.py"
-grep -q 'json_mode=True' "$SRC/core/furina_agent/agent.py"
-grep -q 'ime_action' "$SRC/core/furina_agent/agent.py"
-grep -q 'payload\["target"\] = selector' "$SRC/core/furina_agent/agent.py"
-grep -q 'needs_approval = (not task_authorized)' "$SRC/core/furina_agent/agent.py"
+grep -q 'TaskContract' "$SRC/core/furina_agent/agent.py"
+grep -q '_verify_goal' "$SRC/core/furina_agent/agent.py"
+grep -q '_with_vision' "$SRC/core/furina_agent/agent.py"
+grep -q 'CREATE TABLE IF NOT EXISTS beliefs' "$SRC/core/furina_agent/memory.py"
+grep -q 'CREATE TABLE IF NOT EXISTS episodes' "$SRC/core/furina_agent/memory.py"
+grep -q 'DIALOGUE_ANCHORS' "$SRC/core/furina_agent/persona.py"
 grep -q 'selectorScore' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
 grep -q 'ACTION_IME_ENTER' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
+grep -q 'case "long_press"' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
+grep -q 'case "scroll_node"' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
+grep -q 'ACTION_PASTE' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
 grep -q 'BridgeUpdater' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java"
 grep -q 'verifyArchive' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/BridgeUpdater.java"
 grep -q 'REQUEST_INSTALL_PACKAGES' "$SRC/bridge/app/src/main/AndroidManifest.xml"
-grep -q 'UpdateFileProvider' "$SRC/bridge/app/src/main/AndroidManifest.xml"
-grep -q 'versionCode 10004' "$SRC/bridge/app/build.gradle"
+grep -q 'versionCode 10005' "$SRC/bridge/app/build.gradle"
+grep -q "versionName '1.0.0-rc5'" "$SRC/bridge/app/build.gradle"
 
 printf '[3/7] Memasang Core secara atomik...\n'
 rm -rf "$ROOT/core.new"
@@ -223,7 +236,7 @@ if [[ "$BRIDGE_VERSION" == "$EXPECTED_BRIDGE" ]]; then
   echo "Bridge final sudah terpasang."
   furina connect >/dev/null 2>&1 || true
 else
-  echo "Bridge final perlu dipasang/update: $EXPECTED_BRIDGE"
+  echo "Bridge perlu diperbarui: $BRIDGE_VERSION → $EXPECTED_BRIDGE"
   RELEASE_BASE="$(python -c 'import json; print(json.load(open("'"$TMP"'/manifest.json"))["bridge_release_base"])')"
   curl -fsSL --retry 3 "$RELEASE_BASE/bridge.json" -o "$TMP/bridge.json"
   APK_URL="$(python -c 'import json; print(json.load(open("'"$TMP"'/bridge.json"))["apk_url"])')"
@@ -231,12 +244,13 @@ else
   curl -fL --retry 3 "$APK_URL" -o "$ROOT/cache/Furina-Agent-Bridge.apk"
   echo "$APK_SHA  $ROOT/cache/Furina-Agent-Bridge.apk" | sha256sum -c -
   echo
-  echo "APK rilis sudah diverifikasi. Karena HyperOS gagal membaca APK dari direktori privat Termux, unduhan resmi akan dibuka melalui browser."
-  echo "Setelah Bridge RC4 terpasang, update Bridge berikutnya dapat dilakukan langsung dari menu UPDATE di Furina Bridge."
-  if [[ "$BRIDGE_VERSION" == "0.1.1" || "$BRIDGE_VERSION" == "0.2.0" ]]; then
-    echo "CATATAN SEKALI SAJA: Bridge prototipe lama memakai debug signature. Jika Android berkata aplikasi bentrok/tidak dapat di-update, uninstall HANYA Furina Bridge lama lalu install APK rilis resmi."
+  echo "APK rilis RC5 sudah diverifikasi."
+  if [[ "$BRIDGE_VERSION" == "1.0.0-rc4" ]]; then
+    echo "Cara termudah: buka Furina Bridge → UPDATE → Perbarui. RC4 sudah memiliki updater native."
+  else
+    echo "Halaman APK resmi akan dibuka. Setelah RC5 terpasang, update berikutnya tetap bisa dari menu UPDATE di Bridge."
+    termux-open-url "$APK_URL" >/dev/null 2>&1 || true
   fi
-  termux-open-url "$APK_URL" >/dev/null 2>&1 || true
 fi
 
 printf '[7/7] Final checks...\n'
