@@ -5,7 +5,7 @@ on:
     branches:
       - experiment/furina-agent-termux
     paths:
-      - 'experiments/furina-agent-bundle/**'
+      - 'experiments/furina-agent-bundle/VERSION'
       - '.github/workflows/furina-agent-bridge-experiment.yml'
   workflow_dispatch:
 
@@ -23,7 +23,7 @@ jobs:
         run: |
           mkdir -p experiments
           cat experiments/furina-agent-bundle/chunk-*.b64 | base64 -d > /tmp/furina-agent-termux.tar.gz
-          echo 'e1af478c119f1653d5d69bed5b14cb5b922d28d6154934e0c5ae8ae50a090c3f  /tmp/furina-agent-termux.tar.gz' | sha256sum -c -
+          echo '43eca5255f24aca910ed808fd9bb157f5f326a962989a39b08095236b4477d36  /tmp/furina-agent-termux.tar.gz' | sha256sum -c -
           tar -xzf /tmp/furina-agent-termux.tar.gz -C experiments
           test -f experiments/furina-agent-termux/settings.gradle
 
@@ -50,10 +50,10 @@ jobs:
         run: gradle :bridge:app:assembleDebug --stacktrace
 
       - name: Rename APK
-        run: cp experiments/furina-agent-termux/bridge/app/build/outputs/apk/debug/app-debug.apk Furina-Agent-Bridge-v0.1.1.apk
+        run: cp experiments/furina-agent-termux/bridge/app/build/outputs/apk/debug/app-debug.apk Furina-Agent-Bridge-v0.2.0.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Furina-Agent-Bridge-v0.1.1
-          path: Furina-Agent-Bridge-v0.1.1.apk
+          name: Furina-Agent-Bridge-v0.2.0
+          path: Furina-Agent-Bridge-v0.2.0.apk
           if-no-files-found: error
