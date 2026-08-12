@@ -106,6 +106,8 @@ class UnifiedAiEngine(
         // checkpoints are deliberately not written because the role-safe local path resets back
         // to the immutable SYSTEM/persona prefix before every generation, making those large
         // session snapshots pure I/O/storage overhead. Persona-prefix checkpoints remain native.
+        // AiProvider.checkpointConversation remains an interface compatibility hook, but this
+        // orchestrator deliberately does not call it for normal turns.
         scheduleIdleMaintenance(sessionId, userText)
 
         val finishedAt = SystemClock.elapsedRealtime()
