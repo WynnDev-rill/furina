@@ -58,11 +58,12 @@ class FinalContractTests(unittest.TestCase):
         self.assertIn("consumeBootstrapWindow", server)
         self.assertIn("openBootstrapWindow", prefs)
 
-    def test_release_bridge_has_stable_signing_hook(self):
+    def test_release_bridge_has_stable_signing_hook_and_rc2_identity(self):
         root = Path(__file__).resolve().parents[1]
         gradle = (root / "bridge/app/build.gradle").read_text()
         self.assertIn("FURINA_AGENT_KEYSTORE_PATH", gradle)
-        self.assertIn("versionCode 10001", gradle)
+        self.assertIn("versionCode 10002", gradle)
+        self.assertIn("versionName '1.0.0-rc2'", gradle)
 
 
 if __name__ == "__main__":
