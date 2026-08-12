@@ -17,6 +17,8 @@ UNIVERSAL_TRANSFORM_URL="$BASE/overrides/apply-universal-agent-rc5.py"
 UNIVERSAL_TRANSFORM_BLOB="0b94916eec7bb68e371b9c7cdda8e2fc503a7dbd"
 CORE_RC6_TRANSFORM_URL="$BASE/overrides/apply-core-rc6.py"
 CORE_RC6_TRANSFORM_BLOB="9b726e8d0816c177738932fe46a12b8c41e57db9"
+CORE_RC6_POSTFIX_URL="$BASE/overrides/apply-core-rc6-postfix.py"
+CORE_RC6_POSTFIX_BLOB="517640af9a17223a17778fd9b60245c3b6a7d37c"
 BRIDGE_RC6_TRANSFORM_URL="$BASE/overrides/apply-bridge-rc6.py"
 BRIDGE_RC6_TRANSFORM_BLOB="f9b7a2a3cff6ab0587fec66502604d7f61be85c2"
 LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"
@@ -139,6 +141,7 @@ for spec in \
   "$BRIDGE_TRANSFORM_URL|$BRIDGE_TRANSFORM_BLOB|apply-bridge-rc4.py" \
   "$UNIVERSAL_TRANSFORM_URL|$UNIVERSAL_TRANSFORM_BLOB|apply-universal-agent-rc5.py" \
   "$CORE_RC6_TRANSFORM_URL|$CORE_RC6_TRANSFORM_BLOB|apply-core-rc6.py" \
+  "$CORE_RC6_POSTFIX_URL|$CORE_RC6_POSTFIX_BLOB|apply-core-rc6-postfix.py" \
   "$BRIDGE_RC6_TRANSFORM_URL|$BRIDGE_RC6_TRANSFORM_BLOB|apply-bridge-rc6.py"; do
   IFS='|' read -r url blob name <<< "$spec"
   curl -fsSL --retry 3 "$url" -o "$TMP/$name"
