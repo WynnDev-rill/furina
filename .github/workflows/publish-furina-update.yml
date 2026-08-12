@@ -1,0 +1,83 @@
+name: Publish Furina Update
+
+on:
+  workflow_run:
+    workflows:
+      - Build Furina Stable APK
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish-update:
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+      TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+      CHANGE_TITLE: ${{ github.event.workflow_run.display_title }}
+
+    steps:
+      - name: Download verified stable APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run download "$RUN_ID" \
+            --repo "$REPO" \
+            --name "Furina-Stable-$RUN_NUMBER" \
+            --dir release-artifact
+          test -s release-artifact/Furina-Stable.apk
+          cp release-artifact/Furina-Stable.apk Furina.apk
+
+      - name: Create update manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          export VERSION_NAME="4.0.${RUN_NUMBER}"
+          python3 - <<'PY'
+          import json, os
+          run_number = int(os.environ["RUN_NUMBER"])
+          repo = os.environ["REPO"]
+          title = os.environ.get("CHANGE_TITLE", "").strip()
+          data = {
+              "versionCode": run_number,
+              "versionName": os.environ["VERSION_NAME"],
+              "minimumVersionCode": run_number,
+              "mandatory": True,
+              "apkUrl": f"https://github.com/{repo}/releases/latest/download/Furina.apk",
+              "title": "Pembaruan Furina tersedia",
+              "notes": [title] if title else ["Pembaruan stabil Furina tersedia."],
+              "commit": os.environ["TARGET_SHA"],
+          }
+          with open("update.json", "w", encoding="utf-8") as fh:
+              json.dump(data, fh, ensure_ascii=False, indent=2)
+              fh.write("\n")
+          PY
+          python3 -m json.tool update.json >/dev/null
+
+      - name: Publish stable GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="furina-v4.0.${RUN_NUMBER}"
+          TITLE="Furina 4.0.${RUN_NUMBER}"
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" Furina.apk update.json --clobber --repo "$REPO"
+          else
+            gh release create "$TAG" \
+              Furina.apk update.json \
+              --repo "$REPO" \
+              --target "$TARGET_SHA" \
+              --title "$TITLE" \
+              --notes "Stable signed Furina build $RUN_NUMBER. Source commit: $TARGET_SHA"
+          fi
