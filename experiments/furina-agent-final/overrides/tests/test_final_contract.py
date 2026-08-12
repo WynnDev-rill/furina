@@ -34,9 +34,9 @@ class FinalContractTests(unittest.TestCase):
         self.assertIn("Jangan menampilkan chain-of-thought", prompt)
         self.assertIn("Jangan membawa lore", prompt)
         self.assertIn("Jangan menyebut atau menganggap dirimu AI", prompt)
+        self.assertIn("Jangan meminta persetujuan kedua", prompt)
         self.assertIn("tsundere", prompt.lower())
         self.assertIn("sinis", prompt.lower())
-        self.assertIn("tanpa konfirmasi kedua", prompt)
 
     def test_sanitizer_removes_reasoning_and_emoji(self):
         text = sanitize("<think>rahasia</think>Hai 😛")
