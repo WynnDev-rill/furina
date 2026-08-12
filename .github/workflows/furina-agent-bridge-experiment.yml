@@ -6,6 +6,7 @@ on:
       - experiment/furina-agent-termux
       - fix/termux-unified-companion-v2
       - fix/termux-task-auth-stable-ui
+      - feat/bridge-self-update-rc4
     paths:
       - 'experiments/furina-agent-final/**'
       - '.github/workflows/furina-agent-bridge-experiment.yml'
@@ -23,8 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      TAG: furina-agent-v1.0.0-rc3
-      APK_NAME: Furina-Agent-Bridge-v1.0.0-rc3.apk
+      TAG: furina-agent-v1.0.0-rc4
+      APK_NAME: Furina-Agent-Bridge-v1.0.0-rc4.apk
       EXPECTED_SOURCE_SHA: 6b51c907c8a79ab6af06ef891b5013ce8ed964bdc168cf0e71751eacf4161fea
 
     steps:
@@ -69,6 +70,7 @@ jobs:
           PY
 
           python3 "$SRC_META/overrides/apply-companion-v2.py" /tmp/furina-agent-src/termux
+          python3 "$SRC_META/overrides/apply-bridge-rc4.py" /tmp/furina-agent-src/termux
           cp "$SRC_META/overrides/tests/test_final_contract.py" /tmp/furina-agent-src/termux/tests/test_final_contract.py
           cp "$SRC_META/overrides/tests/test_final_release_contract.py" /tmp/furina-agent-src/termux/tests/test_final_release_contract.py
 
@@ -88,8 +90,12 @@ jobs:
           grep -q 'selectorScore' /tmp/furina-agent-src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java
           grep -q 'resolveNode' /tmp/furina-agent-src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java
           grep -q 'ACTION_IME_ENTER' /tmp/furina-agent-src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java
-          grep -q 'versionCode 10003' /tmp/furina-agent-src/termux/bridge/app/build.gradle
-          grep -q "versionName '1.0.0-rc3'" /tmp/furina-agent-src/termux/bridge/app/build.gradle
+          grep -q 'BridgeUpdater' /tmp/furina-agent-src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java
+          grep -q 'verifyArchive' /tmp/furina-agent-src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/BridgeUpdater.java
+          grep -q 'UpdateFileProvider' /tmp/furina-agent-src/termux/bridge/app/src/main/AndroidManifest.xml
+          grep -q 'REQUEST_INSTALL_PACKAGES' /tmp/furina-agent-src/termux/bridge/app/src/main/AndroidManifest.xml
+          grep -q 'versionCode 10004' /tmp/furina-agent-src/termux/bridge/app/build.gradle
+          grep -q "versionName '1.0.0-rc4'" /tmp/furina-agent-src/termux/bridge/app/build.gradle
 
       - name: Validate installer, Python core, and companion regressions
         working-directory: /tmp/furina-agent-src/termux
@@ -144,7 +150,7 @@ jobs:
               ],
           )
           assert ready, reason
-          print('rc3 companion regressions: PASS')
+          print('rc4 companion regressions: PASS')
           PY
 
       - name: Set up Java 17
@@ -214,15 +220,15 @@ jobs:
           SIGNER="$(printf '%s\n' "$CERT_OUTPUT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
           printf 'PACKAGE=%s\nVERSION_CODE=%s\nVERSION_NAME=%s\nAPK_SHA256=%s\nSIGNER_SHA256=%s\n' "$PACKAGE" "$VERSION_CODE" "$VERSION_NAME" "$SHA256" "$SIGNER"
           test "$PACKAGE" = "com.wynndev.furinaagentbridge"
-          test "$VERSION_CODE" = "10003"
-          test "$VERSION_NAME" = "1.0.0-rc3"
+          test "$VERSION_CODE" = "10004"
+          test "$VERSION_NAME" = "1.0.0-rc4"
           test "${#SHA256}" -eq 64
           test "${#SIGNER}" -eq 64
           export PACKAGE VERSION_CODE VERSION_NAME SHA256 SIGNER
           python3 - <<'PY'
           import json, os
-          tag = 'furina-agent-v1.0.0-rc3'
-          name = 'Furina-Agent-Bridge-v1.0.0-rc3.apk'
+          tag = 'furina-agent-v1.0.0-rc4'
+          name = 'Furina-Agent-Bridge-v1.0.0-rc4.apk'
           data = {
               'version': os.environ['VERSION_NAME'],
               'version_code': int(os.environ['VERSION_CODE']),
@@ -240,9 +246,9 @@ jobs:
       - name: Upload CI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Furina-Agent-Final-v1.0.0-rc3
+          name: Furina-Agent-Final-v1.0.0-rc4
           path: |
-            Furina-Agent-Bridge-v1.0.0-rc3.apk
+            Furina-Agent-Bridge-v1.0.0-rc4.apk
             bridge.json
           if-no-files-found: error
 
@@ -260,7 +266,7 @@ jobs:
             gh release create "$TAG" "$APK_NAME" bridge.json \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "Furina Agent 1.0.0 RC3 — By Wynn" \
-              --notes "Termux companion RC3: stable Accessibility target selectors, verified action results, one task-level approval including requested Send/Kirim, and stronger in-character Furina identity. This prerelease remains isolated from the main Furina APK." \
+              --title "Furina Agent 1.0.0 RC4 — By Wynn" \
+              --notes "RC4 menambahkan updater native di Furina Bridge. Bridge memeriksa versi saat dibuka, menawarkan tombol Perbarui, memverifikasi SHA-256/package/version/signature APK, lalu membuka installer Android melalui content URI privat. Bootstrap dari Termux memakai URL rilis resmi untuk menghindari parse error HyperOS pada file privat Termux." \
               --prerelease
           fi
