@@ -6,6 +6,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -15,8 +17,12 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.pm.PackageInfoCompat
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import java.io.FileInputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
+import java.util.Locale
 import java.util.concurrent.Executors
 
 data class FurinaUpdateInfo(
@@ -25,6 +31,9 @@ data class FurinaUpdateInfo(
     val minimumVersionCode: Long,
     val mandatory: Boolean,
     val apkUrl: String,
+    val sha256: String,
+    val packageName: String,
+    val signerSha256: String,
     val title: String,
     val notes: List<String>,
 )
@@ -32,8 +41,8 @@ data class FurinaUpdateInfo(
 /**
  * Native APK updater for Furina's direct-distribution builds.
  *
- * The manifest is published beside each successful stable GitHub Release. The updater never
- * touches user/model data: Android installs the new APK over the existing signed package.
+ * Every downloaded APK is bound to the release manifest by digest, package name, version code,
+ * and signing certificate before Android's installer is opened.
  */
 class UpdateManager(private val activity: MainActivity) {
     private val executor = Executors.newSingleThreadExecutor()
@@ -99,12 +108,19 @@ class UpdateManager(private val activity: MainActivity) {
             require(apkUrl.startsWith(TRUSTED_RELEASE_PREFIX)) { "Untrusted update URL" }
             val versionCode = json.getLong("versionCode")
             require(versionCode > 0L) { "Invalid update version" }
+            val sha256 = json.getString("sha256").normalizedDigest()
+            val packageName = json.getString("packageName").trim()
+            val signerSha256 = json.getString("signerSha256").normalizedDigest()
+            require(packageName == activity.packageName) { "Unexpected update package" }
             return FurinaUpdateInfo(
                 versionCode = versionCode,
                 versionName = json.optString("versionName", versionCode.toString()),
                 minimumVersionCode = json.optLong("minimumVersionCode", 1L),
-                mandatory = json.optBoolean("mandatory", true),
+                mandatory = json.optBoolean("mandatory", false),
                 apkUrl = apkUrl,
+                sha256 = sha256,
+                packageName = packageName,
+                signerSha256 = signerSha256,
                 title = json.optString("title", "Pembaruan Furina tersedia"),
                 notes = json.optJSONArray("notes").toStringList(),
             )
@@ -154,7 +170,7 @@ class UpdateManager(private val activity: MainActivity) {
     }
 
     private fun startDownload(info: FurinaUpdateInfo) {
-        val fileName = "Furina-update-${info.versionCode}.apk"
+        val fileName = updateFileName(info.versionCode)
         val request = DownloadManager.Request(Uri.parse(info.apkUrl))
             .setTitle("Memperbarui Furina")
             .setDescription("Mengunduh Furina ${info.versionName}")
@@ -169,6 +185,9 @@ class UpdateManager(private val activity: MainActivity) {
                 preferences.edit()
                     .putLong(KEY_DOWNLOAD_ID, id)
                     .putLong(KEY_TARGET_VERSION, info.versionCode)
+                    .putString(KEY_TARGET_SHA256, info.sha256)
+                    .putString(KEY_TARGET_PACKAGE, info.packageName)
+                    .putString(KEY_TARGET_SIGNER_SHA256, info.signerSha256)
                     .putBoolean(KEY_PENDING_INSTALL, false)
                     .apply()
                 Toast.makeText(activity, "Pembaruan sedang diunduh", Toast.LENGTH_LONG).show()
@@ -186,7 +205,7 @@ class UpdateManager(private val activity: MainActivity) {
         }
         if (!preferences.getBoolean(KEY_PENDING_INSTALL, false)) return
         val id = preferences.getLong(KEY_DOWNLOAD_ID, -1L)
-        if (id <= 0L) return
+        if (id <= 0L || target <= 0L) return
 
         val query = DownloadManager.Query().setFilterById(id)
         val successful = runCatching {
@@ -196,6 +215,14 @@ class UpdateManager(private val activity: MainActivity) {
             }
         }.getOrDefault(false)
         if (!successful) return
+
+        val verified = runCatching { verifyDownloadedApk(target) }.getOrDefault(false)
+        if (!verified) {
+            runCatching { downloadManager.remove(id) }
+            clearPendingDownloadState()
+            Toast.makeText(activity, "Pembaruan ditolak karena file APK tidak cocok dengan rilis Furina.", Toast.LENGTH_LONG).show()
+            return
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !activity.packageManager.canRequestPackageInstalls()) {
             val settingsIntent = Intent(
@@ -218,6 +245,79 @@ class UpdateManager(private val activity: MainActivity) {
             }
     }
 
+    private fun verifyDownloadedApk(targetVersion: Long): Boolean {
+        val expectedSha = preferences.getString(KEY_TARGET_SHA256, null)?.normalizedDigest() ?: return false
+        val expectedPackage = preferences.getString(KEY_TARGET_PACKAGE, null)?.trim() ?: return false
+        val expectedSigner = preferences.getString(KEY_TARGET_SIGNER_SHA256, null)?.normalizedDigest() ?: return false
+        if (expectedPackage != activity.packageName) return false
+
+        val apk = File(activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), updateFileName(targetVersion))
+        if (!apk.isFile || apk.length() <= 0L) return false
+        if (sha256(apk) != expectedSha) return false
+
+        val archive = packageArchiveInfo(apk) ?: return false
+        if (archive.packageName != expectedPackage) return false
+        if (PackageInfoCompat.getLongVersionCode(archive) != targetVersion) return false
+
+        val archiveSigners = signerDigests(archive)
+        if (expectedSigner !in archiveSigners) return false
+
+        val installed = packageInfo(activity.packageName) ?: return false
+        val installedSigners = signerDigests(installed)
+        if (expectedSigner !in installedSigners) return false
+        return true
+    }
+
+    private fun packageArchiveInfo(apk: File): PackageInfo? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            activity.packageManager.getPackageArchiveInfo(
+                apk.absolutePath,
+                PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong()),
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            activity.packageManager.getPackageArchiveInfo(apk.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
+        }
+
+    private fun packageInfo(packageName: String): PackageInfo? = runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            activity.packageManager.getPackageInfo(
+                packageName,
+                PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong()),
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            activity.packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+        }
+    }.getOrNull()
+
+    private fun signerDigests(info: PackageInfo): Set<String> {
+        val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.signingInfo?.apkContentsSigners.orEmpty()
+        } else {
+            @Suppress("DEPRECATION")
+            info.signatures.orEmpty()
+        }
+        return signatures.mapTo(linkedSetOf()) { signature ->
+            MessageDigest.getInstance("SHA-256")
+                .digest(signature.toByteArray())
+                .joinToString("") { "%02x".format(it) }
+        }
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        FileInputStream(file).use { input ->
+            val buffer = ByteArray(1024 * 1024)
+            while (true) {
+                val read = input.read(buffer)
+                if (read <= 0) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
     private fun currentVersionCode(): Long = runCatching {
         PackageInfoCompat.getLongVersionCode(
             activity.packageManager.getPackageInfo(activity.packageName, 0),
@@ -227,9 +327,16 @@ class UpdateManager(private val activity: MainActivity) {
     private fun clearCompletedUpdateState(currentVersionCode: Long) {
         val target = preferences.getLong(KEY_TARGET_VERSION, -1L)
         if (target <= 0L || currentVersionCode < target) return
+        clearPendingDownloadState()
+    }
+
+    private fun clearPendingDownloadState() {
         preferences.edit()
             .remove(KEY_DOWNLOAD_ID)
             .remove(KEY_TARGET_VERSION)
+            .remove(KEY_TARGET_SHA256)
+            .remove(KEY_TARGET_PACKAGE)
+            .remove(KEY_TARGET_SIGNER_SHA256)
             .remove(KEY_PENDING_INSTALL)
             .apply()
     }
@@ -243,10 +350,21 @@ class UpdateManager(private val activity: MainActivity) {
         }
     }
 
+    private fun String.normalizedDigest(): String {
+        val value = lowercase(Locale.US).replace(":", "").trim()
+        require(value.matches(Regex("[0-9a-f]{64}"))) { "Invalid SHA-256 digest" }
+        return value
+    }
+
+    private fun updateFileName(versionCode: Long): String = "Furina-update-$versionCode.apk"
+
     companion object {
         private const val PREFS = "furina_updates"
         private const val KEY_DOWNLOAD_ID = "download_id"
         private const val KEY_TARGET_VERSION = "target_version"
+        private const val KEY_TARGET_SHA256 = "target_sha256"
+        private const val KEY_TARGET_PACKAGE = "target_package"
+        private const val KEY_TARGET_SIGNER_SHA256 = "target_signer_sha256"
         private const val KEY_PENDING_INSTALL = "pending_install"
         private const val APK_MIME = "application/vnd.android.package-archive"
         private const val UPDATE_MANIFEST_URL =
