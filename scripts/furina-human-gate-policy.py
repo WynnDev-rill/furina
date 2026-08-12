@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail closed when active scheduled engineering authority drifts away from human-gated mode."""
+"""Fail closed when active scheduled engineering authority drifts away from Wynn-gated mode."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -22,8 +22,8 @@ def main() -> None:
         "Wynn is the sole authority",
         "at least 5 distinct new or materially changed MEDIUM-to-HIGH value findings",
         "AWAITING WYNN APPROVAL",
-        "Gate 1",
-        "Gate 2",
+        "Single-approval implementation flow",
+        "implementation approval and merge approval",
         "There is no scheduled auto-merge mode",
         "company/staging` from Factory v2 is legacy state",
     ):
@@ -37,6 +37,7 @@ def main() -> None:
         "at least **5 distinct NEW or materially changed MEDIUM-to-HIGH value findings**",
         "AWAITING WYNN APPROVAL",
         "Do nothing automatically",
+        "No second merge approval is required",
     ):
         require(marker.casefold() in worker.casefold(), f"hourly worker missing marker: {marker}")
 
@@ -48,14 +49,18 @@ def main() -> None:
         "force-reset `company/staging`",
     )
     for phrase in forbidden_worker_authority:
-        require(phrase.casefold() not in worker.casefold(), f"hourly worker retained legacy write authority: {phrase}")
+        require(phrase.casefold() not in worker.casefold(), f"hourly worker retained legacy scheduled write authority: {phrase}")
 
     require("There is no scheduled auto-merge mode" in policy,
-            "policy must explicitly remove scheduled auto-merge authority")
-    require("Gate 1 approval is **not merge approval**" in policy,
-            "plan approval and merge approval must remain separate")
+            "scheduled policy must explicitly remove unattended auto-merge authority")
+    require("Wynn approval is therefore **implementation approval and merge approval for the approved scope**" in policy,
+            "one explicit Wynn approval must authorize both implementation and in-scope merge")
+    require("No second merge approval is required for the same approved scope" in worker,
+            "interactive flow must not require a second Wynn approval")
+    require("Scheduled Engineer authority never changes" in worker,
+            "scheduled Engineer must remain read-only after interactive approval")
 
-    print("Human-gated engineering policy passed: scheduled Engineer is read-only; Wynn owns implementation and merge gates")
+    print("Human-gated engineering policy passed: scheduled Engineer is read-only; one Wynn approval authorizes validated in-scope implementation and merge")
 
 
 if __name__ == "__main__":
