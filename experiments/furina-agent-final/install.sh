@@ -1,14 +1,14 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-VERSION="1.0.0-rc7"
+VERSION="1.0.0-rc8"
 ROOT="$HOME/.furina-agent"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 MANIFEST_URL="$BASE/manifest.json"
 RUNTIME_PATCH_URL="$BASE/patches/runtime-online-agent.patch"
 RUNTIME_PATCH_SHA256="bef40bd02af2eb9714f1197337a0f1a5f3ad5fa9ff1e71adfa073141c3756549"
 OVERRIDE_MANIFEST_URL="$BASE/overrides/manifest.json"
-OVERRIDE_MANIFEST_BLOB="d0e7ea8c40402640750c7d4b809224928767a877"
+OVERRIDE_MANIFEST_BLOB="b020706de3a56b076f55b292297e604aa7c12a16"
 PRIMITIVE_TRANSFORM_URL="$BASE/overrides/apply-bridge-primitives-rc5.py"
 PRIMITIVE_TRANSFORM_BLOB="2f90a928d0808f23889750fe2a09f8d8689c5ad5"
 BRIDGE_TRANSFORM_URL="$BASE/overrides/apply-bridge-rc4.py"
@@ -25,6 +25,8 @@ CORE_RC7_TRANSFORM_URL="$BASE/overrides/apply-core-rc7.py"
 CORE_RC7_TRANSFORM_BLOB="abbd595ad4729a74014d438db9495cecb4cfddec"
 BRIDGE_RC7_TRANSFORM_URL="$BASE/overrides/apply-bridge-rc7.py"
 BRIDGE_RC7_TRANSFORM_BLOB="c014e904c5a0c3f661619253ae0ce9aff5300b5c"
+CORE_RC8_TRANSFORM_URL="$BASE/overrides/apply-core-rc8.py"
+CORE_RC8_TRANSFORM_BLOB="07c0239bacf91c7830eee0b32544b9d456c3bd17"
 LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"
 
 MODEL_REV="e9cf779"
@@ -89,7 +91,7 @@ fetch_model_checked() {
   mv "$target.part" "$target"
 }
 
-printf '[2/7] Mengambil Furina Core + Furina Mind RC7...\n'
+printf '[2/7] Mengambil Furina Core + Furina Mind RC8...\n'
 curl -fsSL --retry 3 "$MANIFEST_URL" -o "$TMP/manifest.json"
 python - "$TMP/manifest.json" "$BASE" "$TMP" <<'PY'
 import base64,hashlib,json,pathlib,sys,urllib.request
@@ -123,7 +125,7 @@ def git_blob_sha(data): return hashlib.sha1(f"blob {len(data)}\0".encode()+data)
 if git_blob_sha(manifest_raw)!=expected_manifest_blob:
     raise SystemExit('Manifest override Furina berubah; update dibatalkan.')
 manifest=json.loads(manifest_raw.decode('utf-8'))
-if manifest.get('revision')!='companion-v4':
+if manifest.get('revision')!='companion-v5':
     raise SystemExit('Revision override Furina tidak dikenali.')
 root=pathlib.Path(termux_root).resolve()
 for item in manifest.get('files',[]):
@@ -138,7 +140,7 @@ for item in manifest.get('files',[]):
     target=(root/target_rel).resolve()
     if root not in target.parents: raise SystemExit('Target override keluar dari root.')
     target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(data)
-print('Furina Mind companion-v4 overrides: OK')
+print('Furina Mind companion-v5 overrides: OK')
 PY
 
 for spec in \
@@ -148,7 +150,8 @@ for spec in \
   "$CORE_RC6_POSTFIX_URL|$CORE_RC6_POSTFIX_BLOB|apply-core-rc6-postfix.py" \
   "$BRIDGE_RC6_TRANSFORM_URL|$BRIDGE_RC6_TRANSFORM_BLOB|apply-bridge-rc6.py" \
   "$CORE_RC7_TRANSFORM_URL|$CORE_RC7_TRANSFORM_BLOB|apply-core-rc7.py" \
-  "$BRIDGE_RC7_TRANSFORM_URL|$BRIDGE_RC7_TRANSFORM_BLOB|apply-bridge-rc7.py"; do
+  "$BRIDGE_RC7_TRANSFORM_URL|$BRIDGE_RC7_TRANSFORM_BLOB|apply-bridge-rc7.py" \
+  "$CORE_RC8_TRANSFORM_URL|$CORE_RC8_TRANSFORM_BLOB|apply-core-rc8.py"; do
   IFS='|' read -r url blob name <<< "$spec"
   curl -fsSL --retry 3 "$url" -o "$TMP/$name"
   verify_git_blob "$TMP/$name" "$blob"
@@ -157,12 +160,17 @@ done
 
 SRC="$TMP/src/termux"
 test -f "$SRC/core/furina_agent/cli.py"
-for file in memory.py response.py vision.py embeddings.py local_vision.py events.py version.py; do test -f "$SRC/core/furina_agent/$file"; done
-grep -q 'VERSION = "1.0.0-rc7"' "$SRC/core/furina_agent/version.py"
-grep -q 'config_revision: int = 7' "$SRC/core/furina_agent/config.py"
+for file in memory.py response.py vision.py embeddings.py local_vision.py events.py naturalness.py prospective.py device_context.py version.py; do test -f "$SRC/core/furina_agent/$file"; done
+grep -q 'VERSION = "1.0.0-rc8"' "$SRC/core/furina_agent/version.py"
+grep -q 'config_revision: int = 8' "$SRC/core/furina_agent/config.py"
 grep -q 'CREATE TABLE IF NOT EXISTS memory_vectors' "$SRC/core/furina_agent/memory.py"
-grep -q 'CREATE TABLE IF NOT EXISTS learned_skills' "$SRC/core/furina_agent/memory.py"
-grep -q 'query_vec = self._embed_text(query)' "$SRC/core/furina_agent/memory.py"
+grep -q 'CREATE TABLE IF NOT EXISTS memory_vector_lsh' "$SRC/core/furina_agent/memory.py"
+grep -q 'CREATE TABLE IF NOT EXISTS prospective_memories' "$SRC/core/furina_agent/memory.py"
+grep -q 'backfill_vector_index' "$SRC/core/furina_agent/memory.py"
+grep -q 'naturalize(answer' "$SRC/core/furina_agent/chat.py"
+grep -q 'DEVICE STATE' "$SRC/core/furina_agent/chat.py"
+grep -q 'ReminderDaemon' "$SRC/core/furina_agent/companion.py"
+grep -q 'Sinis dan sarkas adalah bagian dirimu, tetapi bukan nada default' "$SRC/core/furina_agent/persona.py"
 grep -q 'DeviceEventDaemon' "$SRC/core/furina_agent/companion.py"
 grep -q '_deterministic_gate' "$SRC/core/furina_agent/agent.py"
 grep -q 'agent_cancelled_user_return' "$SRC/core/furina_agent/agent.py"
