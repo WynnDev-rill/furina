@@ -56,8 +56,6 @@ class MainActivity : ComponentActivity() {
                 )
             } catch (_: Throwable) {}
             bridge.onBackupFolderSelected(uri)
-            // The recovery secret is deliberately shown only in native UI after an explicit
-            // backup-folder action. It never enters normal WebView status JSON.
             showRecoveryKeyDialog(backupManager.getOrCreateRecoveryKey())
         }
     }
@@ -108,10 +106,9 @@ class MainActivity : ComponentActivity() {
                 val uri = request?.url ?: return true
                 if (isTrustedAppUri(uri)) return false
 
-                // Never allow an untrusted iframe/frame to inherit a native JavaScript bridge.
-                // External navigation is only permitted from the main frame and is handed to OS.
+                // Untrusted subframes are blocked. Main-frame external links are handed to the OS,
+                // so the bridge stays attached to the trusted Furina page left behind in WebView.
                 if (request.isForMainFrame.not()) return true
-                detachNativeBridges()
                 val scheme = uri.scheme?.lowercase()
                 if (scheme !in SAFE_EXTERNAL_SCHEMES) return true
                 return try {
@@ -122,6 +119,7 @@ class MainActivity : ComponentActivity() {
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                 val uri = runCatching { Uri.parse(url) }.getOrNull()
+                if (uri?.host.equals(APP_HOST, ignoreCase = true)) offlineFallbackLoaded = false
                 if (uri == null || !isTrustedAppUri(uri)) detachNativeBridges() else attachNativeBridges()
                 pageReady = false
             }
