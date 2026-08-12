@@ -22,9 +22,11 @@ It must never mutate repository or deployment state. Specifically, a scheduled E
 
 ### Wynn — sole Reviewer/Boss
 
-Wynn is the sole authority for approving, revising, or rejecting proposed work and for authorizing merge to `main`.
+Wynn is the sole authority for approving, revising, or rejecting proposed work.
 
-No AI self-review, same-execution Reviewer, automated Boss, CI result, severity label, or autonomy class substitutes for Wynn's decision.
+An explicit Wynn `APPROVE` for a specific finding or package in an interactive conversation is a **single authorization covering both implementation and merge** of that approved scope, provided all required validation gates pass and no material scope expansion or unresolved blocker appears.
+
+No AI self-review, same-execution Reviewer, automated Boss, CI result, severity label, or autonomy class can create approval by itself.
 
 ## Hourly discovery target
 
@@ -61,29 +63,34 @@ Each proposed finding must have a stable ID and include:
 
 Unchanged findings should not be repeated merely to fill an hourly report. A materially changed finding keeps its stable ID and is reported as an update.
 
-## Two-approval implementation flow
+## Single-approval implementation flow
 
-### Gate 1 — plan approval
+### Gate — Wynn approval
 
 A proposal remains read-only until Wynn explicitly approves that specific finding or package in an interactive conversation.
 
-After Gate 1 approval, an interactive Engineer may:
+That approval authorizes the interactive Engineer to:
 1. re-fetch current `main` and relevant evidence;
 2. create a fresh branch from current `main`;
 3. implement only the approved scope;
-4. run deterministic/static/CI checks appropriate to the claim;
-5. create a **draft** pull request for evidence gathering when useful;
-6. report exact head SHA, changed files, test results, unresolved risks, and any evidence still requiring a target device or human action.
+4. make follow-up fixes that are necessary to complete that same approved scope;
+5. run deterministic/static/CI/behavioral/device checks appropriate to the claims;
+6. create or update a pull request for evidence gathering and review when useful;
+7. merge the exact validated implementation head to `main` without asking Wynn for a second approval, once every mandatory gate is green and no unresolved blocker remains;
+8. report the final merged SHA, changed files, validation results, and remaining non-blocking evidence debt.
 
-Gate 1 approval is **not merge approval**.
+Wynn approval is therefore **implementation approval and merge approval for the approved scope**.
 
-### Gate 2 — merge approval
+A fresh Wynn approval is required before merge when any of the following occurs:
+- implementation materially expands beyond the approved finding/package;
+- the risk class or blast radius materially increases;
+- a required validation fails in a way that changes the proposed design rather than requiring a narrow repair;
+- new evidence shows the approved change is no longer the recommended action;
+- the requested merge would include unrelated changes that Wynn did not approve.
 
-The implementation must stop after testing/reporting. `main` remains unchanged until Wynn explicitly approves merge for the exact reviewed head.
+A new commit does not by itself invalidate approval when it is a narrow repair inside the already approved scope. However, the exact final head must itself pass every mandatory merge gate before merge.
 
-A new commit after Wynn's merge review invalidates the previous merge approval and requires a fresh Gate 2 decision.
-
-CI green is evidence, not merge authority.
+CI green is evidence, not independent authority. Merge authority comes from Wynn's prior approval; CI and other required evidence determine whether that authority may safely be exercised on the final head.
 
 ## Evidence truth
 
@@ -95,6 +102,8 @@ Use evidence labels truthfully:
 
 Never claim persona, naturalness, memory quality, latency, RAM, battery, thermal behavior, or crash stability from STATIC/CI alone when the claim requires behavioral/device evidence.
 
+If the approved change has a mandatory device- or behavioral-specific acceptance criterion, lack of that evidence blocks merge unless Wynn explicitly approved a scope that does not require that criterion.
+
 ## Branch and staging policy
 
 New approved implementation should normally start from current `main` on a fresh human-gated branch.
@@ -103,11 +112,13 @@ New approved implementation should normally start from current `main` on a fresh
 
 ## Release and deployment authority
 
-There is no scheduled auto-merge mode under this policy.
+There is no scheduled auto-merge mode under this policy. Scheduled runs remain read-only.
 
-There is no scheduled deployment authority under this policy.
+Interactive work that Wynn has explicitly approved may merge automatically after its required gates pass, within the approved scope.
 
-Emergency severity does not create AI merge authority. An urgent finding should be reported prominently; Wynn still authorizes implementation and merge unless a separate explicit interactive instruction says otherwise.
+There is no scheduled deployment authority under this policy. Deployment requires the same explicit interactive scope authorization when deployment is part of the approved package.
+
+Emergency severity does not create approval. An urgent finding should be reported prominently; Wynn still authorizes the package before interactive implementation or merge begins unless Wynn has already explicitly approved that same scope.
 
 ## Safe inactivity
 
