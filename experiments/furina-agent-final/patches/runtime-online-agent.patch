@@ -1,0 +1,49 @@
+--- termux/core/furina_agent/providers.py
++++ termux/core/furina_agent/providers.py
+@@ -195,7 +195,11 @@
+         if any(x in low for x in blocked):
+             return None
+         pricing = raw.get("pricing") if isinstance(raw.get("pricing"), dict) else {}
+-        free = low.endswith(":free") or (
++        # `and` returns the last evaluated operand in Python. When `pricing`
++        # is an empty dict, the old expression returned `{}` instead of False,
++        # so ModelInfo.free became a mix of dict/bool values. Ranking two
++        # equally-scored models then crashed with: dict < bool.
++        free = low.endswith(":free") or bool(
+             pricing and self._zero(pricing.get("prompt")) and self._zero(pricing.get("completion"))
+         )
+         return ModelInfo(model_id, raw, free=free)
+@@ -257,7 +261,9 @@
+             if self.name == "groq" and low.startswith("groq/compound"):
+                 score -= 10  # external tools are unnecessary for phone-control planning
+             m.score = score
+-        models.sort(key=lambda x: (x.score, x.free), reverse=True)
++        # Keep the ranking key type-stable even if a future provider ships
++        # malformed metadata or an old cache contains a non-boolean value.
++        models.sort(key=lambda x: (float(x.score), bool(x.free)), reverse=True)
+         if self.name == "openrouter" and self.cfg.provider_prefer_free:
+             free = [m for m in models if m.free]
+             if free:
+--- termux/core/furina_agent/agent.py
++++ termux/core/furina_agent/agent.py
+@@ -81,12 +81,14 @@
+ - finish: {{"type":"finish","result":"hasil akhir ringkas dan faktual"}}
+ 
+ Aturan penting:
+-1. Jangan menebak package yang tidak ada di daftar aplikasi.
+-2. Untuk mencari video, catatan, kontak, dsb: buka app yang tepat, temukan kontrol pencarian dari accessibility tree, isi teks, lalu lanjutkan berdasarkan layar baru.
+-3. Untuk membaca catatan, hanya laporkan teks yang benar-benar terlihat di layar.
+-4. Untuk mengirim pesan, siapkan penerima dan isi pesan, tetapi aksi final Send/Kirim tetap akan dikonfirmasi sistem sebelum dieksekusi.
+-5. Jangan melakukan pembayaran, transfer uang, menghapus data, uninstall, atau perubahan keamanan. Jika tugas memerlukan itu, finish dan jelaskan bahwa aksi tersebut tidak dijalankan otomatis.
+-6. Setelah aksi yang mengubah layar, gunakan state layar berikutnya; jangan berasumsi aksi berhasil tanpa observasi.
++1. Jangan menebak package yang tidak ada di daftar aplikasi. Untuk "buka YouTube", "buka WhatsApp", atau nama app lain, cocokkan label dari daftar aplikasi lalu gunakan open_app.
++2. Untuk mencari video, catatan, kontak, dsb: buka app yang tepat, temukan kontrol pencarian dari accessibility tree, isi teks, aktifkan tombol Search/Cari bila diperlukan, lalu lanjutkan berdasarkan layar baru.
++3. Untuk YouTube: setelah query dimasukkan, verifikasi hasil pencarian benar-benar terlihat sebelum finish. Jangan menganggap set_text otomatis menjalankan pencarian.
++4. Untuk membaca catatan, hanya laporkan teks yang benar-benar terlihat di layar.
++5. Untuk WhatsApp/aplikasi pesan: pilih penerima yang terlihat, isi pesan, lalu berhenti pada langkah final Send/Kirim. Aksi final itu tetap harus dikonfirmasi sistem tepat sebelum dieksekusi.
++6. Jangan mengklaim pesan terkirim, video terbuka, atau tugas selesai sebelum state layar berikutnya membuktikannya.
++7. Jangan melakukan pembayaran, transfer uang, menghapus data, uninstall, atau perubahan keamanan. Jika tugas memerlukan itu, finish dan jelaskan bahwa aksi tersebut tidak dijalankan otomatis.
++8. Setelah aksi yang mengubah layar, gunakan state layar berikutnya; jangan berasumsi aksi berhasil tanpa observasi.
+ """.strip()
+         raw = self.llm.chat(
+             [
