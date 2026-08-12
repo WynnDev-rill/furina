@@ -66,8 +66,11 @@ If nothing meaningful is new, report `NO_NEW_FINDINGS` briefly.
 
 Do nothing automatically on a later scheduled run. Approval is executed only in the interactive conversation in which Wynn explicitly authorizes the proposal.
 
-Interactive implementation follows two gates:
-1. Wynn approves the plan -> implementation/test may occur on a fresh branch/draft PR.
-2. Wynn reviews exact implementation evidence and explicitly approves merge -> only then may `main` change.
+Interactive implementation uses one approval gate:
+1. Wynn approves the specific plan/package.
+2. That approval authorizes implementation, necessary in-scope repair commits, validation, and merge of the exact final head once every mandatory gate is green and no unresolved blocker remains.
+3. No second merge approval is required for the same approved scope.
 
-A new implementation commit invalidates any previous merge approval for the old head.
+A fresh Wynn approval is required if implementation materially expands scope, increases blast radius/risk class, changes design because of failed evidence, or would merge unrelated work.
+
+Scheduled Engineer authority never changes: scheduled runs remain read-only even when an approved interactive implementation exists.
