@@ -49,6 +49,9 @@ jobs:
       - name: Validate approved FUR-ENG-008 through 013 package
         run: python3 scripts/fur-eng-008-013-gate.py
 
+      - name: Validate approved FUR-ENG-014 through 018 package
+        run: python3 scripts/fur-eng-014-018-gate.py
+
       - name: Validate native updater contract
         run: python3 scripts/updater-regression-gate.py
 
@@ -61,6 +64,7 @@ jobs:
             scripts/public-repo-safety-gate.py \
             scripts/furina-human-gate-policy.py \
             scripts/fur-eng-008-013-gate.py \
+            scripts/fur-eng-014-018-gate.py \
             scripts/updater-regression-gate.py \
             scripts/updater-manifest-gate.py \
             scripts/furina-company-policy-gate.py \
