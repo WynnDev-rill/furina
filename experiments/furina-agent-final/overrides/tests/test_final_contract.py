@@ -28,11 +28,13 @@ class FinalContractTests(unittest.TestCase):
         self.assertIn("Nama panggilan pengguna adalah Wynn", prompt)
         self.assertIn("bukan di setiap respons", prompt)
 
-    def test_persona_hides_reasoning_and_forbids_emoji(self):
+    def test_persona_hides_reasoning_forbids_emoji_and_lore_by_default(self):
         prompt = build_system_prompt("Furina", "Wynn")
         self.assertIn("Jangan gunakan emoji", prompt)
         self.assertIn("Jangan menampilkan chain-of-thought", prompt)
-        self.assertNotIn("lore", prompt.lower().split("kecuali pengguna")[0] if "kecuali pengguna" in prompt.lower() else "")
+        self.assertIn("Jangan membawa lore", prompt)
+        self.assertIn("tsundere", prompt.lower())
+        self.assertIn("sinis", prompt.lower())
 
     def test_sanitizer_removes_reasoning_and_emoji(self):
         text = sanitize("<think>rahasia</think>Hai 😛")
