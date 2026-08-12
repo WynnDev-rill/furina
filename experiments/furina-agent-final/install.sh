@@ -1,16 +1,18 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-VERSION="1.0.0-rc3"
+VERSION="1.0.0-rc4"
 ROOT="$HOME/.furina-agent"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 MANIFEST_URL="$BASE/manifest.json"
 RUNTIME_PATCH_URL="$BASE/patches/runtime-online-agent.patch"
 RUNTIME_PATCH_SHA256="bef40bd02af2eb9714f1197337a0f1a5f3ad5fa9ff1e71adfa073141c3756549"
 OVERRIDE_MANIFEST_URL="$BASE/overrides/manifest.json"
-OVERRIDE_MANIFEST_BLOB="caeaf0df545239bd65355fa0c9daafbeb61cc898"
+OVERRIDE_MANIFEST_BLOB="9bd5616020dd3f7755c7f168d8e8658c26d9228a"
 TRANSFORM_URL="$BASE/overrides/apply-companion-v2.py"
 TRANSFORM_BLOB="cfd65bcfdfd930518ae75e8d44e34559a0f33914"
+BRIDGE_TRANSFORM_URL="$BASE/overrides/apply-bridge-rc4.py"
+BRIDGE_TRANSFORM_BLOB="aa7444fdb843c6d707925e5a62d5189e2b4fbb64"
 LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"
 MODEL_REV="e9cf779"
 MODEL_NAME="Qwen3.5-4B-Deckard-HERETIC-UNCENSORED-Thinking.i1-Q4_K_M.gguf"
@@ -84,8 +86,9 @@ for item in manifest.get('files', []):
     target_rel = str(item['target'])
     if '..' in pathlib.PurePosixPath(rel).parts or '..' in pathlib.PurePosixPath(target_rel).parts:
         raise SystemExit('Path override tidak aman.')
-    if not target_rel.startswith('core/furina_agent/'):
-        raise SystemExit('Target override di luar core ditolak.')
+    allowed = target_rel.startswith('core/furina_agent/') or target_rel.startswith('bridge/app/')
+    if not allowed:
+        raise SystemExit('Target override di luar area yang diizinkan ditolak.')
     data = urllib.request.urlopen(base + '/overrides/' + rel, timeout=30).read()
     if git_blob_sha(data) != str(item['git_blob_sha']):
         raise SystemExit('Integritas override gagal: ' + rel)
@@ -94,12 +97,11 @@ for item in manifest.get('files', []):
         raise SystemExit('Target override keluar dari root.')
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
-print('Unified companion overrides: OK')
+print('Unified companion + Bridge overrides: OK')
 PY
 
-# Transformasi Core + Bridge diverifikasi dengan Git blob sebelum dijalankan.
-# RC3 menambah selector stabil untuk kontrol UI, verifikasi hasil aksi, dan
-# ACTION_IME_ENTER sehingga interaksi tidak bergantung pada node ID yang rapuh.
+# Transformasi Core + Bridge RC3 lama tetap dipakai untuk selector UI stabil,
+# verifikasi hasil aksi, dan ACTION_IME_ENTER.
 curl -fsSL --retry 3 "$TRANSFORM_URL" -o "$TMP/apply-companion-v2.py"
 python - "$TMP/apply-companion-v2.py" "$TRANSFORM_BLOB" <<'PY'
 import hashlib, pathlib, sys
@@ -110,6 +112,18 @@ if actual != expected:
     raise SystemExit(f'Transform companion-v2 berubah; update dibatalkan: {actual}')
 PY
 python "$TMP/apply-companion-v2.py" "$TMP/src/termux"
+
+# RC4 menambahkan updater native Bridge dan menaikkan identitas APK.
+curl -fsSL --retry 3 "$BRIDGE_TRANSFORM_URL" -o "$TMP/apply-bridge-rc4.py"
+python - "$TMP/apply-bridge-rc4.py" "$BRIDGE_TRANSFORM_BLOB" <<'PY'
+import hashlib, pathlib, sys
+path, expected = sys.argv[1:]
+data = pathlib.Path(path).read_bytes()
+actual = hashlib.sha1(f"blob {len(data)}\0".encode() + data).hexdigest()
+if actual != expected:
+    raise SystemExit(f'Transform Bridge RC4 berubah; update dibatalkan: {actual}')
+PY
+python "$TMP/apply-bridge-rc4.py" "$TMP/src/termux"
 
 SRC="$TMP/src/termux"
 test -f "$SRC/core/furina_agent/cli.py"
@@ -123,7 +137,11 @@ grep -q 'payload\["target"\] = selector' "$SRC/core/furina_agent/agent.py"
 grep -q 'needs_approval = (not task_authorized)' "$SRC/core/furina_agent/agent.py"
 grep -q 'selectorScore' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
 grep -q 'ACTION_IME_ENTER' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
-grep -q 'versionCode 10003' "$SRC/bridge/app/build.gradle"
+grep -q 'BridgeUpdater' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java"
+grep -q 'verifyArchive' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/BridgeUpdater.java"
+grep -q 'REQUEST_INSTALL_PACKAGES' "$SRC/bridge/app/src/main/AndroidManifest.xml"
+grep -q 'UpdateFileProvider' "$SRC/bridge/app/src/main/AndroidManifest.xml"
+grep -q 'versionCode 10004' "$SRC/bridge/app/build.gradle"
 
 printf '[3/7] Memasang Core secara atomik...\n'
 rm -rf "$ROOT/core.new"
@@ -213,17 +231,19 @@ else
   curl -fL --retry 3 "$APK_URL" -o "$ROOT/cache/Furina-Agent-Bridge.apk"
   echo "$APK_SHA  $ROOT/cache/Furina-Agent-Bridge.apk" | sha256sum -c -
   echo
-  echo "Android installer akan dibuka."
+  echo "APK rilis sudah diverifikasi. Karena HyperOS gagal membaca APK dari direktori privat Termux, unduhan resmi akan dibuka melalui browser."
+  echo "Setelah Bridge RC4 terpasang, update Bridge berikutnya dapat dilakukan langsung dari menu UPDATE di Furina Bridge."
   if [[ "$BRIDGE_VERSION" == "0.1.1" || "$BRIDGE_VERSION" == "0.2.0" ]]; then
-    echo "CATATAN SEKALI SAJA: Bridge prototipe lama memakai debug signature. Jika Android berkata aplikasi bentrok/tidak dapat di-update, uninstall HANYA Furina Bridge lama lalu install file yang sama. Setelah final ini, update berikutnya memakai signing tetap."
+    echo "CATATAN SEKALI SAJA: Bridge prototipe lama memakai debug signature. Jika Android berkata aplikasi bentrok/tidak dapat di-update, uninstall HANYA Furina Bridge lama lalu install APK rilis resmi."
   fi
-  termux-open "$ROOT/cache/Furina-Agent-Bridge.apk" >/dev/null 2>&1 || true
+  termux-open-url "$APK_URL" >/dev/null 2>&1 || true
 fi
 
 printf '[7/7] Final checks...\n'
 furina status >/dev/null || true
 printf '\nSelesai.\n'
 printf 'Pemakaian harian: buka Termux lalu ketik: furina\n'
-printf 'Update berikutnya: furina update\n'
+printf 'Update Core berikutnya: furina update\n'
+printf 'Update Bridge berikutnya: buka Furina Bridge → UPDATE → Perbarui\n'
 printf 'Perbaikan: furina repair\n'
 printf 'Optimasi model lokal berdasarkan HP: furina optimize\n\n'
