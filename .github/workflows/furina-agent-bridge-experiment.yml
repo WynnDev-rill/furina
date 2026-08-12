@@ -5,6 +5,7 @@ on:
     branches:
       - experiment/furina-agent-termux
       - fix/termux-unified-companion-v2
+      - fix/termux-task-auth-stable-ui
     paths:
       - 'experiments/furina-agent-final/**'
       - '.github/workflows/furina-agent-bridge-experiment.yml'
@@ -22,8 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      TAG: furina-agent-v1.0.0-rc2
-      APK_NAME: Furina-Agent-Bridge-v1.0.0-rc2.apk
+      TAG: furina-agent-v1.0.0-rc3
+      APK_NAME: Furina-Agent-Bridge-v1.0.0-rc3.apk
       EXPECTED_SOURCE_SHA: 6b51c907c8a79ab6af06ef891b5013ce8ed964bdc168cf0e71751eacf4161fea
 
     steps:
@@ -80,10 +81,15 @@ jobs:
           grep -q 'Percakapan + tindakan Android' /tmp/furina-agent-src/termux/core/furina_agent/tui.py
           grep -q '_obvious_device_intent' /tmp/furina-agent-src/termux/core/furina_agent/companion.py
           grep -q 'json_mode=True' /tmp/furina-agent-src/termux/core/furina_agent/agent.py
-          grep -q 'ime_action' /tmp/furina-agent-src/termux/core/furina_agent/agent.py
+          grep -q 'payload\["target"\] = selector' /tmp/furina-agent-src/termux/core/furina_agent/agent.py
+          grep -q 'needs_approval = (not task_authorized)' /tmp/furina-agent-src/termux/core/furina_agent/agent.py
+          grep -q 'Jangan menyebut atau menganggap dirimu AI' /tmp/furina-agent-src/termux/core/furina_agent/persona.py
+          grep -q 'tanpa konfirmasi kedua' /tmp/furina-agent-src/termux/core/furina_agent/tui.py
+          grep -q 'selectorScore' /tmp/furina-agent-src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java
+          grep -q 'resolveNode' /tmp/furina-agent-src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java
           grep -q 'ACTION_IME_ENTER' /tmp/furina-agent-src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java
-          grep -q 'versionCode 10002' /tmp/furina-agent-src/termux/bridge/app/build.gradle
-          grep -q "versionName '1.0.0-rc2'" /tmp/furina-agent-src/termux/bridge/app/build.gradle
+          grep -q 'versionCode 10003' /tmp/furina-agent-src/termux/bridge/app/build.gradle
+          grep -q "versionName '1.0.0-rc3'" /tmp/furina-agent-src/termux/bridge/app/build.gradle
 
       - name: Validate installer, Python core, and companion regressions
         working-directory: /tmp/furina-agent-src/termux
@@ -98,6 +104,7 @@ jobs:
           from furina_agent.companion import _obvious_device_intent
           from furina_agent.config import Config
           from furina_agent.llm import sanitize
+          from furina_agent.persona import build_system_prompt
           from furina_agent.providers import ModelInfo, OpenAICompatibleProvider
 
           provider = OpenAICompatibleProvider('groq', 'test-key', Config())
@@ -112,11 +119,22 @@ jobs:
           assert _obvious_device_intent('buka whatsapp lalu kirim pesan')
           assert not _obvious_device_intent('bagaimana cara buka youtube')
           assert sanitize('<think>private reasoning</think>Hai 😛') == 'Hai'
+          prompt = build_system_prompt('Furina', 'Wynn')
+          assert 'Jangan menyebut atau menganggap dirimu AI' in prompt
+          assert 'tanpa konfirmasi kedua' in prompt
 
           class Dummy: pass
           agent = AndroidAgent(Config(), Dummy(), Dummy(), Dummy())
           risk, _ = agent.risk({}, {'type': 'ime_action', 'node': 3})
           assert risk == 'write'
+          payload = agent._enrich_action(
+              {'nodes': [{'id': 3, 'view_id': 'search_box', 'class': 'EditText', 'editable': True, 'bounds': [1,2,3,4]}]},
+              {'type': 'set_text', 'node': 3, 'text': 'mr beast'},
+          )
+          assert payload['target']['view_id'] == 'search_box'
+          assert payload['target']['editable'] is True
+          assert agent._result_ok({'ok': True})
+          assert not agent._result_ok({'ok': False})
           ready, reason = agent._finish_ready(
               'buka youtube dan cari mr beast',
               {'nodes': [{'text': 'MrBeast', 'desc': 'Channel'}]},
@@ -126,7 +144,7 @@ jobs:
               ],
           )
           assert ready, reason
-          print('unified companion regressions: PASS')
+          print('rc3 companion regressions: PASS')
           PY
 
       - name: Set up Java 17
@@ -196,15 +214,15 @@ jobs:
           SIGNER="$(printf '%s\n' "$CERT_OUTPUT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
           printf 'PACKAGE=%s\nVERSION_CODE=%s\nVERSION_NAME=%s\nAPK_SHA256=%s\nSIGNER_SHA256=%s\n' "$PACKAGE" "$VERSION_CODE" "$VERSION_NAME" "$SHA256" "$SIGNER"
           test "$PACKAGE" = "com.wynndev.furinaagentbridge"
-          test "$VERSION_CODE" = "10002"
-          test "$VERSION_NAME" = "1.0.0-rc2"
+          test "$VERSION_CODE" = "10003"
+          test "$VERSION_NAME" = "1.0.0-rc3"
           test "${#SHA256}" -eq 64
           test "${#SIGNER}" -eq 64
           export PACKAGE VERSION_CODE VERSION_NAME SHA256 SIGNER
           python3 - <<'PY'
           import json, os
-          tag = 'furina-agent-v1.0.0-rc2'
-          name = 'Furina-Agent-Bridge-v1.0.0-rc2.apk'
+          tag = 'furina-agent-v1.0.0-rc3'
+          name = 'Furina-Agent-Bridge-v1.0.0-rc3.apk'
           data = {
               'version': os.environ['VERSION_NAME'],
               'version_code': int(os.environ['VERSION_CODE']),
@@ -222,9 +240,9 @@ jobs:
       - name: Upload CI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Furina-Agent-Final-v1.0.0-rc2
+          name: Furina-Agent-Final-v1.0.0-rc3
           path: |
-            Furina-Agent-Bridge-v1.0.0-rc2.apk
+            Furina-Agent-Bridge-v1.0.0-rc3.apk
             bridge.json
           if-no-files-found: error
 
@@ -242,7 +260,7 @@ jobs:
             gh release create "$TAG" "$APK_NAME" bridge.json \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "Furina Agent 1.0.0 RC2 — By Wynn" \
-              --notes "Unified Termux companion: hidden reasoning, adaptive response completion, merged chat+device flow, structured agent planning, and API-30 IME submit support. This prerelease remains isolated from the main Furina APK." \
+              --title "Furina Agent 1.0.0 RC3 — By Wynn" \
+              --notes "Termux companion RC3: stable Accessibility target selectors, verified action results, one task-level approval including requested Send/Kirim, and stronger in-character Furina identity. This prerelease remains isolated from the main Furina APK." \
               --prerelease
           fi
