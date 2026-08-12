@@ -60,15 +60,34 @@ class FinalContractTests(unittest.TestCase):
         self.assertIn("consumeBootstrapWindow", server)
         self.assertIn("openBootstrapWindow", prefs)
 
-    def test_release_bridge_has_stable_signing_hook_and_rc3_identity(self):
+    def test_release_bridge_has_stable_signing_hook_and_rc4_identity(self):
         root = Path(__file__).resolve().parents[1]
         gradle = (root / "bridge/app/build.gradle").read_text()
         service = (root / "bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java").read_text()
         self.assertIn("FURINA_AGENT_KEYSTORE_PATH", gradle)
-        self.assertIn("versionCode 10003", gradle)
-        self.assertIn("versionName '1.0.0-rc3'", gradle)
+        self.assertIn("versionCode 10004", gradle)
+        self.assertIn("versionName '1.0.0-rc4'", gradle)
         self.assertIn("selectorScore", service)
         self.assertIn("resolveNode", service)
+
+    def test_bridge_has_verified_in_app_updater(self):
+        root = Path(__file__).resolve().parents[1]
+        java = root / "bridge/app/src/main/java/com/wynndev/furinaagentbridge"
+        main = (java / "MainActivity.java").read_text()
+        updater = (java / "BridgeUpdater.java").read_text()
+        provider = (java / "UpdateFileProvider.java").read_text()
+        manifest = (root / "bridge/app/src/main/AndroidManifest.xml").read_text()
+        self.assertIn('sectionTitle("UPDATE")', main)
+        self.assertIn("BridgeUpdater", main)
+        self.assertIn("expectedSha256", updater)
+        self.assertIn("expectedSignerSha256", updater)
+        self.assertIn("verifyArchive", updater)
+        self.assertIn("getPackageArchiveInfo", updater)
+        self.assertIn(".updateprovider/update.apk", updater)
+        self.assertIn("MODE_READ_ONLY", provider)
+        self.assertIn("android.permission.REQUEST_INSTALL_PACKAGES", manifest)
+        self.assertIn(".UpdateFileProvider", manifest)
+        self.assertIn('android:exported="false"', manifest)
 
 
 if __name__ == "__main__":
