@@ -7,6 +7,8 @@ BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-ag
 MANIFEST_URL="$BASE/manifest.json"
 RUNTIME_PATCH_URL="$BASE/patches/runtime-online-agent.patch"
 RUNTIME_PATCH_SHA256="bef40bd02af2eb9714f1197337a0f1a5f3ad5fa9ff1e71adfa073141c3756549"
+OVERRIDE_MANIFEST_URL="$BASE/overrides/manifest.json"
+OVERRIDE_MANIFEST_BLOB="e534a664140220efd4f7de2ca302a7ee0926a2fc"
 LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"
 MODEL_REV="e9cf779"
 MODEL_NAME="Qwen3.5-4B-Deckard-HERETIC-UNCENSORED-Thinking.i1-Q4_K_M.gguf"
@@ -55,16 +57,54 @@ PY
 mkdir -p "$TMP/src"
 tar -xzf "$TMP/source.tar.gz" -C "$TMP/src"
 
-# Apply the reviewed runtime hotfix after the immutable source bundle is
-# verified. The patch is pinned by SHA-256 so an unexpected remote change
-# aborts the update rather than modifying the installed core.
+# Preserve the reviewed hotfix that repairs provider model metadata.
 curl -fsSL --retry 3 "$RUNTIME_PATCH_URL" -o "$TMP/runtime-online-agent.patch"
 echo "$RUNTIME_PATCH_SHA256  $TMP/runtime-online-agent.patch" | sha256sum -c -
 patch -p0 -d "$TMP/src" < "$TMP/runtime-online-agent.patch"
 
+# Layer the reviewable companion-v2 source overrides on top of the immutable
+# archive. The manifest itself and every file are pinned by their Git blob IDs.
+curl -fsSL --retry 3 "$OVERRIDE_MANIFEST_URL" -o "$TMP/override-manifest.json"
+python - "$TMP/override-manifest.json" "$OVERRIDE_MANIFEST_BLOB" "$BASE" "$TMP/src/termux" <<'PY'
+import hashlib, json, pathlib, sys, urllib.request
+manifest_path, expected_manifest_blob, base, termux_root = sys.argv[1:]
+manifest_raw = pathlib.Path(manifest_path).read_bytes()
+
+def git_blob_sha(data: bytes) -> str:
+    header = f"blob {len(data)}\0".encode()
+    return hashlib.sha1(header + data).hexdigest()
+
+if git_blob_sha(manifest_raw) != expected_manifest_blob:
+    raise SystemExit('Manifest override Furina berubah; update dibatalkan.')
+manifest = json.loads(manifest_raw.decode('utf-8'))
+if manifest.get('revision') != 'companion-v2':
+    raise SystemExit('Revision override Furina tidak dikenali.')
+root = pathlib.Path(termux_root).resolve()
+for item in manifest.get('files', []):
+    rel = str(item['path'])
+    target_rel = str(item['target'])
+    if '..' in pathlib.PurePosixPath(rel).parts or '..' in pathlib.PurePosixPath(target_rel).parts:
+        raise SystemExit('Path override tidak aman.')
+    if not target_rel.startswith('core/furina_agent/'):
+        raise SystemExit('Target override di luar core ditolak.')
+    data = urllib.request.urlopen(base + '/overrides/' + rel, timeout=30).read()
+    if git_blob_sha(data) != str(item['git_blob_sha']):
+        raise SystemExit('Integritas override gagal: ' + rel)
+    target = (root / target_rel).resolve()
+    if root not in target.parents:
+        raise SystemExit('Target override keluar dari root.')
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+print('Unified companion overrides: OK')
+PY
+
 SRC="$TMP/src/termux"
 test -f "$SRC/core/furina_agent/cli.py"
 grep -q 'free = low.endswith(":free") or bool(' "$SRC/core/furina_agent/providers.py"
+grep -q 'reasoning_effort.*none' "$SRC/core/furina_agent/providers.py"
+grep -q 'Percakapan + tindakan Android' "$SRC/core/furina_agent/tui.py"
+grep -q '_obvious_device_intent' "$SRC/core/furina_agent/companion.py"
+grep -q 'json_mode=True' "$SRC/core/furina_agent/agent.py"
 
 printf '[3/7] Memasang Core secara atomik...\n'
 rm -rf "$ROOT/core.new"
