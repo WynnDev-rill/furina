@@ -101,20 +101,34 @@ class FinalContractTests(unittest.TestCase):
             self.assertGreater(after["closeness"], before["closeness"])
             self.assertGreater(after["trust"], before["trust"])
 
-    def test_skill_learning_stores_stable_steps_without_user_text(self):
+    def test_skill_learning_never_persists_literal_goal_or_screen_pii(self):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(Path(td) / "mind.db")
             history = [
                 {"action": {"type": "open_app", "package": "example.notes"}, "executed": {"type": "open_app", "package": "example.notes"}, "result": {"ok": True}},
-                {"action": {"type": "set_text", "node": 7, "text": "rahasia pribadi"}, "executed": {"type": "set_text", "node": 7, "text": "rahasia pribadi", "target": {"view_id": "editor", "editable": True}}, "result": {"ok": True, "verified_text": True}},
+                {
+                    "action": {"type": "set_text", "node": 7, "text": "password abc123"},
+                    "executed": {
+                        "type": "set_text",
+                        "node": 7,
+                        "text": "password abc123",
+                        "target": {"view_id": "editor", "text": "Wynn private note", "desc": "personal editor", "class": "EditText", "editable": True},
+                    },
+                    "result": {"ok": True, "verified_text": True},
+                },
             ]
-            sid = store.learn_skill("buka catatan lalu tulis sesuatu", history, "example.notes")
+            sid = store.learn_skill('buka catatan lalu tulis "password abc123"', history, "example.notes")
             self.assertIsNotNone(sid)
+            row = store._conn().execute("SELECT goal_text,steps_json FROM learned_skills WHERE id=?", (sid,)).fetchone()
+            goal_text, steps_json = row[0], row[1]
+            for secret in ("password abc123", "Wynn private note", "personal editor"):
+                self.assertNotIn(secret, goal_text)
+                self.assertNotIn(secret, steps_json)
+            self.assertIn("from_current_goal", steps_json)
+            self.assertIn("example.notes", goal_text)
             found = store.find_skills("buka catatan dan tulis teks", "example.notes", 3)
             self.assertTrue(found)
-            raw = store._conn().execute("SELECT steps_json FROM learned_skills WHERE id=?", (sid,)).fetchone()[0]
-            self.assertNotIn("rahasia pribadi", raw)
-            self.assertIn("from_current_goal", raw)
+            self.assertFalse(store.find_skills("perintah tidak berhubungan", "", 3))
 
     def test_response_router_is_contextual(self):
         with tempfile.TemporaryDirectory() as td:
@@ -190,6 +204,22 @@ class FinalContractTests(unittest.TestCase):
         self.assertIn("ACTION_IME_ENTER", service)
         self.assertIn("versionCode 10006", gradle)
         self.assertIn("versionName '1.0.0-rc6'", gradle)
+
+    def test_rc6_review_fixes_are_present(self):
+        root = Path(__file__).resolve().parents[1]
+        local_vision = (root / "core/furina_agent/local_vision.py").read_text()
+        config = (root / "core/furina_agent/config.py").read_text()
+        agent = (root / "core/furina_agent/agent.py").read_text()
+        memory = (root / "core/furina_agent/memory.py").read_text()
+
+        start_block = local_vision.split("    def _start(self) -> None:", 1)[1].split("    def analyze(", 1)[0]
+        self.assertNotIn("_schedule_idle_stop()", start_block)
+        self.assertIn("finally:", local_vision)
+        self.assertIn("self._schedule_idle_stop()", local_vision.split("    def analyze(", 1)[1])
+        self.assertIn('defaults["event_port"] = 8767', config)
+        self.assertIn("contract.target_package", agent)
+        self.assertIn('compact_goal = ("app="', memory)
+        self.assertNotIn('compact_goal = " ".join(str(goal).split())', memory)
 
     def test_local_vision_and_embedding_sidecars_are_present(self):
         root = Path(__file__).resolve().parents[1]
