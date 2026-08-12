@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -44,7 +45,10 @@ class FinalReleaseContractTests(unittest.TestCase):
 
     def test_installer_is_storage_free_and_pinned(self):
         root = Path(__file__).resolve().parents[1]
-        installer = (root / "install.sh").read_text(encoding="utf-8")
+        workspace = Path(os.environ.get("GITHUB_WORKSPACE", "")) if os.environ.get("GITHUB_WORKSPACE") else None
+        release_installer = workspace / "experiments/furina-agent-final/install.sh" if workspace else None
+        installer_path = release_installer if release_installer and release_installer.is_file() else root / "install.sh"
+        installer = installer_path.read_text(encoding="utf-8")
         self.assertNotIn("storage/shared", installer)
         self.assertNotIn("/storage/emulated", installer)
         self.assertIn('[[ -f "$ROOT/config.json" ]] && MODE="update"', installer)
@@ -54,6 +58,8 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertIn("source_chunks", installer)
         self.assertIn("overrides/manifest.json", installer)
         self.assertIn("git_blob_sha", installer)
+        self.assertIn("apply-companion-v2.py", installer)
+        self.assertIn("TRANSFORM_BLOB", installer)
         self.assertIn("-DGGML_CPU_KLEIDIAI=ON", installer)
         self.assertIn("fallback ke CPU native stabil", installer)
 
