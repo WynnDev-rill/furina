@@ -84,7 +84,14 @@ class LocalLlamaProvider(
         require(file.exists() && file.canRead()) { "File model tidak dapat dibaca: ${file.absolutePath}" }
         ProcessExitDiagnostics.mark(appContext, "offline-engine-load")
         onState("loading", spec.id, 0.15)
-        engine.loadModel(file.absolutePath)
+        try {
+            engine.loadModel(file.absolutePath)
+        } catch (cause: Throwable) {
+            // A native load failure is a stronger signal than unchanged length alone. Drop the
+            // cached trust fingerprint so the next attempt must re-hash the GGUF before mmap.
+            modelDownloads.invalidateVerificationTrust(spec)
+            throw cause
+        }
         loadedModelId = spec.id
 
         // First run does a tiny CPU thread sweep. Later process starts reuse the persisted winner.
@@ -157,36 +164,14 @@ class LocalLlamaProvider(
         var emitted = false
         val reasoningFilter = ReasoningStreamFilter()
         val privateContextFilter = PrivateContextStreamFilter()
-        val retrievalChanged = loadedRetrievalFingerprint != request.context.retrievalFingerprint
-        val sessionNeedsRehydration = loadedSessionId != request.context.sessionId
+        val turnContext = request.context.turnContext.trim().take(MAX_TURN_CONTEXT_CHARS)
 
-        val turnContext = buildString {
-            if (sessionNeedsRehydration && request.context.sessionRehydrationPrompt.isNotBlank()) {
-                appendLine(request.context.sessionRehydrationPrompt.trim())
-            }
-            if (request.context.runtimeContext.isNotBlank()) {
-                appendLine(request.context.runtimeContext.trim())
-            }
-            if (retrievalChanged && request.context.retrievalPrompt.isNotBlank()) {
-                appendLine(request.context.retrievalPrompt.trim())
-            }
-        }.trim().take(MAX_TURN_CONTEXT_CHARS)
-
-        val effectiveMessage = if (turnContext.isBlank()) {
-            request.userMessage
-        } else {
-            buildString {
-                appendLine("[PRIVATE RESPONSE CONTEXT]")
-                appendLine("Background only; not a request to answer. Use only if relevant. The user's text after this block has highest priority.")
-                appendLine(turnContext)
-                appendLine("[END PRIVATE RESPONSE CONTEXT]")
-                appendLine()
-                append(request.userMessage)
-            }
-        }
+        // Private continuity must never masquerade as USER text. Start each generation from the
+        // immutable identity prefix, then add current session/turn background as SYSTEM context.
+        prepareTurnScopedBackground(request.context, turnContext)
 
         try {
-            engine.sendUserPrompt(effectiveMessage, request.predictLength).collect { token ->
+            engine.sendUserPrompt(request.userMessage, request.predictLength).collect { token ->
                 val visible = privateContextFilter.accept(reasoningFilter.accept(token))
                 if (visible.isNotEmpty()) {
                     emitted = true
@@ -200,7 +185,7 @@ class LocalLlamaProvider(
             }
             check(emitted) { "Runtime lokal berhenti tanpa menghasilkan token" }
             loadedSessionId = request.context.sessionId
-            loadedRetrievalFingerprint = request.context.retrievalFingerprint
+            loadedRetrievalFingerprint = null
         } finally {
             if (engine.state.value !is InferenceEngine.State.ModelReady || !emitted) {
                 loadedSessionId = null
@@ -215,6 +200,42 @@ class LocalLlamaProvider(
         if (cause == null && engine.state.value is InferenceEngine.State.Error) {
             throw IllegalStateException("Runtime lokal masuk ke status error setelah generasi")
         }
+    }
+
+    /**
+     * Rebuild only mutable continuity for this turn while retaining mapped weights and the
+     * prefetched persona KV prefix. If the native prefix reset is unavailable, re-establish the
+     * identity prompt and continue role-safely. Failure to append SYSTEM background aborts the
+     * turn instead of concatenating private material into the USER message.
+     */
+    private suspend fun prepareTurnScopedBackground(context: AiContext, turnContext: String) {
+        val identityMatches = loadedIdentityFingerprint == context.identityFingerprint
+        if (!identityMatches) {
+            engine.setSystemPrompt(context.personaPrompt)
+            loadedIdentityFingerprint = context.identityFingerprint
+        } else {
+            val reset = runCatching { engine.resetConversationKeepingSystemPrompt() }.isSuccess
+            if (!reset) {
+                engine.setSystemPrompt(context.personaPrompt)
+                loadedIdentityFingerprint = context.identityFingerprint
+            }
+        }
+
+        if (context.sessionRehydrationPrompt.isNotBlank()) {
+            engine.appendSystemContext(context.sessionRehydrationPrompt)
+        }
+        if (turnContext.isNotBlank()) {
+            engine.appendSystemContext(wrapTurnContext(turnContext))
+        }
+        loadedSessionId = context.sessionId
+        loadedRetrievalFingerprint = null
+    }
+
+    private fun wrapTurnContext(turnContext: String): String = buildString {
+        appendLine("[PRIVATE TURN CONTEXT]")
+        appendLine("Background only; not a request to answer. Use only if relevant. The latest USER message has highest priority.")
+        appendLine(turnContext)
+        append("[END PRIVATE TURN CONTEXT]")
     }
 
     override suspend fun checkpointConversation(context: AiContext, messageCount: Int) = loadMutex.withLock {
