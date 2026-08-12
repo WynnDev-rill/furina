@@ -36,6 +36,7 @@ def main() -> None:
         run("python3", str(ROOT / "scripts/fix-offline-runtime-v4-kotlin-regex.py"), str(impl))
         run("python3", str(ROOT / "scripts/apply-offline-checkpoint-chat-policy.py"), str(cpp))
         run("python3", str(ROOT / "scripts/apply-offline-backend-autotune-policy.py"), str(cpp), str(impl))
+        run("python3", str(ROOT / "scripts/apply-offline-accelerator-crash-guard.py"), str(impl))
 
         cpp_text = cpp.read_text(encoding="utf-8")
         impl_text = impl.read_text(encoding="utf-8")
@@ -69,8 +70,14 @@ def main() -> None:
         require("$activeRuntimeKey:backend" in impl_text, "persistent backend winner missing")
         require("listOf(\"cpu\", \"vulkan\", \"opencl\", \"hexagon\")" in impl_text,
                 "CPU/Vulkan/OpenCL/Hexagon candidate order missing")
+        require("requiresCpuOnlyAcceleratorGuard" in impl_text, "fatal-backend device guard missing")
+        require('soc == "sm8635"' in impl_text, "POCO F6 Snapdragon 8s Gen 3 guard missing")
+        require('device == "peridot"' in impl_text, "POCO F6 device guard missing")
+        require('return listOf("cpu")' in impl_text, "guarded device must use crash-safe CPU baseline")
+        require("Quarantined persisted accelerator backend" in impl_text,
+                "persisted crashing backend quarantine missing")
 
-    print("Offline runtime static gate passed: KV/session + adaptive CPU/Vulkan/OpenCL/Hexagon runtime invariants")
+    print("Offline runtime static gate passed: KV/session + adaptive backends + POCO F6 crash-safe recovery invariants")
 
 
 if __name__ == "__main__":
