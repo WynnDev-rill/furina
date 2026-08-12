@@ -69,7 +69,7 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertIn("dda8f686b793f189a84c854832bb8b4db59c381a60275a567513d5ebb4d92906", installer)
         self.assertIn("source_chunks", installer)
         self.assertIn("companion-v3", installer)
-        self.assertIn("apply-companion-v2.py", installer)
+        self.assertIn("apply-bridge-primitives-rc5.py", installer)
         self.assertIn("apply-bridge-rc4.py", installer)
         self.assertIn("apply-universal-agent-rc5.py", installer)
         self.assertIn("-DGGML_CPU_KLEIDIAI=ON", installer)
@@ -98,6 +98,7 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertIn("tanpa konfirmasi kedua", tui)
         self.assertIn("MODEL ROUTER", tui)
         self.assertIn("Provider / API key", tui)
+        self.assertIn("FURINA MIND", tui)
 
     def test_provider_reasoning_is_hidden(self):
         root = Path(__file__).resolve().parents[1]
