@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-VERSION="1.0.0-rc6"
+VERSION="1.0.0-rc7"
 ROOT="$HOME/.furina-agent"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 MANIFEST_URL="$BASE/manifest.json"
@@ -21,6 +21,10 @@ CORE_RC6_POSTFIX_URL="$BASE/overrides/apply-core-rc6-postfix.py"
 CORE_RC6_POSTFIX_BLOB="82202cbf9335126b985f1def28e890cf512e8353"
 BRIDGE_RC6_TRANSFORM_URL="$BASE/overrides/apply-bridge-rc6.py"
 BRIDGE_RC6_TRANSFORM_BLOB="f9b7a2a3cff6ab0587fec66502604d7f61be85c2"
+CORE_RC7_TRANSFORM_URL="$BASE/overrides/apply-core-rc7.py"
+CORE_RC7_TRANSFORM_BLOB="abbd595ad4729a74014d438db9495cecb4cfddec"
+BRIDGE_RC7_TRANSFORM_URL="$BASE/overrides/apply-bridge-rc7.py"
+BRIDGE_RC7_TRANSFORM_BLOB="c014e904c5a0c3f661619253ae0ce9aff5300b5c"
 LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"
 
 MODEL_REV="e9cf779"
@@ -85,7 +89,7 @@ fetch_model_checked() {
   mv "$target.part" "$target"
 }
 
-printf '[2/7] Mengambil Furina Core + Furina Mind RC6...\n'
+printf '[2/7] Mengambil Furina Core + Furina Mind RC7...\n'
 curl -fsSL --retry 3 "$MANIFEST_URL" -o "$TMP/manifest.json"
 python - "$TMP/manifest.json" "$BASE" "$TMP" <<'PY'
 import base64,hashlib,json,pathlib,sys,urllib.request
@@ -142,7 +146,9 @@ for spec in \
   "$UNIVERSAL_TRANSFORM_URL|$UNIVERSAL_TRANSFORM_BLOB|apply-universal-agent-rc5.py" \
   "$CORE_RC6_TRANSFORM_URL|$CORE_RC6_TRANSFORM_BLOB|apply-core-rc6.py" \
   "$CORE_RC6_POSTFIX_URL|$CORE_RC6_POSTFIX_BLOB|apply-core-rc6-postfix.py" \
-  "$BRIDGE_RC6_TRANSFORM_URL|$BRIDGE_RC6_TRANSFORM_BLOB|apply-bridge-rc6.py"; do
+  "$BRIDGE_RC6_TRANSFORM_URL|$BRIDGE_RC6_TRANSFORM_BLOB|apply-bridge-rc6.py" \
+  "$CORE_RC7_TRANSFORM_URL|$CORE_RC7_TRANSFORM_BLOB|apply-core-rc7.py" \
+  "$BRIDGE_RC7_TRANSFORM_URL|$BRIDGE_RC7_TRANSFORM_BLOB|apply-bridge-rc7.py"; do
   IFS='|' read -r url blob name <<< "$spec"
   curl -fsSL --retry 3 "$url" -o "$TMP/$name"
   verify_git_blob "$TMP/$name" "$blob"
@@ -152,27 +158,33 @@ done
 SRC="$TMP/src/termux"
 test -f "$SRC/core/furina_agent/cli.py"
 for file in memory.py response.py vision.py embeddings.py local_vision.py events.py version.py; do test -f "$SRC/core/furina_agent/$file"; done
-grep -q 'VERSION = "1.0.0-rc6"' "$SRC/core/furina_agent/version.py"
-grep -q 'config_revision: int = 6' "$SRC/core/furina_agent/config.py"
+grep -q 'VERSION = "1.0.0-rc7"' "$SRC/core/furina_agent/version.py"
+grep -q 'config_revision: int = 7' "$SRC/core/furina_agent/config.py"
 grep -q 'CREATE TABLE IF NOT EXISTS memory_vectors' "$SRC/core/furina_agent/memory.py"
 grep -q 'CREATE TABLE IF NOT EXISTS learned_skills' "$SRC/core/furina_agent/memory.py"
 grep -q 'query_vec = self._embed_text(query)' "$SRC/core/furina_agent/memory.py"
 grep -q 'DeviceEventDaemon' "$SRC/core/furina_agent/companion.py"
 grep -q '_deterministic_gate' "$SRC/core/furina_agent/agent.py"
 grep -q 'agent_cancelled_user_return' "$SRC/core/furina_agent/agent.py"
+grep -q 'watch_user_return' "$SRC/core/furina_agent/agent.py"
+grep -q 'duplicate_suppressed' "$SRC/core/furina_agent/agent.py"
+grep -q '_temporal_context' "$SRC/core/furina_agent/chat.py"
+grep -q '_internal_chat' "$SRC/core/furina_agent/chat.py"
 grep -q 'LEARNED SKILL HINTS' "$SRC/core/furina_agent/agent.py"
 grep -q 'LocalVision' "$SRC/core/furina_agent/routing.py"
 grep -q 'hybrid semantic' "$SRC/core/furina_agent/tui.py"
 grep -q 'selectorScore' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
 grep -q 'case "scroll_global"' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
-grep -q 'verified_text' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
+grep -q 'waitForExactText' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
 grep -q 'dispatchGestureAwait' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
 grep -q 'recent_events' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
+grep -q 'setOnApplyWindowInsetsListener' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java"
+grep -q 'android:icon="@mipmap/ic_launcher"' "$SRC/bridge/app/src/main/AndroidManifest.xml"
 grep -q 'BridgeUpdater' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java"
 grep -q 'verifyArchive' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/BridgeUpdater.java"
 grep -q 'REQUEST_INSTALL_PACKAGES' "$SRC/bridge/app/src/main/AndroidManifest.xml"
-grep -q 'versionCode 10006' "$SRC/bridge/app/build.gradle"
-grep -q "versionName '1.0.0-rc6'" "$SRC/bridge/app/build.gradle"
+grep -q 'versionCode 10007' "$SRC/bridge/app/build.gradle"
+grep -q "versionName '1.0.0-rc7'" "$SRC/bridge/app/build.gradle"
 
 printf '[3/7] Memasang Core secara atomik...\n'
 rm -rf "$ROOT/core.new"; mkdir -p "$ROOT/core.new"
@@ -198,7 +210,7 @@ if [[ "$CURRENT" != "$LLAMA_REV" ]]; then
   git -C "$LLAMA" fetch --depth 1 origin "$LLAMA_REV"
   git -C "$LLAMA" checkout --detach "$LLAMA_REV"
 fi
-BUILD_MARKER="$ROOT/data/llama-build-$LLAMA_REV-kleidiai-rc6"
+BUILD_MARKER="$ROOT/data/llama-build-$LLAMA_REV-kleidiai-rc7"
 if [[ ! -x "$LLAMA/build/bin/llama-server" || ! -x "$LLAMA/build/bin/llama-embedding" || ! -f "$BUILD_MARKER" ]]; then
   rm -rf "$LLAMA/build"
   JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"; [[ "$JOBS" -gt 6 ]] && JOBS=6
@@ -256,7 +268,7 @@ printf '[6/7] Memeriksa Furina Bridge...\n'
 BRIDGE_VERSION="$(curl -fsS --max-time 2 http://127.0.0.1:8765/health 2>/dev/null | python -c 'import json,sys; print(json.load(sys.stdin).get("version", ""))' 2>/dev/null || true)"
 EXPECTED_BRIDGE="$(python -c 'import json; print(json.load(open("'"$TMP"'/manifest.json"))["bridge_version"])')"
 if [[ "$BRIDGE_VERSION" == "$EXPECTED_BRIDGE" ]]; then
-  echo "Bridge RC6 sudah terpasang."
+  echo "Bridge RC7 sudah terpasang."
   furina connect >/dev/null 2>&1 || true
 else
   echo "Bridge perlu diperbarui: ${BRIDGE_VERSION:-belum aktif} → $EXPECTED_BRIDGE"
@@ -266,7 +278,7 @@ else
   APK_SHA="$(python -c 'import json; print(json.load(open("'"$TMP"'/bridge.json"))["sha256"])')"
   curl -fL --retry 3 "$APK_URL" -o "$ROOT/cache/Furina-Agent-Bridge.apk"
   echo "$APK_SHA  $ROOT/cache/Furina-Agent-Bridge.apk" | sha256sum -c -
-  echo "APK RC6 sudah diverifikasi. Buka updater Bridge atau URL rilis untuk memasangnya."
+  echo "APK RC7 sudah diverifikasi. Buka updater Bridge atau URL rilis untuk memasangnya."
   termux-open-url "$APK_URL" >/dev/null 2>&1 || true
 fi
 
