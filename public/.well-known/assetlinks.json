@@ -1,12 +1,14 @@
 [
-  {
-    "relation": ["delegate_permission/common.handle_all_urls"],
-    "target": {
-      "namespace": "android_app",
-      "package_name": "com.wynndev.furina",
-      "sha256_cert_fingerprints": [
-        "69:B1:1E:C4:74:D5:57:C9:2D:E2:BC:32:9C:CC:BA:AA:C4:88:D0:DC:B9:9C:9B:1B:A7:8F:6C:5E:1D:9C:D1:A7"
-      ]
+    {
+        "relation": [
+            "delegate_permission/common.handle_all_urls"
+        ],
+        "target": {
+            "namespace": "android_app",
+            "package_name": "com.wynndev.furina",
+            "sha256_cert_fingerprints": [
+                "69:B1:1E:C4:74:D5:57:C9:2D:E2:BC:32:9C:CC:BA:AA:C4:88:D0:DC:B9:9C:9B:1B:A7:8F:6C:5E:1D:9C:D1:A7"
+            ]
+        }
     }
-  }
 ]
