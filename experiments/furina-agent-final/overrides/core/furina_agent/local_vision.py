@@ -58,23 +58,27 @@ class LocalVision:
         except Exception:
             return False
 
-    def _schedule_idle_stop(self) -> None:
+    def _cancel_idle_stop(self) -> None:
         if self._idle_timer:
             self._idle_timer.cancel()
-        self._idle_timer = threading.Timer(max(20, int(self.cfg.vision_idle_seconds)), self.stop)
-        self._idle_timer.daemon = True
-        self._idle_timer.start()
+            self._idle_timer = None
+
+    def _schedule_idle_stop(self) -> None:
+        with self.lock:
+            self._cancel_idle_stop()
+            self._idle_timer = threading.Timer(max(20, int(self.cfg.vision_idle_seconds)), self.stop)
+            self._idle_timer.daemon = True
+            self._idle_timer.start()
 
     def _start(self) -> None:
-        if self._health():
-            self._schedule_idle_stop()
-            return
-        if not self.available():
-            raise LocalVisionError("local vision model belum tersedia")
+        # An old idle timer must never be allowed to terminate the server while
+        # a new inference is starting or already in flight.
         with self.lock:
+            self._cancel_idle_stop()
             if self._health():
-                self._schedule_idle_stop()
                 return
+            if not self.available():
+                raise LocalVisionError("local vision model belum tersedia")
             LOG_DIR.mkdir(parents=True, exist_ok=True)
             self._log_handle = (LOG_DIR / "vision-sidecar.log").open("ab", buffering=0)
             cmd = [
@@ -101,7 +105,6 @@ class LocalVision:
                 if self._process.poll() is not None:
                     raise LocalVisionError("local vision berhenti saat startup")
                 if self._health():
-                    self._schedule_idle_stop()
                     return
                 time.sleep(0.3)
             self.stop()
@@ -111,63 +114,65 @@ class LocalVision:
         if not png_base64 or not self.available():
             raise LocalVisionError("local vision tidak tersedia")
         self._start()
-        payload = {
-            "model": "local-vision",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": "data:image/png;base64," + png_base64}},
-                    ],
-                }
-            ],
-            "max_tokens": int(max_tokens),
-            "temperature": 0.0,
-            "stream": False,
-        }
-        if json_mode:
-            payload["response_format"] = {"type": "json_object"}
-        req = urllib.request.Request(
-            self.base_url + "/v1/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
         try:
-            with urllib.request.urlopen(req, timeout=150) as r:
-                raw = json.loads(r.read().decode("utf-8", errors="replace"))
-        except Exception as first:
+            payload = {
+                "model": "local-vision",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": "data:image/png;base64," + png_base64}},
+                        ],
+                    }
+                ],
+                "max_tokens": int(max_tokens),
+                "temperature": 0.0,
+                "stream": False,
+            }
             if json_mode:
-                payload.pop("response_format", None)
-                req = urllib.request.Request(
-                    self.base_url + "/v1/chat/completions",
-                    data=json.dumps(payload).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                try:
-                    with urllib.request.urlopen(req, timeout=150) as r:
-                        raw = json.loads(r.read().decode("utf-8", errors="replace"))
-                except Exception as second:
-                    raise LocalVisionError(str(second)) from second
-            else:
-                raise LocalVisionError(str(first)) from first
-        self._schedule_idle_stop()
-        try:
-            text = raw["choices"][0]["message"]["content"]
-        except Exception as exc:
-            raise LocalVisionError("format respons local vision tidak dikenali") from exc
-        text = sanitize(str(text or ""))
-        if not text:
-            raise LocalVisionError("local vision mengembalikan respons kosong")
-        return text
+                payload["response_format"] = {"type": "json_object"}
+            req = urllib.request.Request(
+                self.base_url + "/v1/chat/completions",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=150) as r:
+                    raw = json.loads(r.read().decode("utf-8", errors="replace"))
+            except Exception as first:
+                if json_mode:
+                    payload.pop("response_format", None)
+                    req = urllib.request.Request(
+                        self.base_url + "/v1/chat/completions",
+                        data=json.dumps(payload).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    try:
+                        with urllib.request.urlopen(req, timeout=150) as r:
+                            raw = json.loads(r.read().decode("utf-8", errors="replace"))
+                    except Exception as second:
+                        raise LocalVisionError(str(second)) from second
+                else:
+                    raise LocalVisionError(str(first)) from first
+            try:
+                text = raw["choices"][0]["message"]["content"]
+            except Exception as exc:
+                raise LocalVisionError("format respons local vision tidak dikenali") from exc
+            text = sanitize(str(text or ""))
+            if not text:
+                raise LocalVisionError("local vision mengembalikan respons kosong")
+            return text
+        finally:
+            # Idle countdown starts only after the request has completely
+            # finished (success or failure), never while inference is running.
+            self._schedule_idle_stop()
 
     def stop(self) -> None:
         with self.lock:
-            if self._idle_timer:
-                self._idle_timer.cancel()
-                self._idle_timer = None
+            self._cancel_idle_stop()
             proc = self._process
             self._process = None
             if proc and proc.poll() is None:
