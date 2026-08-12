@@ -27,6 +27,8 @@ BRIDGE_RC7_TRANSFORM_URL="$BASE/overrides/apply-bridge-rc7.py"
 BRIDGE_RC7_TRANSFORM_BLOB="c014e904c5a0c3f661619253ae0ce9aff5300b5c"
 CORE_RC8_TRANSFORM_URL="$BASE/overrides/apply-core-rc8.py"
 CORE_RC8_TRANSFORM_BLOB="07c0239bacf91c7830eee0b32544b9d456c3bd17"
+CORE_RC8_POSTFIX_URL="$BASE/overrides/apply-core-rc8-postfix.py"
+CORE_RC8_POSTFIX_BLOB="ab5934473bb7fb8cd1913ceda6ac426f10f6aad0"
 LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"
 
 MODEL_REV="e9cf779"
@@ -151,7 +153,8 @@ for spec in \
   "$BRIDGE_RC6_TRANSFORM_URL|$BRIDGE_RC6_TRANSFORM_BLOB|apply-bridge-rc6.py" \
   "$CORE_RC7_TRANSFORM_URL|$CORE_RC7_TRANSFORM_BLOB|apply-core-rc7.py" \
   "$BRIDGE_RC7_TRANSFORM_URL|$BRIDGE_RC7_TRANSFORM_BLOB|apply-bridge-rc7.py" \
-  "$CORE_RC8_TRANSFORM_URL|$CORE_RC8_TRANSFORM_BLOB|apply-core-rc8.py"; do
+  "$CORE_RC8_TRANSFORM_URL|$CORE_RC8_TRANSFORM_BLOB|apply-core-rc8.py" \
+  "$CORE_RC8_POSTFIX_URL|$CORE_RC8_POSTFIX_BLOB|apply-core-rc8-postfix.py"; do
   IFS='|' read -r url blob name <<< "$spec"
   curl -fsSL --retry 3 "$url" -o "$TMP/$name"
   verify_git_blob "$TMP/$name" "$blob"
