@@ -1,0 +1,55 @@
+name: Inspect Termux Agent Source
+
+on:
+  push:
+    branches:
+      - inspect/termux-agent-current
+    paths:
+      - '.github/workflows/inspect-termux-agent.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Extract reviewed runtime source
+        shell: bash
+        run: |
+          set -euo pipefail
+          META=experiments/furina-agent-final
+          ARCHIVE=/tmp/source.tar.gz
+          : > "$ARCHIVE"
+          for chunk in "$META"/source-*.b64; do
+            base64 --decode "$chunk" >> "$ARCHIVE"
+          done
+          EXPECTED="$(python3 -c 'import json; print(json.load(open("experiments/furina-agent-final/manifest.json"))["source_sha256"])')"
+          echo "$EXPECTED  $ARCHIVE" | sha256sum -c -
+          rm -rf /tmp/src
+          mkdir -p /tmp/src
+          tar -xzf "$ARCHIVE" -C /tmp/src
+          patch -p0 -d /tmp/src < "$META/patches/api30-inputstream.patch"
+          patch -p0 -d /tmp/src < "$META/patches/runtime-online-agent.patch"
+          OUT=experiments/furina-agent-inspect
+          rm -rf "$OUT"
+          mkdir -p "$OUT"
+          for f in cli.py agent.py providers.py config.py memory.py bridge.py local_llama.py prompts.py persona.py; do
+            src="/tmp/src/termux/core/furina_agent/$f"
+            if [[ -f "$src" ]]; then cp "$src" "$OUT/$f"; fi
+          done
+          cp -R /tmp/src/termux/tests "$OUT/tests"
+          find "$OUT" -type f -maxdepth 3 -print
+      - name: Commit inspection snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add experiments/furina-agent-inspect
+          git diff --cached --quiet && exit 0
+          git commit -m 'chore: expose extracted Termux agent source for review'
+          git push origin HEAD:inspect/termux-agent-current
