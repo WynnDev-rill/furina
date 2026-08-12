@@ -12,7 +12,11 @@ from .memory import MemoryStore
 
 
 _DEVICE_VERBS = re.compile(
-    r"\b(buka|open|jalankan|launch|cari|search|kirim|send|balas|reply|ketik|tulis|tekan|tap|klik|click|scroll|geser|swipe|putar|play|pause|tutup|close|panggil|call)\b",
+    r"\b(buka|open|jalankan|launch|cari|search|kirim|send|balas|reply|ketik|tulis|tekan|tap|klik|click|scroll|geser|swipe|putar|play|pause|tutup|close|panggil|call|pilih|select|aktifkan|matikan)\b",
+    re.I,
+)
+_SECONDARY_DEVICE_VERBS = re.compile(
+    r"\b(cari|search|kirim|send|balas|reply|ketik|tulis|tekan|tap|klik|click|scroll|geser|swipe|putar|play|pause|pilih|select|panggil|call)\b",
     re.I,
 )
 _DEVICE_TARGETS = re.compile(
@@ -20,6 +24,7 @@ _DEVICE_TARGETS = re.compile(
     re.I,
 )
 _EXPLANATION_PREFIX = re.compile(r"^\s*(cara|bagaimana|gimana|kenapa|mengapa|jelaskan|apa itu)\b", re.I)
+_OPEN_PREFIX = re.compile(r"^\s*(buka|open|jalankan|launch)\b", re.I)
 
 
 @dataclass
@@ -30,24 +35,31 @@ class Intent:
 
 
 def _obvious_device_intent(text: str) -> bool:
-    """High-precision fast path so obvious Android commands never depend on LLM JSON."""
+    """Fast path for explicit device commands, including arbitrary app names."""
     clean = " ".join(text.strip().split())
     if not clean or _EXPLANATION_PREFIX.search(clean):
         return False
     if _DEVICE_VERBS.search(clean) and _DEVICE_TARGETS.search(clean):
         return True
-    # Common imperative app-opening forms are device commands even if the app
-    # name is not in our small hint vocabulary. Keep this deliberately narrow.
-    return bool(re.match(r"^\s*(buka|open|jalankan|launch)\s+[\w. -]{2,48}$", clean, re.I))
+    # Any imperative that begins by opening an app/device target is treated as
+    # an execution request even if the app name is unknown to our vocabulary.
+    # This is what lets "buka Tokopedia lalu cari ..." route correctly.
+    if _OPEN_PREFIX.search(clean) and len(clean) <= 240:
+        return True
+    # Commands such as "di Discord cari Wynn lalu kirim ..." may omit "buka".
+    # Two independent interaction verbs are strong enough evidence of device intent.
+    if len(_SECONDARY_DEVICE_VERBS.findall(clean)) >= 2:
+        return True
+    return False
 
 
 def _first_json_object(raw: str) -> dict | None:
     decoder = json.JSONDecoder()
-    for idx, ch in enumerate(raw):
+    for idx, ch in enumerate(str(raw or "")):
         if ch != "{":
             continue
         try:
-            obj, _ = decoder.raw_decode(raw[idx:])
+            obj, _ = decoder.raw_decode(str(raw)[idx:])
         except json.JSONDecodeError:
             continue
         if isinstance(obj, dict):
@@ -74,10 +86,11 @@ class CompanionSession:
         prompt = f"""
 Klasifikasikan maksud pesan pengguna ke salah satu mode:
 - chat: percakapan, pertanyaan, ide, penjelasan, menulis, atau permintaan yang tidak perlu menyentuh UI Android.
-- device: pengguna ingin Furina benar-benar melakukan sesuatu pada HP/aplikasi: membuka app, mencari di app, membaca isi app, navigasi, mengetik, memilih kontrol, memutar media, atau mengirim pesan.
+- device: pengguna ingin Furina benar-benar melakukan sesuatu pada HP/aplikasi apa pun: membuka app, mencari di app, membaca isi app, navigasi, mengetik, memilih kontrol, memutar media, atau mengirim pesan.
 
-Pahami typo, singkatan, bahasa campuran, dan kalimat sangat pendek.
+Pahami typo, singkatan, bahasa campuran, nama aplikasi yang belum pernah disebut, dan kalimat sangat pendek.
 Jika pengguna hanya bertanya CARA melakukan sesuatu, pilih chat.
+Jika pengguna memerintahkan tindakan nyata di suatu aplikasi, pilih device walaupun nama aplikasinya tidak ada di contoh mana pun.
 Jika pengguna meminta tindakan Android sekaligus percakapan, pilih device dan pertahankan tujuan lengkap.
 
 Pesan pengguna:
@@ -112,8 +125,6 @@ Output JSON tunggal:
                 confidence = 0.5
             return Intent(mode, goal, max(0.0, min(1.0, confidence)))
         except Exception:
-            # Routing failure must never destroy ordinary chat. Obvious device
-            # commands have already been caught by the deterministic fast path.
             return Intent("chat", text, 0.0)
 
     def respond(self, text: str, approve, *, task_authorized: bool = False) -> tuple[str, str]:
