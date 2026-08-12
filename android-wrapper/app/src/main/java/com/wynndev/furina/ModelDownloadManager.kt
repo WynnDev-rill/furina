@@ -81,11 +81,17 @@ class ModelDownloadManager(private val context: Context) {
     fun start(spec: ModelSpec): JSONObject {
         migrateLegacyDownload(spec)
         val current = status(spec)
-        if (current.optString("state") == "downloading") return current
+        val currentState = current.optString("state")
+        if (currentState == "downloading") return current
+        // A user action must never destroy a working multi-GB model just to redownload the same
+        // artifact. Ready-but-not-yet-trusted files are verified by modelStatus()/prepare instead.
+        if (currentState == "ready") return current
 
         val runtimeTarget = runtimeModelFile(spec)
-        require(!runtimeTarget.exists() || runtimeTarget.delete()) {
-            "File model runtime lama tidak dapat dibersihkan. Coba hapus model lalu ulangi."
+        if (currentState == "corrupt" || currentState == "failed") {
+            require(!runtimeTarget.exists() || runtimeTarget.delete()) {
+                "File model runtime lama tidak dapat dibersihkan. Coba hapus model lalu ulangi."
+            }
         }
 
         val available = StatFs(runtimeModelDir.absolutePath).availableBytes
