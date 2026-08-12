@@ -6,7 +6,7 @@
     {"path": "core/furina_agent/chat.py", "target": "core/furina_agent/chat.py", "git_blob_sha": "58227fc62f6f5ebb0191637e634eb3c67a2a4772"},
     {"path": "core/furina_agent/companion.py", "target": "core/furina_agent/companion.py", "git_blob_sha": "5fe68fa5ef76ecd1aa68c3e67b64869e4477d981"},
     {"path": "core/furina_agent/config.py", "target": "core/furina_agent/config.py", "git_blob_sha": "12344f64fda00269c4f37e9b4065b34adb517e0d"},
-    {"path": "core/furina_agent/device_context.py", "target": "core/furina_agent/device_context.py", "git_blob_sha": "12235ae64e9adaebc90bf56468a5d95b1ed970ae"},
+    {"path": "core/furina_agent/device_context.py", "target": "core/furina_agent/device_context.py", "git_blob_sha": "8775c4e112cb94914bfd7bb8eef93e110978f2bb"},
     {"path": "core/furina_agent/embeddings.py", "target": "core/furina_agent/embeddings.py", "git_blob_sha": "61f0a542e40d116781325c458a5d7b235a4ee28c"},
     {"path": "core/furina_agent/events.py", "target": "core/furina_agent/events.py", "git_blob_sha": "eacc1b1b69a1f7d4a2656236298c49be5e96a5a0"},
     {"path": "core/furina_agent/llm.py", "target": "core/furina_agent/llm.py", "git_blob_sha": "b57f0812151f9d86b74c5d0613bf7e23d9ea18e0"},
