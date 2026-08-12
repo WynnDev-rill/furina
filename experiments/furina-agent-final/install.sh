@@ -1,16 +1,16 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-VERSION="1.0.0-rc2"
+VERSION="1.0.0-rc3"
 ROOT="$HOME/.furina-agent"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 MANIFEST_URL="$BASE/manifest.json"
 RUNTIME_PATCH_URL="$BASE/patches/runtime-online-agent.patch"
 RUNTIME_PATCH_SHA256="bef40bd02af2eb9714f1197337a0f1a5f3ad5fa9ff1e71adfa073141c3756549"
 OVERRIDE_MANIFEST_URL="$BASE/overrides/manifest.json"
-OVERRIDE_MANIFEST_BLOB="e534a664140220efd4f7de2ca302a7ee0926a2fc"
+OVERRIDE_MANIFEST_BLOB="caeaf0df545239bd65355fa0c9daafbeb61cc898"
 TRANSFORM_URL="$BASE/overrides/apply-companion-v2.py"
-TRANSFORM_BLOB="6f8624268f7bdd38b332d7d715b22793aff80091"
+TRANSFORM_BLOB="cfd65bcfdfd930518ae75e8d44e34559a0f33914"
 LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"
 MODEL_REV="e9cf779"
 MODEL_NAME="Qwen3.5-4B-Deckard-HERETIC-UNCENSORED-Thinking.i1-Q4_K_M.gguf"
@@ -97,8 +97,9 @@ for item in manifest.get('files', []):
 print('Unified companion overrides: OK')
 PY
 
-# Transformasi kecil yang menyentuh Core + Bridge diverifikasi dengan Git blob
-# sebelum dijalankan. Ia menambah IME Search/Enter API 30 dan bump Bridge RC2.
+# Transformasi Core + Bridge diverifikasi dengan Git blob sebelum dijalankan.
+# RC3 menambah selector stabil untuk kontrol UI, verifikasi hasil aksi, dan
+# ACTION_IME_ENTER sehingga interaksi tidak bergantung pada node ID yang rapuh.
 curl -fsSL --retry 3 "$TRANSFORM_URL" -o "$TMP/apply-companion-v2.py"
 python - "$TMP/apply-companion-v2.py" "$TRANSFORM_BLOB" <<'PY'
 import hashlib, pathlib, sys
@@ -118,8 +119,11 @@ grep -q 'Percakapan + tindakan Android' "$SRC/core/furina_agent/tui.py"
 grep -q '_obvious_device_intent' "$SRC/core/furina_agent/companion.py"
 grep -q 'json_mode=True' "$SRC/core/furina_agent/agent.py"
 grep -q 'ime_action' "$SRC/core/furina_agent/agent.py"
+grep -q 'payload\["target"\] = selector' "$SRC/core/furina_agent/agent.py"
+grep -q 'needs_approval = (not task_authorized)' "$SRC/core/furina_agent/agent.py"
+grep -q 'selectorScore' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
 grep -q 'ACTION_IME_ENTER' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
-grep -q 'versionCode 10002' "$SRC/bridge/app/build.gradle"
+grep -q 'versionCode 10003' "$SRC/bridge/app/build.gradle"
 
 printf '[3/7] Memasang Core secara atomik...\n'
 rm -rf "$ROOT/core.new"
