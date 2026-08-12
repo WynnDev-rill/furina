@@ -19,7 +19,7 @@ PERF_STATE_PATH = DATA_DIR / "performance.json"
 
 @dataclass
 class Config:
-    config_revision: int = 4
+    config_revision: int = 5
     bridge_host: str = "127.0.0.1"
     bridge_port: int = 8765
     bridge_token: str = ""
@@ -28,13 +28,13 @@ class Config:
     llama_host: str = "127.0.0.1"
     llama_port: int = 8080
     model_path: str = ""
-    context_size: int = 4096
+    # RC5 carries richer memory/persona context. 6144 remains reasonable for a
+    # 4B phone model while avoiding the cramped 4096-token companion prompt.
+    context_size: int = 6144
     threads: int = 6
 
-    # This is only a per-generation safety ceiling. Normal responses stop on
-    # model EOS/finish_reason=stop. If a backend reports a length stop, Furina
-    # automatically continues until the answer finishes or the generous safety
-    # continuation ceiling is reached.
+    # Per-generation safety ceiling only. Normal responses stop on EOS/stop;
+    # explicit length stops are continued automatically.
     max_tokens: int = 2048
     response_continuations: int = 4
 
@@ -43,8 +43,8 @@ class Config:
     top_k: int = 20
     min_p: float = 0.0
     local_reasoning: bool = False
-    memory_limit: int = 6
-    agent_max_steps: int = 24
+    memory_limit: int = 7
+    agent_max_steps: int = 28
     persona_name: str = "Furina"
     user_nickname: str = ""
 
@@ -88,9 +88,6 @@ def load_config() -> Config:
     if defaults.get("routing_mode") not in {"local", "auto", "online"}:
         defaults["routing_mode"] = "local"
 
-    # v3 and earlier exposed 320/1024/1536 as user-visible answer caps. Migrate
-    # those values to the new adaptive model where 2048 is merely one segment's
-    # safety ceiling and explicit length finishes are continued automatically.
     try:
         revision = int(raw.get("config_revision", 0) or 0)
     except Exception:
@@ -104,9 +101,22 @@ def load_config() -> Config:
         defaults["response_continuations"] = max(4, int(defaults.get("response_continuations", 0) or 0))
         defaults["agent_max_steps"] = max(24, int(defaults.get("agent_max_steps", 0) or 0))
 
+    # RC5 migration: richer user model, examples and episodic context need more
+    # room. Preserve deliberate larger custom contexts.
+    if revision < 5:
+        try:
+            current_ctx = int(raw.get("context_size", 0) or 0)
+        except Exception:
+            current_ctx = 0
+        if current_ctx <= 4096:
+            defaults["context_size"] = 6144
+        defaults["memory_limit"] = max(7, int(defaults.get("memory_limit", 0) or 0))
+        defaults["agent_max_steps"] = max(28, int(defaults.get("agent_max_steps", 0) or 0))
+
     defaults["max_tokens"] = max(128, min(int(defaults["max_tokens"]), 8192))
     defaults["response_continuations"] = max(0, min(int(defaults["response_continuations"]), 6))
-    defaults["agent_max_steps"] = max(8, min(int(defaults["agent_max_steps"]), 40))
+    defaults["agent_max_steps"] = max(8, min(int(defaults["agent_max_steps"]), 48))
+    defaults["memory_limit"] = max(3, min(int(defaults["memory_limit"]), 16))
     defaults["threads"] = max(1, min(int(defaults["threads"]), 12))
     defaults["context_size"] = max(2048, min(int(defaults["context_size"]), 16384))
     defaults["top_k"] = max(0, min(int(defaults["top_k"]), 100))
@@ -114,9 +124,6 @@ def load_config() -> Config:
     mask = str(defaults.get("cpu_mask") or "").strip().lower().removeprefix("0x")
     defaults["cpu_mask"] = mask if all(c in "0123456789abcdef" for c in mask) else ""
 
-    # Daily companion mode never needs visible/expensive local chain-of-thought.
-    # Any legacy toggle is migrated off; internal structured planning still
-    # works through dedicated JSON prompts.
     defaults["local_reasoning"] = False
     defaults["config_revision"] = Config().config_revision
     return Config(**defaults)
