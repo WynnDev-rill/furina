@@ -18,7 +18,7 @@ jobs:
           github.event.workflow_run.event == 'push' &&
           github.event.workflow_run.head_branch == 'main' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
@@ -28,7 +28,29 @@ jobs:
       CHANGE_TITLE: ${{ github.event.workflow_run.display_title }}
 
     steps:
+      - name: Decide whether this commit needs a user APK release
+        id: release-scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(gh api "repos/$REPO/commits/$TARGET_SHA" --paginate --jq '.files[].filename')"
+          printf '%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -Eq '^(android-wrapper/|src/|public/|package\.json$|package-lock\.json$|scripts/bootstrap-llama-android\.sh$|scripts/overlays/|scripts/(apply|normalize|fix)-.*\.py$)'; then
+            echo "release_required=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release_required=false" >> "$GITHUB_OUTPUT"
+            echo "No user-facing APK/runtime change; stable build is validation only and will not publish an update."
+          fi
+
+      - name: Checkout exact release source
+        if: steps.release-scope.outputs.release_required == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 1
+
       - name: Download verified stable APK
+        if: steps.release-scope.outputs.release_required == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -39,22 +61,46 @@ jobs:
           test -s release-artifact/Furina-Stable.apk
           cp release-artifact/Furina-Stable.apk Furina.apk
 
-      - name: Create update manifest
+      - name: Set up Android SDK metadata tools
+        if: steps.release-scope.outputs.release_required == 'true'
+        uses: android-actions/setup-android@v3
+
+      - name: Create integrity-bound update manifest
+        if: steps.release-scope.outputs.release_required == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          export VERSION_NAME="4.0.${RUN_NUMBER}"
+          APKANALYZER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer 2>/dev/null | sort | tail -n1)"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n1)"
+          test -x "$APKANALYZER"
+          test -x "$APKSIGNER"
+
+          export APK_SHA256="$(sha256sum Furina.apk | awk '{print $1}')"
+          export APK_PACKAGE="$($APKANALYZER manifest application-id Furina.apk | tr -d '\r')"
+          export APK_VERSION_CODE="$($APKANALYZER manifest version-code Furina.apk | tr -d '\r')"
+          export APK_VERSION_NAME="$($APKANALYZER manifest version-name Furina.apk | tr -d '\r')"
+          export APK_SIGNER_SHA256="$($APKSIGNER verify --print-certs Furina.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1 | tr '[:upper:]' '[:lower:]')"
+
+          test "$APK_PACKAGE" = "com.wynndev.furina"
+          test "$APK_VERSION_CODE" -gt 0
+          test -n "$APK_VERSION_NAME"
+          test "${#APK_SHA256}" -eq 64
+          test "${#APK_SIGNER_SHA256}" -eq 64
+
           python3 - <<'PY'
           import json, os
-          run_number = int(os.environ["RUN_NUMBER"])
           repo = os.environ["REPO"]
           title = os.environ.get("CHANGE_TITLE", "").strip()
+          version_code = int(os.environ["APK_VERSION_CODE"])
           data = {
-              "versionCode": run_number,
-              "versionName": os.environ["VERSION_NAME"],
-              "minimumVersionCode": run_number,
-              "mandatory": True,
+              "versionCode": version_code,
+              "versionName": os.environ["APK_VERSION_NAME"],
+              "minimumVersionCode": 1,
+              "mandatory": False,
               "apkUrl": f"https://github.com/{repo}/releases/latest/download/Furina.apk",
+              "sha256": os.environ["APK_SHA256"],
+              "packageName": os.environ["APK_PACKAGE"],
+              "signerSha256": os.environ["APK_SIGNER_SHA256"],
               "title": "Pembaruan Furina tersedia",
               "notes": [title] if title else ["Pembaruan stabil Furina tersedia."],
               "commit": os.environ["TARGET_SHA"],
@@ -65,12 +111,19 @@ jobs:
           PY
           python3 -m json.tool update.json >/dev/null
 
+      - name: Validate updater manifest contract
+        if: steps.release-scope.outputs.release_required == 'true'
+        shell: bash
+        run: python3 scripts/updater-manifest-gate.py update.json Furina.apk
+
       - name: Publish stable GitHub Release
+        if: steps.release-scope.outputs.release_required == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          TAG="furina-v4.0.${RUN_NUMBER}"
-          TITLE="Furina 4.0.${RUN_NUMBER}"
+          VERSION_NAME="$(python3 -c 'import json; print(json.load(open("update.json"))["versionName"])')"
+          TAG="furina-v${VERSION_NAME}"
+          TITLE="Furina ${VERSION_NAME}"
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             gh release upload "$TAG" Furina.apk update.json --clobber --repo "$REPO"
           else
@@ -79,5 +132,5 @@ jobs:
               --repo "$REPO" \
               --target "$TARGET_SHA" \
               --title "$TITLE" \
-              --notes "Stable signed Furina build $RUN_NUMBER. Source commit: $TARGET_SHA"
+              --notes "Stable signed Furina build. Source commit: $TARGET_SHA"
           fi

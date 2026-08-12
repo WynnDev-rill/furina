@@ -143,7 +143,6 @@ class OpenAiCompatibleProvider(
         val payload = JSONObject()
             .put("model", model.id)
             .put("stream", true)
-            .put("temperature", 0.85)
             .put("max_tokens", request.predictLength.coerceIn(64, model.maxOutputTokens))
             .put("messages", JSONArray().apply {
                 put(JSONObject().put("role", "system").put("content", request.context.systemPrompt))
@@ -154,6 +153,9 @@ class OpenAiCompatibleProvider(
                 }
                 put(JSONObject().put("role", "user").put("content", request.userMessage))
             })
+        // Gemini's newer OpenAI-compatible models deprecate explicit sampling controls. Keep
+        // sampling provider-specific so future Gemini model upgrades cannot fail on temperature.
+        if (id != "gemini") payload.put("temperature", 0.85)
         applyReasoningPolicy(payload, model.id)
 
         val connection = openConnection("${spec.baseUrl}/chat/completions", "POST", key).apply {
