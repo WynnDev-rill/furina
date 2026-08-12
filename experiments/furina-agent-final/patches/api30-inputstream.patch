@@ -1,0 +1,35 @@
+--- termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/LocalBridgeServer.java
++++ termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/LocalBridgeServer.java
+@@ -97,7 +97,11 @@
+                 writeJson(out, 413, new JSONObject().put("ok", false).put("error", "payload_too_large"));
+                 return;
+             }
+-            byte[] body = in.readNBytes(len);
++            byte[] body = readExact(in, len);
++            if (body == null) {
++                writeJson(out, 400, new JSONObject().put("ok", false).put("error", "incomplete_body"));
++                return;
++            }
+ 
+             if ("GET".equals(method) && "/bootstrap".equals(path)) {
+                 if (!BridgePrefs.consumeBootstrapWindow(context)) {
+@@ -170,6 +174,19 @@
+         return new JSONObject().put("ok", true).put("apps", apps);
+     }
+ 
++    private byte[] readExact(InputStream in, int len) throws Exception {
++        if (len == 0) return new byte[0];
++        byte[] out = new byte[len];
++        int offset = 0;
++        while (offset < len) {
++            int read = in.read(out, offset, len - offset);
++            if (read < 0) return null;
++            if (read == 0) continue;
++            offset += read;
++        }
++        return out;
++    }
++
+     private byte[] readUntilHeaders(InputStream in, int limit) throws Exception {
+         ByteArrayOutputStream bos = new ByteArrayOutputStream();
+         int state = 0;
