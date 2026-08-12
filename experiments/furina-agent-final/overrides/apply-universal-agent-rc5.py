@@ -21,8 +21,9 @@ def main() -> None:
     root = pathlib.Path(sys.argv[1]).resolve()
     service = root / "bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
     gradle = root / "bridge/app/build.gradle"
-    if not service.is_file() or not gradle.is_file():
-        raise SystemExit("missing RC5 bridge source")
+    tui = root / "core/furina_agent/tui.py"
+    if not service.is_file() or not gradle.is_file() or not tui.is_file():
+        raise SystemExit("missing RC5 source")
 
     replace_once(
         service,
@@ -148,24 +149,41 @@ def main() -> None:
 '''
     replace_once(service, old_set_text, new_set_text, "robust text and generic node actions")
 
+    # Final TUI wording. The actual policy already uses one task-level approval;
+    # keep the interface consistent with that behavior and with the Furina identity.
+    replace_once(
+        tui,
+        'Perintah ini membutuhkan kontrol layar. Izinkan Furina menavigasi/mengetik? Send/aksi eksternal tetap dikonfirmasi tepat sebelum dilakukan',
+        'Izinkan Furina menyelesaikan tugas ini di layar? Jika disetujui, navigasi, pengetikan, pencarian, dan Send/Kirim/Post/Share yang memang diminta akan dilakukan otomatis tanpa konfirmasi kedua',
+        "single task approval TUI",
+    )
+    replace_once(tui, '[dim]AI ROUTER[/]', '[dim]MODEL ROUTER[/]', "router label")
+    replace_once(tui, '"AI Provider / API key"', '"Provider / API key"', "provider menu")
+    replace_once(tui, 'title="AI PROVIDERS"', 'title="MODEL PROVIDERS"', "provider panel")
+    replace_once(tui, 'console.print(f"[dim]AI: {llm.last.backend} / {llm.last.model}[/]")', 'console.print(f"[dim]Model: {llm.last.backend} / {llm.last.model}[/]")', "model status")
+    replace_once(tui, '[dim]MEMORY / RESPONSE[/]', '[dim]FURINA MIND / RESPONSE[/]', "mind label")
+
     replace_once(gradle, "        versionCode 10004", "        versionCode 10005", "Bridge RC5 versionCode")
     replace_once(gradle, "        versionName '1.0.0-rc4'", "        versionName '1.0.0-rc5'", "Bridge RC5 versionName")
 
     service_text = service.read_text(encoding="utf-8")
     gradle_text = gradle.read_text(encoding="utf-8")
+    tui_text = tui.read_text(encoding="utf-8")
     required = [
         ("long press", 'case "long_press"' in service_text and "longPress(JSONObject action)" in service_text),
         ("scroll node", 'case "scroll_node"' in service_text and "scrollNode(JSONObject action)" in service_text),
         ("clipboard fallback", "ACTION_PASTE" in service_text and "ClipboardManager" in service_text),
         ("node actions", 'j.put("actions", actions)' in service_text),
         ("window title", 'out.put("window_title"' in service_text),
+        ("single approval UI", "tanpa konfirmasi kedua" in tui_text),
+        ("mind UI", "FURINA MIND" in tui_text),
         ("rc5 code", "versionCode 10005" in gradle_text),
         ("rc5 name", "versionName '1.0.0-rc5'" in gradle_text),
     ]
     failed = [name for name, ok in required if not ok]
     if failed:
         raise SystemExit("universal agent RC5 transform incomplete: " + ", ".join(failed))
-    print("Universal Android Agent RC5 transform: OK")
+    print("Universal Android Agent + Furina Mind RC5 transform: OK")
 
 
 if __name__ == "__main__":
