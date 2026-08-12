@@ -5,6 +5,8 @@ VERSION="1.0.0-rc1"
 ROOT="$HOME/.furina-agent"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 MANIFEST_URL="$BASE/manifest.json"
+RUNTIME_PATCH_URL="$BASE/patches/runtime-online-agent.patch"
+RUNTIME_PATCH_SHA256="bef40bd02af2eb9714f1197337a0f1a5f3ad5fa9ff1e71adfa073141c3756549"
 LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"
 MODEL_REV="e9cf779"
 MODEL_NAME="Qwen3.5-4B-Deckard-HERETIC-UNCENSORED-Thinking.i1-Q4_K_M.gguf"
@@ -27,7 +29,7 @@ printf 'Mode: %s\n\n' "$MODE"
 
 printf '[1/7] Menyiapkan Termux...\n'
 pkg update -y
-pkg install -y python python-pip git cmake ninja clang make curl ccache util-linux termux-tools
+pkg install -y python python-pip git cmake ninja clang make curl ccache util-linux termux-tools patch
 python -m pip install --quiet 'rich>=13.9,<15'
 mkdir -p "$ROOT"/{bin,models,logs,run,data,cache}
 TMP="$(mktemp -d)"
@@ -52,8 +54,17 @@ if h.hexdigest() != m['source_sha256']:
 PY
 mkdir -p "$TMP/src"
 tar -xzf "$TMP/source.tar.gz" -C "$TMP/src"
+
+# Apply the reviewed runtime hotfix after the immutable source bundle is
+# verified. The patch is pinned by SHA-256 so an unexpected remote change
+# aborts the update rather than modifying the installed core.
+curl -fsSL --retry 3 "$RUNTIME_PATCH_URL" -o "$TMP/runtime-online-agent.patch"
+echo "$RUNTIME_PATCH_SHA256  $TMP/runtime-online-agent.patch" | sha256sum -c -
+patch -p0 -d "$TMP/src" < "$TMP/runtime-online-agent.patch"
+
 SRC="$TMP/src/termux"
 test -f "$SRC/core/furina_agent/cli.py"
+grep -q 'free = low.endswith(":free") or bool(' "$SRC/core/furina_agent/providers.py"
 
 printf '[3/7] Memasang Core secara atomik...\n'
 rm -rf "$ROOT/core.new"
@@ -130,16 +141,16 @@ fi
 
 printf '[6/7] Memeriksa Furina Bridge...\n'
 BRIDGE_VERSION="$(curl -fsS --max-time 2 http://127.0.0.1:8765/health 2>/dev/null | python -c 'import json,sys; print(json.load(sys.stdin).get("version", ""))' 2>/dev/null || true)"
-EXPECTED_BRIDGE="$(python -c 'import json; print(json.load(open("'$TMP'/manifest.json"))["bridge_version"])')"
+EXPECTED_BRIDGE="$(python -c 'import json; print(json.load(open("'"$TMP"'/manifest.json"))["bridge_version"])')"
 if [[ "$BRIDGE_VERSION" == "$EXPECTED_BRIDGE" ]]; then
   echo "Bridge final sudah terpasang."
   furina connect >/dev/null 2>&1 || true
 else
   echo "Bridge final perlu dipasang/update: $EXPECTED_BRIDGE"
-  RELEASE_BASE="$(python -c 'import json; print(json.load(open("'$TMP'/manifest.json"))["bridge_release_base"])')"
+  RELEASE_BASE="$(python -c 'import json; print(json.load(open("'"$TMP"'/manifest.json"))["bridge_release_base"])')"
   curl -fsSL --retry 3 "$RELEASE_BASE/bridge.json" -o "$TMP/bridge.json"
-  APK_URL="$(python -c 'import json; print(json.load(open("'$TMP'/bridge.json"))["apk_url"])')"
-  APK_SHA="$(python -c 'import json; print(json.load(open("'$TMP'/bridge.json"))["sha256"])')"
+  APK_URL="$(python -c 'import json; print(json.load(open("'"$TMP"'/bridge.json"))["apk_url"])')"
+  APK_SHA="$(python -c 'import json; print(json.load(open("'"$TMP"'/bridge.json"))["sha256"])')"
   curl -fL --retry 3 "$APK_URL" -o "$ROOT/cache/Furina-Agent-Bridge.apk"
   echo "$APK_SHA  $ROOT/cache/Furina-Agent-Bridge.apk" | sha256sum -c -
   echo
