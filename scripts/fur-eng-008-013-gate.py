@@ -44,8 +44,11 @@ def main() -> None:
                 f"updater must require {field}")
     require("PackageInfoCompat.getLongVersionCode(archive) != targetVersion" in updater,
             "updater must bind APK to target version")
-    require("expectedSigner !in installedSigners" in updater,
-            "updater must bind new APK signer to installed Furina signer")
+    signer_bound = (
+        "expectedSigner !in installedSigners" in updater or
+        "return expectedSigner in signerDigests(installed)" in updater
+    )
+    require(signer_bound, "updater must bind new APK signer to installed Furina signer")
 
     require('"mandatory": False' in publish and '"minimumVersionCode": 1' in publish,
             "normal automated releases must be optional and not force latest minimum")
