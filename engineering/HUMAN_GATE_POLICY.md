@@ -45,23 +45,21 @@ Prioritize:
 
 Do not use cosmetic trivia, duplicate symptoms, speculative churn, or meta-engineering work to fill the quota.
 
-## Required finding format
+## Report language and format
 
-Each proposed finding must have a stable ID and include:
-- priority/severity;
-- exact evidence;
-- explicit separation of FACT vs HYPOTHESIS;
-- likely root cause;
-- proposed change;
-- expected benefit;
-- risks and blast radius;
-- exact files/subsystems likely affected;
-- validation/tests required;
-- confidence;
-- recommendation;
+Hourly reports must be written in **simple, concise Indonesian**. Prefer plain user-facing language over long engineering jargon. Technical terms are allowed only when they help Wynn make the decision.
+
+Each finding should be compact and contain only:
+- stable finding ID;
+- priority;
+- masalah singkat;
+- bukti singkat;
+- saran perubahan;
+- manfaat;
+- risiko singkat;
 - status `AWAITING WYNN APPROVAL`.
 
-Unchanged findings should not be repeated merely to fill an hourly report. A materially changed finding keeps its stable ID and is reported as an update.
+Put the highest-value findings first. Do not repeat unchanged findings merely to fill the hourly report. A materially changed finding keeps its stable ID and is reported as an update.
 
 ## Single-approval implementation flow
 
@@ -77,7 +75,7 @@ That approval authorizes the interactive Engineer to:
 5. run deterministic/static/CI/behavioral/device checks appropriate to the claims;
 6. create or update a pull request for evidence gathering and review when useful;
 7. merge the exact validated implementation head to `main` without asking Wynn for a second approval, once every mandatory gate is green and no unresolved blocker remains;
-8. report the final merged SHA, changed files, validation results, and remaining non-blocking evidence debt.
+8. report the final merged SHA, validation result, remaining non-blocking evidence debt, and the exact APK action Wynn must take.
 
 Wynn approval is therefore **implementation approval and merge approval for the approved scope**.
 
@@ -91,6 +89,17 @@ A fresh Wynn approval is required before merge when any of the following occurs:
 A new commit does not by itself invalidate approval when it is a narrow repair inside the already approved scope. However, the exact final head must itself pass every mandatory merge gate before merge.
 
 CI green is evidence, not independent authority. Merge authority comes from Wynn's prior approval; CI and other required evidence determine whether that authority may safely be exercised on the final head.
+
+## Post-merge APK action
+
+Every completed interactive merge report must end with one of these explicit statuses:
+- `Perlu update APK: YA` — the installed APK must be replaced with the newer signed APK for the change to take effect;
+- `Perlu update APK: TIDAK` — the change takes effect without replacing the installed APK.
+
+When `YA`, also state the exact action:
+- if Furina's in-app updater is already installed, tell Wynn to open Furina and tap `Perbarui` when the update prompt appears;
+- if the installed Furina predates the in-app updater, tell Wynn that **one manual updater-enabled APK install is required once**; after that, future stable APK updates should use the in-app `Perbarui` flow;
+- do not tell Wynn to uninstall the app unless signature/package corruption makes an in-place Android update impossible, because uninstalling can remove local app data.
 
 ## Evidence truth
 
