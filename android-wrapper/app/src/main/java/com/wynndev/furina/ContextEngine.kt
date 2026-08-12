@@ -256,15 +256,15 @@ class ContextEngine(context: Context, private val store: MemoryStore) {
         val rows = store.recentContext(sessionId, (limit * 4).coerceAtLeast(16))
             .lineSequence()
             .map(String::trim)
-            .filter { it.startsWith("USER:") || it.startsWith("ASSISTANT:") }
+            .filter { it.startsWith("USER:") || it.startsWith("FURINA:") }
             .toList()
 
         val recentUsers = rows
             .filter { it.startsWith("USER:") }
             .takeLast(limit)
         val immediateAssistant = rows
-            .lastOrNull { it.startsWith("ASSISTANT:") }
-            ?.removePrefix("ASSISTANT:")
+            .lastOrNull { it.startsWith("FURINA:") }
+            ?.removePrefix("FURINA:")
             ?.trim()
             ?.take(900)
             .orEmpty()
