@@ -28,13 +28,15 @@ class FinalContractTests(unittest.TestCase):
         self.assertIn("Nama panggilan pengguna adalah Wynn", prompt)
         self.assertIn("bukan di setiap respons", prompt)
 
-    def test_persona_hides_reasoning_forbids_emoji_and_lore_by_default(self):
+    def test_persona_hides_reasoning_forbids_emoji_lore_and_ai_self_label(self):
         prompt = build_system_prompt("Furina", "Wynn")
         self.assertIn("Jangan gunakan emoji", prompt)
         self.assertIn("Jangan menampilkan chain-of-thought", prompt)
         self.assertIn("Jangan membawa lore", prompt)
+        self.assertIn("Jangan menyebut atau menganggap dirimu AI", prompt)
         self.assertIn("tsundere", prompt.lower())
         self.assertIn("sinis", prompt.lower())
+        self.assertIn("tanpa konfirmasi kedua", prompt)
 
     def test_sanitizer_removes_reasoning_and_emoji(self):
         text = sanitize("<think>rahasia</think>Hai 😛")
@@ -58,12 +60,15 @@ class FinalContractTests(unittest.TestCase):
         self.assertIn("consumeBootstrapWindow", server)
         self.assertIn("openBootstrapWindow", prefs)
 
-    def test_release_bridge_has_stable_signing_hook_and_rc2_identity(self):
+    def test_release_bridge_has_stable_signing_hook_and_rc3_identity(self):
         root = Path(__file__).resolve().parents[1]
         gradle = (root / "bridge/app/build.gradle").read_text()
+        service = (root / "bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java").read_text()
         self.assertIn("FURINA_AGENT_KEYSTORE_PATH", gradle)
-        self.assertIn("versionCode 10002", gradle)
-        self.assertIn("versionName '1.0.0-rc2'", gradle)
+        self.assertIn("versionCode 10003", gradle)
+        self.assertIn("versionName '1.0.0-rc3'", gradle)
+        self.assertIn("selectorScore", service)
+        self.assertIn("resolveNode", service)
 
 
 if __name__ == "__main__":
