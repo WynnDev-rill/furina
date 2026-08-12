@@ -45,7 +45,7 @@ jobs:
           set -euo pipefail
           export VERSION_NAME="4.0.${RUN_NUMBER}"
           export APK_SHA256="$(sha256sum Furina.apk | awk '{print $1}')"
-          export APK_SIGNER_SHA256="$(apksigner verify --print-certs Furina.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1 | tr -d ':')"
+          export APK_SIGNER_SHA256="$(keytool -printcert -jarfile Furina.apk 2>/dev/null | sed -n 's/^[[:space:]]*SHA256: //p' | head -n1 | tr -d ':')"
           test -n "$APK_SIGNER_SHA256"
           python3 - <<'PY'
           import json, os
