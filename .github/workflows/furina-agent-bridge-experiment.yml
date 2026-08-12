@@ -1,61 +1,171 @@
-name: Build Furina Agent Bridge Experiment
+name: Build Furina Agent Final Candidate
 
 on:
   push:
     branches:
       - experiment/furina-agent-termux
     paths:
-      - 'experiments/furina-agent-bundle/VERSION'
+      - 'experiments/furina-agent-final/**'
       - '.github/workflows/furina-agent-bridge-experiment.yml'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: furina-agent-final-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  bridge-apk:
+  validate-and-release:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
+    env:
+      TAG: furina-agent-v1.0.0-rc1
+      APK_NAME: Furina-Agent-Bridge-v1.0.0-rc1.apk
+      EXPECTED_SOURCE_SHA: 6b51c907c8a79ab6af06ef891b5013ce8ed964bdc168cf0e71751eacf4161fea
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout isolated experiment branch
+        uses: actions/checkout@v4
 
-      - name: Reassemble and verify isolated source bundle
+      - name: Reassemble and verify final source
+        shell: bash
         run: |
-          mkdir -p experiments
-          cat experiments/furina-agent-bundle/chunk-*.b64 | base64 -d > /tmp/furina-agent-termux.tar.gz
-          echo '43eca5255f24aca910ed808fd9bb157f5f326a962989a39b08095236b4477d36  /tmp/furina-agent-termux.tar.gz' | sha256sum -c -
-          tar -xzf /tmp/furina-agent-termux.tar.gz -C experiments
-          test -f experiments/furina-agent-termux/settings.gradle
+          set -euo pipefail
+          SRC_META="experiments/furina-agent-final"
+          ARCHIVE=/tmp/furina-agent-final.tar.gz
+          : > "$ARCHIVE"
+          for chunk in "$SRC_META"/source-*.b64; do
+            base64 --decode "$chunk" >> "$ARCHIVE"
+          done
+          echo "$EXPECTED_SOURCE_SHA  $ARCHIVE" | sha256sum -c -
+          test "$(python3 -c 'import json; print(__import__("json").load(open("experiments/furina-agent-final/manifest.json"))["source_sha256"])')" = "$EXPECTED_SOURCE_SHA"
+          mkdir -p /tmp/furina-agent-src
+          tar -xzf "$ARCHIVE" -C /tmp/furina-agent-src
+          test -f /tmp/furina-agent-src/termux/core/furina_agent/cli.py
+          test -f /tmp/furina-agent-src/termux/bridge/app/build.gradle
 
-      - uses: actions/setup-java@v4
+      - name: Validate shell and Python core
+        working-directory: /tmp/furina-agent-src/termux
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n install.sh upgrade.sh uninstall.sh
+          PYTHONPATH=core python3 -m compileall -q core tests
+          PYTHONPATH=core python3 -m unittest discover -s tests -v
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK
-        run: yes | sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Install Android SDK components
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Run core tests
-        working-directory: experiments/furina-agent-termux
-        run: PYTHONPATH=core python3 -m unittest discover -s tests -v
+      - name: Restore stable Bridge signing identity
+        working-directory: /tmp/furina-agent-src/termux
+        env:
+          FURINA_RELEASE_KEYSTORE_B64: ${{ secrets.FURINA_RELEASE_KEYSTORE_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$FURINA_RELEASE_KEYSTORE_B64"
+          printf '%s' "$FURINA_RELEASE_KEYSTORE_B64" | base64 --decode > bridge/app/furina-agent-release.jks
+          chmod 600 bridge/app/furina-agent-release.jks
+          test -s bridge/app/furina-agent-release.jks
 
-      - name: Build bridge APK
-        working-directory: experiments/furina-agent-termux
-        run: gradle :bridge:app:assembleDebug --stacktrace
+      - name: Build signed release Bridge
+        working-directory: /tmp/furina-agent-src/termux
+        env:
+          FURINA_AGENT_KEYSTORE_PATH: /tmp/furina-agent-src/termux/bridge/app/furina-agent-release.jks
+          FURINA_KEYSTORE_PASSWORD: ${{ secrets.FURINA_KEYSTORE_PASSWORD }}
+          FURINA_KEY_ALIAS: ${{ secrets.FURINA_KEY_ALIAS }}
+          FURINA_KEY_PASSWORD: ${{ secrets.FURINA_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$FURINA_KEYSTORE_PASSWORD"
+          test -n "$FURINA_KEY_ALIAS"
+          test -n "$FURINA_KEY_PASSWORD"
+          gradle --no-daemon --stacktrace :bridge:app:lintRelease :bridge:app:assembleRelease
 
-      - name: Rename APK
-        run: cp experiments/furina-agent-termux/bridge/app/build/outputs/apk/debug/app-debug.apk Furina-Agent-Bridge-v0.2.0.apk
+      - name: Verify APK identity, version, signer, and create manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_APK=/tmp/furina-agent-src/termux/bridge/app/build/outputs/apk/release/app-release.apk
+          test -s "$SOURCE_APK"
+          cp "$SOURCE_APK" "$APK_NAME"
+          APKANALYZER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer 2>/dev/null | sort | tail -n1)"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n1)"
+          test -x "$APKANALYZER"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$APK_NAME"
+          PACKAGE="$($APKANALYZER manifest application-id "$APK_NAME" | tr -d '\r')"
+          VERSION_CODE="$($APKANALYZER manifest version-code "$APK_NAME" | tr -d '\r')"
+          VERSION_NAME="$($APKANALYZER manifest version-name "$APK_NAME" | tr -d '\r')"
+          SHA256="$(sha256sum "$APK_NAME" | awk '{print $1}')"
+          SIGNER="$($APKSIGNER verify --print-certs "$APK_NAME" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1 | tr '[:upper:]' '[:lower:]')"
+          test "$PACKAGE" = "com.wynndev.furinaagentbridge"
+          test "$VERSION_CODE" = "10001"
+          test "$VERSION_NAME" = "1.0.0-rc1"
+          test "${#SHA256}" -eq 64
+          test "${#SIGNER}" -eq 64
+          export PACKAGE VERSION_CODE VERSION_NAME SHA256 SIGNER
+          python3 - <<'PY'
+          import json, os
+          tag = 'furina-agent-v1.0.0-rc1'
+          name = 'Furina-Agent-Bridge-v1.0.0-rc1.apk'
+          data = {
+              'version': os.environ['VERSION_NAME'],
+              'version_code': int(os.environ['VERSION_CODE']),
+              'package_name': os.environ['PACKAGE'],
+              'sha256': os.environ['SHA256'],
+              'signer_sha256': os.environ['SIGNER'],
+              'apk_url': f'https://github.com/WynnDev-rill/furina/releases/download/{tag}/{name}',
+          }
+          with open('bridge.json', 'w', encoding='utf-8') as f:
+              json.dump(data, f, ensure_ascii=False, indent=2)
+              f.write('\n')
+          PY
+          cat bridge.json
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload CI artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: Furina-Agent-Bridge-v0.2.0
-          path: Furina-Agent-Bridge-v0.2.0.apk
+          name: Furina-Agent-Final-v1.0.0-rc1
+          path: |
+            Furina-Agent-Bridge-v1.0.0-rc1.apk
+            bridge.json
           if-no-files-found: error
 
-      # Final V0.2 validation trigger after bundle checksum correction.
+      - name: Publish isolated prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK_NAME" bridge.json --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$TAG" --prerelease --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" "$APK_NAME" bridge.json \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Furina Agent 1.0.0 RC1 — By Wynn" \
+              --notes "Isolated Termux agent final candidate. This prerelease does not update or replace the main Furina APK." \
+              --prerelease
+          fi
