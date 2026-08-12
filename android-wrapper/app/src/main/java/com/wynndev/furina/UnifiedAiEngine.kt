@@ -9,6 +9,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.join
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -26,7 +27,9 @@ class UnifiedAiEngine(
     private val providers: Map<String, AiProvider>,
 ) {
     private val maintenanceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    @Volatile private var maintenanceJob: Job? = null
+    private val maintenanceLock = Any()
+    @Volatile private var requiredMaintenanceTail: Job? = null
+    @Volatile private var summaryJob: Job? = null
 
     private fun provider(id: String): AiProvider =
         providers[id] ?: error("Provider AI tidak tersedia: $id")
@@ -58,7 +61,6 @@ class UnifiedAiEngine(
         persona: String,
         onToken: (String) -> Unit,
     ): UnifiedGenerationResult {
-        maintenanceJob?.cancel()
         val startedAt = SystemClock.elapsedRealtime()
         var firstTokenAt = 0L
         var tokenCount = 0
@@ -84,7 +86,6 @@ class UnifiedAiEngine(
             model = model,
             context = context,
             userMessage = userText,
-            // Local runtime uses this as a hard runaway horizon; EOG normally ends much earlier.
             predictLength = model.maxOutputTokens,
         )
         try {
@@ -102,13 +103,10 @@ class UnifiedAiEngine(
         check(finalText.isNotBlank()) { "Model tidak menghasilkan jawaban" }
         val assistantId = store.addMessage(sessionId, "assistant", finalText)
 
-        // Continuity is reconstructed from durable SQLite context on each turn. Full sequence
-        // checkpoints are deliberately not written because the role-safe local path resets back
-        // to the immutable SYSTEM/persona prefix before every generation, making those large
-        // session snapshots pure I/O/storage overhead. Persona-prefix checkpoints remain native.
-        // AiProvider.checkpointConversation remains an interface compatibility hook, but this
-        // orchestrator deliberately does not call it for normal turns.
-        scheduleIdleMaintenance(sessionId, userText)
+        // Relationship/memory observation is durable work: every completed user turn is queued
+        // and never discarded merely because the next message arrives quickly. Only the summary
+        // compaction is debounced because it is derived state and safe to postpone.
+        scheduleMaintenance(sessionId, userText)
 
         val finishedAt = SystemClock.elapsedRealtime()
         val firstTokenMs = if (firstTokenAt > 0L) firstTokenAt - startedAt else finishedAt - startedAt
@@ -127,33 +125,47 @@ class UnifiedAiEngine(
 
     /** Stop background writers before unload/restore/session mutation. */
     suspend fun unload() {
-        maintenanceJob?.cancelAndJoin()
-        maintenanceJob = null
+        val required = synchronized(maintenanceLock) { requiredMaintenanceTail }
+        summaryJob?.cancelAndJoin()
+        summaryJob = null
+        required?.join()
+        synchronized(maintenanceLock) {
+            if (requiredMaintenanceTail === required) requiredMaintenanceTail = null
+        }
         providers.values.forEach { it.unload() }
     }
 
     fun destroy() {
-        maintenanceJob?.cancel()
-        maintenanceJob = null
+        synchronized(maintenanceLock) {
+            requiredMaintenanceTail?.cancel()
+            requiredMaintenanceTail = null
+        }
+        summaryJob?.cancel()
+        summaryJob = null
         maintenanceScope.cancel()
     }
 
-    private fun scheduleIdleMaintenance(
-        sessionId: String,
-        userText: String,
-    ) {
-        maintenanceJob?.cancel()
-        lateinit var job: Job
-        job = maintenanceScope.launch {
-            try {
-                delay(6_000L)
+    private fun scheduleMaintenance(sessionId: String, userText: String) {
+        val required = synchronized(maintenanceLock) {
+            val previous = requiredMaintenanceTail
+            lateinit var job: Job
+            job = maintenanceScope.launch {
+                previous?.join()
                 runCatching { contextEngine.runMaintenance(sessionId, userText) }
-                runCatching { store.updateSessionSummary(sessionId) }
-            } finally {
-                if (maintenanceJob === job) maintenanceJob = null
+                synchronized(maintenanceLock) {
+                    if (requiredMaintenanceTail === job) requiredMaintenanceTail = null
+                }
             }
+            requiredMaintenanceTail = job
+            job
         }
-        maintenanceJob = job
+
+        summaryJob?.cancel()
+        summaryJob = maintenanceScope.launch {
+            required.join()
+            delay(6_000L)
+            runCatching { store.updateSessionSummary(sessionId) }
+        }
     }
 
     /** Lightweight telemetry for the future on-device behavioral benchmark. */
