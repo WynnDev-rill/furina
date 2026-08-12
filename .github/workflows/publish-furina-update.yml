@@ -42,6 +42,13 @@ jobs:
             echo "No user-facing APK/runtime change; stable build is validation only and will not publish an update."
           fi
 
+      - name: Checkout exact release source
+        if: steps.release-scope.outputs.release_required == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 1
+
       - name: Download verified stable APK
         if: steps.release-scope.outputs.release_required == 'true'
         shell: bash
