@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - experiment/furina-agent-termux
+      - fix/termux-unified-companion-v2
     paths:
       - 'experiments/furina-agent-final/**'
       - '.github/workflows/furina-agent-bridge-experiment.yml'
@@ -21,15 +22,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      TAG: furina-agent-v1.0.0-rc1
-      APK_NAME: Furina-Agent-Bridge-v1.0.0-rc1.apk
+      TAG: furina-agent-v1.0.0-rc2
+      APK_NAME: Furina-Agent-Bridge-v1.0.0-rc2.apk
       EXPECTED_SOURCE_SHA: 6b51c907c8a79ab6af06ef891b5013ce8ed964bdc168cf0e71751eacf4161fea
 
     steps:
       - name: Checkout isolated experiment branch
         uses: actions/checkout@v4
 
-      - name: Reassemble, patch, and verify final source
+      - name: Reassemble, layer companion v2, and verify final source
         shell: bash
         run: |
           set -euo pipefail
@@ -40,40 +41,93 @@ jobs:
             base64 --decode "$chunk" >> "$ARCHIVE"
           done
           echo "$EXPECTED_SOURCE_SHA  $ARCHIVE" | sha256sum -c -
-          test "$(python3 -c 'import json; print(__import__("json").load(open("experiments/furina-agent-final/manifest.json"))["source_sha256"])')" = "$EXPECTED_SOURCE_SHA"
+          test "$(python3 -c 'import json; print(json.load(open("experiments/furina-agent-final/manifest.json"))["source_sha256"])')" = "$EXPECTED_SOURCE_SHA"
+          rm -rf /tmp/furina-agent-src
           mkdir -p /tmp/furina-agent-src
           tar -xzf "$ARCHIVE" -C /tmp/furina-agent-src
           patch -p0 -d /tmp/furina-agent-src < "$SRC_META/patches/api30-inputstream.patch"
           patch -p0 -d /tmp/furina-agent-src < "$SRC_META/patches/runtime-online-agent.patch"
+
+          python3 - "$SRC_META/overrides" /tmp/furina-agent-src/termux <<'PY'
+          import hashlib, json, pathlib, shutil, sys
+          override_root = pathlib.Path(sys.argv[1]).resolve()
+          termux_root = pathlib.Path(sys.argv[2]).resolve()
+          manifest_path = override_root / 'manifest.json'
+          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+          assert manifest.get('revision') == 'companion-v2'
+          def blob_sha(data: bytes) -> str:
+              return hashlib.sha1(f'blob {len(data)}\0'.encode() + data).hexdigest()
+          for item in manifest['files']:
+              source = (override_root / item['path']).resolve()
+              target = (termux_root / item['target']).resolve()
+              assert override_root in source.parents
+              assert termux_root in target.parents
+              data = source.read_bytes()
+              assert blob_sha(data) == item['git_blob_sha'], (source, blob_sha(data), item['git_blob_sha'])
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_bytes(data)
+          PY
+
+          patch -p0 -d /tmp/furina-agent-src < "$SRC_META/patches/companion-v2-ime.patch"
+          cp "$SRC_META/overrides/tests/test_final_contract.py" /tmp/furina-agent-src/termux/tests/test_final_contract.py
+          cp "$SRC_META/overrides/tests/test_final_release_contract.py" /tmp/furina-agent-src/termux/tests/test_final_release_contract.py
+
           test -f /tmp/furina-agent-src/termux/core/furina_agent/cli.py
           test -f /tmp/furina-agent-src/termux/bridge/app/build.gradle
           ! grep -q 'readNBytes' /tmp/furina-agent-src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/LocalBridgeServer.java
           grep -q 'readExact' /tmp/furina-agent-src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/LocalBridgeServer.java
           grep -q 'free = low.endswith(":free") or bool(' /tmp/furina-agent-src/termux/core/furina_agent/providers.py
-          grep -q 'WhatsApp/aplikasi pesan' /tmp/furina-agent-src/termux/core/furina_agent/agent.py
+          grep -q 'reasoning_effort.*none' /tmp/furina-agent-src/termux/core/furina_agent/providers.py
+          grep -q 'Percakapan + tindakan Android' /tmp/furina-agent-src/termux/core/furina_agent/tui.py
+          grep -q '_obvious_device_intent' /tmp/furina-agent-src/termux/core/furina_agent/companion.py
+          grep -q 'json_mode=True' /tmp/furina-agent-src/termux/core/furina_agent/agent.py
+          grep -q 'ime_action' /tmp/furina-agent-src/termux/core/furina_agent/agent.py
+          grep -q 'ACTION_IME_ENTER' /tmp/furina-agent-src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java
+          grep -q 'versionCode 10002' /tmp/furina-agent-src/termux/bridge/app/build.gradle
+          grep -q "versionName '1.0.0-rc2'" /tmp/furina-agent-src/termux/bridge/app/build.gradle
 
-      - name: Validate shell and Python core
+      - name: Validate installer, Python core, and companion regressions
         working-directory: /tmp/furina-agent-src/termux
         shell: bash
         run: |
           set -euo pipefail
-          bash -n install.sh upgrade.sh uninstall.sh
+          bash -n install.sh upgrade.sh uninstall.sh "$GITHUB_WORKSPACE/experiments/furina-agent-final/install.sh"
           PYTHONPATH=core python3 -m compileall -q core tests
           PYTHONPATH=core python3 -m unittest discover -s tests -v
           PYTHONPATH=core python3 - <<'PY'
+          from furina_agent.agent import AndroidAgent
+          from furina_agent.companion import _obvious_device_intent
           from furina_agent.config import Config
+          from furina_agent.llm import sanitize
           from furina_agent.providers import ModelInfo, OpenAICompatibleProvider
 
-          provider = OpenAICompatibleProvider("groq", "test-key", Config())
-          info = provider._model_info({"id": "plain-chat-model", "pricing": {}})
+          provider = OpenAICompatibleProvider('groq', 'test-key', Config())
+          info = provider._model_info({'id': 'plain-chat-model', 'pricing': {}})
           assert info is not None
           assert type(info.free) is bool and info.free is False, repr(info.free)
+          malformed = ModelInfo('same-score-a', {}, free={})
+          normal = ModelInfo('same-score-b', {}, free=False)
+          assert len(provider._rank_models([malformed, normal])) == 2
 
-          malformed = ModelInfo("same-score-a", {}, free={})
-          normal = ModelInfo("same-score-b", {}, free=False)
-          ranked = provider._rank_models([malformed, normal])
-          assert len(ranked) == 2
-          print("provider schema/ranking regression: PASS")
+          assert _obvious_device_intent('buka youtube dan cari channel mr beast')
+          assert _obvious_device_intent('buka whatsapp lalu kirim pesan')
+          assert not _obvious_device_intent('bagaimana cara buka youtube')
+          assert sanitize('<think>private reasoning</think>Hai 😛') == 'Hai'
+
+          class Dummy: pass
+          agent = AndroidAgent(Config(), Dummy(), Dummy(), Dummy())
+          risk, _ = agent.risk({}, {'type': 'ime_action', 'node': 3})
+          assert risk == 'write'
+          ready, reason = agent._finish_ready(
+              'buka youtube dan cari mr beast',
+              {'nodes': [{'text': 'MrBeast', 'desc': 'Channel'}]},
+              [
+                  {'action': {'type': 'set_text', 'node': 3, 'text': 'mr beast'}},
+                  {'action': {'type': 'ime_action', 'node': 3}, 'result': {'ok': True}},
+              ],
+          )
+          assert ready, reason
+          print('unified companion regressions: PASS')
           PY
 
       - name: Set up Java 17
@@ -143,15 +197,15 @@ jobs:
           SIGNER="$(printf '%s\n' "$CERT_OUTPUT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
           printf 'PACKAGE=%s\nVERSION_CODE=%s\nVERSION_NAME=%s\nAPK_SHA256=%s\nSIGNER_SHA256=%s\n' "$PACKAGE" "$VERSION_CODE" "$VERSION_NAME" "$SHA256" "$SIGNER"
           test "$PACKAGE" = "com.wynndev.furinaagentbridge"
-          test "$VERSION_CODE" = "10001"
-          test "$VERSION_NAME" = "1.0.0-rc1"
+          test "$VERSION_CODE" = "10002"
+          test "$VERSION_NAME" = "1.0.0-rc2"
           test "${#SHA256}" -eq 64
           test "${#SIGNER}" -eq 64
           export PACKAGE VERSION_CODE VERSION_NAME SHA256 SIGNER
           python3 - <<'PY'
           import json, os
-          tag = 'furina-agent-v1.0.0-rc1'
-          name = 'Furina-Agent-Bridge-v1.0.0-rc1.apk'
+          tag = 'furina-agent-v1.0.0-rc2'
+          name = 'Furina-Agent-Bridge-v1.0.0-rc2.apk'
           data = {
               'version': os.environ['VERSION_NAME'],
               'version_code': int(os.environ['VERSION_CODE']),
@@ -169,13 +223,14 @@ jobs:
       - name: Upload CI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Furina-Agent-Final-v1.0.0-rc1
+          name: Furina-Agent-Final-v1.0.0-rc2
           path: |
-            Furina-Agent-Bridge-v1.0.0-rc1.apk
+            Furina-Agent-Bridge-v1.0.0-rc2.apk
             bridge.json
           if-no-files-found: error
 
       - name: Publish isolated prerelease
+        if: github.ref == 'refs/heads/experiment/furina-agent-termux'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -188,7 +243,7 @@ jobs:
             gh release create "$TAG" "$APK_NAME" bridge.json \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "Furina Agent 1.0.0 RC1 — By Wynn" \
-              --notes "Isolated Termux agent final candidate. This prerelease does not update or replace the main Furina APK." \
+              --title "Furina Agent 1.0.0 RC2 — By Wynn" \
+              --notes "Unified Termux companion: hidden reasoning, adaptive response completion, merged chat+device flow, structured agent planning, and API-30 IME submit support. This prerelease remains isolated from the main Furina APK." \
               --prerelease
           fi
