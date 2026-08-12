@@ -39,8 +39,10 @@ jobs:
           mkdir -p "$OUT"
           cp /tmp/src/termux/core/furina_agent/*.py "$OUT/"
           cp -R /tmp/src/termux/tests "$OUT/tests"
-          mkdir -p "$OUT/bridge-java"
+          mkdir -p "$OUT/bridge-java" "$OUT/bridge-meta"
           cp /tmp/src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/*.java "$OUT/bridge-java/"
+          cp /tmp/src/termux/bridge/app/build.gradle "$OUT/bridge-meta/build.gradle"
+          cp /tmp/src/termux/bridge/app/src/main/AndroidManifest.xml "$OUT/bridge-meta/AndroidManifest.xml"
           find "$OUT" -type f -maxdepth 4 -print
       - name: Commit inspection snapshot
         shell: bash
@@ -50,5 +52,5 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add experiments/furina-agent-inspect
           git diff --cached --quiet && exit 0
-          git commit -m 'chore: expose Bridge source for review'
+          git commit -m 'chore: expose Bridge build metadata for review'
           git push origin HEAD:inspect/termux-agent-current
