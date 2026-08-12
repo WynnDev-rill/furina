@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - experiment/furina-agent-termux
-      - feat/furina-rc7-companion-reliability
+      - feat/furina-rc8-natural-companion
     paths:
       - 'experiments/furina-agent-final/**'
       - '.github/workflows/furina-agent-bridge-experiment.yml'
@@ -30,7 +30,7 @@ jobs:
       - name: Checkout isolated experiment branch
         uses: actions/checkout@v4
 
-      - name: Reassemble and layer Furina RC7
+      - name: Reassemble and layer Furina RC8
         shell: bash
         run: |
           set -euo pipefail
@@ -40,6 +40,8 @@ jobs:
           for chunk in "$META"/source-*.b64; do base64 --decode "$chunk" >> "$ARCHIVE"; done
           echo "$EXPECTED_SOURCE_SHA  $ARCHIVE" | sha256sum -c -
           test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["source_sha256"])')" = "$EXPECTED_SOURCE_SHA"
+          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["version"])')" = "1.0.0-rc8"
+          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["bridge_version"])')" = "1.0.0-rc7"
           rm -rf /tmp/furina-agent-src && mkdir -p /tmp/furina-agent-src
           tar -xzf "$ARCHIVE" -C /tmp/furina-agent-src
           patch -p0 -d /tmp/furina-agent-src < "$META/patches/api30-inputstream.patch"
@@ -50,7 +52,7 @@ jobs:
           import hashlib,json,pathlib,sys
           src=pathlib.Path(sys.argv[1]).resolve(); dst=pathlib.Path(sys.argv[2]).resolve()
           manifest=json.loads((src/'manifest.json').read_text(encoding='utf-8'))
-          assert manifest.get('revision')=='companion-v4'
+          assert manifest.get('revision')=='companion-v5'
           def sha(data): return hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()
           for item in manifest['files']:
               source=(src/item['path']).resolve(); target=(dst/item['target']).resolve()
@@ -66,12 +68,13 @@ jobs:
           python3 "$META/overrides/apply-bridge-rc6.py" /tmp/furina-agent-src/termux
           python3 "$META/overrides/apply-core-rc7.py" /tmp/furina-agent-src/termux
           python3 "$META/overrides/apply-bridge-rc7.py" /tmp/furina-agent-src/termux
+          python3 "$META/overrides/apply-core-rc8.py" /tmp/furina-agent-src/termux
           cp "$META/overrides/tests/test_final_contract.py" /tmp/furina-agent-src/termux/tests/test_final_contract.py
           cp "$META/overrides/tests/test_final_release_contract.py" /tmp/furina-agent-src/termux/tests/test_final_release_contract.py
 
           ROOT=/tmp/furina-agent-src/termux
-          grep -q 'VERSION = "1.0.0-rc7"' "$ROOT/core/furina_agent/version.py"
-          grep -q 'config_revision: int = 7' "$ROOT/core/furina_agent/config.py"
+          grep -q 'VERSION = "1.0.0-rc8"' "$ROOT/core/furina_agent/version.py"
+          grep -q 'config_revision: int = 8' "$ROOT/core/furina_agent/config.py"
           grep -q 'defaults\["event_port"\] = 8767' "$ROOT/core/furina_agent/config.py"
           grep -q 'TaskContract' "$ROOT/core/furina_agent/agent.py"
           grep -q '_deterministic_gate' "$ROOT/core/furina_agent/agent.py"
@@ -82,21 +85,31 @@ jobs:
           grep -q 'LEARNED SKILL HINTS' "$ROOT/core/furina_agent/agent.py"
           grep -q 'contract.target_package' "$ROOT/core/furina_agent/agent.py"
           grep -q 'CREATE TABLE IF NOT EXISTS memory_vectors' "$ROOT/core/furina_agent/memory.py"
+          grep -q 'CREATE TABLE IF NOT EXISTS memory_vector_lsh' "$ROOT/core/furina_agent/memory.py"
+          grep -q 'CREATE TABLE IF NOT EXISTS prospective_memories' "$ROOT/core/furina_agent/memory.py"
+          grep -q 'backfill_vector_index' "$ROOT/core/furina_agent/memory.py"
           grep -q 'CREATE TABLE IF NOT EXISTS learned_skills' "$ROOT/core/furina_agent/memory.py"
-          grep -q 'query_vec = self._embed_text(query)' "$ROOT/core/furina_agent/memory.py"
           grep -q 'compact_goal = ("app="' "$ROOT/core/furina_agent/memory.py"
           ! grep -q 'compact_goal = " ".join(str(goal).split())' "$ROOT/core/furina_agent/memory.py"
           grep -q '_temporal_context' "$ROOT/core/furina_agent/chat.py"
           grep -q '_internal_chat' "$ROOT/core/furina_agent/chat.py"
           grep -q 'companion_last_user_at' "$ROOT/core/furina_agent/chat.py"
+          grep -q 'naturalize(answer' "$ROOT/core/furina_agent/chat.py"
+          grep -q 'DEVICE STATE' "$ROOT/core/furina_agent/chat.py"
+          grep -q 'PROSPECTIVE MEMORY' "$ROOT/core/furina_agent/chat.py"
           grep -q 'user_returned_to_termux_at' "$ROOT/core/furina_agent/events.py"
+          grep -q 'ReminderDaemon' "$ROOT/core/furina_agent/companion.py"
           grep -q 'DeviceEventDaemon' "$ROOT/core/furina_agent/companion.py"
           grep -q 'LocalVision' "$ROOT/core/furina_agent/routing.py"
           grep -q 'finally:' "$ROOT/core/furina_agent/local_vision.py"
           grep -q 'DIALOGUE_ANCHORS' "$ROOT/core/furina_agent/persona.py"
-          grep -q 'Sinisme hanya bumbu situasional' "$ROOT/core/furina_agent/persona.py"
+          grep -q 'Sinis dan sarkas adalah bagian dirimu, tetapi bukan nada default' "$ROOT/core/furina_agent/persona.py"
+          grep -q 'Hindari kebiasaan bahasa AI' "$ROOT/core/furina_agent/persona.py"
           grep -q 'FURINA MIND' "$ROOT/core/furina_agent/tui.py"
           grep -q 'hybrid semantic' "$ROOT/core/furina_agent/tui.py"
+          test -f "$ROOT/core/furina_agent/naturalness.py"
+          test -f "$ROOT/core/furina_agent/prospective.py"
+          test -f "$ROOT/core/furina_agent/device_context.py"
           grep -q 'selectorScore' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
           grep -q 'case "scroll_global"' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
           grep -q 'waitForExactText' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
@@ -113,7 +126,7 @@ jobs:
           grep -q 'versionCode 10007' "$ROOT/bridge/app/build.gradle"
           grep -q "versionName '1.0.0-rc7'" "$ROOT/bridge/app/build.gradle"
 
-      - name: Validate installer and RC7 regression suite
+      - name: Validate installer and RC8 regression suite
         working-directory: /tmp/furina-agent-src/termux
         shell: bash
         run: |
@@ -199,7 +212,7 @@ jobs:
       - name: Upload CI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Furina-Agent-Final-v1.0.0-rc7
+          name: Furina-Agent-Final-Core-RC8-Bridge-RC7
           path: |
             Furina-Agent-Bridge-v1.0.0-rc7.apk
             bridge.json
@@ -218,6 +231,6 @@ jobs:
           else
             gh release create "$TAG" "$APK_NAME" bridge.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
               --title "Furina Agent 1.0.0 RC7 — By Wynn" \
-              --notes "RC7: more authentic Furina personality, temporal/session awareness, local-only memory housekeeping, bounded prompt context, fast cancel-on-return-to-Termux, vision only on real stalls, duplicate-write suppression, exact idempotent text input, adaptive Bridge icon/system bars, while preserving RC6 hybrid memory and local perception." \
+              --notes "Bridge RC7: exact idempotent input, adaptive icon/system bars and stable Android control. Furina Core may advance independently through the branch manifest." \
               --prerelease
           fi
