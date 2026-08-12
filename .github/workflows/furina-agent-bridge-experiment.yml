@@ -57,3 +57,5 @@ jobs:
           name: Furina-Agent-Bridge-v0.2.0
           path: Furina-Agent-Bridge-v0.2.0.apk
           if-no-files-found: error
+
+      # Final V0.2 validation trigger after bundle checksum correction.
