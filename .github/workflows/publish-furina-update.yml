@@ -26,6 +26,7 @@ jobs:
       RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
       TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
       CHANGE_TITLE: ${{ github.event.workflow_run.display_title }}
+      ANDROID_BUILD_TOOLS: '35.0.0'
 
     steps:
       - name: Decide whether this commit needs a user APK release
@@ -65,13 +66,24 @@ jobs:
         if: steps.release-scope.outputs.release_required == 'true'
         uses: android-actions/setup-android@v3
 
+      - name: Install deterministic Android build tools
+        if: steps.release-scope.outputs.release_required == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "build-tools;${ANDROID_BUILD_TOOLS}" "cmdline-tools;latest"
+          test -x "$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}/apksigner"
+          command -v apkanalyzer >/dev/null || test -x "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+
       - name: Create integrity-bound update manifest
         if: steps.release-scope.outputs.release_required == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          APKANALYZER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer 2>/dev/null | sort | tail -n1)"
-          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n1)"
+          APKANALYZER="$(command -v apkanalyzer || true)"
+          if [ -z "$APKANALYZER" ]; then APKANALYZER="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"; fi
+          APKSIGNER="$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}/apksigner"
           test -x "$APKANALYZER"
           test -x "$APKSIGNER"
 
