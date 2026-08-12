@@ -20,56 +20,39 @@ If a proposed change is obvious or low risk, report it anyway and stop at approv
 
 ## What to inspect
 
-Re-fetch current primary evidence rather than trusting previous report prose. Inspect as relevant:
-- exact current `main` and active development branches;
-- recent commits and pull requests;
-- exact-head CI/check status;
-- runtime and Android architecture;
-- offline model loading, generation, context/KV, backend selection, crashes, RAM and thermal paths;
-- personality, memory, retrieval, summaries, conversation continuity, and behavioral evidence;
-- model download/storage/integrity;
-- update/install/backup/privacy/security flows;
-- UI/UX blockers and user-visible regressions;
-- build/release reliability and high-leverage engineering bottlenecks;
-- issue #42 and legacy staging only as evidence/history, not as autonomous authority.
+Re-fetch current evidence and inspect broadly as relevant: current `main`, active PRs/checks, Android/runtime, offline AI, persona/memory/context/retrieval, model download/storage, update/install, privacy/security, UI/UX blockers, performance/crashes, and build/release reliability.
 
 ## Discovery target
 
 Actively search for at least **5 distinct NEW or materially changed MEDIUM-to-HIGH value findings** per hourly run when legitimate findings exist.
 
-Do not lower the bar to satisfy the number. Do not pad with cosmetic trivia, duplicate symptoms, speculative churn, or invented problems. If broad inspection yields fewer than five legitimate items, report the real number and explicitly say why the threshold could not be met without lowering quality.
+Do not lower the bar just to reach five. Do not pad with cosmetic trivia, duplicate symptoms, speculative churn, or invented problems. Avoid repeating unchanged findings.
 
-Avoid repeating unchanged findings. Search another meaningful subsystem instead. If old evidence materially changes, update the same stable finding ID.
+## Required report style
 
-## Required report format
+Write in **simple, concise Indonesian**. Avoid long engineering jargon unless it is necessary to understand the problem.
 
-For each finding include:
-- stable finding ID;
-- priority/severity;
-- exact evidence;
-- `FACT` versus `HYPOTHESIS`;
-- likely root cause;
-- proposed change;
-- expected benefit;
-- risks/blast radius;
-- exact files/subsystems likely affected;
-- validation/tests required;
-- confidence;
-- recommendation;
-- exact status: `AWAITING WYNN APPROVAL`.
+For each finding use only this compact format:
+- `ID`;
+- `Prioritas`;
+- `Masalah` — one short explanation;
+- `Bukti` — one short concrete fact;
+- `Saran` — what should be changed;
+- `Manfaat` — expected result;
+- `Risiko` — short, if any;
+- `AWAITING WYNN APPROVAL`.
 
-Order findings by expected product value and urgency, not by ease of implementation.
-
-If nothing meaningful is new, report `NO_NEW_FINDINGS` briefly.
+Put the most valuable findings first. If fewer than five legitimate findings exist, report the real number and say so briefly. If nothing meaningful is new, report `NO_NEW_FINDINGS` briefly.
 
 ## After Wynn approves
 
 Do nothing automatically on a later scheduled run. Approval is executed only in the interactive conversation in which Wynn explicitly authorizes the proposal.
 
 Interactive implementation uses one approval gate:
-1. Wynn approves the specific plan/package.
+1. Wynn approves the specific finding/package.
 2. That approval authorizes implementation, necessary in-scope repair commits, validation, and merge of the exact final head once every mandatory gate is green and no unresolved blocker remains.
 3. No second merge approval is required for the same approved scope.
+4. After merge, the interactive Engineer must explicitly tell Wynn `Perlu update APK: YA/TIDAK` and, when `YA`, whether to tap the in-app `Perbarui` button or install one updater-enabled APK manually first.
 
 A fresh Wynn approval is required if implementation materially expands scope, increases blast radius/risk class, changes design because of failed evidence, or would merge unrelated work.
 
