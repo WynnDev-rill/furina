@@ -9,7 +9,7 @@
     {"path": "core/furina_agent/embeddings.py", "target": "core/furina_agent/embeddings.py", "git_blob_sha": "61f0a542e40d116781325c458a5d7b235a4ee28c"},
     {"path": "core/furina_agent/events.py", "target": "core/furina_agent/events.py", "git_blob_sha": "eacc1b1b69a1f7d4a2656236298c49be5e96a5a0"},
     {"path": "core/furina_agent/llm.py", "target": "core/furina_agent/llm.py", "git_blob_sha": "b57f0812151f9d86b74c5d0613bf7e23d9ea18e0"},
-    {"path": "core/furina_agent/local_vision.py", "target": "core/furina_agent/local_vision.py", "git_blob_sha": "e10db735a8a9ff1977c61cef9ace74d226d6b08e"},
+    {"path": "core/furina_agent/local_vision.py", "target": "core/furina_agent/local_vision.py", "git_blob_sha": "66a2fdd942e14c5c46f2f4192b8a4a370e7fd555"},
     {"path": "core/furina_agent/memory.py", "target": "core/furina_agent/memory.py", "git_blob_sha": "c143516c10b7dd8eec9a52d6341e2481e3fc8f05"},
     {"path": "core/furina_agent/persona.py", "target": "core/furina_agent/persona.py", "git_blob_sha": "ffa3e20c1cdd6ef377bc7245b1199af6c4098597"},
     {"path": "core/furina_agent/providers.py", "target": "core/furina_agent/providers.py", "git_blob_sha": "a8de9ee6b94d16ce36e3fca0a905d0bf1e2ea2fb"},
