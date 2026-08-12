@@ -58,10 +58,11 @@ class BackupManager(
         prefs.edit().putString("recovery_key", trimmed).apply()
     }
 
+    /** Status is safe for WebView consumption; the encryption secret never crosses this API. */
     fun infoJson(): String = JSONObject()
         .put("folderSelected", hasBackupFolder())
         .put("folderUri", prefs.getString("tree_uri", ""))
-        .put("recoveryKey", getOrCreateRecoveryKey())
+        .put("recoveryKeyAvailable", true)
         .put("lastBackup", prefs.getLong("last_backup", 0L))
         .put("format", "FURINA2")
         .toString()
@@ -201,8 +202,6 @@ class BackupManager(
             }
             validateDatabase(temp)
             store.restoreFrom(temp)
-            // Old backups did not carry these fields. Clearing avoids mixing a restored DB
-            // with newer learned patterns that happened after the backup was created.
             context.getSharedPreferences(COMPANION_PREFS, Context.MODE_PRIVATE).edit().clear().apply()
         } finally {
             temp.delete()
