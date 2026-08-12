@@ -1,11 +1,11 @@
 {
   "revision": "companion-v2",
   "files": [
-    {"path": "core/furina_agent/agent.py", "target": "core/furina_agent/agent.py", "git_blob_sha": "4b68b199c1e1b40e8f079cdcbfce64dc5a02e57f"},
+    {"path": "core/furina_agent/agent.py", "target": "core/furina_agent/agent.py", "git_blob_sha": "0ce7dd8f9ff93ab6a54c49f3d1717c3a1e1349e6"},
     {"path": "core/furina_agent/companion.py", "target": "core/furina_agent/companion.py", "git_blob_sha": "bd2eada3fd1c70eaff20e3064eb07c350428a4cd"},
     {"path": "core/furina_agent/config.py", "target": "core/furina_agent/config.py", "git_blob_sha": "5ebbeb1a3a3d50664999734fcecc5b3e0a86509d"},
     {"path": "core/furina_agent/llm.py", "target": "core/furina_agent/llm.py", "git_blob_sha": "b57f0812151f9d86b74c5d0613bf7e23d9ea18e0"},
-    {"path": "core/furina_agent/persona.py", "target": "core/furina_agent/persona.py", "git_blob_sha": "6d187d8152e390983ad571c291d453ce17d470f4"},
+    {"path": "core/furina_agent/persona.py", "target": "core/furina_agent/persona.py", "git_blob_sha": "d46ccc48d906acbf2f5ca9f4bb5166fb69533b81"},
     {"path": "core/furina_agent/providers.py", "target": "core/furina_agent/providers.py", "git_blob_sha": "a8de9ee6b94d16ce36e3fca0a905d0bf1e2ea2fb"},
     {"path": "core/furina_agent/routing.py", "target": "core/furina_agent/routing.py", "git_blob_sha": "fb4da3c4590cf5d7b7f3c849c13c806ae8411c25"},
     {"path": "core/furina_agent/tui.py", "target": "core/furina_agent/tui.py", "git_blob_sha": "16004d096432c34d11f3e76525c6498c7af252ce"}
