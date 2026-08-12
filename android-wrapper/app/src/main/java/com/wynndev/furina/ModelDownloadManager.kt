@@ -56,6 +56,32 @@ class ModelDownloadManager(private val context: Context) {
     private fun partialFile(spec: ModelSpec): File = File(downloadModelDir, "${spec.fileName}.part")
     private fun uniqueWork(spec: ModelSpec) = "furina-model-${spec.id}"
 
+    private fun verificationTrustMatches(spec: ModelSpec, file: File): Boolean =
+        file.exists() &&
+            prefs.getString("verified:${spec.id}", null) == spec.sha256 &&
+            prefs.getLong("verified_size:${spec.id}", -1L) == file.length() &&
+            prefs.getLong("verified_mtime:${spec.id}", -1L) == file.lastModified() &&
+            prefs.getString("verified_path:${spec.id}", null) == file.absolutePath
+
+    private fun recordVerificationTrust(spec: ModelSpec, file: File) {
+        prefs.edit()
+            .putString("verified:${spec.id}", spec.sha256)
+            .putLong("verified_size:${spec.id}", file.length())
+            .putLong("verified_mtime:${spec.id}", file.lastModified())
+            .putString("verified_path:${spec.id}", file.absolutePath)
+            .remove("verification_error:${spec.id}")
+            .apply()
+    }
+
+    fun invalidateVerificationTrust(spec: ModelSpec) {
+        prefs.edit()
+            .remove("verified:${spec.id}")
+            .remove("verified_size:${spec.id}")
+            .remove("verified_mtime:${spec.id}")
+            .remove("verified_path:${spec.id}")
+            .apply()
+    }
+
     @Synchronized
     fun start(spec: ModelSpec): JSONObject {
         migrateLegacyDownload(spec)
@@ -76,9 +102,9 @@ class ModelDownloadManager(private val context: Context) {
         require(available + reusablePartial >= spec.expectedBytes + DOWNLOAD_HEADROOM_BYTES) {
             "Penyimpanan tidak cukup. Sisakan setidaknya ${formatGiB(spec.expectedBytes + DOWNLOAD_HEADROOM_BYTES)}."
         }
+        invalidateVerificationTrust(spec)
         prefs.edit()
             .remove("cancelled:${spec.id}")
-            .remove("verified:${spec.id}")
             .remove("verification_error:${spec.id}")
             .remove("error:${spec.id}")
             .putString("state:${spec.id}", "downloading")
@@ -111,7 +137,8 @@ class ModelDownloadManager(private val context: Context) {
         prefs.edit().putBoolean("cancelled:${spec.id}", true).apply()
         workManager.cancelUniqueWork(uniqueWork(spec))
         prefs.getString("worker:${spec.id}", null)?.let { runCatching { workManager.cancelWorkById(UUID.fromString(it)) } }
-        prefs.edit().remove("worker:${spec.id}").remove("download:${spec.id}").remove("verified:${spec.id}").apply()
+        prefs.edit().remove("worker:${spec.id}").remove("download:${spec.id}").apply()
+        invalidateVerificationTrust(spec)
         prefs.edit()
             .remove("verification_error:${spec.id}")
             .remove("state:${spec.id}")
@@ -150,7 +177,7 @@ class ModelDownloadManager(private val context: Context) {
         val transferFailed = state == "failed"
         if (!transferActive && !transferFailed && file.exists() && !sizeMatches) state = "corrupt"
         if (!transferActive && !transferFailed && verificationError != null) state = "corrupt"
-        val verified = sizeMatches && prefs.getString("verified:${spec.id}", null) == spec.sha256
+        val verified = sizeMatches && verificationTrustMatches(spec, file)
         return JSONObject()
             .put("id", spec.id)
             .put("state", state)
@@ -174,6 +201,7 @@ class ModelDownloadManager(private val context: Context) {
         val runtime = runtimeModelFile(spec)
         if (runtime.exists()) {
             require(runtime.length() == spec.expectedBytes) { "Ukuran model runtime tidak cocok" }
+            require(verificationTrustMatches(spec, runtime)) { "Model runtime harus diverifikasi ulang sebelum digunakan" }
             return runtime
         }
 
@@ -182,7 +210,7 @@ class ModelDownloadManager(private val context: Context) {
             "File model terverifikasi tidak ditemukan"
         }
         require(source.length() == spec.expectedBytes) { "Ukuran model sumber tidak cocok" }
-        require(prefs.getString("verified:${spec.id}", null) == spec.sha256) {
+        require(verificationTrustMatches(spec, source)) {
             "Model harus diverifikasi sebelum dipindahkan ke runtime internal"
         }
 
@@ -223,11 +251,8 @@ class ModelDownloadManager(private val context: Context) {
             if (!temp.renameTo(runtime)) throw IOException("Model internal selesai disalin tetapi tidak dapat dipromosikan")
             // A failed delete only leaves a harmless duplicate. modelFile() still prefers runtime.
             source.delete()
-            prefs.edit()
-                .putString("state:${spec.id}", "ready")
-                .putString("verified:${spec.id}", spec.sha256)
-                .remove("verification_error:${spec.id}")
-                .apply()
+            prefs.edit().putString("state:${spec.id}", "ready").apply()
+            recordVerificationTrust(spec, runtime)
             return runtime
         } catch (error: Throwable) {
             temp.delete()
@@ -262,9 +287,10 @@ class ModelDownloadManager(private val context: Context) {
             File(runtimeModelDir, fileName).delete()
             File(runtimeModelDir, "$fileName.migrating").delete()
             prefs.edit()
-                .remove("cancelled:$id").remove("verified:$id").remove("verification_error:$id")
-                .remove("error:$id").remove("state:$id").remove("downloaded:$id")
-                .remove("total:$id").remove("worker:$id").remove("download:$id")
+                .remove("cancelled:$id").remove("verified:$id")
+                .remove("verified_size:$id").remove("verified_mtime:$id").remove("verified_path:$id")
+                .remove("verification_error:$id").remove("error:$id").remove("state:$id")
+                .remove("downloaded:$id").remove("total:$id").remove("worker:$id").remove("download:$id")
                 .apply()
         }
     }
@@ -273,10 +299,11 @@ class ModelDownloadManager(private val context: Context) {
         val file = modelFile(spec)
         if (!file.exists() || file.length() == 0L) return false
         if (file.length() != spec.expectedBytes) {
+            invalidateVerificationTrust(spec)
             prefs.edit().putString("verification_error:${spec.id}", "Ukuran file model tidak cocok").apply()
             return false
         }
-        if (prefs.getString("verified:${spec.id}", null) == spec.sha256) return true
+        if (verificationTrustMatches(spec, file)) return true
 
         val digest = MessageDigest.getInstance("SHA-256")
         val buffer = ByteArray(COPY_BUFFER_BYTES)
@@ -293,8 +320,9 @@ class ModelDownloadManager(private val context: Context) {
         val actual = digest.digest().joinToString("") { "%02x".format(it) }
         val ok = actual.equals(spec.sha256, ignoreCase = true)
         if (ok) {
-            prefs.edit().putString("verified:${spec.id}", spec.sha256).remove("verification_error:${spec.id}").apply()
+            recordVerificationTrust(spec, file)
         } else {
+            invalidateVerificationTrust(spec)
             prefs.edit().putString("verification_error:${spec.id}", "Checksum model tidak cocok").apply()
         }
         return ok

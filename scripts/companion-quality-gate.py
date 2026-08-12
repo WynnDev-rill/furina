@@ -69,6 +69,8 @@ def verify_layered_context_contract() -> None:
             "immutable persona prefix must not contain session history")
 
     require("store.relevantOldContext" in context, "episodic history must use role-safe SQLite/FTS retrieval")
+    require(".filter { it.startsWith(\"USER:\") }" in context,
+            "older retrieved dialogue must exclude historical assistant prose")
     require("companion.relevantHistory" not in context, "role-guessing history path must not be used")
     require("store.relevantMemories" in context, "hot-path memory retrieval must stay deterministic and DB-backed")
     require("getDeclaredField" not in context, "ContextEngine must use explicit Context injection, not reflection")
@@ -87,18 +89,26 @@ def verify_layered_context_contract() -> None:
             "cold starts must prefer persistent persona/session KV restore")
     require("engine.resetConversationKeepingSystemPrompt()" in local,
             "session changes must preserve the prefetched SYSTEM prefix")
+    require("engine.appendSystemContext(context.sessionRehydrationPrompt)" in local,
+            "session continuity must be appended with SYSTEM role")
+    require("engine.appendSystemContext(wrapTurnContext(turnContext))" in local,
+            "runtime/retrieval background must be appended with SYSTEM role")
     require("checkpointConversation" in local and "checkpointConversation" in unified,
             "durable turns must be checkpointed after visible generation")
     require("messageCountForSession" in unified,
             "session checkpoint validation must use durable message count")
-    require("[PRIVATE RESPONSE CONTEXT]" in local, "local turn context needs an explicit private boundary")
-    wrapper = local.split('appendLine("[PRIVATE RESPONSE CONTEXT]")', 1)[1]
-    require("append(request.userMessage)" in wrapper, "latest user message must be placed after background context")
+    require("[PRIVATE TURN CONTEXT]" in local, "local turn context needs an explicit private SYSTEM boundary")
+    require("engine.sendUserPrompt(request.userMessage" in local,
+            "latest USER text must reach inference literally, separate from private context")
+    require("effectiveMessage" not in local,
+            "private background must never be concatenated into the USER message")
 
     require("apply-warm-session-reset-policy.py" in bootstrap and "apply-offline-runtime-v4-policy.py" in bootstrap,
             "pinned llama.android build must include persistent-KV runtime policies")
     require("resetConversationKeepingSystemPromptNative" in warm_reset,
             "native conversation reset must preserve SYSTEM KV")
+    require("appendSystemContextNative" in warm_reset,
+            "native runtime must expose role-safe SYSTEM background append")
     require("llama_state_seq_get_data" in runtime_v4 and "llama_state_seq_set_data" in runtime_v4,
             "runtime v4 must persist and restore llama.cpp sequence KV")
     require("shift_context_for" in runtime_v4,
@@ -254,16 +264,17 @@ def verify_scenario_matrix() -> int:
             for state in lifecycle:
                 current = f"CURRENT::{intent}::{depth}::{state}"
                 memory = "- remembered fact that may or may not be relevant"
-                composed = (
-                    "[PRIVATE RESPONSE CONTEXT]\n"
+                system_background = (
+                    "[PRIVATE TURN CONTEXT]\n"
                     "Background only; not a request to answer.\n"
                     f"{memory}\n"
-                    "[END PRIVATE RESPONSE CONTEXT]\n\n"
-                    f"{current}"
+                    "[END PRIVATE TURN CONTEXT]"
                 )
-                require(composed.rfind(current) > composed.rfind("END PRIVATE RESPONSE CONTEXT"),
-                        "current message must remain the final semantic focus")
-                require(composed.count(current) == 1, "current message must not be duplicated")
+                user_message = current
+                require(current not in system_background,
+                        "current USER message must never be merged into private SYSTEM background")
+                require(user_message == current and user_message.count(current) == 1,
+                        "current USER message must remain literal and unique")
                 count += 1
     require(100 <= count <= 300, f"scenario matrix must contain 100–300 cases, got {count}")
     return count
