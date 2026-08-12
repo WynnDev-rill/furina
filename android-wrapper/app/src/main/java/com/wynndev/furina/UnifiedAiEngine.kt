@@ -9,7 +9,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.join
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -77,7 +76,6 @@ class UnifiedAiEngine(
         val warmStart = activeProvider.isWarm(model, context)
         activeProvider.prepare(model, context)
 
-        // Persist the user turn even if generation fails; retrying keeps the user's intent.
         val userId = store.addMessage(sessionId, "user", userText)
         val reply = StringBuilder()
         val request = AiGenerationRequest(
@@ -103,9 +101,6 @@ class UnifiedAiEngine(
         check(finalText.isNotBlank()) { "Model tidak menghasilkan jawaban" }
         val assistantId = store.addMessage(sessionId, "assistant", finalText)
 
-        // Relationship/memory observation is durable work: every completed user turn is queued
-        // and never discarded merely because the next message arrives quickly. Only the summary
-        // compaction is debounced because it is derived state and safe to postpone.
         scheduleMaintenance(sessionId, userText)
 
         val finishedAt = SystemClock.elapsedRealtime()
@@ -123,7 +118,6 @@ class UnifiedAiEngine(
         return UnifiedGenerationResult(userId, assistantId, metrics)
     }
 
-    /** Stop background writers before unload/restore/session mutation. */
     suspend fun unload() {
         val required = synchronized(maintenanceLock) { requiredMaintenanceTail }
         summaryJob?.cancelAndJoin()
@@ -168,36 +162,24 @@ class UnifiedAiEngine(
         }
     }
 
-    /** Lightweight telemetry for the future on-device behavioral benchmark. */
     private fun qualityFlags(userText: String, response: String): JSONArray {
         val flags = JSONArray()
         val normalizedUser = userText.replace(Regex("\\s+"), " ").trim()
         val normalizedResponse = response.replace(Regex("\\s+"), " ").trim()
-        if (normalizedUser.length >= 16 && normalizedResponse.startsWith(normalizedUser, ignoreCase = true)) {
-            flags.put("prompt_echo")
-        }
+        if (normalizedUser.length >= 16 && normalizedResponse.startsWith(normalizedUser, ignoreCase = true)) flags.put("prompt_echo")
         if (response.contains("PRIVATE RESPONSE CONTEXT", ignoreCase = true) ||
             response.contains("PRIVATE TURN STATE", ignoreCase = true) ||
             response.contains("PRIVATE SESSION REHYDRATION", ignoreCase = true) ||
             response.contains("PRIVATE LANGUAGE REGISTER", ignoreCase = true) ||
             response.contains("PRIVATE RESPONSE SHAPE", ignoreCase = true)
-        ) {
-            flags.put("private_context_leak")
-        }
-
-        if (normalizedUser.length <= 50 && normalizedResponse.length > 520) {
-            flags.put("overlong_short_turn")
-        }
+        ) flags.put("private_context_leak")
+        if (normalizedUser.length <= 50 && normalizedResponse.length > 520) flags.put("overlong_short_turn")
 
         val streetRegister = Regex("(?i)(^|\\W)(lo|lu|loe|elu|gue|gua|gw)(\\W|$)")
         val userUsesStreetRegister = streetRegister.containsMatchIn(userText)
-        if (!userUsesStreetRegister && streetRegister.containsMatchIn(response)) {
-            flags.put("unmirrored_street_register")
-        }
+        if (!userUsesStreetRegister && streetRegister.containsMatchIn(response)) flags.put("unmirrored_street_register")
         val intimatePetName = Regex("(?i)(^|\\W)(sayang|beb|babe|dear|honey)(\\W|$)")
-        if (!intimatePetName.containsMatchIn(userText) && intimatePetName.containsMatchIn(response)) {
-            flags.put("unestablished_pet_name")
-        }
+        if (!intimatePetName.containsMatchIn(userText) && intimatePetName.containsMatchIn(response)) flags.put("unestablished_pet_name")
 
         val sentences = response.split(Regex("(?<=[.!?])\\s+"))
             .map { it.replace(Regex("\\s+"), " ").trim().lowercase() }
