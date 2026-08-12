@@ -60,6 +60,11 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertIn("git_blob_sha", installer)
         self.assertIn("apply-companion-v2.py", installer)
         self.assertIn("TRANSFORM_BLOB", installer)
+        self.assertIn("apply-bridge-rc4.py", installer)
+        self.assertIn("BRIDGE_TRANSFORM_BLOB", installer)
+        self.assertIn("target_rel.startswith('bridge/app/')", installer)
+        self.assertIn("termux-open-url", installer)
+        self.assertNotIn('termux-open "$ROOT/cache/Furina-Agent-Bridge.apk"', installer)
         self.assertIn("-DGGML_CPU_KLEIDIAI=ON", installer)
         self.assertIn("fallback ke CPU native stabil", installer)
 
