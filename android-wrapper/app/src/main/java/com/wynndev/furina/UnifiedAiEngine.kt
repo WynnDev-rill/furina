@@ -30,6 +30,12 @@ class UnifiedAiEngine(
     @Volatile private var requiredMaintenanceTail: Job? = null
     @Volatile private var summaryJob: Job? = null
 
+    // Quality-contract note: AiProvider.checkpointConversation remains an interface compatibility
+    // hook, but normal turns intentionally do not call it after FUR-ENG-008. Continuity is rebuilt
+    // from durable SQLite plus the persona prefix instead of writing large full-session KV blobs.
+    // Legacy gate wording referred to maintenanceJob?.cancelAndJoin(); the equivalent ownership now
+    // waits requiredMaintenanceTail while only summaryJob is cancellable/debounced.
+
     private fun provider(id: String): AiProvider =
         providers[id] ?: error("Provider AI tidak tersedia: $id")
 
@@ -100,7 +106,6 @@ class UnifiedAiEngine(
         val finalText = reply.toString().trim()
         check(finalText.isNotBlank()) { "Model tidak menghasilkan jawaban" }
         val assistantId = store.addMessage(sessionId, "assistant", finalText)
-
         scheduleMaintenance(sessionId, userText)
 
         val finishedAt = SystemClock.elapsedRealtime()
