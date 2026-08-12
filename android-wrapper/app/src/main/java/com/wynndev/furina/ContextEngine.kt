@@ -28,15 +28,15 @@ class ContextEngine(context: Context, private val store: MemoryStore) {
         "nongkrong", "mager", "bete", "ngiler", "anjir", "anjay", "wkwk",
     )
 
-    /** Fast state update used before inference. Heavy reflection work is intentionally absent. */
-    fun observeUserTurn(sessionId: String, text: String) {
-        store.observeUserTurn(text)
-    }
+    /**
+     * Compatibility hook only. CompanionIntelligence owns the one evolving relationship state
+     * and is serialized by runMaintenance so response TTFT does not pay reflection cost.
+     */
+    fun observeUserTurn(sessionId: String, text: String) = Unit
 
     /**
-     * Run only after the conversation has been idle for a short period. This keeps the hot
-     * response path light while still allowing relationship reflections and memory conflict
-     * consolidation to evolve naturally over time.
+     * Run only after visible generation. Serialized orchestration guarantees every completed turn
+     * reaches this state machine even during fast back-to-back chat.
      */
     fun runMaintenance(sessionId: String, text: String) {
         companion.observeUserTurn(sessionId, text)
@@ -102,18 +102,15 @@ class ContextEngine(context: Context, private val store: MemoryStore) {
         )
     }
 
-    /**
-     * Keep the turn directive compact. Raw internal scores are useful for deterministic state
-     * evolution, but repeatedly feeding them to a 4B model causes over-conditioning.
-     */
+    /** Compact the authoritative CompanionIntelligence state without exposing its numeric scores. */
     private fun companionStateContext(): String {
-        val raw = store.companionStateContext()
+        val raw = companion.companionContext()
         val lines = raw.lineSequence()
             .map(String::trim)
             .filter { line ->
                 line.startsWith("Relationship:") ||
-                    line.startsWith("Familiarity behavior:") ||
-                    line.startsWith("Current stance:")
+                    line.startsWith("Current emotional stance:") ||
+                    line.startsWith("Latest interaction interpretation:")
             }
             .take(3)
             .toList()
