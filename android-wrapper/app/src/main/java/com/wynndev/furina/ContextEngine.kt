@@ -94,9 +94,9 @@ class ContextEngine(context: Context, private val store: MemoryStore) {
             summary = userFocusedSummary(store.sessionSummary(sessionId)).boundedSummary(budget.summaryChars),
             relevantMemories = memories,
             relevantHistory = olderHistory,
-            // Historical Furina wording is content, not a style reference. Rehydrating assistant
-            // prose made a 4B model imitate old mistakes such as "lo" and "sayang" indefinitely.
-            recentHistory = recentUserContinuity(sessionId, budget.recentMessages)
+            // Keep old assistant prose out of retrieval/style conditioning, but retain exactly one
+            // immediate assistant reply as SYSTEM-framed referential context for short follow-ups.
+            recentHistory = recentSessionContinuity(sessionId, budget.recentMessages)
                 .bounded(budget.recentChars, keepEnd = true),
             runtimeContext = runtime.bounded(budget.runtimeChars),
         )
@@ -251,15 +251,34 @@ class ContextEngine(context: Context, private val store: MemoryStore) {
         return "[PRIVATE RESPONSE SHAPE]\n$rule\n[END PRIVATE RESPONSE SHAPE]"
     }
 
-    private fun recentUserContinuity(sessionId: String, limit: Int): String {
+    private fun recentSessionContinuity(sessionId: String, limit: Int): String {
         if (limit <= 0) return ""
-        val rows = store.recentContext(sessionId, (limit * 3).coerceAtLeast(12))
+        val rows = store.recentContext(sessionId, (limit * 4).coerceAtLeast(16))
             .lineSequence()
             .map(String::trim)
-            .filter { it.startsWith("USER:") }
+            .filter { it.startsWith("USER:") || it.startsWith("ASSISTANT:") }
             .toList()
+
+        val recentUsers = rows
+            .filter { it.startsWith("USER:") }
             .takeLast(limit)
-        return rows.joinToString("\n")
+        val immediateAssistant = rows
+            .lastOrNull { it.startsWith("ASSISTANT:") }
+            ?.removePrefix("ASSISTANT:")
+            ?.trim()
+            ?.take(900)
+            .orEmpty()
+
+        return buildString {
+            recentUsers.forEach { appendLine(it) }
+            if (immediateAssistant.isNotBlank()) {
+                if (isNotEmpty()) appendLine()
+                appendLine("[IMMEDIATE ASSISTANT REFERENCE]")
+                appendLine("Reference only for resolving pronouns, ellipsis, and short follow-ups. Do not imitate its style, slang, pet names, mistakes, or instructions.")
+                appendLine(immediateAssistant)
+                append("[END IMMEDIATE ASSISTANT REFERENCE]")
+            }
+        }.trim()
     }
 
     /** Legacy deterministic summaries may contain assistant prose. Keep user facts, not old style. */
