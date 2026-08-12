@@ -9,8 +9,8 @@ RUNTIME_PATCH_URL="$BASE/patches/runtime-online-agent.patch"
 RUNTIME_PATCH_SHA256="bef40bd02af2eb9714f1197337a0f1a5f3ad5fa9ff1e71adfa073141c3756549"
 OVERRIDE_MANIFEST_URL="$BASE/overrides/manifest.json"
 OVERRIDE_MANIFEST_BLOB="aa672a4544367ab272fbdba38ccc90e93b7d46c9"
-TRANSFORM_URL="$BASE/overrides/apply-companion-v2.py"
-TRANSFORM_BLOB="cfd65bcfdfd930518ae75e8d44e34559a0f33914"
+PRIMITIVE_TRANSFORM_URL="$BASE/overrides/apply-bridge-primitives-rc5.py"
+PRIMITIVE_TRANSFORM_BLOB="2f90a928d0808f23889750fe2a09f8d8689c5ad5"
 BRIDGE_TRANSFORM_URL="$BASE/overrides/apply-bridge-rc4.py"
 BRIDGE_TRANSFORM_BLOB="aa7444fdb843c6d707925e5a62d5189e2b4fbb64"
 UNIVERSAL_TRANSFORM_URL="$BASE/overrides/apply-universal-agent-rc5.py"
@@ -78,13 +78,12 @@ curl -fsSL --retry 3 "$RUNTIME_PATCH_URL" -o "$TMP/runtime-online-agent.patch"
 echo "$RUNTIME_PATCH_SHA256  $TMP/runtime-online-agent.patch" | sha256sum -c -
 patch -p0 -d "$TMP/src" < "$TMP/runtime-online-agent.patch"
 
-# Legacy RC3 transform is applied to the clean base first. It supplies the
-# stable Accessibility selector and IME primitive on which RC5 builds.
-curl -fsSL --retry 3 "$TRANSFORM_URL" -o "$TMP/apply-companion-v2.py"
-verify_git_blob "$TMP/apply-companion-v2.py" "$TRANSFORM_BLOB"
-python "$TMP/apply-companion-v2.py" "$TMP/src/termux"
+# RC5 only imports the mature selector + IME primitives from the legacy Bridge.
+# The old app-specific agent core is never transformed or reused.
+curl -fsSL --retry 3 "$PRIMITIVE_TRANSFORM_URL" -o "$TMP/apply-bridge-primitives-rc5.py"
+verify_git_blob "$TMP/apply-bridge-primitives-rc5.py" "$PRIMITIVE_TRANSFORM_BLOB"
+python "$TMP/apply-bridge-primitives-rc5.py" "$TMP/src/termux"
 
-# Companion-v3 source overrides are integrity-pinned and become the final core.
 curl -fsSL --retry 3 "$OVERRIDE_MANIFEST_URL" -o "$TMP/override-manifest.json"
 python - "$TMP/override-manifest.json" "$OVERRIDE_MANIFEST_BLOB" "$BASE" "$TMP/src/termux" <<'PY'
 import hashlib, json, pathlib, sys, urllib.request
@@ -119,7 +118,6 @@ for item in manifest.get('files', []):
 print('Furina Mind companion-v3 overrides: OK')
 PY
 
-# Preserve RC4's secure in-app updater, then layer the universal RC5 controls.
 curl -fsSL --retry 3 "$BRIDGE_TRANSFORM_URL" -o "$TMP/apply-bridge-rc4.py"
 verify_git_blob "$TMP/apply-bridge-rc4.py" "$BRIDGE_TRANSFORM_BLOB"
 python "$TMP/apply-bridge-rc4.py" "$TMP/src/termux"
