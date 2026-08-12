@@ -35,6 +35,9 @@ class UnifiedAiEngine(
     // from durable SQLite plus the persona prefix instead of writing large full-session KV blobs.
     // Legacy gate wording referred to maintenanceJob?.cancelAndJoin(); the equivalent ownership now
     // waits requiredMaintenanceTail while only summaryJob is cancellable/debounced.
+    // CompanionIntelligence.observeUserTurn is the sole evolving relationship/reflection state
+    // machine and is serialized by required maintenance; the older MemoryStore state is retained
+    // only as read-compatible legacy data and is no longer advanced on every hot-path turn.
 
     private fun provider(id: String): AiProvider =
         providers[id] ?: error("Provider AI tidak tersedia: $id")
@@ -70,7 +73,6 @@ class UnifiedAiEngine(
         var firstTokenAt = 0L
         var tokenCount = 0
 
-        contextEngine.observeUserTurn(sessionId, userText)
         val context = contextEngine.build(
             sessionId = sessionId,
             query = userText,

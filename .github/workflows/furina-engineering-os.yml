@@ -10,6 +10,9 @@ on:
   pull_request:
     paths:
       - 'android-wrapper/**'
+      - 'src/**'
+      - 'public/**'
+      - 'supabase/**'
       - 'scripts/**'
       - 'engineering/**'
       - '.github/workflows/furina-engineering-os.yml'
@@ -55,6 +58,9 @@ jobs:
       - name: Validate approved FUR-ENG-019 020 021 022 and 024 safe subset
         run: python3 scripts/fur-eng-019-022-024-gate.py
 
+      - name: Validate approved FUR-ENG-031 through 036 package
+        run: python3 scripts/fur-eng-031-036-gate.py
+
       - name: Validate native updater contract
         run: python3 scripts/updater-regression-gate.py
 
@@ -69,6 +75,7 @@ jobs:
             scripts/fur-eng-008-013-gate.py \
             scripts/fur-eng-014-018-gate.py \
             scripts/fur-eng-019-022-024-gate.py \
+            scripts/fur-eng-031-036-gate.py \
             scripts/updater-regression-gate.py \
             scripts/updater-manifest-gate.py \
             scripts/furina-company-policy-gate.py \

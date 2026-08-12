@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,
@@ -11,6 +12,43 @@ import { FurinaCloudBackupCard } from "@/components/FurinaCloudBackupCard";
 import { FurinaDeviceEvidenceAgent } from "@/components/FurinaDeviceEvidenceAgent";
 
 import appCss from "../styles.css?url";
+
+const CLOUD_VOICE_DISCLOSURE_KEY = "furina:privacy:cloud-voice-v1";
+
+function NativeCloudVoiceDisclosure() {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!navigator.userAgent.includes("FurinaAndroid/")) return;
+    if (window.localStorage.getItem(CLOUD_VOICE_DISCLOSURE_KEY) === "acknowledged") return;
+    setOpen(true);
+  }, []);
+
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/70 p-4 sm:items-center" role="dialog" aria-modal="true" aria-labelledby="cloud-voice-privacy-title">
+      <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-[#0b0b14] p-5 text-white shadow-2xl">
+        <h2 id="cloud-voice-privacy-title" className="text-lg font-semibold">Privasi suara Furina</h2>
+        <p className="mt-3 text-sm leading-6 text-white/75">
+          Chat dengan model lokal tetap diproses di perangkat. Fitur suara cloud bersifat opsional dan terpisah dari AI lokal.
+        </p>
+        <p className="mt-2 text-sm leading-6 text-white/75">
+          Jika fitur suara cloud digunakan, teks dapat dikirim ke layanan terjemahan dan VOICEVOX, sedangkan sampel suara untuk voice clone dapat diunggah ke layanan pemrosesan eksternal. Jangan kirim sampel suara yang sensitif jika kamu tidak ingin data tersebut keluar dari perangkat.
+        </p>
+        <button
+          type="button"
+          className="mt-5 min-h-11 w-full rounded-2xl bg-white px-4 py-2.5 text-sm font-semibold text-black"
+          onClick={() => {
+            window.localStorage.setItem(CLOUD_VOICE_DISCLOSURE_KEY, "acknowledged");
+            setOpen(false);
+          }}
+        >
+          Mengerti
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function NotFoundComponent() {
   return (
@@ -124,6 +162,7 @@ function RootComponent() {
       <Outlet />
       <FurinaCloudBackupCard />
       <FurinaDeviceEvidenceAgent />
+      <NativeCloudVoiceDisclosure />
     </QueryClientProvider>
   );
 }

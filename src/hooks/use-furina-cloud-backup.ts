@@ -6,9 +6,15 @@ import { toast } from "sonner";
 
 const BUCKET = "furina-backups";
 const FILE_NAME = "latest.furina";
+const SNAPSHOT_PREFIX = "Furina-cloud-";
+const SNAPSHOT_RETENTION = 5;
 const AUTO_ENABLED_KEY = "furina:cloud:auto-enabled";
 const LAST_AUTO_KEY = "furina:cloud:last-auto";
 const AUTO_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+function isSnapshotName(name: string) {
+  return name.startsWith(SNAPSHOT_PREFIX) && name.endsWith(".furina");
+}
 
 export function formatCloudBytes(bytes = 0) {
   if (!bytes) return "0 B";
@@ -29,13 +35,28 @@ export function useFurinaCloudBackup() {
 
   const refresh = useCallback(async (active: Session | null) => {
     if (!active) { setLastBackupAt(null); setLastBackupSize(0); return; }
-    const { data, error } = await backupSupabase.storage.from(BUCKET).list(active.user.id, { limit: 10, search: FILE_NAME });
+    const { data, error } = await backupSupabase.storage.from(BUCKET).list(active.user.id, {
+      limit: 16,
+      sortBy: { column: "updated_at", order: "desc" },
+    });
     if (error) return;
-    const file = data?.find((item) => item.name === FILE_NAME);
+    const file = data?.find((item) => item.name === FILE_NAME) || data?.find((item) => isSnapshotName(item.name));
     if (!file) { setLastBackupAt(null); setLastBackupSize(0); return; }
     const meta = file as unknown as { updated_at?: string; created_at?: string; metadata?: { size?: number } };
     setLastBackupAt(meta.updated_at || meta.created_at || null);
     setLastBackupSize(Number(meta.metadata?.size || 0));
+  }, []);
+
+  const pruneSnapshots = useCallback(async (userId: string) => {
+    const { data, error } = await backupSupabase.storage.from(BUCKET).list(userId, {
+      limit: 32,
+      sortBy: { column: "created_at", order: "desc" },
+    });
+    if (error || !data) return;
+    const stale = data.filter((item) => isSnapshotName(item.name)).slice(SNAPSHOT_RETENTION);
+    if (stale.length) {
+      await backupSupabase.storage.from(BUCKET).remove(stale.map((item) => `${userId}/${item.name}`));
+    }
   }, []);
 
   useEffect(() => {
@@ -68,14 +89,26 @@ export function useFurinaCloudBackup() {
     if (!session) throw new Error("Masuk dengan Google terlebih dahulu.");
     const payload = await transfer.current!.prepareBackup();
     const blob = base64ToBlob(payload.base64);
-    const { error } = await backupSupabase.storage.from(BUCKET).upload(`${session.user.id}/${FILE_NAME}`, blob, {
+    const storage = backupSupabase.storage.from(BUCKET);
+    const snapshotName = isSnapshotName(payload.fileName)
+      ? payload.fileName
+      : `${SNAPSHOT_PREFIX}${Date.now()}.furina`;
+
+    const versioned = await storage.upload(`${session.user.id}/${snapshotName}`, blob, {
+      upsert: false, contentType: "application/octet-stream", cacheControl: "0",
+    });
+    if (versioned.error && !versioned.error.message.toLowerCase().includes("already exists")) throw versioned.error;
+
+    const latest = await storage.upload(`${session.user.id}/${FILE_NAME}`, blob, {
       upsert: true, contentType: "application/octet-stream", cacheControl: "0",
     });
-    if (error) throw error;
+    if (latest.error) throw latest.error;
+
+    await pruneSnapshots(session.user.id);
     localStorage.setItem(LAST_AUTO_KEY, String(Date.now()));
     await refresh(session);
-    if (!quiet) toast.success(`Backup cloud selesai (${formatCloudBytes(blob.size)})`);
-  }, [refresh, session]);
+    if (!quiet) toast.success(`Backup cloud selesai (${formatCloudBytes(blob.size)}). 5 versi terakhir dipertahankan.`);
+  }, [pruneSnapshots, refresh, session]);
 
   useEffect(() => {
     if (!session || !autoBackup || !cloudBridge()) return;
@@ -113,9 +146,19 @@ export function useFurinaCloudBackup() {
     if (!session || !confirm("Pulihkan backup cloud terbaru? Data lokal Furina saat ini akan diganti. Recovery key pada perangkat ini harus cocok.")) return;
     setBusy("restore");
     try {
-      const { data, error } = await backupSupabase.storage.from(BUCKET).download(`${session.user.id}/${FILE_NAME}`);
-      if (error) throw error;
-      await transfer.current!.restore(await blobToBase64(data));
+      const storage = backupSupabase.storage.from(BUCKET);
+      let download = await storage.download(`${session.user.id}/${FILE_NAME}`);
+      if (download.error) {
+        const { data: files } = await storage.list(session.user.id, {
+          limit: SNAPSHOT_RETENTION,
+          sortBy: { column: "created_at", order: "desc" },
+        });
+        const fallback = files?.find((item) => isSnapshotName(item.name));
+        if (!fallback) throw download.error;
+        download = await storage.download(`${session.user.id}/${fallback.name}`);
+      }
+      if (download.error || !download.data) throw download.error || new Error("Backup cloud tidak ditemukan");
+      await transfer.current!.restore(await blobToBase64(download.data));
       toast.success("Backup cloud dipulihkan. Memori dan percakapan sudah kembali.");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Restore cloud gagal"); } finally { setBusy(null); }
   }, [session]);
