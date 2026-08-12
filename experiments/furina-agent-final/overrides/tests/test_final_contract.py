@@ -153,12 +153,17 @@ class FinalContractTests(unittest.TestCase):
             self.assertTrue(ok)
 
             scroll_contract = TaskContract("scroll", ["3 scroll"], False, 3, "", "")
-            history = [{"action": {"type": "scroll_global"}, "result": {"ok": True}} for _ in range(2)]
+            history = [{"action": {"type": "scroll_global"}, "result": {"ok": True}, "state_changed": True} for _ in range(2)]
             ok, reason = agent._deterministic_gate(scroll_contract, {"package": "tiktok", "nodes": []}, history)
             self.assertFalse(ok)
             self.assertIn("2/3", reason)
-            history.append({"action": {"type": "scroll_global"}, "result": {"ok": True}})
+            history.append({"action": {"type": "scroll_global"}, "result": {"ok": True}, "scroll_event": True})
             self.assertTrue(agent._deterministic_gate(scroll_contract, {"package": "tiktok", "nodes": []}, history)[0])
+
+            no_move = [{"action": {"type": "scroll_global"}, "result": {"ok": True}, "state_changed": False} for _ in range(3)]
+            ok, reason = agent._deterministic_gate(scroll_contract, {"package": "tiktok", "nodes": []}, no_move)
+            self.assertFalse(ok)
+            self.assertIn("0/3", reason)
 
     def test_agent_supports_universal_actions_and_stable_targets(self):
         with tempfile.TemporaryDirectory() as td:
