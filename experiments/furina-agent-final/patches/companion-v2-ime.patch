@@ -1,0 +1,101 @@
+--- termux/core/furina_agent/agent.py
++++ termux/core/furina_agent/agent.py
+@@ -12,7 +12,7 @@
+ READ_ONLY = {"observe", "wait", "finish"}
+ NAVIGATE = {"back", "home", "recents", "open_app", "swipe"}
+-WRITE = {"set_text"}
++WRITE = {"set_text", "ime_action"}
+ POINTER = {"tap_node", "tap"}
+ ALLOWED = READ_ONLY | NAVIGATE | WRITE | POINTER
+ 
+@@ -65,8 +65,8 @@
+         if "youtube" in low and re.search(r"\b(cari|search|temukan|find)\b", low):
+             return """
+ SKILL YOUTUBE SEARCH:
+ - Tujuan bukan selesai saat YouTube hanya terbuka.
+-- Buka YouTube dari package yang benar, observasi layar, temukan Search/Cari melalui accessibility tree, aktifkan kontrol itu, isi query dengan set_text, lalu benar-benar submit pencarian dengan tombol/search suggestion/keyboard action yang terlihat.
++- Buka YouTube dari package yang benar, observasi layar, temukan Search/Cari melalui accessibility tree, aktifkan kontrol itu, isi query dengan set_text, lalu submit dengan ime_action pada field yang sama bila tersedia. Jika itu gagal, gunakan tombol/search suggestion yang terlihat.
+ - Setelah submit, observasi lagi. Finish hanya setelah layar memperlihatkan hasil pencarian atau channel/video yang cocok dengan query pengguna.
+-- Jika set_text tidak mengubah layar, cari tombol Search/Cari/Enter yang terlihat dan tekan. Jangan diam setelah mengetik.
++- Jangan berhenti setelah mengetik query. Setelah set_text selalu lanjutkan ke ime_action atau kontrol Search/Cari yang terlihat lalu verifikasi hasil.
+ """.strip()
+@@ -101,14 +101,15 @@
+ {{
+   "summary": "aksi berikutnya secara singkat",
+-  "action": {{"type": "observe|wait|tap_node|tap|swipe|set_text|back|home|recents|open_app|finish", ...}}
++  "action": {{"type": "observe|wait|tap_node|tap|swipe|set_text|ime_action|back|home|recents|open_app|finish", ...}}
+ }}
+ 
+ Format action:
+ - tap_node: {{"type":"tap_node","node":12}}
+ - tap: {{"type":"tap","x":400,"y":900}} ; hanya jika accessibility tidak menyediakan target
+ - swipe: {{"type":"swipe","x1":500,"y1":1500,"x2":500,"y2":500,"duration_ms":350}}
+ - set_text: {{"type":"set_text","node":12,"text":"..."}}
++- ime_action: {{"type":"ime_action","node":12}} ; submit Search/Enter/Go dari field editable yang sedang fokus
+ - open_app: {{"type":"open_app","package":"package.dari.daftar"}}
+ - wait: {{"type":"wait","seconds":1.0}}
+ - back/home/recents/observe: hanya field type
+@@ -118,7 +119,7 @@
+ ATURAN:
+ 1. Jangan menebak package yang tidak ada di daftar aplikasi.
+-2. Setelah open_app/tap/set_text/swipe selalu gunakan state berikutnya untuk menentukan langkah baru.
++2. Setelah open_app/tap/set_text/ime_action/swipe selalu gunakan state berikutnya untuk menentukan langkah baru.
+ 3. set_text hanya mengisi teks; itu TIDAK berarti pencarian/form otomatis tersubmit.
+ 4. Finish hanya jika tujuan lengkap sudah terbukti dari layar atau riwayat aksi yang sukses.
+@@ -178,8 +179,8 @@
+         if typ in NAVIGATE:
+             return "navigate", typ
+-        if typ == "set_text":
+-            return "write", "mengisi teks lokal"
++        if typ in WRITE:
++            return "write", "mengisi/men-submit teks lokal"
+         if typ == "tap":
+             return "uncertain", "tap koordinat tanpa target accessibility"
+@@ -211,7 +212,7 @@
+                 return False, "YouTube search belum mengisi query"
+             last_set = set_indices[-1]
+-            submitted_after = any(a.get("type") in {"tap", "tap_node"} for a in actions[last_set + 1 :])
++            submitted_after = any(a.get("type") in {"tap", "tap_node", "ime_action"} for a in actions[last_set + 1 :])
+             screen_text = self._screen_text(screen)
+             result_markers = ("hasil", "results", "channel", "subscriber", "subscribers", "video", "views", "ditonton")
+--- termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java
++++ termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java
+@@ -103,6 +103,9 @@
+             case "set_text":
+                 ok = setText(a.optInt("node", -1), a.optString("text", ""));
+                 break;
++            case "ime_action":
++                ok = imeAction(a.optInt("node", -1));
++                break;
+             case "back":
+                 ok = performGlobalAction(GLOBAL_ACTION_BACK);
+                 break;
+@@ -160,6 +163,18 @@
+         return n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b);
+     }
+ 
++    private boolean imeAction(int id) {
++        AccessibilityNodeInfo n = nodeByIndex(id);
++        if (n == null || !n.isEditable() || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false;
++        if (!n.isFocused()) {
++            n.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
++            n = nodeByIndex(id);
++            if (n == null) return false;
++        }
++        return n.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.getId());
++    }
++
+     private boolean tap(int x, int y) {
+         Path p = new Path();
+         p.moveTo(x, y);
+--- termux/bridge/app/build.gradle
++++ termux/bridge/app/build.gradle
+@@ -9,8 +9,8 @@
+         applicationId 'com.wynndev.furinaagentbridge'
+         minSdk 30
+         targetSdk 35
+-        versionCode 10001
+-        versionName '1.0.0-rc1'
++        versionCode 10002
++        versionName '1.0.0-rc2'
+     }
