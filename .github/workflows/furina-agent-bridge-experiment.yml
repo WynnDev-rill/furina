@@ -49,11 +49,10 @@ jobs:
           patch -p0 -d /tmp/furina-agent-src < "$SRC_META/patches/api30-inputstream.patch"
           patch -p0 -d /tmp/furina-agent-src < "$SRC_META/patches/runtime-online-agent.patch"
 
-          # RC3 primitives are applied to the clean legacy base first.
-          python3 "$SRC_META/overrides/apply-companion-v2.py" /tmp/furina-agent-src/termux
+          # Only the stable selector + IME bridge primitives are taken from the
+          # legacy generation. RC5 replaces the old app-specific core entirely.
+          python3 "$SRC_META/overrides/apply-bridge-primitives-rc5.py" /tmp/furina-agent-src/termux
 
-          # Then replace the final companion core and RC4 updater sources using
-          # the integrity-pinned companion-v3 manifest.
           python3 - "$SRC_META/overrides" /tmp/furina-agent-src/termux <<'PY'
           import hashlib, json, pathlib, sys
           override_root = pathlib.Path(sys.argv[1]).resolve()
@@ -74,7 +73,6 @@ jobs:
               target.write_bytes(data)
           PY
 
-          # Keep RC4's verified self-updater, then add generic Android controls.
           python3 "$SRC_META/overrides/apply-bridge-rc4.py" /tmp/furina-agent-src/termux
           python3 "$SRC_META/overrides/apply-universal-agent-rc5.py" /tmp/furina-agent-src/termux
 
