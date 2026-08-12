@@ -113,6 +113,11 @@ def load_config() -> Config:
     defaults["min_p"] = max(0.0, min(float(defaults["min_p"]), 1.0))
     mask = str(defaults.get("cpu_mask") or "").strip().lower().removeprefix("0x")
     defaults["cpu_mask"] = mask if all(c in "0123456789abcdef" for c in mask) else ""
+
+    # Daily companion mode never needs visible/expensive local chain-of-thought.
+    # Any legacy toggle is migrated off; internal structured planning still
+    # works through dedicated JSON prompts.
+    defaults["local_reasoning"] = False
     defaults["config_revision"] = Config().config_revision
     return Config(**defaults)
 
@@ -120,6 +125,7 @@ def load_config() -> Config:
 def save_config(cfg: Config) -> None:
     ensure_dirs()
     cfg.user_nickname = cfg.user_nickname.strip()[:48]
+    cfg.local_reasoning = False
     tmp = CONFIG_PATH.with_suffix(".tmp")
     tmp.write_text(json.dumps(asdict(cfg), indent=2, ensure_ascii=False), encoding="utf-8")
     os.chmod(tmp, 0o600)
