@@ -44,6 +44,9 @@ jobs:
         run: |
           set -euo pipefail
           export VERSION_NAME="4.0.${RUN_NUMBER}"
+          export APK_SHA256="$(sha256sum Furina.apk | awk '{print $1}')"
+          export APK_SIGNER_SHA256="$(apksigner verify --print-certs Furina.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1 | tr -d ':')"
+          test -n "$APK_SIGNER_SHA256"
           python3 - <<'PY'
           import json, os
           run_number = int(os.environ["RUN_NUMBER"])
@@ -52,9 +55,12 @@ jobs:
           data = {
               "versionCode": run_number,
               "versionName": os.environ["VERSION_NAME"],
-              "minimumVersionCode": run_number,
-              "mandatory": True,
+              "minimumVersionCode": 1,
+              "mandatory": False,
               "apkUrl": f"https://github.com/{repo}/releases/latest/download/Furina.apk",
+              "apkSha256": os.environ["APK_SHA256"].lower(),
+              "packageName": "com.wynndev.furina",
+              "signerSha256": os.environ["APK_SIGNER_SHA256"].lower(),
               "title": "Pembaruan Furina tersedia",
               "notes": [title] if title else ["Pembaruan stabil Furina tersedia."],
               "commit": os.environ["TARGET_SHA"],
