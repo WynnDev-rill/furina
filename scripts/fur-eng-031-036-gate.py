@@ -19,6 +19,7 @@ def main() -> None:
     migration = read("supabase/migrations/20260812000100_secure_match_memories.sql")
     root = read("src/routes/__root.tsx")
     unified = read("android-wrapper/app/src/main/java/com/wynndev/furina/UnifiedAiEngine.kt")
+    context = read("android-wrapper/app/src/main/java/com/wynndev/furina/ContextEngine.kt")
     cloud = read("src/hooks/use-furina-cloud-backup.ts")
     backup = read("android-wrapper/app/src/main/java/com/wynndev/furina/BackupManager.kt")
     manifest = read("android-wrapper/app/src/main/AndroidManifest.xml")
@@ -40,12 +41,18 @@ def main() -> None:
     for marker in ("furina:privacy:cloud-voice-v1", "Chat dengan model lokal tetap diproses di perangkat", "VOICEVOX", "sampel suara"):
         require(marker in root, f"cloud voice disclosure missing: {marker}")
 
-    # 033: only CompanionIntelligence continues evolving relationship state.
+    # 033: CompanionIntelligence is the one evolving and consumed relationship source.
     generate = unified.split("suspend fun generate", 1)[1].split("suspend fun unload", 1)[0]
     require("contextEngine.observeUserTurn(" not in generate,
             "legacy MemoryStore emotional state must not evolve in parallel on hot path")
     require("contextEngine.runMaintenance(sessionId, userText)" in unified and "CompanionIntelligence.observeUserTurn" in unified,
             "serialized companion maintenance must own evolving relationship/reflection state")
+    require("val raw = companion.companionContext()" in context,
+            "runtime tone must consume the authoritative CompanionIntelligence state")
+    require("val raw = store.companionStateContext()" not in context,
+            "legacy MemoryStore emotional state must not remain the runtime tone source")
+    require("companion.observeUserTurn(sessionId, text)" in context,
+            "authoritative companion state must still evolve for every serialized turn")
 
     # 034: keep rolling encrypted cloud snapshots in addition to latest.
     require("SNAPSHOT_RETENTION = 5" in cloud and "SNAPSHOT_PREFIX" in cloud,
