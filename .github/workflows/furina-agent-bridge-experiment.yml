@@ -5,6 +5,7 @@ on:
     branches:
       - experiment/furina-agent-termux
       - feat/furina-rc6-cognition-control
+      - fix/furina-rc6-review-p2
     paths:
       - 'experiments/furina-agent-final/**'
       - '.github/workflows/furina-agent-bridge-experiment.yml'
@@ -70,15 +71,20 @@ jobs:
           ROOT=/tmp/furina-agent-src/termux
           grep -q 'VERSION = "1.0.0-rc6"' "$ROOT/core/furina_agent/version.py"
           grep -q 'config_revision: int = 6' "$ROOT/core/furina_agent/config.py"
+          grep -q 'defaults\["event_port"\] = 8767' "$ROOT/core/furina_agent/config.py"
           grep -q 'TaskContract' "$ROOT/core/furina_agent/agent.py"
           grep -q '_deterministic_gate' "$ROOT/core/furina_agent/agent.py"
           grep -q 'agent_cancelled_user_return' "$ROOT/core/furina_agent/agent.py"
           grep -q 'LEARNED SKILL HINTS' "$ROOT/core/furina_agent/agent.py"
+          grep -q 'contract.target_package' "$ROOT/core/furina_agent/agent.py"
           grep -q 'CREATE TABLE IF NOT EXISTS memory_vectors' "$ROOT/core/furina_agent/memory.py"
           grep -q 'CREATE TABLE IF NOT EXISTS learned_skills' "$ROOT/core/furina_agent/memory.py"
           grep -q 'query_vec = self._embed_text(query)' "$ROOT/core/furina_agent/memory.py"
+          grep -q 'compact_goal = ("app="' "$ROOT/core/furina_agent/memory.py"
+          ! grep -q 'compact_goal = " ".join(str(goal).split())' "$ROOT/core/furina_agent/memory.py"
           grep -q 'DeviceEventDaemon' "$ROOT/core/furina_agent/companion.py"
           grep -q 'LocalVision' "$ROOT/core/furina_agent/routing.py"
+          grep -q 'finally:' "$ROOT/core/furina_agent/local_vision.py"
           grep -q 'DIALOGUE_ANCHORS' "$ROOT/core/furina_agent/persona.py"
           grep -q 'FURINA MIND' "$ROOT/core/furina_agent/tui.py"
           grep -q 'hybrid semantic' "$ROOT/core/furina_agent/tui.py"
@@ -195,6 +201,6 @@ jobs:
           else
             gh release create "$TAG" "$APK_NAME" bridge.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
               --title "Furina Agent 1.0.0 RC6 — By Wynn" \
-              --notes "RC6: verified text/gesture execution, cancel-on-return-to-Termux, local hybrid vector+FTS memory, event-driven device context, local multimodal perception, and learned action skills." \
+              --notes "RC6: verified text/gesture execution, cancel-on-return-to-Termux, local hybrid vector+FTS memory, event-driven device context, local multimodal perception, learned action skills, and post-review privacy/lifecycle fixes." \
               --prerelease
           fi

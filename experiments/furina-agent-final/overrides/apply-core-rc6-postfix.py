@@ -20,7 +20,9 @@ def main() -> None:
     root = pathlib.Path(sys.argv[1]).resolve()
     chat = root / "core/furina_agent/chat.py"
     agent = root / "core/furina_agent/agent.py"
-    if not chat.is_file() or not agent.is_file():
+    config = root / "core/furina_agent/config.py"
+    memory = root / "core/furina_agent/memory.py"
+    if not chat.is_file() or not agent.is_file() or not config.is_file() or not memory.is_file():
         raise SystemExit("missing RC6 generated core source")
 
     text = chat.read_text(encoding="utf-8")
@@ -30,6 +32,42 @@ def main() -> None:
         if broken not in text:
             raise SystemExit("RC6 device-context newline marker not found")
         chat.write_text(text.replace(broken, fixed, 1), encoding="utf-8")
+
+    # Bridge currently publishes its event stream on one private localhost UDP
+    # port. Keep Core on the same fixed port instead of exposing a setting that
+    # the Bridge cannot follow and would silently desynchronize.
+    config_text = config.read_text(encoding="utf-8")
+    config_text = replace_once(
+        config_text,
+        '    defaults["event_port"] = max(1024, min(int(defaults["event_port"]), 65535))',
+        '    defaults["event_port"] = 8767  # fixed Bridge/Core localhost event channel',
+        "fixed event stream port",
+    )
+    config.write_text(config_text, encoding="utf-8")
+
+    # Learned skills must never persist the original free-form user command.
+    # Store an operation template only, and omit text/description selectors that
+    # can contain recipient names, note contents, or other screen PII.
+    memory_text = memory.read_text(encoding="utf-8")
+    memory_text = replace_once(
+        memory_text,
+        '                stable = {k: target.get(k) for k in ("view_id", "text", "desc", "class", "editable", "scrollable") if target.get(k) not in (None, "", False)}',
+        '                stable = {k: target.get(k) for k in ("view_id", "class", "editable", "scrollable") if target.get(k) not in (None, "", False)}',
+        "privacy-safe learned selector",
+    )
+    memory_text = replace_once(
+        memory_text,
+        '        compact_goal = " ".join(str(goal).split())[:360]',
+        '        action_signature = " > ".join(str(s.get("type") or "") for s in steps if s.get("type"))\n        compact_goal = ("app=" + (app_package[:180] or "unknown") + " actions=" + action_signature)[:360]',
+        "redacted learned goal",
+    )
+    memory_text = replace_once(
+        memory_text,
+        '            package_bonus = 0.25 if app_package and str(row["app_package"]) == app_package else 0.0\n            wins = int(row["success_count"] or 0); fails = int(row["failure_count"] or 0)',
+        '            package_bonus = 0.25 if app_package and str(row["app_package"]) == app_package else 0.0\n            if overlap <= 0.0 and package_bonus <= 0.0:\n                continue\n            wins = int(row["success_count"] or 0); fails = int(row["failure_count"] or 0)',
+        "avoid unrelated learned skills",
+    )
+    memory.write_text(memory_text, encoding="utf-8")
 
     agent_text = agent.read_text(encoding="utf-8")
     agent_text = replace_once(
@@ -66,6 +104,12 @@ def main() -> None:
                     count += 1
 ''',
         "observable scroll evidence",
+    )
+    agent_text = replace_once(
+        agent_text,
+        '        suggested = self.store.find_skills(goal, "", 3) if getattr(self.cfg, "skill_learning_enabled", True) else []',
+        '        suggested = self.store.find_skills(goal, contract.target_package, 3) if getattr(self.cfg, "skill_learning_enabled", True) else []',
+        "package-scoped initial skill lookup",
     )
     agent_text = replace_once(
         agent_text,
@@ -126,7 +170,7 @@ def main() -> None:
     )
     agent.write_text(agent_text, encoding="utf-8")
 
-    print("Furina RC6 generated-source postfix: OK")
+    print("Furina RC6 generated-source postfix + P2 review fixes: OK")
 
 
 if __name__ == "__main__":
