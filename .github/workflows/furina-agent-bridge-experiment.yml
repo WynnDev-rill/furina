@@ -49,11 +49,10 @@ jobs:
           patch -p0 -d /tmp/furina-agent-src < "$SRC_META/patches/runtime-online-agent.patch"
 
           python3 - "$SRC_META/overrides" /tmp/furina-agent-src/termux <<'PY'
-          import hashlib, json, pathlib, shutil, sys
+          import hashlib, json, pathlib, sys
           override_root = pathlib.Path(sys.argv[1]).resolve()
           termux_root = pathlib.Path(sys.argv[2]).resolve()
-          manifest_path = override_root / 'manifest.json'
-          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+          manifest = json.loads((override_root / 'manifest.json').read_text(encoding='utf-8'))
           assert manifest.get('revision') == 'companion-v2'
           def blob_sha(data: bytes) -> str:
               return hashlib.sha1(f'blob {len(data)}\0'.encode() + data).hexdigest()
@@ -68,7 +67,7 @@ jobs:
               target.write_bytes(data)
           PY
 
-          patch -p0 -d /tmp/furina-agent-src < "$SRC_META/patches/companion-v2-ime.patch"
+          python3 "$SRC_META/overrides/apply-companion-v2.py" /tmp/furina-agent-src/termux
           cp "$SRC_META/overrides/tests/test_final_contract.py" /tmp/furina-agent-src/termux/tests/test_final_contract.py
           cp "$SRC_META/overrides/tests/test_final_release_contract.py" /tmp/furina-agent-src/termux/tests/test_final_release_contract.py
 
