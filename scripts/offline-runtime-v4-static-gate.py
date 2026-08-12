@@ -43,6 +43,8 @@ def main() -> None:
         interface_text = interface.read_text(encoding="utf-8")
 
         require("resetConversationKeepingSystemPromptNative" in cpp_text, "SYSTEM-prefix reset JNI missing")
+        require("appendSystemContextNative" in cpp_text, "turn-scoped SYSTEM background JNI missing")
+        require("ROLE_SYSTEM" in cpp_text, "SYSTEM background must retain explicit role framing")
         require("llama_state_seq_get_data" in cpp_text, "KV save API missing")
         require("llama_state_seq_set_data" in cpp_text, "KV restore API missing")
         require("FURINA_KV_VERSION = 5" in cpp_text, "checkpoint chat/KV format must be v5")
@@ -59,7 +61,7 @@ def main() -> None:
 
         for symbol in (
             "saveCheckpoint", "restoreCheckpoint", "ensureRuntimeProfile", "runtimeProfile",
-            "resetConversationKeepingSystemPrompt",
+            "resetConversationKeepingSystemPrompt", "appendSystemContext",
         ):
             require(symbol in interface_text, f"InferenceEngine API missing {symbol}")
             require(symbol in impl_text, f"InferenceEngineImpl missing {symbol}")
@@ -77,7 +79,7 @@ def main() -> None:
         require("Quarantined persisted accelerator backend" in impl_text,
                 "persisted crashing backend quarantine missing")
 
-    print("Offline runtime static gate passed: KV/session + adaptive backends + POCO F6 crash-safe recovery invariants")
+    print("Offline runtime static gate passed: KV/session + role-safe SYSTEM background + adaptive backends + POCO F6 crash-safe recovery invariants")
 
 
 if __name__ == "__main__":
