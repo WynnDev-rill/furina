@@ -9,8 +9,8 @@ RUNTIME_PATCH_URL="$BASE/patches/runtime-online-agent.patch"
 RUNTIME_PATCH_SHA256="bef40bd02af2eb9714f1197337a0f1a5f3ad5fa9ff1e71adfa073141c3756549"
 OVERRIDE_MANIFEST_URL="$BASE/overrides/manifest.json"
 OVERRIDE_MANIFEST_BLOB="e534a664140220efd4f7de2ca302a7ee0926a2fc"
-IME_PATCH_URL="$BASE/patches/companion-v2-ime.patch"
-IME_PATCH_SHA256="4f379183aa5ce788d100501e5c569d3484eb70917a5091cfeec4f862e79b0162"
+TRANSFORM_URL="$BASE/overrides/apply-companion-v2.py"
+TRANSFORM_BLOB="6f8624268f7bdd38b332d7d715b22793aff80091"
 LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"
 MODEL_REV="e9cf779"
 MODEL_NAME="Qwen3.5-4B-Deckard-HERETIC-UNCENSORED-Thinking.i1-Q4_K_M.gguf"
@@ -59,13 +59,10 @@ PY
 mkdir -p "$TMP/src"
 tar -xzf "$TMP/source.tar.gz" -C "$TMP/src"
 
-# Preserve the reviewed hotfix that repairs provider model metadata.
 curl -fsSL --retry 3 "$RUNTIME_PATCH_URL" -o "$TMP/runtime-online-agent.patch"
 echo "$RUNTIME_PATCH_SHA256  $TMP/runtime-online-agent.patch" | sha256sum -c -
 patch -p0 -d "$TMP/src" < "$TMP/runtime-online-agent.patch"
 
-# Layer the reviewable companion-v2 source overrides on top of the immutable
-# archive. The manifest itself and every file are pinned by their Git blob IDs.
 curl -fsSL --retry 3 "$OVERRIDE_MANIFEST_URL" -o "$TMP/override-manifest.json"
 python - "$TMP/override-manifest.json" "$OVERRIDE_MANIFEST_BLOB" "$BASE" "$TMP/src/termux" <<'PY'
 import hashlib, json, pathlib, sys, urllib.request
@@ -100,11 +97,18 @@ for item in manifest.get('files', []):
 print('Unified companion overrides: OK')
 PY
 
-# Add API-30 IME submit support after the core overrides are in place. This is
-# pinned independently so YouTube/Search behavior cannot silently drift.
-curl -fsSL --retry 3 "$IME_PATCH_URL" -o "$TMP/companion-v2-ime.patch"
-echo "$IME_PATCH_SHA256  $TMP/companion-v2-ime.patch" | sha256sum -c -
-patch -p0 -d "$TMP/src" < "$TMP/companion-v2-ime.patch"
+# Transformasi kecil yang menyentuh Core + Bridge diverifikasi dengan Git blob
+# sebelum dijalankan. Ia menambah IME Search/Enter API 30 dan bump Bridge RC2.
+curl -fsSL --retry 3 "$TRANSFORM_URL" -o "$TMP/apply-companion-v2.py"
+python - "$TMP/apply-companion-v2.py" "$TRANSFORM_BLOB" <<'PY'
+import hashlib, pathlib, sys
+path, expected = sys.argv[1:]
+data = pathlib.Path(path).read_bytes()
+actual = hashlib.sha1(f"blob {len(data)}\0".encode() + data).hexdigest()
+if actual != expected:
+    raise SystemExit(f'Transform companion-v2 berubah; update dibatalkan: {actual}')
+PY
+python "$TMP/apply-companion-v2.py" "$TMP/src/termux"
 
 SRC="$TMP/src/termux"
 test -f "$SRC/core/furina_agent/cli.py"
