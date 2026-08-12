@@ -12,6 +12,7 @@ from .providers import (
     ProviderSecrets,
     provider_error_summary,
 )
+from .vision import OnlineVision, VisionError
 
 
 @dataclass
@@ -21,12 +22,13 @@ class RouteResult:
 
 
 class RoutingLLM:
-    """LLM facade with provider/model failover and local fallback."""
+    """LLM facade with provider/model failover, local fallback and vision fallback."""
 
     def __init__(self, cfg: Config):
         self.cfg = cfg
         self.local = LocalLLM(cfg)
         self.secrets = ProviderSecrets()
+        self.vision_router = OnlineVision(cfg, self.secrets)
         self.last = RouteResult()
         self.last_failures: list[str] = []
 
@@ -77,6 +79,20 @@ class RoutingLLM:
                     continue
         detail = "; ".join(self.last_failures[-5:])
         raise LLMError("Semua provider online gagal" + (f": {detail}" if detail else ""))
+
+    def vision(self, prompt: str, png_base64: str, *, max_tokens: int = 420, json_mode: bool = True) -> str:
+        """Analyze a screenshot using an already configured multimodal provider.
+
+        Local text inference remains untouched. When no compatible online VLM is
+        configured this simply raises LLMError and the Android agent continues
+        with Accessibility-only control.
+        """
+        if not self.secrets.configured():
+            raise LLMError("Vision fallback membutuhkan provider online yang sudah dikonfigurasi.")
+        try:
+            return self.vision_router.analyze(prompt, png_base64, max_tokens=max_tokens, json_mode=json_mode)
+        except VisionError as exc:
+            raise LLMError(str(exc)) from exc
 
     def _ensure_local(self) -> bool:
         if self.local.health():
