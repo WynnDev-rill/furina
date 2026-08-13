@@ -99,7 +99,7 @@ jobs:
           bash -n "$META/install.sh"
           test "$(git hash-object "$META/overrides/apply-system-rc22.py")" = "828146920bfbceba759e1163ffce731e9ad65b05"
           test "$(git hash-object "$META/overrides/apply-bridge-rc13.py")" = "9dd58dcd965a47aa274d9959b641796706760022"
-          test "$(git hash-object "$META/overrides/apply-safety-rc22.py")" = "5f7ad35e704159387c1b1c064acf5a6f0888106d"
+          test "$(git hash-object "$META/overrides/apply-safety-rc22.py")" = "38237e878d206e831677e9d83980a436e7f3bc80"
           grep -q 'RC22_SAFETY_URL=' "$META/install.sh"
           grep -q 'installed_code >= expected_code' "$META/install.sh"
           grep -q 'termux-open-url' "$META/install.sh"
