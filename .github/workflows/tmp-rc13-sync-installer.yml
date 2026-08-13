@@ -22,7 +22,7 @@ jobs:
           p=pathlib.Path(sys.argv[1]); s=p.read_text(encoding='utf-8')
           start=s.index('    # Settings only: status stays outside chat to keep conversation clean.\n')
           end=s.index('    tui.write_text(t, encoding="utf-8")\n', start)+len('    tui.write_text(t, encoding="utf-8")\n')
-          new=r'''    # Settings only: status stays outside chat to keep conversation clean.
+          new=r"""    # Settings only: status stays outside chat to keep conversation clean.
     t = tui.read_text(encoding="utf-8")
     context_line = r'''        console.print(f"[dim]Context[/]    {cfg.context_size}\n")
 '''
@@ -61,7 +61,7 @@ jobs:
 '''
     t = replace_once(t, toggle_marker, mode_block + toggle_marker, "settings mode selection")
     tui.write_text(t, encoding="utf-8")
-'''
+"""
           s=s[:start]+new+s[end:]
           p.write_text(s,encoding='utf-8')
           PY
