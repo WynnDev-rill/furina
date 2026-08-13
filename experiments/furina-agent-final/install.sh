@@ -15,6 +15,8 @@ RC21_URL="$BASE/overrides/apply-reactive-core-rc21.py"
 RC21_BLOB="33f75d16d1734831a28e4daad987d94caabd59ef"
 RC22_URL="$BASE/overrides/apply-system-rc22.py"
 RC22_BLOB="828146920bfbceba759e1163ffce731e9ad65b05"
+RC22_SAFETY_URL="$BASE/overrides/apply-safety-rc22.py"
+RC22_SAFETY_BLOB="5f7ad35e704159387c1b1c064acf5a6f0888106d"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
   echo "Installer ini harus dijalankan dari Termux." >&2
@@ -136,6 +138,8 @@ apply_core_updates() {
     current="1.0.0-rc22"
   fi
   [[ "$current" == "1.0.0-rc22" ]] || { echo "Versi Core tidak dapat dimigrasikan otomatis: $current" >&2; return 1; }
+  fetch_transform "$RC22_SAFETY_URL" "$RC22_SAFETY_BLOB" "$TMP/rc22-safety.py"
+  python "$TMP/rc22-safety.py" "$TMP/stage"
 }
 run_quiet "Menerapkan Core RC22" 66 apply_core_updates "$CURRENT"
 
@@ -149,15 +153,17 @@ assert hasattr(AndroidAgent, '_compile_ui_sequence')
 assert hasattr(AndroidAgent, '_try_ui_sequence')
 text=open(__import__('furina_agent.chat_surface').chat_surface.__file__,encoding='utf-8').read()
 assert '#080f0d' in text and 'Furina[/]' in text
+assert 'def _approve_agent_action' in text
+assert 'lambda *_args: True' not in text
 PY
 }
-run_quiet "Memvalidasi Core dan UI Agent" 78 validate_core
+run_quiet "Memvalidasi Core, UI, dan guard aksi" 78 validate_core
 
-if [[ "$CURRENT" != "1.0.0-rc22" ]]; then
-  rm -rf "$ROOT/core.prev"
-  mv "$ROOT/core" "$ROOT/core.prev"
-  mv "$TMP/stage/core" "$ROOT/core"
-fi
+# Always install the staged Core. This also applies idempotent RC22 safety
+# corrections when the semantic version is already RC22.
+rm -rf "$ROOT/core.prev"
+mv "$ROOT/core" "$ROOT/core.prev"
+mv "$TMP/stage/core" "$ROOT/core"
 mark 84 "Core RC22 aktif · memory/model tetap"
 
 BRIDGE_NEEDS_INSTALL=0
