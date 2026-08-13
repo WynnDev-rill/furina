@@ -1,0 +1,64 @@
+name: Temp fix RC13 installer
+on:
+  push:
+    branches: [fix/rc13-installer-bridge-version-check]
+    paths: ['.github/workflows/tmp-fix-rc13-installer.yml']
+permissions:
+  contents: write
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/rc13-installer-bridge-version-check
+      - name: Fix stale Bridge gate and RC8 warning
+        shell: bash
+        run: |
+          set -euo pipefail
+          META=experiments/furina-agent-final
+          python3 - "$META/install.sh" "$META/overrides/apply-core-rc8.py" <<'PY'
+          import pathlib,re,sys
+          installer=pathlib.Path(sys.argv[1])
+          rc8=pathlib.Path(sys.argv[2])
+
+          s=installer.read_text(encoding='utf-8')
+          old="  grep -q 'versionCode 10007' \"$SRC/bridge/app/build.gradle\"\n"
+          new=(
+              "  grep -q 'versionCode 10008' \"$SRC/bridge/app/build.gradle\" || { echo \"Bridge staging bukan RC8 (versionCode).\" >&2; return 1; }\n"
+              "  grep -q \"versionName '1.0.0-rc8'\" \"$SRC/bridge/app/build.gradle\" || { echo \"Bridge staging bukan RC8 (versionName).\" >&2; return 1; }\n"
+          )
+          if s.count(old) != 1:
+              raise SystemExit(f'installer stale gate marker mismatch: {s.count(old)}')
+          s=s.replace(old,new,1)
+          installer.write_text(s,encoding='utf-8')
+
+          t=rc8.read_text(encoding='utf-8')
+          old_line='        clean = re.sub(r"\\s+", " ", str(text or "").strip())[:500]'
+          new_line='        clean = re.sub(r"\\\\s+", " ", str(text or "").strip())[:500]'
+          if t.count(old_line) != 1:
+              raise SystemExit(f'RC8 warning marker mismatch: {t.count(old_line)}')
+          t=t.replace(old_line,new_line,1)
+          rc8.write_text(t,encoding='utf-8')
+          PY
+
+          python3 -W error::SyntaxWarning -m py_compile "$META/overrides/apply-core-rc8.py"
+          NEW_BLOB="$(git hash-object "$META/overrides/apply-core-rc8.py")"
+          python3 - "$META/install.sh" "$NEW_BLOB" <<'PY'
+          import pathlib,re,sys
+          p=pathlib.Path(sys.argv[1]); blob=sys.argv[2]; s=p.read_text(encoding='utf-8')
+          s,n=re.subn(r'CORE_RC8_TRANSFORM_BLOB="[0-9a-f]{40}"',f'CORE_RC8_TRANSFORM_BLOB="{blob}"',s,count=1)
+          if n != 1: raise SystemExit('CORE_RC8_TRANSFORM_BLOB marker mismatch')
+          p.write_text(s,encoding='utf-8')
+          PY
+
+          grep -q "versionCode 10008" "$META/install.sh"
+          ! grep -q "versionCode 10007" "$META/install.sh"
+          grep -q "versionName '1.0.0-rc8'" "$META/install.sh"
+          bash -n "$META/install.sh"
+
+          git config user.name 'Wynn Dev'
+          git config user.email 'indonesiafilmku@gmail.com'
+          git add "$META/install.sh" "$META/overrides/apply-core-rc8.py"
+          git commit -m 'fix: correct RC13 Bridge staging gate'
+          git push origin HEAD:fix/rc13-installer-bridge-version-check
