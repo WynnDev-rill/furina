@@ -1,0 +1,46 @@
+name: RC17 marker hotfix self-patch
+
+on:
+  push:
+    branches:
+      - agent/rc17-marker-hotfix-v2
+
+permissions:
+  contents: write
+
+jobs:
+  patch-installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/rc17-marker-hotfix-v2
+          fetch-depth: 0
+      - name: Patch only RC17 transform selector
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('experiments/furina-agent-final/install.sh')
+          text = path.read_text(encoding='utf-8')
+          old_url = 'CORE_RC17_TRANSFORM_URL="$BASE/overrides/apply-core-rc17.py"'
+          old_blob = 'CORE_RC17_TRANSFORM_BLOB="ffadcffc83df3786b670894b8307bd760a5c0b4d"'
+          new_url = 'CORE_RC17_TRANSFORM_URL="$BASE/overrides/apply-core-rc17-hotfix.py"'
+          new_blob = 'CORE_RC17_TRANSFORM_BLOB="4ec514a512758ded6e9d263ef4e8bbbd12bcf2dc"'
+          if text.count(old_url) != 1 or text.count(old_blob) != 1:
+              raise SystemExit('RC17 installer selector marker mismatch')
+          path.write_text(text.replace(old_url, new_url, 1).replace(old_blob, new_blob, 1), encoding='utf-8')
+          PY
+      - name: Verify minimal diff and remove self-patcher
+        run: |
+          grep -q 'apply-core-rc17-hotfix.py' experiments/furina-agent-final/install.sh
+          grep -q '4ec514a512758ded6e9d263ef4e8bbbd12bcf2dc' experiments/furina-agent-final/install.sh
+          bash -n experiments/furina-agent-final/install.sh
+          rm .github/workflows/rc17-marker-hotfix-selfpatch.yml
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add experiments/furina-agent-final/install.sh .github/workflows/rc17-marker-hotfix-selfpatch.yml
+          git commit -m 'Fix RC17 installer transform selector'
+          git push origin HEAD:agent/rc17-marker-hotfix-v2
