@@ -389,15 +389,9 @@ class DirectDeviceControl:
 
     # Settings only: status stays outside chat to keep conversation clean.
     t = tui.read_text(encoding="utf-8")
-    t = replace_once(
-        t,
-        '''        console.print(f"[dim]Local start[/] {'ON' if cfg.auto_start else 'OFF'}")
-        console.print(f"[dim]Context[/]    {cfg.context_size}\n")
-
-        choice = _choose("", ["Nama panggilan", "Nama Furina", "Toggle local auto-start", "Back"], height=6)
-''',
-        '''        console.print(f"[dim]Local start[/] {'ON' if cfg.auto_start else 'OFF'}")
-        status = ""
+    context_line = r'''        console.print(f"[dim]Context[/]    {cfg.context_size}\n")
+'''
+    status_block = r'''        status = ""
         try:
             control = AndroidBridge(cfg).control_status()
             selected = str(cfg.device_control_mode).lower()
@@ -410,19 +404,13 @@ class DirectDeviceControl:
         except Exception:
             status = "Bridge offline"
         console.print(f"[dim]Kontrol[/]     {cfg.device_control_mode.upper()} · {status}")
-        console.print(f"[dim]Context[/]    {cfg.context_size}\n")
-
-        choice = _choose("", ["Nama panggilan", "Nama Furina", "Kontrol perangkat", "Toggle local auto-start", "Back"], height=7)
-''',
-        "settings control row",
-    )
-    t = replace_once(
-        t,
-        '''        elif choice == "Toggle local auto-start":
-            cfg.auto_start = not cfg.auto_start
-        cfg.local_reasoning = False
-''',
-        '''        elif choice == "Kontrol perangkat":
+'''
+    t = replace_once(t, context_line, status_block + context_line, "settings status row")
+    old_choice = '        choice = _choose("", ["Nama panggilan", "Nama Furina", "Toggle local auto-start", "Back"], height=6)\n'
+    new_choice = '        choice = _choose("", ["Nama panggilan", "Nama Furina", "Kontrol perangkat", "Toggle local auto-start", "Back"], height=7)\n'
+    t = replace_once(t, old_choice, new_choice, "settings control choice")
+    toggle_marker = '        elif choice == "Toggle local auto-start":\n'
+    mode_block = r'''        elif choice == "Kontrol perangkat":
             mode = _choose("Kontrol perangkat", ["Normal", "Shizuku", "Root", "Back"], height=6)
             if mode in {"Normal", "Shizuku", "Root"}:
                 cfg.device_control_mode = mode.lower()
@@ -435,12 +423,8 @@ class DirectDeviceControl:
                     except Exception:
                         console.print("[yellow]Bridge belum siap. Mode tersimpan; aktifkan izinnya nanti.[/]")
                         _pause()
-        elif choice == "Toggle local auto-start":
-            cfg.auto_start = not cfg.auto_start
-        cfg.local_reasoning = False
-''',
-        "settings mode selection",
-    )
+'''
+    t = replace_once(t, toggle_marker, mode_block + toggle_marker, "settings mode selection")
     tui.write_text(t, encoding="utf-8")
 
     v = version.read_text(encoding="utf-8")
