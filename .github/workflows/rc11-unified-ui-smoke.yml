@@ -1,10 +1,11 @@
-name: RC13 Furina Termux UI + Direct Control Smoke
+name: RC14 Furina Termux UI + Unbounded Chat Smoke
 
 on:
   push:
     branches:
       - experiment/furina-agent-termux
       - feature/furina-direct-device-control-rc13
+      - feature/furina-unbounded-chat-input-rc14
     paths:
       - 'experiments/furina-agent-final/**'
       - '.github/workflows/rc11-unified-ui-smoke.yml'
@@ -20,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Reassemble final Core and validate RC13
+      - name: Reassemble final Core and validate RC14
         shell: bash
         run: |
           set -euo pipefail
@@ -43,22 +44,28 @@ jobs:
               data=(src/item['path']).read_bytes(); assert sha(data)==item['git_blob_sha'], item['path']
               target=(dst/item['target']).resolve(); target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(data)
           PY
-          for f in apply-bridge-rc4.py apply-universal-agent-rc5.py apply-core-rc6.py apply-core-rc6-postfix.py apply-bridge-rc6.py apply-core-rc7.py apply-bridge-rc7.py apply-core-rc8.py apply-core-rc8-postfix.py apply-core-rc9.py apply-ui-rc10.py apply-ui-rc10-hotfix.py apply-core-rc11.py apply-ui-rc12.py apply-ui-rc12-postfix.py apply-core-rc13.py apply-bridge-rc8.py; do
+          for f in apply-bridge-rc4.py apply-universal-agent-rc5.py apply-core-rc6.py apply-core-rc6-postfix.py apply-bridge-rc6.py apply-core-rc7.py apply-bridge-rc7.py apply-core-rc8.py apply-core-rc8-postfix.py apply-core-rc9.py apply-ui-rc10.py apply-ui-rc10-hotfix.py apply-core-rc11.py apply-ui-rc12.py apply-ui-rc12-postfix.py apply-core-rc13.py apply-bridge-rc8.py apply-core-rc14.py; do
             python3 "$META/overrides/$f" "$ROOT"
           done
           python3 -m compileall -q "$ROOT/core/furina_agent"
           python3 -m pip install -q 'rich>=13.9,<15' 'textual==8.2.8'
-          PYTHONPATH="$ROOT/core" python3 -c 'import furina_agent.tui; from furina_agent.chat_surface import run_chat_surface; from furina_agent.tool_runtime import AgentToolRuntime; from furina_agent.direct_control import DirectDeviceControl'
+          PYTHONPATH="$ROOT/core" python3 -c 'import furina_agent.tui; from furina_agent.chat_surface import run_chat_surface; from furina_agent.tool_runtime import AgentToolRuntime; from furina_agent.direct_control import DirectDeviceControl; from furina_agent.long_input import prepare_long_message'
           PYTHONPATH="$ROOT/core" python3 "$META/overrides/tests/smoke_chat_surface.py"
           PYTHONPATH="$ROOT/core" python3 - <<'PY'
+          import tempfile
+          from pathlib import Path
+          from textual.widgets import Input
           from furina_agent.prospective import extract_prospectives
           from furina_agent.direct_control import DirectDeviceControl
+          from furina_agent.long_input import prepare_long_message, router_view, history_view
+          from furina_agent.memory import MemoryStore
+
           now=1_700_000_000
           due=extract_prospectives('ingatkan aku minum 5 menit lagi', now=now)[0][1]
           assert 299 <= due-now <= 301
           class Store:
               def log_event(self,*a,**k): pass
-          class Cfg:
+          class CfgDirect:
               device_control_mode='normal'; direct_control_enabled=True
           class Bridge:
               def __init__(self): self.calls=[]
@@ -66,14 +73,36 @@ jobs:
               def apps(self): return {'apps':[{'label':'YouTube','package':'com.google.android.youtube'}]}
               def action(self,a): self.calls.append(a); return {'ok':True}
               def screen(self): return {'nodes':[]}
-          b=Bridge(); d=DirectDeviceControl(Cfg(),Store(),b)
+          b=Bridge(); d=DirectDeviceControl(CfgDirect(),Store(),b)
           assert d.try_execute('buka YouTube').handled
           assert b.calls[-1]['type']=='open_app'
           assert not d.try_execute('kirim pesan ke Wynn').handled
-          print('RC13_DIRECT_SMOKE_OK')
+
+          composer=Input(max_length=0)
+          assert composer.max_length == 0
+          class CfgLong:
+              routing_mode='local'; context_size=4096
+          class LLM:
+              def __init__(self): self.calls=[]
+              def chat(self,messages,**kwargs):
+                  self.calls.append(messages[-1]['content'])
+                  return 'note-' + str(len(self.calls))
+          raw='START-EXACT\n' + ('abcdef0123456789 detail penting 42 jangan hapus\n' * 5000) + 'END-EXACT'
+          llm=LLM(); prepared=prepare_long_message(raw,CfgLong(),llm)
+          assert prepared.chunked and prepared.chunks > 10
+          assert len(llm.calls) >= prepared.chunks
+          assert 'START-EXACT' in prepared.model_text and 'END-EXACT' in prepared.model_text
+          assert len(router_view(raw)) < len(raw)
+          assert len(history_view(raw)) < len(raw)
+          with tempfile.TemporaryDirectory() as td:
+              store=MemoryStore(Path(td)/'furina.db')
+              store.add_message('user',raw)
+              saved=store.recent_messages(1)[0]['content']
+              assert saved == raw and len(saved) == len(raw)
+          print('RC14_UNBOUNDED_CHAT_SMOKE_OK', len(raw), prepared.chunks)
           PY
 
-          grep -q 'VERSION = "1.0.0-rc13"' "$ROOT/core/furina_agent/version.py"
+          grep -q 'VERSION = "1.0.0-rc14"' "$ROOT/core/furina_agent/version.py"
           grep -q 'config_revision: int = 10' "$ROOT/core/furina_agent/config.py"
           grep -q 'device_control_mode: str = "normal"' "$ROOT/core/furina_agent/config.py"
           test "$(grep -c '^def _main_menu(console) -> str:$' "$ROOT/core/furina_agent/tui.py")" = 1
@@ -82,6 +111,10 @@ jobs:
           grep -q 'Binding("up", "scroll_up", "", show=False, priority=True)' "$ROOT/core/furina_agent/chat_surface.py"
           grep -q 'Binding("shift+up", "history_up", "", show=False, priority=True)' "$ROOT/core/furina_agent/chat_surface.py"
           grep -q 'direct = self.session.try_direct(text)' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q 'max_length=0' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q 'prepare_long_message' "$ROOT/core/furina_agent/chat.py"
+          grep -q 'router_view(text)' "$ROOT/core/furina_agent/companion.py"
+          test -f "$ROOT/core/furina_agent/long_input.py"
           grep -q '"Kontrol perangkat"' "$ROOT/core/furina_agent/tui.py"
           ! grep -q 'self.reminders.start()' "$ROOT/core/furina_agent/companion.py"
           grep -q 'class _ThemedConsole:' "$ROOT/core/furina_agent/tui.py"
@@ -89,9 +122,12 @@ jobs:
           grep -q '\["Chat", "Memory", "Provider", "Settings", "System", "Update", "Exit"\]' "$ROOT/core/furina_agent/tui.py"
           grep -q 'apply-core-rc13.py' "$META/install.sh"
           grep -q 'apply-bridge-rc8.py' "$META/install.sh"
+          grep -q 'apply-core-rc14.py' "$META/install.sh"
           grep -q "CORE_RC13_TRANSFORM_BLOB=\"$(git hash-object "$META/overrides/apply-core-rc13.py")\"" "$META/install.sh"
           grep -q "BRIDGE_RC8_TRANSFORM_BLOB=\"$(git hash-object "$META/overrides/apply-bridge-rc8.py")\"" "$META/install.sh"
+          grep -q "CORE_RC14_TRANSFORM_BLOB=\"$(git hash-object "$META/overrides/apply-core-rc14.py")\"" "$META/install.sh"
+          grep -q 'run_quiet "Memasang Furina Core RC14"' "$META/install.sh"
           grep -q 'verify_dependencies()' "$META/install.sh"
           grep -q 'PYTHONPATH="$SRC/core" python -m compileall' "$META/install.sh"
           bash -n "$META/install.sh"
-          echo RC13_TERMUX_DIRECT_UI_OK
+          echo RC14_TERMUX_UNBOUNDED_UI_OK
