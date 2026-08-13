@@ -1,0 +1,1 @@
+Temporary write-capability check. Safe to delete.
