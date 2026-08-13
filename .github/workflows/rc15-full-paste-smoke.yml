@@ -73,8 +73,9 @@ jobs:
               async with app.run_test() as pilot:
                   composer = app.query_one('#composer', FullPasteInput)
                   composer.focus()
-                  composer.post_message(events.Paste(payload))
+                  composer._on_paste(events.Paste(payload))
                   await pilot.pause()
+                  assert len(composer.value) == len(payload), (len(composer.value), len(payload))
                   assert composer.value == payload
                   assert composer.value.startswith('START-PASTE\n')
                   assert composer.value.endswith('END-PASTE')
