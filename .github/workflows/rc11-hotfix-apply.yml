@@ -39,7 +39,6 @@ jobs:
           for old, new in replacements.items():
               text = text.replace(old, new)
 
-          # Keep every chat-facing surface one terminal cell away from the edge.
           for selector in ('#header', '#messages', '#status', '#composer'):
               marker = selector + ' {'
               start = text.find(marker)
@@ -64,13 +63,11 @@ jobs:
           manifest_path = Path('experiments/furina-agent-final/overrides/manifest.json')
           manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
           chat_blob = git_blob_sha(chat.read_bytes())
-          found = False
           for item in manifest['files']:
               if item['path'] == 'core/furina_agent/chat_surface.py':
                   item['git_blob_sha'] = chat_blob
-                  found = True
                   break
-          if not found:
+          else:
               raise SystemExit('chat_surface.py missing from override manifest')
           manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
@@ -86,22 +83,6 @@ jobs:
           if count != 1:
               raise SystemExit('installer manifest pin not found')
           installer.write_text(inst, encoding='utf-8')
-
-          workflow = Path('.github/workflows/furina-agent-bridge-experiment.yml')
-          wf = workflow.read_text(encoding='utf-8')
-          branch_line = '      - fix/furina-rc11-chat-runtime-padding\n'
-          if branch_line not in wf:
-              anchor = '      - feature/furina-rc11-chat-agent-foundation\n'
-              if anchor not in wf:
-                  raise SystemExit('workflow branch anchor missing')
-              wf = wf.replace(anchor, anchor + branch_line, 1)
-          smoke = "          PYTHONPATH=core python3 \"$GITHUB_WORKSPACE/experiments/furina-agent-final/overrides/tests/smoke_chat_surface.py\"\n"
-          if smoke not in wf:
-              anchor = "          PYTHONPATH=core python3 -c 'import textual; from furina_agent.chat_surface import run_chat_surface; from furina_agent.tool_runtime import AgentToolRuntime'\n"
-              if anchor not in wf:
-                  raise SystemExit('workflow smoke anchor missing')
-              wf = wf.replace(anchor, anchor + smoke, 1)
-          workflow.write_text(wf, encoding='utf-8')
           PY
 
       - name: Reassemble RC11 and run chat mount smoke
@@ -147,17 +128,18 @@ jobs:
           ! grep -q ', False)' "$ROOT/core/furina_agent/chat_surface.py"
           bash -n "$META/install.sh"
 
-      - name: Commit hotfix
+      - name: Commit hotfix code changes
         shell: bash
         run: |
           set -euo pipefail
-          rm -f .github/workflows/rc11-hotfix-apply.yml
           if git diff --quiet && git diff --cached --quiet; then
             echo "No changes to commit"
             exit 0
           fi
           git config user.name "Wynn Dev"
           git config user.email "indonesiafilmku@gmail.com"
-          git add -A
+          git add experiments/furina-agent-final/overrides/core/furina_agent/chat_surface.py \
+                  experiments/furina-agent-final/overrides/manifest.json \
+                  experiments/furina-agent-final/install.sh
           git commit -m "fix: make RC11 chat surface run on Textual 8.2.8"
           git push origin HEAD:fix/furina-rc11-chat-runtime-padding
