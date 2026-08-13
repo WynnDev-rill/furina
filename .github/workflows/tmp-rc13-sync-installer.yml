@@ -17,49 +17,25 @@ jobs:
         run: |
           set -euo pipefail
           META=experiments/furina-agent-final
+          python3 - "$META/overrides/apply-core-rc13.py" <<'PY'
+          import pathlib,sys
+          p=pathlib.Path(sys.argv[1]); s=p.read_text(encoding='utf-8')
+          s=s.replace('return self._request("POST", "/action", action, timeout=20)', 'return self._request("POST", "/action", action)')
+          s=s.replace('def screenshot(self) -> str:', 'def screenshot_base64(self) -> str:')
+          p.write_text(s,encoding='utf-8')
+          PY
           CORE_SHA="$(git hash-object "$META/overrides/apply-core-rc13.py")"
           BRIDGE_SHA="$(git hash-object "$META/overrides/apply-bridge-rc8.py")"
           python3 - "$META/install.sh" "$CORE_SHA" "$BRIDGE_SHA" <<'PY'
-          import pathlib,sys
-          path=pathlib.Path(sys.argv[1]); core_sha=sys.argv[2]; bridge_sha=sys.argv[3]
-          s=path.read_text(encoding='utf-8')
-          def once(old,new,label):
-              global s
-              if new in s and old not in s: return
-              if s.count(old)!=1: raise SystemExit(f'{label}: {s.count(old)}')
-              s=s.replace(old,new,1)
-          once('VERSION="1.0.0-rc11"','VERSION="1.0.0-rc13"','installer version')
-          marker='UI_RC12_POSTFIX_BLOB="9d58b1594f99d39c8bb26f432ad9dad929152f33"\n'
-          addition=(marker+
-              'CORE_RC13_TRANSFORM_URL="$BASE/overrides/apply-core-rc13.py"\n'+
-              f'CORE_RC13_TRANSFORM_BLOB="{core_sha}"\n'+
-              'BRIDGE_RC8_TRANSFORM_URL="$BASE/overrides/apply-bridge-rc8.py"\n'+
-              f'BRIDGE_RC8_TRANSFORM_BLOB="{bridge_sha}"\n')
-          once(marker,addition,'transform vars')
-          old='    "$UI_RC12_POSTFIX_URL|$UI_RC12_POSTFIX_BLOB|apply-ui-rc12-postfix.py"; do\n'
-          new=('    "$UI_RC12_POSTFIX_URL|$UI_RC12_POSTFIX_BLOB|apply-ui-rc12-postfix.py" \\\n'+
-               '    "$CORE_RC13_TRANSFORM_URL|$CORE_RC13_TRANSFORM_BLOB|apply-core-rc13.py" \\\n'+
-               '    "$BRIDGE_RC8_TRANSFORM_URL|$BRIDGE_RC8_TRANSFORM_BLOB|apply-bridge-rc8.py"; do\n')
-          once(old,new,'transform loop')
-          once('fastpath.py lexicon.py chat_surface.py tool_runtime.py version.py tui.py;',
-               'fastpath.py lexicon.py chat_surface.py tool_runtime.py direct_control.py version.py tui.py;', 'core file list')
-          once("grep -q 'VERSION = \"1.0.0-rc11\"' \"$SRC/core/furina_agent/version.py\"",
-               "grep -q 'VERSION = \"1.0.0-rc13\"' \"$SRC/core/furina_agent/version.py\"", 'version verify')
-          once("grep -q 'config_revision: int = 9' \"$SRC/core/furina_agent/config.py\"",
-               "grep -q 'config_revision: int = 10' \"$SRC/core/furina_agent/config.py\"", 'config verify')
-          once('run_quiet "Memasang Furina Core RC11" 44 prepare_core','run_quiet "Memasang Furina Core RC13" 44 prepare_core','install label')
-          once('RC11 sudah terpasang. Jalankan:','RC13 sudah terpasang. Jalankan:','finish label')
-          path.write_text(s,encoding='utf-8')
-          PY
-          python3 - "$META/manifest.json" <<'PY'
-          import json,pathlib,sys
-          p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text())
-          d['version']='1.0.0-rc13'; d['bridge_version']='1.0.0-rc8'; d['bridge_version_code']=10008
-          d['bridge_release_base']='https://github.com/WynnDev-rill/furina/releases/download/furina-agent-v1.0.0-rc8'
-          p.write_text(json.dumps(d,indent=2)+'\n')
+          import pathlib,re,sys
+          p=pathlib.Path(sys.argv[1]); s=p.read_text(); core,bridge=sys.argv[2:]
+          s,n=re.subn(r'CORE_RC13_TRANSFORM_BLOB="[0-9a-f]{40}"',f'CORE_RC13_TRANSFORM_BLOB="{core}"',s,count=1); assert n==1
+          s,n=re.subn(r'BRIDGE_RC8_TRANSFORM_BLOB="[0-9a-f]{40}"',f'BRIDGE_RC8_TRANSFORM_BLOB="{bridge}"',s,count=1); assert n==1
+          p.write_text(s)
           PY
           git config user.name 'Wynn Dev'
           git config user.email 'indonesiafilmku@gmail.com'
-          git add "$META/install.sh" "$META/manifest.json"
-          git commit -m 'feat: wire RC13 transforms into installer and manifest'
+          git add "$META/overrides/apply-core-rc13.py" "$META/install.sh"
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'fix: align RC13 Bridge client transform with current source'
           git push origin HEAD:feature/furina-direct-device-control-rc13
