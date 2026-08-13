@@ -6,10 +6,14 @@ on:
       - experiment/furina-agent-termux
       - feature/furina-rc12-unified-tui
       - fix/furina-update-bootstrap-and-transaction
+      - fix/furina-chat-scroll-controls
     paths:
       - 'experiments/furina-agent-final/**'
       - '.github/workflows/rc11-unified-ui-smoke.yml'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   ui-smoke:
@@ -17,6 +21,33 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Sync installer pin for scroll hotfix branch
+        if: github.ref_name == 'fix/furina-chat-scroll-controls'
+        shell: bash
+        run: |
+          set -euo pipefail
+          POSTFIX=experiments/furina-agent-final/overrides/apply-ui-rc12-postfix.py
+          INSTALLER=experiments/furina-agent-final/install.sh
+          NEW_SHA="$(git hash-object "$POSTFIX")"
+          python3 - "$INSTALLER" "$NEW_SHA" <<'PY'
+          import pathlib,re,sys
+          path=pathlib.Path(sys.argv[1]); sha=sys.argv[2]
+          text=path.read_text(encoding='utf-8')
+          new,count=re.subn(r'UI_RC12_POSTFIX_BLOB="[0-9a-f]{40}"', f'UI_RC12_POSTFIX_BLOB="{sha}"', text, count=1)
+          if count != 1:
+              raise SystemExit('installer postfix pin marker missing')
+          path.write_text(new, encoding='utf-8')
+          PY
+          if ! git diff --quiet -- "$INSTALLER"; then
+            git config user.name "Wynn Dev"
+            git config user.email "indonesiafilmku@gmail.com"
+            git add "$INSTALLER"
+            git commit -m "fix: pin chat scroll postfix in installer"
+            git push origin HEAD:fix/furina-chat-scroll-controls
+          fi
 
       - name: Reassemble final Core and mount unified chat UI
         shell: bash
@@ -54,7 +85,14 @@ jobs:
           grep -q 'ChatApp().run(mouse=False)' "$ROOT/core/furina_agent/chat_surface.py"
           grep -q 'height: 1;' "$ROOT/core/furina_agent/chat_surface.py"
           grep -q 'padding: 1 2 0 2;' "$ROOT/core/furina_agent/chat_surface.py"
-          grep -q 'Esc kembali  ·  /back' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q '↑↓ scroll  ·  Esc kembali  ·  /back' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q 'Binding("up", "scroll_up", "", show=False, priority=True)' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q 'Binding("down", "scroll_down", "", show=False, priority=True)' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q 'Binding("pageup", "scroll_page_up", "", show=False, priority=True)' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q 'Binding("pagedown", "scroll_page_down", "", show=False, priority=True)' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q 'Binding("shift+up", "history_up", "", show=False, priority=True)' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q 'def action_scroll_page_up(self) -> None:' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q 'def action_history_up(self) -> None:' "$ROOT/core/furina_agent/chat_surface.py"
           grep -q 'style="bold #5de4c7" if assistant else "bold #e8b86d"' "$ROOT/core/furina_agent/chat_surface.py"
           grep -q 'class _ThemedConsole:' "$ROOT/core/furina_agent/tui.py"
           grep -q 'ACCENT = "#5de4c7"' "$ROOT/core/furina_agent/tui.py"
@@ -62,8 +100,9 @@ jobs:
           grep -q '"--cursor", " › "' "$ROOT/core/furina_agent/tui.py"
           grep -q '\["Chat", "Memory", "Provider", "Settings", "System", "Update", "Exit"\]' "$ROOT/core/furina_agent/tui.py"
           grep -q 'apply-ui-rc12-postfix.py' "$META/install.sh"
+          grep -q "UI_RC12_POSTFIX_BLOB=\"$(git hash-object "$META/overrides/apply-ui-rc12-postfix.py")\"" "$META/install.sh"
           grep -q 'verify_dependencies()' "$META/install.sh"
           grep -q 'coreutils tar gzip' "$META/install.sh"
           grep -q 'PYTHONPATH="$SRC/core" python -m compileall' "$META/install.sh"
           bash -n "$META/install.sh"
-          echo RC11_UNIFIED_TERMUX_UI_OK
+          echo RC11_UNIFIED_TERMUX_UI_SCROLL_OK
