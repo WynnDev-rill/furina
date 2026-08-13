@@ -6,6 +6,8 @@ from pathlib import Path
 from furina_agent.agent import AndroidAgent, TaskContract
 from furina_agent.companion import _obvious_device_intent
 from furina_agent.config import Config
+from furina_agent.fastpath import choose_fast_skill, compile_fast_contract
+from furina_agent.lexicon import PersonalLexicon
 from furina_agent.llm import LocalLLM, sanitize
 from furina_agent.memory import MemoryStore
 from furina_agent.naturalness import naturalize
@@ -67,6 +69,53 @@ class FinalContractTests(unittest.TestCase):
         self.assertNotIn("aku bisa bantu", out.lower())
         code = "```python\nprint('dengan demikian')\n```"
         self.assertIn(code, naturalize("Dengan demikian, coba ini:\n" + code))
+
+    def test_personal_lexicon_deduplicates_and_requires_evidence(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(Path(td) / "mind.db")
+            lex = PersonalLexicon(store)
+            lex.observe('pakai kata "yaudah"', "CASUAL")
+            lex.observe('gunakan kata "Yaudah"', "CASUAL")
+            rows = store._conn().execute("SELECT * FROM personal_lexicon WHERE canonical='yaudah'").fetchall()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(int(rows[0]["explicit_count"]), 2)
+            self.assertGreaterEqual(int(rows[0]["seen_count"]), 2)
+            self.assertIn("Yaudah", lex.prompt_context("oke", "CASUAL"))
+
+            # Automatic forms need repetition before they can influence a prompt.
+            lex.observe("kayaknya hasilnya masuk akal", "CASUAL")
+            first = lex.prompt_context("menurutmu gimana", "CASUAL", auto_min_seen=2)
+            lex.observe("kayaknya ini lebih enak", "CASUAL")
+            second = lex.prompt_context("menurutmu gimana", "CASUAL", auto_min_seen=2)
+            self.assertNotEqual(first, second)
+            self.assertIn("kayaknya", second.lower())
+
+            before = lex.count()
+            lex.observe("password abc123 token rahasia", "CASUAL")
+            self.assertEqual(before, lex.count())
+
+    def test_fast_contract_and_skill_selection_skip_planner_when_safe(self):
+        apps = [{"label": "YouTube", "package": "com.google.android.youtube"}]
+        contract = compile_fast_contract("buka YouTube lalu cari kucing", apps)
+        self.assertIsNotNone(contract)
+        self.assertEqual(contract["target_package"], "com.google.android.youtube")
+        self.assertEqual(contract["required_write_text"], "kucing")
+        self.assertIn("cari", contract["fast_tags"])
+        self.assertIsNone(compile_fast_contract("buka YouTube lalu kirim komentar", apps))
+
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(Path(td) / "mind.db")
+            history = [
+                {"executed": {"type": "open_app", "package": "com.google.android.youtube"}, "result": {"ok": True}},
+                {"executed": {"type": "set_text", "text": "lama", "target": {"view_id": "search", "class": "EditText", "editable": True}}, "result": {"ok": True, "verified_text": True}},
+                {"executed": {"type": "ime_action", "target": {"view_id": "search", "class": "EditText", "editable": True}}, "result": {"ok": True}},
+            ]
+            store.learn_skill("buka YouTube lalu cari lama", history, "com.google.android.youtube")
+            store.learn_skill("buka YouTube lalu cari baru", history, "com.google.android.youtube")
+            skill = choose_fast_skill(store, "buka YouTube lalu cari kucing", "com.google.android.youtube", 2)
+            self.assertIsNotNone(skill)
+            self.assertGreaterEqual(skill.success_count, 2)
+            self.assertGreater(skill.score, 0.72)
 
     def test_explicit_prospective_memory_parser_and_store(self):
         now = 1_700_000_000.0
@@ -150,6 +199,7 @@ class FinalContractTests(unittest.TestCase):
                 self.assertNotIn(secret, goal_text)
                 self.assertNotIn(secret, steps_json)
             self.assertIn("from_current_goal", steps_json)
+            self.assertIn("intent=", goal_text)
 
     def test_response_router_is_contextual(self):
         with tempfile.TemporaryDirectory() as td:
@@ -181,19 +231,24 @@ class FinalContractTests(unittest.TestCase):
             ok, _ = agent._deterministic_gate(contract, {"package": "example.notes", "nodes": []}, [{"action": {"type": "set_text", "text": "furina"}, "result": {"ok": True, "verified_text": True}}])
             self.assertTrue(ok)
 
-    def test_rc7_control_reliability_is_preserved_under_rc8(self):
+    def test_rc7_control_reliability_is_preserved_under_rc9(self):
         root = Path(__file__).resolve().parents[1]
         service = (root / "bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java").read_text()
         activity = (root / "bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java").read_text()
         gradle = (root / "bridge/app/build.gradle").read_text()
         agent = (root / "core/furina_agent/agent.py").read_text()
         config = (root / "core/furina_agent/config.py").read_text()
+        chat = (root / "core/furina_agent/chat.py").read_text()
         self.assertIn("waitForExactText", service)
         self.assertNotIn("actual.contains(expected)", service)
         self.assertIn("duplicate_suppressed", agent)
         self.assertIn("watch_user_return", agent)
         self.assertIn("if not (screen.get(\"nodes\") or []) or stalls >= 2", agent)
-        self.assertIn("config_revision: int = 8", config)
+        self.assertIn("_try_fast_skill", agent)
+        self.assertIn("_wait_after_action", agent)
+        self.assertNotIn('time.sleep(0.9 if typ == "open_app" else 0.48)', agent)
+        self.assertIn("config_revision: int = 9", config)
+        self.assertIn("PERSONAL LEXICON", chat)
         self.assertIn("setOnApplyWindowInsetsListener", activity)
         self.assertIn("versionCode 10007", gradle)
         self.assertIn("versionName '1.0.0-rc7'", gradle)
