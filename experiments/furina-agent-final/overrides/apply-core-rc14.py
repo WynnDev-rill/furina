@@ -206,19 +206,8 @@ def prepare_long_message(text: str, cfg, llm) -> PreparedLongMessage:
     )
     c = replace_once(
         c,
-        '''        for reminder_text, due_at in extract_prospectives(user_text):
-            self.store.add_prospective(reminder_text, due_at, source="explicit")
-        profile = choose_profile(user_text, self.store)
-        messages = self._messages(user_text, profile)
-        self.store.add_message("user", user_text)
-''',
-        '''        for reminder_text, due_at in extract_prospectives(user_text):
-            self.store.add_prospective(reminder_text, due_at, source="explicit")
-        profile = choose_profile(user_text, self.store)
-        prepared = prepare_long_message(user_text, self.cfg, self.llm)
-        messages = self._messages(prepared.model_text, profile)
-        self.store.add_message("user", user_text)
-''',
+        '        messages = self._messages(user_text, profile)\n        self.store.set_state("companion_last_user_at", time.time())\n',
+        '        prepared = prepare_long_message(user_text, self.cfg, self.llm)\n        messages = self._messages(prepared.model_text, profile)\n        self.store.set_state("companion_last_user_at", time.time())\n',
         "prepare unbounded input",
     )
     c = replace_once(
