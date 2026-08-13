@@ -1,0 +1,69 @@
+name: RC20 Agent Diagnostic
+
+on:
+  pull_request:
+    branches:
+      - experiment/furina-agent-termux
+    paths:
+      - 'experiments/furina-agent-final/**'
+      - '.github/workflows/rc20-diagnostic.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reassemble transformed RC19 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          META=experiments/furina-agent-final
+          ARCHIVE=/tmp/furina-agent-final.tar.gz
+          : > "$ARCHIVE"
+          for chunk in "$META"/source-*.b64; do base64 --decode "$chunk" >> "$ARCHIVE"; done
+          rm -rf /tmp/furina-agent-src && mkdir -p /tmp/furina-agent-src
+          tar -xzf "$ARCHIVE" -C /tmp/furina-agent-src
+          ROOT=/tmp/furina-agent-src/termux
+          patch -p0 -d /tmp/furina-agent-src < "$META/patches/api30-inputstream.patch"
+          patch -p0 -d /tmp/furina-agent-src < "$META/patches/runtime-online-agent.patch"
+          python3 "$META/overrides/apply-bridge-primitives-rc5.py" "$ROOT"
+          python3 - "$META/overrides" "$ROOT" <<'PY'
+          import hashlib,json,pathlib,sys
+          src=pathlib.Path(sys.argv[1]).resolve(); dst=pathlib.Path(sys.argv[2]).resolve()
+          manifest=json.loads((src/'manifest.json').read_text(encoding='utf-8'))
+          def sha(data): return hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()
+          for item in manifest['files']:
+              source=(src/item['path']).resolve(); target=(dst/item['target']).resolve()
+              data=source.read_bytes(); assert sha(data)==item['git_blob_sha'], item['path']
+              target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(data)
+          PY
+          for f in \
+            apply-bridge-rc4.py apply-universal-agent-rc5.py apply-core-rc6.py \
+            apply-core-rc6-postfix.py apply-bridge-rc6.py apply-core-rc7.py \
+            apply-bridge-rc7.py apply-core-rc8.py apply-core-rc8-postfix.py \
+            apply-core-rc9.py apply-ui-rc10.py apply-ui-rc10-hotfix.py \
+            apply-core-rc11.py apply-ui-rc12.py apply-ui-rc12-postfix.py \
+            apply-core-rc13.py apply-bridge-rc8.py apply-core-rc14.py \
+            apply-core-rc15.py apply-core-rc16.py apply-core-rc17-hotfix.py \
+            apply-bridge-rc9.py apply-core-rc18.py \
+            apply-ui-performance-bridge-rc10.py apply-ui-performance-rc19.py; do
+            python3 "$META/overrides/$f" "$ROOT"
+          done
+          mkdir -p /tmp/rc20-diagnostic
+          cp "$ROOT/core/furina_agent/agent.py" /tmp/rc20-diagnostic/
+          cp "$ROOT/core/furina_agent/chat_surface.py" /tmp/rc20-diagnostic/
+          cp "$ROOT/core/furina_agent/tool_runtime.py" /tmp/rc20-diagnostic/
+          cp "$ROOT/core/furina_agent/direct_control.py" /tmp/rc20-diagnostic/
+          cp "$ROOT/core/furina_agent/companion.py" /tmp/rc20-diagnostic/
+          cp "$ROOT/core/furina_agent/events.py" /tmp/rc20-diagnostic/
+          grep -n -E 'Tugas dihentikan|kembali ke Termux|perlu menggunakan layar|Enter izinkan|Esc batal|approve|run_ui_sequence|open_app' /tmp/rc20-diagnostic/*.py || true
+      - name: Upload transformed source
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc20-transformed-source
+          path: /tmp/rc20-diagnostic
+          if-no-files-found: error
