@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-VERSION="1.0.0-rc11"
+VERSION="1.0.0-rc13"
 ROOT="$HOME/.furina-agent"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 MANIFEST_URL="$BASE/manifest.json"
@@ -41,6 +41,10 @@ UI_RC12_TRANSFORM_URL="$BASE/overrides/apply-ui-rc12.py"
 UI_RC12_TRANSFORM_BLOB="07d10d060f1e0e3e7b299e57661f2967ae7986d2"
 UI_RC12_POSTFIX_URL="$BASE/overrides/apply-ui-rc12-postfix.py"
 UI_RC12_POSTFIX_BLOB="9d58b1594f99d39c8bb26f432ad9dad929152f33"
+CORE_RC13_TRANSFORM_URL="$BASE/overrides/apply-core-rc13.py"
+CORE_RC13_TRANSFORM_BLOB="596d94e75c706cf63663ad05ea390a2f8d50958a"
+BRIDGE_RC8_TRANSFORM_URL="$BASE/overrides/apply-bridge-rc8.py"
+BRIDGE_RC8_TRANSFORM_BLOB="a9c61ffce5ebc489b4795279900f13095a939322"
 LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"
 
 MODEL_REV="e9cf779"
@@ -258,7 +262,9 @@ PY
     "$UI_RC10_HOTFIX_URL|$UI_RC10_HOTFIX_BLOB|apply-ui-rc10-hotfix.py" \
     "$CORE_RC11_TRANSFORM_URL|$CORE_RC11_TRANSFORM_BLOB|apply-core-rc11.py" \
     "$UI_RC12_TRANSFORM_URL|$UI_RC12_TRANSFORM_BLOB|apply-ui-rc12.py" \
-    "$UI_RC12_POSTFIX_URL|$UI_RC12_POSTFIX_BLOB|apply-ui-rc12-postfix.py"; do
+    "$UI_RC12_POSTFIX_URL|$UI_RC12_POSTFIX_BLOB|apply-ui-rc12-postfix.py" \
+    "$CORE_RC13_TRANSFORM_URL|$CORE_RC13_TRANSFORM_BLOB|apply-core-rc13.py" \
+    "$BRIDGE_RC8_TRANSFORM_URL|$BRIDGE_RC8_TRANSFORM_BLOB|apply-bridge-rc8.py"; do
     IFS='|' read -r url blob name <<< "$spec"
     curl -fsSL --retry 3 "$url" -o "$TMP/$name"
     verify_git_blob "$TMP/$name" "$blob"
@@ -267,11 +273,11 @@ PY
 
   SRC="$TMP/src/termux"
   test -f "$SRC/core/furina_agent/cli.py"
-  for file in memory.py response.py vision.py embeddings.py local_vision.py events.py naturalness.py prospective.py device_context.py fastpath.py lexicon.py chat_surface.py tool_runtime.py version.py tui.py; do
+  for file in memory.py response.py vision.py embeddings.py local_vision.py events.py naturalness.py prospective.py device_context.py fastpath.py lexicon.py chat_surface.py tool_runtime.py direct_control.py version.py tui.py; do
     test -f "$SRC/core/furina_agent/$file"
   done
-  grep -q 'VERSION = "1.0.0-rc11"' "$SRC/core/furina_agent/version.py"
-  grep -q 'config_revision: int = 9' "$SRC/core/furina_agent/config.py"
+  grep -q 'VERSION = "1.0.0-rc13"' "$SRC/core/furina_agent/version.py"
+  grep -q 'config_revision: int = 10' "$SRC/core/furina_agent/config.py"
   grep -q 'fast_path_enabled: bool = True' "$SRC/core/furina_agent/config.py"
   grep -q 'lexicon_enabled: bool = True' "$SRC/core/furina_agent/config.py"
   grep -q 'CREATE TABLE IF NOT EXISTS personal_lexicon' "$SRC/core/furina_agent/lexicon.py"
@@ -319,7 +325,7 @@ EOF
   grep -Fqx "$LINE" "$HOME/.bashrc" 2>/dev/null || echo "$LINE" >> "$HOME/.bashrc"
 }
 
-run_quiet "Memasang Furina Core RC11" 44 prepare_core
+run_quiet "Memasang Furina Core RC13" 44 prepare_core
 
 prepare_llama() {
   LLAMA="$ROOT/llama.cpp"
@@ -418,6 +424,6 @@ ui_ok "Furina siap"
 if [[ "$MODE" == "install" ]]; then
   printf '\033[2mBuka dengan:\033[0m  \033[1;36mfurina\033[0m\n'
 else
-  printf '\033[2mRC11 sudah terpasang. Jalankan:\033[0m  \033[1;36mfurina\033[0m\n'
+  printf '\033[2mRC13 sudah terpasang. Jalankan:\033[0m  \033[1;36mfurina\033[0m\n'
 fi
 printf '\033[2mLog setup: %s\033[0m\n\n' "$LOG"
