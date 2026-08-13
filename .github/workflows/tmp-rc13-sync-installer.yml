@@ -20,8 +20,49 @@ jobs:
           python3 - "$META/overrides/apply-core-rc13.py" <<'PY'
           import pathlib,sys
           p=pathlib.Path(sys.argv[1]); s=p.read_text(encoding='utf-8')
-          s=s.replace('return self._request("POST", "/action", action, timeout=20)', 'return self._request("POST", "/action", action)')
-          s=s.replace('def screenshot(self) -> str:', 'def screenshot_base64(self) -> str:')
+          start=s.index('    # Settings only: status stays outside chat to keep conversation clean.\n')
+          end=s.index('    tui.write_text(t, encoding="utf-8")\n', start)+len('    tui.write_text(t, encoding="utf-8")\n')
+          new=r'''    # Settings only: status stays outside chat to keep conversation clean.
+    t = tui.read_text(encoding="utf-8")
+    context_line = r'''        console.print(f"[dim]Context[/]    {cfg.context_size}\n")
+'''
+    status_block = r'''        status = ""
+        try:
+            control = AndroidBridge(cfg).control_status()
+            selected = str(cfg.device_control_mode).lower()
+            if selected == "shizuku":
+                status = "siap" if control.get("shizuku_ready") else "perlu izin"
+            elif selected == "root":
+                status = "siap" if control.get("root_ready") else "perlu izin"
+            else:
+                status = "Accessibility"
+        except Exception:
+            status = "Bridge offline"
+        console.print(f"[dim]Kontrol[/]     {cfg.device_control_mode.upper()} · {status}")
+'''
+    t = replace_once(t, context_line, status_block + context_line, "settings status row")
+    old_choice = '        choice = _choose("", ["Nama panggilan", "Nama Furina", "Toggle local auto-start", "Back"], height=6)\n'
+    new_choice = '        choice = _choose("", ["Nama panggilan", "Nama Furina", "Kontrol perangkat", "Toggle local auto-start", "Back"], height=7)\n'
+    t = replace_once(t, old_choice, new_choice, "settings control choice")
+    toggle_marker = '        elif choice == "Toggle local auto-start":\n'
+    mode_block = r'''        elif choice == "Kontrol perangkat":
+            mode = _choose("Kontrol perangkat", ["Normal", "Shizuku", "Root", "Back"], height=6)
+            if mode in {"Normal", "Shizuku", "Root"}:
+                cfg.device_control_mode = mode.lower()
+                if mode in {"Shizuku", "Root"}:
+                    try:
+                        result = AndroidBridge(cfg).control({"type": "prepare_" + mode.lower(), "mode": mode.lower()})
+                        message = str(result.get("message") or ("Siap" if result.get("ok") else "Izin belum aktif"))
+                        console.print(f"[dim]{message}[/]")
+                        _pause()
+                    except Exception:
+                        console.print("[yellow]Bridge belum siap. Mode tersimpan; aktifkan izinnya nanti.[/]")
+                        _pause()
+'''
+    t = replace_once(t, toggle_marker, mode_block + toggle_marker, "settings mode selection")
+    tui.write_text(t, encoding="utf-8")
+'''
+          s=s[:start]+new+s[end:]
           p.write_text(s,encoding='utf-8')
           PY
           CORE_SHA="$(git hash-object "$META/overrides/apply-core-rc13.py")"
@@ -36,6 +77,5 @@ jobs:
           git config user.name 'Wynn Dev'
           git config user.email 'indonesiafilmku@gmail.com'
           git add "$META/overrides/apply-core-rc13.py" "$META/install.sh"
-          if git diff --cached --quiet; then exit 0; fi
-          git commit -m 'fix: align RC13 Bridge client transform with current source'
+          git commit -m 'fix: make RC13 settings transform deterministic'
           git push origin HEAD:feature/furina-direct-device-control-rc13
