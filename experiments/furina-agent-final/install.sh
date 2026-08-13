@@ -71,7 +71,8 @@ mv "$STAGE/core" "$ROOT/core"
 
 # The stable bootstrap above reads manifest.json from the current experiment
 # branch, so Bridge RC10 is downloaded through the same signed update path.
-# Keep the Bridge transform hash here as an installer/CI integrity contract.
+# Keep the Bridge transform hash here as an installer/CI integrity contract;
+# it is refreshed whenever the staged Bridge transform changes.
 printf '\033[32m✓\033[0m Furina RC19 siap\n'
 printf '\033[2mCore RC19 · Bridge target RC10 · memory dan model dipertahankan\033[0m\n'
 printf '\033[2mJalankan:\033[0m \033[1;36mfurina\033[0m\n\n'
