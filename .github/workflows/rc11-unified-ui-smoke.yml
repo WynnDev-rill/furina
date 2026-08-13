@@ -1,0 +1,61 @@
+name: RC11 Unified Termux UI Smoke
+
+on:
+  push:
+    branches:
+      - experiment/furina-agent-termux
+      - feature/furina-rc12-unified-tui
+    paths:
+      - 'experiments/furina-agent-final/**'
+      - '.github/workflows/rc11-unified-ui-smoke.yml'
+  workflow_dispatch:
+
+jobs:
+  ui-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reassemble final Core and mount unified chat UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          META=experiments/furina-agent-final
+          ARCHIVE=/tmp/furina-agent-final.tar.gz
+          : > "$ARCHIVE"
+          for chunk in "$META"/source-*.b64; do base64 --decode "$chunk" >> "$ARCHIVE"; done
+          rm -rf /tmp/furina-agent-src && mkdir -p /tmp/furina-agent-src
+          tar -xzf "$ARCHIVE" -C /tmp/furina-agent-src
+          ROOT=/tmp/furina-agent-src/termux
+          patch -p0 -d /tmp/furina-agent-src < "$META/patches/api30-inputstream.patch"
+          patch -p0 -d /tmp/furina-agent-src < "$META/patches/runtime-online-agent.patch"
+          python3 "$META/overrides/apply-bridge-primitives-rc5.py" "$ROOT"
+          python3 - "$META/overrides" "$ROOT" <<'PY'
+          import hashlib,json,pathlib,sys
+          src=pathlib.Path(sys.argv[1]).resolve(); dst=pathlib.Path(sys.argv[2]).resolve()
+          manifest=json.loads((src/'manifest.json').read_text(encoding='utf-8'))
+          def sha(data): return hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()
+          for item in manifest['files']:
+              data=(src/item['path']).read_bytes(); assert sha(data)==item['git_blob_sha'], item['path']
+              target=(dst/item['target']).resolve(); target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(data)
+          PY
+          for f in apply-bridge-rc4.py apply-universal-agent-rc5.py apply-core-rc6.py apply-core-rc6-postfix.py apply-bridge-rc6.py apply-core-rc7.py apply-bridge-rc7.py apply-core-rc8.py apply-core-rc8-postfix.py apply-core-rc9.py apply-ui-rc10.py apply-ui-rc10-hotfix.py apply-core-rc11.py apply-ui-rc12.py; do
+            python3 "$META/overrides/$f" "$ROOT"
+          done
+          python3 -m pip install -q 'rich>=13.9,<15' 'textual==8.2.8'
+          PYTHONPATH="$ROOT/core" python3 "$META/overrides/tests/smoke_chat_surface.py"
+
+          grep -q 'VERSION = "1.0.0-rc11"' "$ROOT/core/furina_agent/version.py"
+          grep -q 'ChatApp().run(mouse=False)' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q 'height: 1;' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q 'padding: 1 2 0 2;' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q 'Esc kembali  ·  /back' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q 'style="bold #5de4c7" if assistant else "bold #e8b86d"' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q 'class _ThemedConsole:' "$ROOT/core/furina_agent/tui.py"
+          grep -q 'ACCENT = "#5de4c7"' "$ROOT/core/furina_agent/tui.py"
+          grep -q 'CYAN = "#9efce7"' "$ROOT/core/furina_agent/tui.py"
+          grep -q '"--cursor", " › "' "$ROOT/core/furina_agent/tui.py"
+          grep -q '\["Chat", "Memory", "Provider", "Settings", "System", "Update", "Exit"\]' "$ROOT/core/furina_agent/tui.py"
+          bash -n "$META/install.sh"
+          echo RC11_UNIFIED_TERMUX_UI_OK
