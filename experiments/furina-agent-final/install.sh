@@ -94,8 +94,6 @@ fetch_transform() {
 ui_title
 mark 5 "Memeriksa instalasi Furina"
 
-# Preserve the proven full bootstrap for a truly fresh Termux. Normal updates
-# never reinstall models or rebuild dependencies unnecessarily.
 if [[ ! -f "$ROOT/core/furina_agent/version.py" ]]; then
   fetch_transform "$BASE_INSTALL_URL" "$BASE_INSTALL_BLOB" "$TMP/install-base.sh"
   run_quiet "Menyiapkan fondasi Furina" 26 bash "$TMP/install-base.sh" "$@"
@@ -156,15 +154,22 @@ fi
 mark 84 "Core RC21 aktif · memory/model tetap"
 
 BRIDGE_NEEDS_INSTALL=0
+BRIDGE_STATUS_UNKNOWN=0
 prepare_bridge() {
   local installed expected release apk_url apk_sha
   installed="$(curl -fsS --max-time 2 http://127.0.0.1:8765/health 2>/dev/null | python -c 'import json,sys;print(json.load(sys.stdin).get("version",""))' 2>/dev/null || true)"
   expected="$(python -c 'import json;print(json.load(open("'"$TMP"'/manifest.json"))["bridge_version"])')"
+
+  if [[ -z "$installed" ]]; then
+    printf '%s' "unknown" > "$TMP/bridge-state"
+    return 0
+  fi
   if [[ "$installed" == "$expected" ]]; then
     furina connect >/dev/null 2>&1 || true
     printf '%s' "ready" > "$TMP/bridge-state"
     return 0
   fi
+
   release="$(python -c 'import json;print(json.load(open("'"$TMP"'/manifest.json"))["bridge_release_base"])')"
   curl -fsSL --retry 4 "$release/bridge.json" -o "$TMP/bridge.json"
   apk_url="$(python -c 'import json;print(json.load(open("'"$TMP"'/bridge.json"))["apk_url"])')"
@@ -175,25 +180,26 @@ prepare_bridge() {
 }
 run_quiet "Memeriksa Furina Bridge RC12" 94 prepare_bridge
 
-if [[ "$(cat "$TMP/bridge-state" 2>/dev/null || true)" == "install" ]]; then
-  if command -v termux-open >/dev/null 2>&1; then
-    termux-open --view "$ROOT/cache/Furina-Agent-Bridge-RC12.apk" >/dev/null 2>&1 || true
-  else
-    RELEASE_BASE="$(python -c 'import json;print(json.load(open("'"$TMP"'/manifest.json"))["bridge_release_base"])')"
-    APK_URL="$(python -c 'import json;print(json.load(open("'"$TMP"'/bridge.json"))["apk_url"])')"
-    termux-open-url "$APK_URL" >/dev/null 2>&1 || true
-  fi
+BRIDGE_STATE="$(cat "$TMP/bridge-state" 2>/dev/null || true)"
+if [[ "$BRIDGE_STATE" == "install" ]]; then
+  APK_URL="$(python -c 'import json;print(json.load(open("'"$TMP"'/bridge.json"))["apk_url"])')"
+  termux-open-url "$APK_URL" >/dev/null 2>&1 || true
   BRIDGE_NEEDS_INSTALL=1
-  mark 98 "Bridge RC12 siap dipasang"
+  mark 98 "Update Bridge diperlukan · download dibuka"
+elif [[ "$BRIDGE_STATE" == "unknown" ]]; then
+  BRIDGE_STATUS_UNKNOWN=1
+  mark 98 "Bridge belum dapat diverifikasi · download tidak dibuka"
 else
-  mark 98 "Bridge RC12 sudah aktif"
+  mark 98 "Bridge sudah sesuai · tidak perlu download"
 fi
 mark 100 "Update selesai"
 
 printf '\n\033[32m✓\033[0m Furina Agent RC21 siap.\n'
 if (( BRIDGE_NEEDS_INSTALL )); then
-  printf '\033[33m!\033[0m Android installer untuk Furina Bridge RC12 sudah dibuka. Selesaikan pembaruan APK sekali, lalu jalankan \033[1;36mfurina\033[0m.\n'
+  printf '\033[33m!\033[0m Bridge yang terpasang memang berbeda dari versi yang dibutuhkan. URL APK resmi sudah dibuka.\n'
+elif (( BRIDGE_STATUS_UNKNOWN )); then
+  printf '\033[33m!\033[0m Bridge sedang tidak merespons, jadi updater tidak menganggapnya outdated dan tidak membuka download. Buka Furina Bridge sekali lalu jalankan \033[1;36mfurina update\033[0m untuk verifikasi versi.\n'
 else
-  printf '\033[2mCore RC21 · Bridge RC12 · memory dan model dipertahankan.\033[0m\n'
+  printf '\033[2mCore RC21 · Bridge sudah sesuai · memory dan model dipertahankan.\033[0m\n'
 fi
 printf '\n'
