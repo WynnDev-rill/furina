@@ -10,7 +10,7 @@ from furina_agent.config import Config
 
 
 class FinalReleaseContractTests(unittest.TestCase):
-    def test_legacy_config_migrates_to_rc9_companion(self):
+    def test_legacy_config_migrates_to_rc9_cognition_under_rc10_ui(self):
         with tempfile.TemporaryDirectory() as td:
             home = Path(td)
             cfg_path = home / "config.json"
@@ -66,7 +66,7 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertEqual(cfg.lexicon_prompt_limit, 8)
         self.assertEqual(cfg.lexicon_auto_min_seen, 2)
 
-    def test_installer_is_pinned_and_applies_rc9_core_on_rc7_bridge(self):
+    def test_installer_is_pinned_and_applies_rc10_ui_on_rc7_bridge(self):
         root = Path(__file__).resolve().parents[1]
         workspace = Path(os.environ.get("GITHUB_WORKSPACE", "")) if os.environ.get("GITHUB_WORKSPACE") else None
         release_installer = workspace / "experiments/furina-agent-final/install.sh" if workspace else None
@@ -74,8 +74,9 @@ class FinalReleaseContractTests(unittest.TestCase):
         installer = installer_path.read_text(encoding="utf-8")
         self.assertNotIn("storage/shared", installer)
         self.assertNotIn("/storage/emulated", installer)
-        self.assertIn('VERSION="1.0.0-rc9"', installer)
-        self.assertIn("companion-v6", installer)
+        self.assertIn('VERSION="1.0.0-rc10"', installer)
+        self.assertIn("companion-v7", installer)
+        self.assertIn("apply-ui-rc10.py", installer)
         self.assertIn("apply-core-rc9.py", installer)
         self.assertIn("apply-core-rc8.py", installer)
         self.assertIn("apply-core-rc7.py", installer)
@@ -84,7 +85,11 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertIn("lexicon.py", installer)
         self.assertIn("llama-embedding", installer)
         self.assertIn("-DGGML_CPU_KLEIDIAI=ON", installer)
-        self.assertIn("Bridge RC7", installer)
+        self.assertIn("pkg install -y python python-pip git cmake ninja clang make curl ccache util-linux termux-tools patch gum", installer)
+        self.assertIn('if [[ "$MODE" == "install" ]]; then', installer)
+        self.assertIn('run_quiet "Memasang Furina Core RC10"', installer)
+        self.assertIn('LOG="$ROOT/logs/setup.log"', installer)
+        self.assertIn("Furina siap", installer)
 
     def test_core_has_rc9_fastpath_lexicon_and_rc8_memory_context(self):
         root = Path(__file__).resolve().parents[1]
@@ -127,18 +132,25 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertIn("CREATE TABLE IF NOT EXISTS personal_lexicon", lexicon)
         self.assertIn("canonical TEXT NOT NULL UNIQUE", lexicon)
 
-    def test_tui_is_one_companion_surface_and_surfaces_due_reminders(self):
+    def test_rc10_tui_is_compact_gum_first_and_preserves_task_approval(self):
         root = Path(__file__).resolve().parents[1]
         tui = (root / "core/furina_agent/tui.py").read_text(encoding="utf-8")
-        self.assertIn("Percakapan + tindakan Android", tui)
-        self.assertNotIn('table.add_row("2", "Android Agent langsung")', tui)
-        self.assertIn("hybrid semantic", tui)
-        self.assertIn("skill-learning", tui)
-        self.assertIn("tanpa konfirmasi kedua", tui)
-        self.assertIn("FURINA MIND", tui)
+        version = (root / "core/furina_agent/version.py").read_text(encoding="utf-8")
+        self.assertIn('VERSION = "1.0.0-rc10"', version)
+        self.assertIn("def _gum() -> str | None:", tui)
+        self.assertIn('["Chat", "Memory", "Provider", "Settings", "System", "Update", "Exit"]', tui)
+        self.assertIn("--cursor-prefix", tui)
         self.assertIn("due_prospectives", tui)
+        self.assertIn("Furina perlu memakai layar untuk tugas ini", tui)
+        self.assertIn("termasuk Send/Kirim/Post/Share yang memang eksplisit", tui)
+        self.assertIn("task_authorized=True", tui)
+        self.assertNotIn('title="SYSTEM"', tui)
+        self.assertNotIn('title="ACTIONS"', tui)
+        self.assertNotIn("Percakapan + tindakan Android", tui)
+        self.assertNotIn("AI ROUTER", tui)
+        self.assertNotIn("MEMORY / RESPONSE", tui)
 
-    def test_bridge_rc7_is_preserved_unchanged_for_core_rc9(self):
+    def test_bridge_rc7_is_preserved_unchanged_for_core_rc10(self):
         root = Path(__file__).resolve().parents[1]
         manifest = (root / "bridge/app/src/main/AndroidManifest.xml").read_text()
         updater = (root / "bridge/app/src/main/java/com/wynndev/furinaagentbridge/BridgeUpdater.java").read_text()

@@ -1,5 +1,5 @@
 {
-  "revision": "companion-v6",
+  "revision": "companion-v7",
   "files": [
     {"path": "core/furina_agent/agent.py", "target": "core/furina_agent/agent.py", "git_blob_sha": "115fca0819c7977172d3df402a6d8367c6dba1f4"},
     {"path": "core/furina_agent/bridge.py", "target": "core/furina_agent/bridge.py", "git_blob_sha": "f8bbdff38d4336f65e7beca5a14cc6f3d1a63dab"},
@@ -21,6 +21,7 @@
     {"path": "core/furina_agent/response.py", "target": "core/furina_agent/response.py", "git_blob_sha": "a566c7ac385b92a3712c36b2bd8fb4745239ca7f"},
     {"path": "core/furina_agent/routing.py", "target": "core/furina_agent/routing.py", "git_blob_sha": "787bf8eb086432a1360ca738c7479e4e65241dc5"},
     {"path": "core/furina_agent/tui.py", "target": "core/furina_agent/tui.py", "git_blob_sha": "16004d096432c34d11f3e76525c6498c7af252ce"},
+    {"path": "core/furina_agent/tui_rc10.py", "target": "core/furina_agent/tui_rc10.py", "git_blob_sha": "18edb57a74ea3e2b7e769a19273bd191f6fcd3ed"},
     {"path": "core/furina_agent/version.py", "target": "core/furina_agent/version.py", "git_blob_sha": "f1ec1f23e9d64bb3ecaebe331832e9e0b577bb0c"},
     {"path": "core/furina_agent/vision.py", "target": "core/furina_agent/vision.py", "git_blob_sha": "a978f4ae43209549d13bae7c043f26d2c5131de4"},
     {"path": "bridge/MainActivity.java", "target": "bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java", "git_blob_sha": "303588e965146488525bd77bd4d515e59123a0ec"},
