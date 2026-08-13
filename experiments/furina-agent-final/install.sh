@@ -37,6 +37,8 @@ UI_RC10_HOTFIX_URL="$BASE/overrides/apply-ui-rc10-hotfix.py"
 UI_RC10_HOTFIX_BLOB="5b6fdbf0115f63dfc849fba479ddfd86b25f1849"
 CORE_RC11_TRANSFORM_URL="$BASE/overrides/apply-core-rc11.py"
 CORE_RC11_TRANSFORM_BLOB="d51cf9db71da074e7f03397ce7ae6f4b5edd7add"
+UI_RC12_TRANSFORM_URL="$BASE/overrides/apply-ui-rc12.py"
+UI_RC12_TRANSFORM_BLOB="07d10d060f1e0e3e7b299e57661f2967ae7986d2"
 LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"
 
 MODEL_REV="e9cf779"
@@ -242,7 +244,8 @@ PY
     "$CORE_RC9_TRANSFORM_URL|$CORE_RC9_TRANSFORM_BLOB|apply-core-rc9.py" \
     "$UI_RC10_TRANSFORM_URL|$UI_RC10_TRANSFORM_BLOB|apply-ui-rc10.py" \
     "$UI_RC10_HOTFIX_URL|$UI_RC10_HOTFIX_BLOB|apply-ui-rc10-hotfix.py" \
-    "$CORE_RC11_TRANSFORM_URL|$CORE_RC11_TRANSFORM_BLOB|apply-core-rc11.py"; do
+    "$CORE_RC11_TRANSFORM_URL|$CORE_RC11_TRANSFORM_BLOB|apply-core-rc11.py" \
+    "$UI_RC12_TRANSFORM_URL|$UI_RC12_TRANSFORM_BLOB|apply-ui-rc12.py"; do
     IFS='|' read -r url blob name <<< "$spec"
     curl -fsSL --retry 3 "$url" -o "$TMP/$name"
     verify_git_blob "$TMP/$name" "$blob"
