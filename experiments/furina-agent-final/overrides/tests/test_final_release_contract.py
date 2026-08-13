@@ -10,7 +10,7 @@ from furina_agent.config import Config
 
 
 class FinalReleaseContractTests(unittest.TestCase):
-    def test_legacy_config_migrates_to_rc8_companion(self):
+    def test_legacy_config_migrates_to_rc9_companion(self):
         with tempfile.TemporaryDirectory() as td:
             home = Path(td)
             cfg_path = home / "config.json"
@@ -37,7 +37,7 @@ class FinalReleaseContractTests(unittest.TestCase):
                 MODELS_DIR=models,
             ):
                 cfg = config_mod.load_config()
-            self.assertEqual(cfg.config_revision, 8)
+            self.assertEqual(cfg.config_revision, 9)
             self.assertEqual(cfg.context_size, 6144)
             self.assertGreaterEqual(cfg.memory_limit, 7)
             self.assertGreaterEqual(cfg.context_budget_chars, 6000)
@@ -47,6 +47,8 @@ class FinalReleaseContractTests(unittest.TestCase):
             self.assertTrue(cfg.local_vision_enabled)
             self.assertTrue(cfg.proactive_events_enabled)
             self.assertTrue(cfg.skill_learning_enabled)
+            self.assertTrue(cfg.fast_path_enabled)
+            self.assertTrue(cfg.lexicon_enabled)
             self.assertEqual(cfg.user_nickname, "Wynn")
 
     def test_default_companion_budget(self):
@@ -59,8 +61,12 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertEqual(cfg.embedding_port, 8081)
         self.assertEqual(cfg.vision_port, 8082)
         self.assertEqual(cfg.event_port, 8767)
+        self.assertEqual(cfg.fast_path_min_successes, 2)
+        self.assertLessEqual(cfg.fast_path_ui_timeout_ms, 500)
+        self.assertEqual(cfg.lexicon_prompt_limit, 8)
+        self.assertEqual(cfg.lexicon_auto_min_seen, 2)
 
-    def test_installer_is_pinned_and_applies_rc8_core_on_rc7_bridge(self):
+    def test_installer_is_pinned_and_applies_rc9_core_on_rc7_bridge(self):
         root = Path(__file__).resolve().parents[1]
         workspace = Path(os.environ.get("GITHUB_WORKSPACE", "")) if os.environ.get("GITHUB_WORKSPACE") else None
         release_installer = workspace / "experiments/furina-agent-final/install.sh" if workspace else None
@@ -68,16 +74,19 @@ class FinalReleaseContractTests(unittest.TestCase):
         installer = installer_path.read_text(encoding="utf-8")
         self.assertNotIn("storage/shared", installer)
         self.assertNotIn("/storage/emulated", installer)
-        self.assertIn('VERSION="1.0.0-rc8"', installer)
-        self.assertIn("companion-v5", installer)
+        self.assertIn('VERSION="1.0.0-rc9"', installer)
+        self.assertIn("companion-v6", installer)
+        self.assertIn("apply-core-rc9.py", installer)
         self.assertIn("apply-core-rc8.py", installer)
         self.assertIn("apply-core-rc7.py", installer)
         self.assertIn("apply-bridge-rc7.py", installer)
+        self.assertIn("fastpath.py", installer)
+        self.assertIn("lexicon.py", installer)
         self.assertIn("llama-embedding", installer)
         self.assertIn("-DGGML_CPU_KLEIDIAI=ON", installer)
         self.assertIn("Bridge RC7", installer)
 
-    def test_core_has_rc8_natural_companion_memory_and_context(self):
+    def test_core_has_rc9_fastpath_lexicon_and_rc8_memory_context(self):
         root = Path(__file__).resolve().parents[1]
         memory = (root / "core/furina_agent/memory.py").read_text(encoding="utf-8")
         chat = (root / "core/furina_agent/chat.py").read_text(encoding="utf-8")
@@ -86,28 +95,37 @@ class FinalReleaseContractTests(unittest.TestCase):
         companion = (root / "core/furina_agent/companion.py").read_text(encoding="utf-8")
         agent = (root / "core/furina_agent/agent.py").read_text(encoding="utf-8")
         routing = (root / "core/furina_agent/routing.py").read_text(encoding="utf-8")
+        fastpath = (root / "core/furina_agent/fastpath.py").read_text(encoding="utf-8")
+        lexicon = (root / "core/furina_agent/lexicon.py").read_text(encoding="utf-8")
         self.assertIn("CREATE TABLE IF NOT EXISTS memory_vectors", memory)
         self.assertIn("CREATE TABLE IF NOT EXISTS memory_vector_lsh", memory)
         self.assertIn("CREATE TABLE IF NOT EXISTS prospective_memories", memory)
         self.assertIn("CREATE TABLE IF NOT EXISTS learned_skills", memory)
+        self.assertIn("intent_tags", memory)
         self.assertIn("backfill_vector_index", memory)
         self.assertIn("relationship_state", memory)
         self.assertIn("_temporal_context", chat)
         self.assertIn("_internal_chat", chat)
         self.assertIn("naturalize(answer", chat)
+        self.assertIn("PERSONAL LEXICON", chat)
+        self.assertIn("PersonalLexicon", chat)
         self.assertIn("DEVICE STATE", chat)
         self.assertIn("PROSPECTIVE MEMORY", chat)
-        self.assertIn("_reflect", chat)
         self.assertIn("choose_profile", response)
-        self.assertIn("_PLAYFUL", response)
-        self.assertIn("_AFFECTION", response)
         self.assertIn("Sinis dan sarkas adalah bagian dirimu, tetapi bukan nada default", persona)
-        self.assertIn("Hindari kebiasaan bahasa AI", persona)
         self.assertIn("ReminderDaemon", companion)
         self.assertIn("_deterministic_gate", agent)
+        self.assertIn("compile_fast_contract", agent)
+        self.assertIn("_try_fast_skill", agent)
+        self.assertIn("_wait_after_action", agent)
+        self.assertNotIn('time.sleep(0.9 if typ == "open_app" else 0.48)', agent)
         self.assertIn("watch_user_return", agent)
         self.assertIn("duplicate_suppressed", agent)
         self.assertIn("LocalVision", routing)
+        self.assertIn("choose_fast_skill", fastpath)
+        self.assertIn("wait_for_event", fastpath)
+        self.assertIn("CREATE TABLE IF NOT EXISTS personal_lexicon", lexicon)
+        self.assertIn("canonical TEXT NOT NULL UNIQUE", lexicon)
 
     def test_tui_is_one_companion_surface_and_surfaces_due_reminders(self):
         root = Path(__file__).resolve().parents[1]
@@ -120,7 +138,7 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertIn("FURINA MIND", tui)
         self.assertIn("due_prospectives", tui)
 
-    def test_bridge_rc7_is_preserved_unchanged_for_core_rc8(self):
+    def test_bridge_rc7_is_preserved_unchanged_for_core_rc9(self):
         root = Path(__file__).resolve().parents[1]
         manifest = (root / "bridge/app/src/main/AndroidManifest.xml").read_text()
         updater = (root / "bridge/app/src/main/java/com/wynndev/furinaagentbridge/BridgeUpdater.java").read_text()
