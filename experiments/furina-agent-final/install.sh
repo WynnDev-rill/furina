@@ -39,6 +39,8 @@ CORE_RC11_TRANSFORM_URL="$BASE/overrides/apply-core-rc11.py"
 CORE_RC11_TRANSFORM_BLOB="d51cf9db71da074e7f03397ce7ae6f4b5edd7add"
 UI_RC12_TRANSFORM_URL="$BASE/overrides/apply-ui-rc12.py"
 UI_RC12_TRANSFORM_BLOB="07d10d060f1e0e3e7b299e57661f2967ae7986d2"
+UI_RC12_POSTFIX_URL="$BASE/overrides/apply-ui-rc12-postfix.py"
+UI_RC12_POSTFIX_BLOB="965ecc146715dc5daa2ec702cf37ca6749654df6"
 LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"
 
 MODEL_REV="e9cf779"
@@ -145,11 +147,21 @@ run_quiet() {
 
 ui_title
 
-if [[ "$MODE" == "install" ]]; then
-  run_quiet "Menyiapkan Termux" 8 env DEBIAN_FRONTEND=noninteractive pkg update -y
-fi
-run_quiet "Menyiapkan runtime Furina" 18 env DEBIAN_FRONTEND=noninteractive pkg install -y python python-pip git cmake ninja clang make curl ccache util-linux termux-tools patch gum
-run_quiet "Menyiapkan tampilan" 22 python -m pip install --quiet 'rich>=13.9,<15' 'textual==8.2.8'
+# Install/update is intentionally self-contained. Every required Termux and
+# Python dependency is reconciled automatically so a beginner does not need to
+# diagnose missing packages manually.
+run_quiet "Menyinkronkan Termux" 8 env DEBIAN_FRONTEND=noninteractive pkg update -y
+run_quiet "Memasang dependency Furina" 18 env DEBIAN_FRONTEND=noninteractive pkg install -y python python-pip git cmake ninja clang make curl ccache coreutils tar gzip util-linux termux-tools patch gum
+run_quiet "Menyiapkan dependency Python" 22 python -m pip install --quiet --upgrade 'rich>=13.9,<15' 'textual==8.2.8'
+
+verify_dependencies() {
+  local cmd
+  for cmd in python git cmake ninja clang make curl sha256sum tar gzip patch gum; do
+    command -v "$cmd" >/dev/null 2>&1 || { echo "Dependency wajib tidak ditemukan: $cmd" >&2; return 1; }
+  done
+  python -c 'import rich, textual; assert textual.__version__ == "8.2.8"'
+}
+run_quiet "Memeriksa dependency" 24 verify_dependencies
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -245,7 +257,8 @@ PY
     "$UI_RC10_TRANSFORM_URL|$UI_RC10_TRANSFORM_BLOB|apply-ui-rc10.py" \
     "$UI_RC10_HOTFIX_URL|$UI_RC10_HOTFIX_BLOB|apply-ui-rc10-hotfix.py" \
     "$CORE_RC11_TRANSFORM_URL|$CORE_RC11_TRANSFORM_BLOB|apply-core-rc11.py" \
-    "$UI_RC12_TRANSFORM_URL|$UI_RC12_TRANSFORM_BLOB|apply-ui-rc12.py"; do
+    "$UI_RC12_TRANSFORM_URL|$UI_RC12_TRANSFORM_BLOB|apply-ui-rc12.py" \
+    "$UI_RC12_POSTFIX_URL|$UI_RC12_POSTFIX_BLOB|apply-ui-rc12-postfix.py"; do
     IFS='|' read -r url blob name <<< "$spec"
     curl -fsSL --retry 3 "$url" -o "$TMP/$name"
     verify_git_blob "$TMP/$name" "$blob"
@@ -279,9 +292,15 @@ PY
   grep -q 'waitForExactText' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
   grep -q 'versionCode 10007' "$SRC/bridge/app/build.gradle"
 
+  # Validate the entire staged Core before replacing the active installation.
+  # Syntax/import failures therefore leave the previous Core untouched.
+  PYTHONPATH="$SRC/core" python -m compileall -q "$SRC/core/furina_agent"
+  PYTHONPATH="$SRC/core" python -c 'import rich, textual, furina_agent.tui; from furina_agent.chat_surface import run_chat_surface; from furina_agent.tool_runtime import AgentToolRuntime'
+
   rm -rf "$ROOT/core.new"
   mkdir -p "$ROOT/core.new"
   cp -R "$SRC/core/furina_agent" "$ROOT/core.new/"
+  PYTHONPATH="$ROOT/core.new" python -m compileall -q "$ROOT/core.new/furina_agent"
   if [[ -d "$ROOT/core" ]]; then
     rm -rf "$ROOT/core.prev"
     mv "$ROOT/core" "$ROOT/core.prev"

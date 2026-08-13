@@ -4,7 +4,21 @@ Furina Agent runs its AI core in Termux and uses a small Android Bridge APK for 
 
 ## First install
 
-Install/open Furina Bridge, enable Persistent Bridge + Accessibility, then run the one-line installer published in the experiment branch. No ZIP needs to be copied to internal storage and no pairing code is required.
+Install/open Furina Bridge and enable Persistent Bridge + Accessibility. For a fresh Termux, run this single line:
+
+```bash
+pkg update -y && pkg install -y curl && curl -fsSL https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final/install.sh | bash
+```
+
+That one command bootstraps `curl`, then the Furina installer automatically reconciles all required Termux packages and Python dependencies, installs the Core, validates it before activation, and keeps the model/data directories separate. No ZIP needs to be copied to internal storage and no pairing code is required.
+
+If Furina is already installed, normal maintenance remains:
+
+```bash
+furina update
+```
+
+The updater uses the same dependency bootstrap and staged validation, so a missing package is repaired automatically and an invalid new Core is rejected before it can replace the currently installed Core.
 
 After setup, daily use is simply:
 
@@ -12,10 +26,9 @@ After setup, daily use is simply:
 furina
 ```
 
-Maintenance:
+Other maintenance commands:
 
 ```bash
-furina update
 furina doctor
 furina repair
 furina optimize
