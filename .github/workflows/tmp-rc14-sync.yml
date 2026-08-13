@@ -4,63 +4,92 @@ on:
     branches: [feature/furina-unbounded-chat-input-rc14]
     paths: ['.github/workflows/tmp-rc14-sync.yml']
 permissions:
-  contents: write
+  contents: read
 jobs:
-  sync:
+  validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           ref: feature/furina-unbounded-chat-input-rc14
-      - name: Wire RC14 installer and manifest
+      - name: Reassemble and validate RC14
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import json, subprocess
-
-          meta = Path('experiments/furina-agent-final')
-          transform = meta / 'overrides/apply-core-rc14.py'
-          blob = subprocess.check_output(['git','hash-object',str(transform)], text=True).strip()
-
-          p = meta / 'install.sh'
-          s = p.read_text(encoding='utf-8')
-          s = s.replace('VERSION="1.0.0-rc13"', 'VERSION="1.0.0-rc14"', 1)
-          anchor = 'BRIDGE_RC8_TRANSFORM_BLOB="8102238998611c9cec6a42c1df9ab56191b0067b"\n'
-          if 'CORE_RC14_TRANSFORM_URL=' not in s:
-              assert anchor in s
-              s = s.replace(anchor, anchor + 'CORE_RC14_TRANSFORM_URL="$BASE/overrides/apply-core-rc14.py"\nCORE_RC14_TRANSFORM_BLOB="' + blob + '"\n', 1)
-          loop = '    "$BRIDGE_RC8_TRANSFORM_URL|$BRIDGE_RC8_TRANSFORM_BLOB|apply-bridge-rc8.py"; do\n'
-          assert loop in s
-          s = s.replace(loop, '    "$BRIDGE_RC8_TRANSFORM_URL|$BRIDGE_RC8_TRANSFORM_BLOB|apply-bridge-rc8.py" \\\n    "$CORE_RC14_TRANSFORM_URL|$CORE_RC14_TRANSFORM_BLOB|apply-core-rc14.py"; do\n', 1)
-          assert 'direct_control.py version.py tui.py; do' in s
-          s = s.replace('direct_control.py version.py tui.py; do', 'direct_control.py long_input.py version.py tui.py; do', 1)
-          assert 'grep -q \'VERSION = "1.0.0-rc13"\'' in s
-          s = s.replace('grep -q \'VERSION = "1.0.0-rc13"\'', 'grep -q \'VERSION = "1.0.0-rc14"\'', 1)
-          assert 'run_quiet "Memasang Furina Core RC13" 44 prepare_core' in s
-          s = s.replace('run_quiet "Memasang Furina Core RC13" 44 prepare_core', 'run_quiet "Memasang Furina Core RC14" 44 prepare_core', 1)
-          assert 'RC13 sudah terpasang. Jalankan:' in s
-          s = s.replace('RC13 sudah terpasang. Jalankan:', 'RC14 sudah terpasang. Jalankan:', 1)
-          p.write_text(s, encoding='utf-8')
-
-          manifest_path = meta / 'manifest.json'
-          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-          manifest['version'] = '1.0.0-rc14'
-          manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+          META=experiments/furina-agent-final
+          ARCHIVE=/tmp/furina-agent-final.tar.gz
+          : > "$ARCHIVE"
+          for chunk in "$META"/source-*.b64; do base64 --decode "$chunk" >> "$ARCHIVE"; done
+          rm -rf /tmp/furina-agent-src && mkdir -p /tmp/furina-agent-src
+          tar -xzf "$ARCHIVE" -C /tmp/furina-agent-src
+          ROOT=/tmp/furina-agent-src/termux
+          patch -p0 -d /tmp/furina-agent-src < "$META/patches/api30-inputstream.patch"
+          patch -p0 -d /tmp/furina-agent-src < "$META/patches/runtime-online-agent.patch"
+          python3 "$META/overrides/apply-bridge-primitives-rc5.py" "$ROOT"
+          python3 - "$META/overrides" "$ROOT" <<'PY'
+          import hashlib,json,pathlib,sys
+          src=pathlib.Path(sys.argv[1]).resolve(); dst=pathlib.Path(sys.argv[2]).resolve()
+          manifest=json.loads((src/'manifest.json').read_text(encoding='utf-8'))
+          def sha(data): return hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()
+          for item in manifest['files']:
+              data=(src/item['path']).read_bytes(); assert sha(data)==item['git_blob_sha'], item['path']
+              target=(dst/item['target']).resolve(); target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(data)
           PY
-          bash -n experiments/furina-agent-final/install.sh
-          grep -q 'CORE_RC14_TRANSFORM_URL=' experiments/furina-agent-final/install.sh
-          grep -q 'apply-core-rc14.py' experiments/furina-agent-final/install.sh
-          grep -q 'VERSION = "1.0.0-rc14"' experiments/furina-agent-final/install.sh
+          for f in apply-bridge-rc4.py apply-universal-agent-rc5.py apply-core-rc6.py apply-core-rc6-postfix.py apply-bridge-rc6.py apply-core-rc7.py apply-bridge-rc7.py apply-core-rc8.py apply-core-rc8-postfix.py apply-core-rc9.py apply-ui-rc10.py apply-ui-rc10-hotfix.py apply-core-rc11.py apply-ui-rc12.py apply-ui-rc12-postfix.py apply-core-rc13.py apply-bridge-rc8.py apply-core-rc14.py; do
+            python3 "$META/overrides/$f" "$ROOT"
+          done
+          python3 -m compileall -q "$ROOT/core/furina_agent"
+          python3 -m pip install -q 'rich>=13.9,<15' 'textual==8.2.8'
+          PYTHONPATH="$ROOT/core" python3 - <<'PY'
+          import tempfile
+          from pathlib import Path
+          from textual.widgets import Input
+          from furina_agent.long_input import prepare_long_message, router_view, history_view
+          from furina_agent.memory import MemoryStore
+          import furina_agent.chat_surface
+
+          composer = Input(max_length=0)
+          assert composer.max_length == 0
+          huge_value = 'z' * 200000
+          composer.value = huge_value
+          assert composer.value == huge_value
+
+          class Cfg:
+              routing_mode='local'
+              context_size=4096
+          class LLM:
+              def __init__(self): self.calls=[]
+              def chat(self,messages,**kwargs):
+                  self.calls.append(messages[-1]['content'])
+                  return 'note-' + str(len(self.calls))
+
+          raw='START-EXACT\n' + ('abcdef0123456789 detail penting 42 jangan hapus\n' * 5000) + 'END-EXACT'
+          llm=LLM()
+          prepared=prepare_long_message(raw,Cfg(),llm)
+          assert prepared.chunked
+          assert prepared.chunks > 10
+          assert len(llm.calls) >= prepared.chunks
+          assert 'START-EXACT' in prepared.model_text
+          assert 'END-EXACT' in prepared.model_text
+          assert len(router_view(raw)) < len(raw)
+          assert len(history_view(raw)) < len(raw)
+          with tempfile.TemporaryDirectory() as td:
+              store=MemoryStore(Path(td)/'furina.db')
+              store.add_message('user',raw)
+              saved=store.recent_messages(1)[0]['content']
+              assert saved == raw
+              assert len(saved) == len(raw)
+          print('RC14_UNBOUNDED_CHAT_OK', len(raw), prepared.chunks, len(llm.calls))
+          PY
+          grep -q 'VERSION = "1.0.0-rc14"' "$ROOT/core/furina_agent/version.py"
+          grep -q 'max_length=0' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q 'prepare_long_message' "$ROOT/core/furina_agent/chat.py"
+          grep -q 'router_view(text)' "$ROOT/core/furina_agent/companion.py"
+          test -f "$ROOT/core/furina_agent/long_input.py"
+          grep -q 'CORE_RC14_TRANSFORM_BLOB="0ea2e649eb990f7662ef6b51653d8e776ceef3b5"' "$META/install.sh"
+          grep -q 'apply-core-rc14.py' "$META/install.sh"
           test "$(python3 -c 'import json; print(json.load(open("experiments/furina-agent-final/manifest.json"))["version"])')" = "1.0.0-rc14"
+          bash -n "$META/install.sh"
           git diff --check
-      - name: Commit installer metadata
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "Wynn Dev"
-          git config user.email "indonesiafilmku@gmail.com"
-          git add experiments/furina-agent-final/install.sh experiments/furina-agent-final/manifest.json
-          git commit -m "wire RC14 unbounded chat into installer"
-          git push origin HEAD:feature/furina-unbounded-chat-input-rc14
+          echo RC14_VALIDATION_OK
