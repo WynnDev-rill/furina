@@ -5,6 +5,7 @@ on:
     branches:
       - experiment/furina-agent-termux
       - feature/furina-rc12-unified-tui
+      - fix/furina-update-bootstrap-and-transaction
     paths:
       - 'experiments/furina-agent-final/**'
       - '.github/workflows/rc11-unified-ui-smoke.yml'
@@ -40,13 +41,16 @@ jobs:
               data=(src/item['path']).read_bytes(); assert sha(data)==item['git_blob_sha'], item['path']
               target=(dst/item['target']).resolve(); target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(data)
           PY
-          for f in apply-bridge-rc4.py apply-universal-agent-rc5.py apply-core-rc6.py apply-core-rc6-postfix.py apply-bridge-rc6.py apply-core-rc7.py apply-bridge-rc7.py apply-core-rc8.py apply-core-rc8-postfix.py apply-core-rc9.py apply-ui-rc10.py apply-ui-rc10-hotfix.py apply-core-rc11.py apply-ui-rc12.py; do
+          for f in apply-bridge-rc4.py apply-universal-agent-rc5.py apply-core-rc6.py apply-core-rc6-postfix.py apply-bridge-rc6.py apply-core-rc7.py apply-bridge-rc7.py apply-core-rc8.py apply-core-rc8-postfix.py apply-core-rc9.py apply-ui-rc10.py apply-ui-rc10-hotfix.py apply-core-rc11.py apply-ui-rc12.py apply-ui-rc12-postfix.py; do
             python3 "$META/overrides/$f" "$ROOT"
           done
+          python3 -m compileall -q "$ROOT/core/furina_agent"
           python3 -m pip install -q 'rich>=13.9,<15' 'textual==8.2.8'
+          PYTHONPATH="$ROOT/core" python3 -c 'import furina_agent.tui; from furina_agent.chat_surface import run_chat_surface; from furina_agent.tool_runtime import AgentToolRuntime'
           PYTHONPATH="$ROOT/core" python3 "$META/overrides/tests/smoke_chat_surface.py"
 
           grep -q 'VERSION = "1.0.0-rc11"' "$ROOT/core/furina_agent/version.py"
+          test "$(grep -c '^def _main_menu(console) -> str:$' "$ROOT/core/furina_agent/tui.py")" = 1
           grep -q 'ChatApp().run(mouse=False)' "$ROOT/core/furina_agent/chat_surface.py"
           grep -q 'height: 1;' "$ROOT/core/furina_agent/chat_surface.py"
           grep -q 'padding: 1 2 0 2;' "$ROOT/core/furina_agent/chat_surface.py"
@@ -57,5 +61,9 @@ jobs:
           grep -q 'CYAN = "#9efce7"' "$ROOT/core/furina_agent/tui.py"
           grep -q '"--cursor", " › "' "$ROOT/core/furina_agent/tui.py"
           grep -q '\["Chat", "Memory", "Provider", "Settings", "System", "Update", "Exit"\]' "$ROOT/core/furina_agent/tui.py"
+          grep -q 'apply-ui-rc12-postfix.py' "$META/install.sh"
+          grep -q 'verify_dependencies()' "$META/install.sh"
+          grep -q 'coreutils tar gzip' "$META/install.sh"
+          grep -q 'PYTHONPATH="$SRC/core" python -m compileall' "$META/install.sh"
           bash -n "$META/install.sh"
           echo RC11_UNIFIED_TERMUX_UI_OK
