@@ -111,19 +111,19 @@ def _call_notes(llm, body: str, *, reducing: bool = False) -> str:
             or ""
         ).strip()
     except Exception:
-        # Failure of a helper pass must never reject the user's message. Keep a
-        # deterministic exact view of this chunk and let the final chat continue.
+        # A helper pass may fail, but the user's message itself must never be
+        # rejected because of that. Preserve exact edges of this source chunk.
         if len(body) <= 2800:
             return body
         return body[:1400] + "\n…[catatan fallback]…\n" + body[-1400:]
 
 
 def prepare_long_message(text: str, cfg, llm) -> PreparedLongMessage:
-    """Accept arbitrarily large chat text and adapt it to finite model context.
+    """Accept arbitrary-length chat text and adapt it to finite model context.
 
-    The full original is stored by MemoryStore. Only the transient inference
-    view is compacted when a backend cannot reasonably fit the whole message in
-    one context window. Every source chunk is read before the final answer.
+    The complete original stays in MemoryStore. Only the transient inference
+    view is compacted when the active backend cannot reasonably fit the entire
+    message in one context window. Every original source chunk is inspected.
     """
     value = str(text or "")
     mode = str(getattr(cfg, "routing_mode", "local") or "local").lower()
@@ -139,8 +139,8 @@ def prepare_long_message(text: str, cfg, llm) -> PreparedLongMessage:
     for index, part in enumerate(parts, 1):
         notes.append(_call_notes(llm, f"Bagian {index}/{total}:\n{part}"))
 
-    # Recursively reduce only the notes, never the original source. This keeps
-    # huge inputs scalable while each original chunk is still inspected once.
+    # Recursively reduce only notes, never the original source. This scales to
+    # very large pastes without silently dropping source chunks.
     target_notes = max(2600, min(5200, int(context * 0.72)))
     rounds = 0
     while len("\n\n".join(notes)) > target_notes and len(notes) > 1 and rounds < 6:
@@ -163,7 +163,6 @@ def prepare_long_message(text: str, cfg, llm) -> PreparedLongMessage:
         notes = reduced
 
     digest = "\n\n".join(notes)
-    # Preserve exact framing at both ends in addition to the all-chunk notes.
     head = value[:1000]
     tail = value[-1600:] if len(value) > 1600 else value
     model_text = (
@@ -178,8 +177,8 @@ def prepare_long_message(text: str, cfg, llm) -> PreparedLongMessage:
 '''
     (core / "long_input.py").write_text(long_input, encoding="utf-8")
 
-    # Chat keeps the full user message in SQLite, but uses a context-adaptive
-    # inference view only when the backend's finite context requires it.
+    # Full user text is persisted. Only the inference copy becomes compact when
+    # finite model context makes that necessary.
     c = chat.read_text(encoding="utf-8")
     c = replace_once(
         c,
@@ -207,14 +206,18 @@ def prepare_long_message(text: str, cfg, llm) -> PreparedLongMessage:
     )
     c = replace_once(
         c,
-        '''        profile = choose_profile(user_text, self.store)
+        '''        for reminder_text, due_at in extract_prospectives(user_text):
+            self.store.add_prospective(reminder_text, due_at, source="explicit")
+        profile = choose_profile(user_text, self.store)
         messages = self._messages(user_text, profile)
         self.store.add_message("user", user_text)
 ''',
-        '''        profile = choose_profile(user_text, self.store)
-        self.store.add_message("user", user_text)
+        '''        for reminder_text, due_at in extract_prospectives(user_text):
+            self.store.add_prospective(reminder_text, due_at, source="explicit")
+        profile = choose_profile(user_text, self.store)
         prepared = prepare_long_message(user_text, self.cfg, self.llm)
         messages = self._messages(prepared.model_text, profile)
+        self.store.add_message("user", user_text)
 ''',
         "prepare unbounded input",
     )
@@ -226,9 +229,8 @@ def prepare_long_message(text: str, cfg, llm) -> PreparedLongMessage:
     )
     chat.write_text(c, encoding="utf-8")
 
-    # Intent routing must not be the place where a huge chat message overflows.
-    # Only the router sees the compact edge view; a device goal keeps the full
-    # original command if it is classified as device work.
+    # Intent classification gets a bounded view so the router cannot overflow.
+    # If it is a device command, execution still receives the complete original.
     co = companion.read_text(encoding="utf-8")
     co = replace_once(
         co,
@@ -264,8 +266,8 @@ def prepare_long_message(text: str, cfg, llm) -> PreparedLongMessage:
     )
     companion.write_text(co, encoding="utf-8")
 
-    # Textual Input uses 0 as no maximum length. Make that contract explicit so
-    # future UI changes cannot silently reintroduce a composer character cap.
+    # Textual defines max_length=0 as no maximum. State that explicitly rather
+    # than relying on the library default so a future UI edit cannot add a cap.
     s = chat_surface.read_text(encoding="utf-8")
     s = replace_once(
         s,
@@ -290,7 +292,7 @@ def prepare_long_message(text: str, cfg, llm) -> PreparedLongMessage:
         (companion, "router_view(text)"),
         (companion, 'goal = text if mode == "device"'),
         (version, 'VERSION = "1.0.0-rc14"'),
-        (core / "long_input.py", "Every source chunk" if False else "Every source chunk"),
+        (core / "long_input.py", "Every original source chunk is inspected"),
     ]
     missing = [needle for path, needle in required if needle not in path.read_text(encoding="utf-8")]
     if missing:
