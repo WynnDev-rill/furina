@@ -1,5 +1,5 @@
 {
-  "revision": "companion-v5",
+  "revision": "companion-v6",
   "files": [
     {"path": "core/furina_agent/agent.py", "target": "core/furina_agent/agent.py", "git_blob_sha": "115fca0819c7977172d3df402a6d8367c6dba1f4"},
     {"path": "core/furina_agent/bridge.py", "target": "core/furina_agent/bridge.py", "git_blob_sha": "f8bbdff38d4336f65e7beca5a14cc6f3d1a63dab"},
@@ -9,6 +9,8 @@
     {"path": "core/furina_agent/device_context.py", "target": "core/furina_agent/device_context.py", "git_blob_sha": "8775c4e112cb94914bfd7bb8eef93e110978f2bb"},
     {"path": "core/furina_agent/embeddings.py", "target": "core/furina_agent/embeddings.py", "git_blob_sha": "61f0a542e40d116781325c458a5d7b235a4ee28c"},
     {"path": "core/furina_agent/events.py", "target": "core/furina_agent/events.py", "git_blob_sha": "eacc1b1b69a1f7d4a2656236298c49be5e96a5a0"},
+    {"path": "core/furina_agent/fastpath.py", "target": "core/furina_agent/fastpath.py", "git_blob_sha": "43886a7a3a08467e86a8ed3727d7baeeb7e51ea8"},
+    {"path": "core/furina_agent/lexicon.py", "target": "core/furina_agent/lexicon.py", "git_blob_sha": "ff84f15d82d3cdfaa11aa5c96256356ac2ac7bcf"},
     {"path": "core/furina_agent/llm.py", "target": "core/furina_agent/llm.py", "git_blob_sha": "b57f0812151f9d86b74c5d0613bf7e23d9ea18e0"},
     {"path": "core/furina_agent/local_vision.py", "target": "core/furina_agent/local_vision.py", "git_blob_sha": "66a2fdd942e14c5c46f2f4192b8a4a370e7fd555"},
     {"path": "core/furina_agent/memory.py", "target": "core/furina_agent/memory.py", "git_blob_sha": "c143516c10b7dd8eec9a52d6341e2481e3fc8f05"},
