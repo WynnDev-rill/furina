@@ -30,6 +30,12 @@ def main() -> None:
         if not p.is_file():
             raise SystemExit(f"missing Bridge RC8 source: {p}")
 
+    gradle_props = root / "gradle.properties"
+    props = gradle_props.read_text(encoding="utf-8") if gradle_props.exists() else ""
+    if not any(line.strip() == "android.useAndroidX=true" for line in props.splitlines()):
+        props = props.rstrip() + "\nandroid.useAndroidX=true\n"
+        gradle_props.write_text(props, encoding="utf-8")
+
     # Shizuku's current design prefers a persistent Binder UserService over
     # spawning a remote shell process for every action.
     g = gradle.read_text(encoding="utf-8")
