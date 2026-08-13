@@ -22,6 +22,11 @@
       "git_blob_sha": "528e671034db75e277d3311e19b5a676abdc6e2c"
     },
     {
+      "path": "core/furina_agent/cognition.py",
+      "target": "core/furina_agent/cognition.py",
+      "git_blob_sha": "c96d79501c2befb65ef2e0a7424415c638d7ee8a"
+    },
+    {
       "path": "core/furina_agent/companion.py",
       "target": "core/furina_agent/companion.py",
       "git_blob_sha": "5fe68fa5ef76ecd1aa68c3e67b64869e4477d981"
@@ -72,6 +77,11 @@
       "git_blob_sha": "c143516c10b7dd8eec9a52d6341e2481e3fc8f05"
     },
     {
+      "path": "core/furina_agent/mind_v2.py",
+      "target": "core/furina_agent/mind_v2.py",
+      "git_blob_sha": "05f5a5a6d5700c449f03535ec658363351e3c560"
+    },
+    {
       "path": "core/furina_agent/naturalness.py",
       "target": "core/furina_agent/naturalness.py",
       "git_blob_sha": "ef51575c9ebcda5dc220782f602f723efa4b7fbe"
@@ -104,7 +114,7 @@
     {
       "path": "core/furina_agent/tool_runtime.py",
       "target": "core/furina_agent/tool_runtime.py",
-      "git_blob_sha": "5a8947c8460bfad58f64d0db63f07b67780cc715"
+      "git_blob_sha": "53b1eb3a658a9886e598b1cb18f0665e2ee5ef10"
     },
     {
       "path": "core/furina_agent/tui.py",

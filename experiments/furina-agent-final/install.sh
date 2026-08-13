@@ -1,14 +1,14 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-VERSION="1.0.0-rc16"
+VERSION="1.0.0-rc17"
 ROOT="$HOME/.furina-agent"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 MANIFEST_URL="$BASE/manifest.json"
 RUNTIME_PATCH_URL="$BASE/patches/runtime-online-agent.patch"
 RUNTIME_PATCH_SHA256="bef40bd02af2eb9714f1197337a0f1a5f3ad5fa9ff1e71adfa073141c3756549"
 OVERRIDE_MANIFEST_URL="$BASE/overrides/manifest.json"
-OVERRIDE_MANIFEST_BLOB="8dfb9a3c42665184c7b99a13ad60dcb95aa2851c"
+OVERRIDE_MANIFEST_BLOB="9dc4fedbdebc36de406bac7618783f12d7a36a96"
 PRIMITIVE_TRANSFORM_URL="$BASE/overrides/apply-bridge-primitives-rc5.py"
 PRIMITIVE_TRANSFORM_BLOB="2f90a928d0808f23889750fe2a09f8d8689c5ad5"
 BRIDGE_TRANSFORM_URL="$BASE/overrides/apply-bridge-rc4.py"
@@ -51,6 +51,8 @@ CORE_RC15_TRANSFORM_URL="$BASE/overrides/apply-core-rc15.py"
 CORE_RC15_TRANSFORM_BLOB="95da7480859e8ccdef8f7e7c6dfeafa06bed4b1d"
 CORE_RC16_TRANSFORM_URL="$BASE/overrides/apply-core-rc16.py"
 CORE_RC16_TRANSFORM_BLOB="5d779d1d6adf2438c9a3c5bf2ead5f64402e703e"
+CORE_RC17_TRANSFORM_URL="$BASE/overrides/apply-core-rc17.py"
+CORE_RC17_TRANSFORM_BLOB="ffadcffc83df3786b670894b8307bd760a5c0b4d"
 LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"
 
 MODEL_REV="e9cf779"
@@ -273,7 +275,8 @@ PY
     "$BRIDGE_RC8_TRANSFORM_URL|$BRIDGE_RC8_TRANSFORM_BLOB|apply-bridge-rc8.py" \
     "$CORE_RC14_TRANSFORM_URL|$CORE_RC14_TRANSFORM_BLOB|apply-core-rc14.py" \
     "$CORE_RC15_TRANSFORM_URL|$CORE_RC15_TRANSFORM_BLOB|apply-core-rc15.py" \
-    "$CORE_RC16_TRANSFORM_URL|$CORE_RC16_TRANSFORM_BLOB|apply-core-rc16.py"; do
+    "$CORE_RC16_TRANSFORM_URL|$CORE_RC16_TRANSFORM_BLOB|apply-core-rc16.py" \
+    "$CORE_RC17_TRANSFORM_URL|$CORE_RC17_TRANSFORM_BLOB|apply-core-rc17.py"; do
     IFS='|' read -r url blob name <<< "$spec"
     curl -fsSL --retry 3 "$url" -o "$TMP/$name"
     verify_git_blob "$TMP/$name" "$blob"
@@ -282,13 +285,19 @@ PY
 
   SRC="$TMP/src/termux"
   test -f "$SRC/core/furina_agent/cli.py"
-  for file in memory.py response.py vision.py embeddings.py local_vision.py events.py naturalness.py prospective.py device_context.py fastpath.py lexicon.py chat_surface.py tool_runtime.py direct_control.py long_input.py paste_input.py version.py tui.py; do
+  for file in memory.py response.py vision.py embeddings.py local_vision.py events.py naturalness.py prospective.py device_context.py fastpath.py lexicon.py chat_surface.py tool_runtime.py direct_control.py long_input.py paste_input.py mind_v2.py cognition.py version.py tui.py; do
     test -f "$SRC/core/furina_agent/$file"
   done
-  grep -q 'VERSION = "1.0.0-rc16"' "$SRC/core/furina_agent/version.py"
+  grep -q 'VERSION = "1.0.0-rc17"' "$SRC/core/furina_agent/version.py"
   grep -q 'event.prevent_default()' "$SRC/core/furina_agent/paste_input.py"
   grep -q 'select_on_focus=False' "$SRC/core/furina_agent/chat_surface.py"
-  grep -q 'config_revision: int = 10' "$SRC/core/furina_agent/config.py"
+  grep -q 'config_revision: int = 11' "$SRC/core/furina_agent/config.py"
+  grep -q 'cognition_online_preferred: bool = True' "$SRC/core/furina_agent/config.py"
+  grep -q 'mind_user_weight: float = 0.30' "$SRC/core/furina_agent/config.py"
+  grep -q 'class FurinaMind' "$SRC/core/furina_agent/mind_v2.py"
+  grep -q 'class CognitionRouter' "$SRC/core/furina_agent/cognition.py"
+  grep -q 'FURINA LEARNED SELF' "$SRC/core/furina_agent/chat.py"
+  grep -q 'def capabilities(self)' "$SRC/core/furina_agent/tool_runtime.py"
   grep -q 'fast_path_enabled: bool = True' "$SRC/core/furina_agent/config.py"
   grep -q 'lexicon_enabled: bool = True' "$SRC/core/furina_agent/config.py"
   grep -q 'CREATE TABLE IF NOT EXISTS personal_lexicon' "$SRC/core/furina_agent/lexicon.py"
@@ -313,7 +322,7 @@ PY
   # Validate the entire staged Core before replacing the active installation.
   # Syntax/import failures therefore leave the previous Core untouched.
   PYTHONPATH="$SRC/core" python -m compileall -q "$SRC/core/furina_agent"
-  PYTHONPATH="$SRC/core" python -c 'import rich, textual, furina_agent.tui; from furina_agent.chat_surface import run_chat_surface; from furina_agent.tool_runtime import AgentToolRuntime'
+  PYTHONPATH="$SRC/core" python -c 'import rich, textual, furina_agent.tui; from furina_agent.chat_surface import run_chat_surface; from furina_agent.tool_runtime import AgentToolRuntime; from furina_agent.mind_v2 import FurinaMind; from furina_agent.cognition import CognitionRouter'
 
   rm -rf "$ROOT/core.new"
   mkdir -p "$ROOT/core.new"
@@ -337,7 +346,7 @@ EOF
   grep -Fqx "$LINE" "$HOME/.bashrc" 2>/dev/null || echo "$LINE" >> "$HOME/.bashrc"
 }
 
-run_quiet "Memasang Furina Core RC16" 44 prepare_core
+run_quiet "Memasang Furina Core RC17" 44 prepare_core
 
 prepare_llama() {
   LLAMA="$ROOT/llama.cpp"
@@ -425,7 +434,7 @@ run_quiet "Memeriksa Furina Bridge" 96 prepare_bridge
 
 verify_install() {
   PYTHONPATH="$ROOT/core" python -m compileall -q "$ROOT/core/furina_agent"
-  PYTHONPATH="$ROOT/core" python -c 'import textual; from furina_agent.chat_surface import run_chat_surface; from furina_agent.tool_runtime import AgentToolRuntime'
+  PYTHONPATH="$ROOT/core" python -c 'import textual; from furina_agent.chat_surface import run_chat_surface; from furina_agent.tool_runtime import AgentToolRuntime; from furina_agent.mind_v2 import FurinaMind; from furina_agent.cognition import CognitionRouter'
   furina status >/dev/null || true
   command -v gum >/dev/null
 }
@@ -436,6 +445,6 @@ ui_ok "Furina siap"
 if [[ "$MODE" == "install" ]]; then
   printf '\033[2mBuka dengan:\033[0m  \033[1;36mfurina\033[0m\n'
 else
-  printf '\033[2mRC16 sudah terpasang. Jalankan:\033[0m  \033[1;36mfurina\033[0m\n'
+  printf '\033[2mRC17 sudah terpasang. Jalankan:\033[0m  \033[1;36mfurina\033[0m\n'
 fi
 printf '\033[2mLog setup: %s\033[0m\n\n' "$LOG"
