@@ -16,7 +16,7 @@ RC21_BLOB="33f75d16d1734831a28e4daad987d94caabd59ef"
 RC22_URL="$BASE/overrides/apply-system-rc22.py"
 RC22_BLOB="828146920bfbceba759e1163ffce731e9ad65b05"
 RC22_SAFETY_URL="$BASE/overrides/apply-safety-rc22.py"
-RC22_SAFETY_BLOB="5f7ad35e704159387c1b1c064acf5a6f0888106d"
+RC22_SAFETY_BLOB="38237e878d206e831677e9d83980a436e7f3bc80"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
   echo "Installer ini harus dijalankan dari Termux." >&2
@@ -159,8 +159,6 @@ PY
 }
 run_quiet "Memvalidasi Core, UI, dan guard aksi" 78 validate_core
 
-# Always install the staged Core. This also applies idempotent RC22 safety
-# corrections when the semantic version is already RC22.
 rm -rf "$ROOT/core.prev"
 mv "$ROOT/core" "$ROOT/core.prev"
 mv "$TMP/stage/core" "$ROOT/core"
