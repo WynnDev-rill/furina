@@ -1,4 +1,5 @@
 name: Build Furina Agent RC19 + Bridge RC10
+# RC19 validation includes Java compilation of the event-driven Bridge executor.
 
 on:
   push:
