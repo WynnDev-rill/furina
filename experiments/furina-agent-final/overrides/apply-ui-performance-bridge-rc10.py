@@ -285,7 +285,7 @@ def main() -> None:
             long sequence = currentEventSeq();
             boolean ok;
             if ("open_app".equals(type)) {
-                ok = openApp(step) && waitFastPackage(step.optString("package", ""), step.optLong("timeout_ms", 1300L));
+                ok = openApp(step.optString("package", "")) && waitFastPackage(step.optString("package", ""), step.optLong("timeout_ms", 1300L));
             } else if ("tap_text".equals(type)) {
                 ok = tapTextFast(step);
             } else if ("set_text_best".equals(type)) {
