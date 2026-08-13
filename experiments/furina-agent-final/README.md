@@ -1,6 +1,6 @@
 # Furina Agent by Wynn — Final Candidate
 
-Furina Agent runs its AI core in Termux and uses a small Android Bridge APK for Accessibility/device control. It is isolated from the main Furina APK project.
+Furina Agent runs its AI core in Termux and uses a small Android Bridge APK for device control. It is isolated from the main Furina APK project.
 
 ## First install
 
@@ -36,20 +36,41 @@ furina optimize
 
 `furina optimize` benchmarks the actual local GGUF on the phone and selects a better CPU thread count. It is not run every startup.
 
-## Android control
+## Android control — RC13
 
-Furina does not require Termux:API for normal app control. The dedicated Furina Bridge already provides the installed-app list, `open_app`, Accessibility tree inspection, tap, swipe and text input directly through Android.
+RC13 uses a **direct-first** control path. Clear low-risk commands are executed by the Bridge before Furina spends time on an LLM planner. The full agent remains the fallback for ambiguous, multi-step, external or sensitive tasks.
 
-Natural Android tasks can therefore be given to the Agent, for example:
+Examples that can use the direct path include opening an installed app, Back/Home/Recents, simple scrolling, an unambiguous tap target, and text input into a clear editable field. Commands such as Send/Post/Share/Delete/Pay/Transfer/Login remain on the guarded full-agent path.
+
+The selected backend is configured under **Settings → Kontrol perangkat**. Runtime diagnostics stay in Settings and are not printed into the conversation.
+
+- **Normal** — default. Uses native Android intents where possible and Accessibility for UI actions. No Shizuku or root is required.
+- **Shizuku** — optional. Furina Bridge requests Shizuku permission only when the user selects this mode. A persistent Shizuku Binder UserService is reused for supported privileged primitives instead of starting a new remote process for every action.
+- **Root** — optional. Furina Bridge requests root only when this mode is selected and keeps an authorized root shell warm for supported fixed primitives.
+
+Shizuku/root do not expose an arbitrary remote shell through the Furina Core API. The privileged interface is restricted to explicit device-control primitives, with Accessibility/native control retained as fallback.
+
+Natural Android tasks can still be given to the Agent, for example:
 
 ```text
 buka YouTube dan cari MrBeast
 buka WhatsApp, cari Budi, tulis "aku pulang jam 8", lalu kirim
 ```
 
-The planner must verify the resulting screen after each state-changing action. For messaging apps it may prepare the recipient and message, but the final Send/Kirim action is treated as an external side effect and is confirmed again immediately before execution.
+Complex tasks may still require planning, but straightforward actions should begin without waiting for a planner round-trip. External side effects remain guarded.
 
-Termux:API can remain an optional future adapter for capabilities that the Bridge does not currently expose, such as selected sensors or Android system services. It is not a dependency for YouTube/WhatsApp navigation.
+## Reminders
+
+Reminder scheduling is owned by **Furina Bridge on Android**, not by a Termux background thread. Once a reminder has been scheduled successfully, closing Furina or Termux does not cancel it.
+
+Natural relative forms such as these are supported:
+
+```text
+ingatkan aku minum dalam 5 menit
+ingatkan aku minum 5 menit lagi
+```
+
+The Bridge persists pending reminders, schedules them with Android `AlarmManager`, and restores future alarms after reboot. On Android versions with Exact Alarm access, exact alarms are used; otherwise Android's allow-while-idle fallback is used and delivery may be less exact. Notification permission must remain enabled for Furina Bridge.
 
 ## Online provider diagnostics
 
@@ -64,4 +85,4 @@ The online routing hotfix keeps model metadata type-stable so providers that ret
 
 ## Safety
 
-Normal navigation/text input can be approved per task. External side effects such as Send/Post/Share are confirmed again immediately before execution. Payment, transfer, uninstall, destructive deletion, factory reset and security changes remain blocked from autonomous execution.
+Normal navigation/text input can be approved per task. External side effects such as Send/Post/Share remain on the guarded agent path. Payment, transfer, uninstall, destructive deletion, factory reset and security changes remain blocked from autonomous execution. Normal mode remains the default; Shizuku/root are opt-in and initiated from Settings rather than from conversation text.
