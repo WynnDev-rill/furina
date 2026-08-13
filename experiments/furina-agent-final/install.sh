@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-VERSION="1.0.0-rc11"
+VERSION="1.0.0-rc12"
 ROOT="$HOME/.furina-agent"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 MANIFEST_URL="$BASE/manifest.json"
@@ -37,6 +37,8 @@ UI_RC10_HOTFIX_URL="$BASE/overrides/apply-ui-rc10-hotfix.py"
 UI_RC10_HOTFIX_BLOB="5b6fdbf0115f63dfc849fba479ddfd86b25f1849"
 CORE_RC11_TRANSFORM_URL="$BASE/overrides/apply-core-rc11.py"
 CORE_RC11_TRANSFORM_BLOB="d51cf9db71da074e7f03397ce7ae6f4b5edd7add"
+UI_RC12_TRANSFORM_URL="$BASE/overrides/apply-ui-rc12.py"
+UI_RC12_TRANSFORM_BLOB="b0de5483c3c9381f3e5371f29438289e72cc7f2b"
 LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"
 
 MODEL_REV="e9cf779"
@@ -242,7 +244,8 @@ PY
     "$CORE_RC9_TRANSFORM_URL|$CORE_RC9_TRANSFORM_BLOB|apply-core-rc9.py" \
     "$UI_RC10_TRANSFORM_URL|$UI_RC10_TRANSFORM_BLOB|apply-ui-rc10.py" \
     "$UI_RC10_HOTFIX_URL|$UI_RC10_HOTFIX_BLOB|apply-ui-rc10-hotfix.py" \
-    "$CORE_RC11_TRANSFORM_URL|$CORE_RC11_TRANSFORM_BLOB|apply-core-rc11.py"; do
+    "$CORE_RC11_TRANSFORM_URL|$CORE_RC11_TRANSFORM_BLOB|apply-core-rc11.py" \
+    "$UI_RC12_TRANSFORM_URL|$UI_RC12_TRANSFORM_BLOB|apply-ui-rc12.py"; do
     IFS='|' read -r url blob name <<< "$spec"
     curl -fsSL --retry 3 "$url" -o "$TMP/$name"
     verify_git_blob "$TMP/$name" "$blob"
@@ -254,7 +257,7 @@ PY
   for file in memory.py response.py vision.py embeddings.py local_vision.py events.py naturalness.py prospective.py device_context.py fastpath.py lexicon.py chat_surface.py tool_runtime.py version.py tui.py; do
     test -f "$SRC/core/furina_agent/$file"
   done
-  grep -q 'VERSION = "1.0.0-rc11"' "$SRC/core/furina_agent/version.py"
+  grep -q 'VERSION = "1.0.0-rc12"' "$SRC/core/furina_agent/version.py"
   grep -q 'config_revision: int = 9' "$SRC/core/furina_agent/config.py"
   grep -q 'fast_path_enabled: bool = True' "$SRC/core/furina_agent/config.py"
   grep -q 'lexicon_enabled: bool = True' "$SRC/core/furina_agent/config.py"
@@ -297,7 +300,7 @@ EOF
   grep -Fqx "$LINE" "$HOME/.bashrc" 2>/dev/null || echo "$LINE" >> "$HOME/.bashrc"
 }
 
-run_quiet "Memasang Furina Core RC11" 44 prepare_core
+run_quiet "Memasang Furina Core RC12" 44 prepare_core
 
 prepare_llama() {
   LLAMA="$ROOT/llama.cpp"
