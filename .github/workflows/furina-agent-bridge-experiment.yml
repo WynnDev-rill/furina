@@ -1,11 +1,10 @@
-name: Build Furina Agent RC14 + Bridge RC8
+name: Build Furina Agent RC18 + Bridge RC9
 
 on:
   push:
     branches:
       - experiment/furina-agent-termux
-      - feature/furina-direct-device-control-rc13
-      - feature/furina-unbounded-chat-input-rc14
+      - agent/rc18-temporal-session-fix
     paths:
       - 'experiments/furina-agent-final/**'
       - '.github/workflows/furina-agent-bridge-experiment.yml'
@@ -15,7 +14,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: furina-agent-rc14-${{ github.ref }}
+  group: furina-agent-rc18-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -23,15 +22,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      TAG: furina-agent-v1.0.0-rc8
-      APK_NAME: Furina-Agent-Bridge-v1.0.0-rc8.apk
+      TAG: furina-agent-v1.0.0-rc9
+      APK_NAME: Furina-Agent-Bridge-v1.0.0-rc9.apk
       EXPECTED_SOURCE_SHA: 6b51c907c8a79ab6af06ef891b5013ce8ed964bdc168cf0e71751eacf4161fea
 
     steps:
       - name: Checkout experiment source
         uses: actions/checkout@v4
 
-      - name: Reassemble and layer Furina RC14
+      - name: Reassemble and layer Furina RC18
         shell: bash
         run: |
           set -euo pipefail
@@ -41,9 +40,9 @@ jobs:
           for chunk in "$META"/source-*.b64; do base64 --decode "$chunk" >> "$ARCHIVE"; done
           echo "$EXPECTED_SOURCE_SHA  $ARCHIVE" | sha256sum -c -
           test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["source_sha256"])')" = "$EXPECTED_SOURCE_SHA"
-          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["version"])')" = "1.0.0-rc14"
-          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["bridge_version"])')" = "1.0.0-rc8"
-          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["bridge_version_code"])')" = "10008"
+          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["version"])')" = "1.0.0-rc18"
+          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["bridge_version"])')" = "1.0.0-rc9"
+          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["bridge_version_code"])')" = "10009"
 
           rm -rf /tmp/furina-agent-src && mkdir -p /tmp/furina-agent-src
           tar -xzf "$ARCHIVE" -C /tmp/furina-agent-src
@@ -65,35 +64,52 @@ jobs:
               target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(data)
           PY
 
-          for f in apply-bridge-rc4.py apply-universal-agent-rc5.py apply-core-rc6.py apply-core-rc6-postfix.py apply-bridge-rc6.py apply-core-rc7.py apply-bridge-rc7.py apply-core-rc8.py apply-core-rc8-postfix.py apply-core-rc9.py apply-ui-rc10.py apply-ui-rc10-hotfix.py apply-core-rc11.py apply-ui-rc12.py apply-ui-rc12-postfix.py apply-core-rc13.py apply-bridge-rc8.py apply-core-rc14.py; do
+          for f in \
+            apply-bridge-rc4.py \
+            apply-universal-agent-rc5.py \
+            apply-core-rc6.py \
+            apply-core-rc6-postfix.py \
+            apply-bridge-rc6.py \
+            apply-core-rc7.py \
+            apply-bridge-rc7.py \
+            apply-core-rc8.py \
+            apply-core-rc8-postfix.py \
+            apply-core-rc9.py \
+            apply-ui-rc10.py \
+            apply-ui-rc10-hotfix.py \
+            apply-core-rc11.py \
+            apply-ui-rc12.py \
+            apply-ui-rc12-postfix.py \
+            apply-core-rc13.py \
+            apply-bridge-rc8.py \
+            apply-core-rc14.py \
+            apply-core-rc15.py \
+            apply-core-rc16.py \
+            apply-core-rc17-hotfix.py \
+            apply-bridge-rc9.py \
+            apply-core-rc18.py; do
             python3 "$META/overrides/$f" "$ROOT"
           done
 
           python3 -m compileall -q "$ROOT/core/furina_agent"
-          grep -q 'VERSION = "1.0.0-rc14"' "$ROOT/core/furina_agent/version.py"
-          grep -q 'config_revision: int = 10' "$ROOT/core/furina_agent/config.py"
-          grep -q 'device_control_mode: str = "normal"' "$ROOT/core/furina_agent/config.py"
-          test -f "$ROOT/core/furina_agent/direct_control.py"
-          test -f "$ROOT/core/furina_agent/long_input.py"
-          grep -q 'class DirectDeviceControl' "$ROOT/core/furina_agent/direct_control.py"
-          grep -q 'direct = self.session.try_direct(text)' "$ROOT/core/furina_agent/chat_surface.py"
-          grep -q 'max_length=0' "$ROOT/core/furina_agent/chat_surface.py"
-          grep -q 'prepare_long_message' "$ROOT/core/furina_agent/chat.py"
-          grep -q 'router_view(text)' "$ROOT/core/furina_agent/companion.py"
-          ! grep -q 'self.reminders.start()' "$ROOT/core/furina_agent/companion.py"
-          grep -q '"Kontrol perangkat"' "$ROOT/core/furina_agent/tui.py"
-          grep -q 'versionCode 10008' "$ROOT/bridge/app/build.gradle"
-          grep -q "versionName '1.0.0-rc8'" "$ROOT/bridge/app/build.gradle"
+          grep -q 'VERSION = "1.0.0-rc18"' "$ROOT/core/furina_agent/version.py"
+          grep -q 'config_revision: int = 11' "$ROOT/core/furina_agent/config.py"
+          grep -q 'class FurinaMind' "$ROOT/core/furina_agent/mind_v2.py"
+          grep -q 'class CognitionRouter' "$ROOT/core/furina_agent/cognition.py"
+          grep -q 'def _sync_termux_session' "$ROOT/core/furina_agent/events.py"
+          grep -q 'compact\["type"\] == "window"' "$ROOT/core/furina_agent/events.py"
+          grep -q 'durasi keluar Termux TERAKHIR' "$ROOT/core/furina_agent/chat.py"
+          grep -q 'JANGAN menebak dari jeda percakapan' "$ROOT/core/furina_agent/chat.py"
+          grep -q 'def _direct_termux_absence_answer' "$ROOT/core/furina_agent/chat.py"
+          grep -q 'furina_termux_session_v1' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
+          grep -q 'termux_session' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
+          grep -q 'TYPE_WINDOW_STATE_CHANGED' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
+          grep -q 'versionCode 10009' "$ROOT/bridge/app/build.gradle"
+          grep -q "versionName '1.0.0-rc9'" "$ROOT/bridge/app/build.gradle"
           grep -q 'dev.rikka.shizuku:api:13.1.5' "$ROOT/bridge/app/build.gradle"
           grep -q 'android.useAndroidX=true' "$ROOT/gradle.properties"
-          grep -q 'rikka.shizuku.ShizukuProvider' "$ROOT/bridge/app/src/main/AndroidManifest.xml"
-          grep -q 'SCHEDULE_EXACT_ALARM' "$ROOT/bridge/app/src/main/AndroidManifest.xml"
-          grep -q 'Shizuku.bindUserService' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/PrivilegedControl.java"
-          grep -q 'ReminderScheduler.restoreAll' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/BootReceiver.java"
-          grep -q '"/control/status"' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/LocalBridgeServer.java"
-          grep -q '"/control"' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/LocalBridgeServer.java"
 
-      - name: Validate installer and Core RC14
+      - name: Validate installer and temporal contract
         shell: bash
         run: |
           set -euo pipefail
@@ -101,44 +117,39 @@ jobs:
           ROOT=/tmp/furina-agent-src/termux
           python3 -m pip install --quiet 'rich>=13.9,<15' 'textual==8.2.8'
           bash -n "$META/install.sh"
-          grep -q 'run_quiet "Memasang Furina Core RC14"' "$META/install.sh"
-          grep -q 'apply-core-rc13.py' "$META/install.sh"
-          grep -q 'apply-bridge-rc8.py' "$META/install.sh"
-          grep -q 'apply-core-rc14.py' "$META/install.sh"
-          grep -q "CORE_RC13_TRANSFORM_BLOB=\"$(git hash-object "$META/overrides/apply-core-rc13.py")\"" "$META/install.sh"
-          grep -q "BRIDGE_RC8_TRANSFORM_BLOB=\"$(git hash-object "$META/overrides/apply-bridge-rc8.py")\"" "$META/install.sh"
-          grep -q "CORE_RC14_TRANSFORM_BLOB=\"$(git hash-object "$META/overrides/apply-core-rc14.py")\"" "$META/install.sh"
+          grep -q 'run_quiet "Memasang Furina Core RC18"' "$META/install.sh"
+          grep -q 'apply-core-rc17.py' "$META/install.sh"
+          grep -q 'apply-bridge-rc9.py' "$META/install.sh"
+          grep -q 'apply-core-rc18.py' "$META/install.sh"
+          grep -q "BRIDGE_RC9_TRANSFORM_BLOB=\"$(git hash-object "$META/overrides/apply-bridge-rc9.py")\"" "$META/install.sh"
+          grep -q "CORE_RC18_TRANSFORM_BLOB=\"$(git hash-object "$META/overrides/apply-core-rc18.py")\"" "$META/install.sh"
           PYTHONPATH="$ROOT/core" python3 - <<'PY'
           import tempfile
           from pathlib import Path
-          from textual.widgets import Input
-          from furina_agent.prospective import extract_prospectives
-          from furina_agent.long_input import prepare_long_message, router_view, history_view
           from furina_agent.memory import MemoryStore
+          from furina_agent.chat import FurinaChat
 
-          now=1_700_000_000
-          due=extract_prospectives('ingatkan aku minum 5 menit lagi', now=now)[0][1]
-          assert 299 <= due-now <= 301
-          assert Input(max_length=0).max_length == 0
+          class DummyCfg:
+              persona_name='Furina'
+          class DummyLLM: pass
 
-          class Cfg:
-              routing_mode='local'; context_size=4096
-          class LLM:
-              def __init__(self): self.calls=[]
-              def chat(self,messages,**kwargs):
-                  self.calls.append(messages[-1]['content'])
-                  return 'note-' + str(len(self.calls))
-          raw='START\n' + ('0123456789 long-input detail\n' * 3500) + 'END'
-          llm=LLM(); prepared=prepare_long_message(raw,Cfg(),llm)
-          assert prepared.chunked and prepared.chunks > 5
-          assert len(llm.calls) >= prepared.chunks
-          assert 'START' in prepared.model_text and 'END' in prepared.model_text
-          assert len(router_view(raw)) < len(raw) and len(history_view(raw)) < len(raw)
           with tempfile.TemporaryDirectory() as td:
               store=MemoryStore(Path(td)/'furina.db')
-              store.add_message('user', raw)
-              assert store.recent_messages(1)[0]['content'] == raw
-          print('RC14_CORE_CONTRACT_OK')
+              store.set_state('termux_session', {
+                  'source':'bridge_window_state_v1',
+                  'authoritative':True,
+                  'last_returned_at':1700004000.0,
+                  'last_absence_seconds':3723.0,
+                  'currently_away':False,
+              })
+              chat=FurinaChat.__new__(FurinaChat)
+              chat.store=store
+              text=chat._direct_termux_absence_answer('aku tadi keluar berapa menit?')
+              assert text and '1 jam 2 menit 3 detik' in text, text
+              store.set_state('termux_session', {})
+              text=chat._direct_termux_absence_answer('aku tadi keluar berapa lama?')
+              assert text and 'tidak akan menebaknya' in text, text
+          print('RC18_TEMPORAL_CONTRACT_OK')
           PY
 
       - name: Set up Java 17
@@ -172,7 +183,7 @@ jobs:
           printf '%s' "$FURINA_RELEASE_KEYSTORE_B64" | base64 --decode > bridge/app/furina-agent-release.jks
           chmod 600 bridge/app/furina-agent-release.jks
 
-      - name: Build signed Bridge RC8
+      - name: Build signed Bridge RC9
         working-directory: /tmp/furina-agent-src/termux
         env:
           FURINA_AGENT_KEYSTORE_PATH: /tmp/furina-agent-src/termux/bridge/app/furina-agent-release.jks
@@ -200,8 +211,8 @@ jobs:
           SHA="$(sha256sum "$APK_NAME" | awk '{print $1}')"
           SIGNER="$(printf '%s\n' "$CERT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
           test "$PACKAGE" = com.wynndev.furinaagentbridge
-          test "$CODE" = 10008
-          test "$NAME" = 1.0.0-rc8
+          test "$CODE" = 10009
+          test "$NAME" = 1.0.0-rc9
           test "${#SHA}" -eq 64 && test "${#SIGNER}" -eq 64
           export PACKAGE CODE NAME SHA SIGNER
           python3 - <<'PY'
@@ -212,7 +223,7 @@ jobs:
             'package_name':os.environ['PACKAGE'],
             'sha256':os.environ['SHA'],
             'signer_sha256':os.environ['SIGNER'],
-            'apk_url':'https://github.com/WynnDev-rill/furina/releases/download/furina-agent-v1.0.0-rc8/Furina-Agent-Bridge-v1.0.0-rc8.apk'
+            'apk_url':'https://github.com/WynnDev-rill/furina/releases/download/furina-agent-v1.0.0-rc9/Furina-Agent-Bridge-v1.0.0-rc9.apk'
           }
           open('bridge.json','w',encoding='utf-8').write(json.dumps(data,indent=2)+'\n')
           PY
@@ -220,13 +231,13 @@ jobs:
       - name: Upload CI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Furina-Agent-Core-RC14-Bridge-RC8
+          name: Furina-Agent-Core-RC18-Bridge-RC9
           path: |
-            Furina-Agent-Bridge-v1.0.0-rc8.apk
+            Furina-Agent-Bridge-v1.0.0-rc9.apk
             bridge.json
           if-no-files-found: error
 
-      - name: Publish isolated RC8 prerelease
+      - name: Publish isolated RC9 prerelease
         if: github.ref == 'refs/heads/experiment/furina-agent-termux'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -238,7 +249,7 @@ jobs:
             gh release edit "$TAG" --prerelease --repo "$GITHUB_REPOSITORY"
           else
             gh release create "$TAG" "$APK_NAME" bridge.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-              --title "Furina Agent Bridge 1.0.0 RC8 — By Wynn" \
-              --notes "Bridge RC8 provides Android-owned reminders and Normal/Shizuku/Root device control. Core RC14 keeps those capabilities and removes the chat composer character cap while adapting oversized messages to finite model context without truncating the stored original." \
+              --title "Furina Agent Bridge 1.0.0 RC9 — By Wynn" \
+              --notes "Bridge RC9 adds persistent Android-owned Termux session timing. Core RC18 separates real time away from chat gaps and refuses to guess when authoritative timing evidence is unavailable." \
               --prerelease
           fi
