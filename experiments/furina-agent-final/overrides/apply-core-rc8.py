@@ -300,7 +300,7 @@ def main() -> None:
         memory,
         "    def log_event(self, event_type: str, payload: dict) -> None:\n",
         '''    def add_prospective(self, text: str, due_at: float = 0.0, source: str = "conversation") -> int:
-        clean = re.sub(r"\s+", " ", str(text or "").strip())[:500]
+        clean = re.sub(r"\\s+", " ", str(text or "").strip())[:500]
         if not clean:
             return 0
         row = self._conn().execute(

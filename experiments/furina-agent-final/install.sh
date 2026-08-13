@@ -26,7 +26,7 @@ CORE_RC7_TRANSFORM_BLOB="abbd595ad4729a74014d438db9495cecb4cfddec"
 BRIDGE_RC7_TRANSFORM_URL="$BASE/overrides/apply-bridge-rc7.py"
 BRIDGE_RC7_TRANSFORM_BLOB="c014e904c5a0c3f661619253ae0ce9aff5300b5c"
 CORE_RC8_TRANSFORM_URL="$BASE/overrides/apply-core-rc8.py"
-CORE_RC8_TRANSFORM_BLOB="07c0239bacf91c7830eee0b32544b9d456c3bd17"
+CORE_RC8_TRANSFORM_BLOB="ca9e424786c73bbf2ddd3f1f4730eb1f3b6d5722"
 CORE_RC8_POSTFIX_URL="$BASE/overrides/apply-core-rc8-postfix.py"
 CORE_RC8_POSTFIX_BLOB="ab5934473bb7fb8cd1913ceda6ac426f10f6aad0"
 CORE_RC9_TRANSFORM_URL="$BASE/overrides/apply-core-rc9.py"
@@ -296,7 +296,8 @@ PY
   grep -q '_try_fast_skill' "$SRC/core/furina_agent/agent.py"
   grep -q 'LocalVision' "$SRC/core/furina_agent/routing.py"
   grep -q 'waitForExactText' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
-  grep -q 'versionCode 10007' "$SRC/bridge/app/build.gradle"
+  grep -q 'versionCode 10008' "$SRC/bridge/app/build.gradle" || { echo "Bridge staging bukan RC8 (versionCode)." >&2; return 1; }
+  grep -q "versionName '1.0.0-rc8'" "$SRC/bridge/app/build.gradle" || { echo "Bridge staging bukan RC8 (versionName)." >&2; return 1; }
 
   # Validate the entire staged Core before replacing the active installation.
   # Syntax/import failures therefore leave the previous Core untouched.
