@@ -77,6 +77,7 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertIn('VERSION="1.0.0-rc10"', installer)
         self.assertIn("companion-v7", installer)
         self.assertIn("apply-ui-rc10.py", installer)
+        self.assertIn("apply-ui-rc10-hotfix.py", installer)
         self.assertIn("apply-core-rc9.py", installer)
         self.assertIn("apply-core-rc8.py", installer)
         self.assertIn("apply-core-rc7.py", installer)
@@ -89,6 +90,7 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertIn('if [[ "$MODE" == "install" ]]; then', installer)
         self.assertIn('run_quiet "Memasang Furina Core RC10"', installer)
         self.assertIn('LOG="$ROOT/logs/setup.log"', installer)
+        self.assertIn("ui_progress", installer)
         self.assertIn("Furina siap", installer)
 
     def test_core_has_rc9_fastpath_lexicon_and_rc8_memory_context(self):
@@ -132,14 +134,21 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertIn("CREATE TABLE IF NOT EXISTS personal_lexicon", lexicon)
         self.assertIn("canonical TEXT NOT NULL UNIQUE", lexicon)
 
-    def test_rc10_tui_is_compact_gum_first_and_preserves_task_approval(self):
+    def test_rc10_tui_is_compact_gum_visible_and_preserves_task_approval(self):
         root = Path(__file__).resolve().parents[1]
         tui = (root / "core/furina_agent/tui.py").read_text(encoding="utf-8")
         version = (root / "core/furina_agent/version.py").read_text(encoding="utf-8")
         self.assertIn('VERSION = "1.0.0-rc10"', version)
         self.assertIn("def _gum() -> str | None:", tui)
         self.assertIn('["Chat", "Memory", "Provider", "Settings", "System", "Update", "Exit"]', tui)
-        self.assertIn("--cursor-prefix", tui)
+        self.assertIn('"--cursor", "› "', tui)
+        self.assertNotIn("--cursor-prefix", tui)
+        self.assertIn("stdout=subprocess.PIPE", tui)
+        self.assertIn("stderr=None", tui)
+        self.assertNotIn("capture_output=True", tui)
+        self.assertIn("def _display_name() -> str:", tui)
+        self.assertIn("By Wynn", tui)
+        self.assertIn('[dim]Mode[/]', tui)
         self.assertIn("due_prospectives", tui)
         self.assertIn("Furina perlu memakai layar untuk tugas ini", tui)
         self.assertIn("termasuk Send/Kirim/Post/Share yang memang eksplisit", tui)
