@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-VERSION="1.0.0-rc17"
+VERSION="1.0.0-rc18"
 ROOT="$HOME/.furina-agent"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 MANIFEST_URL="$BASE/manifest.json"
@@ -53,6 +53,10 @@ CORE_RC16_TRANSFORM_URL="$BASE/overrides/apply-core-rc16.py"
 CORE_RC16_TRANSFORM_BLOB="5d779d1d6adf2438c9a3c5bf2ead5f64402e703e"
 CORE_RC17_TRANSFORM_URL="$BASE/overrides/apply-core-rc17-hotfix.py"
 CORE_RC17_TRANSFORM_BLOB="4ec514a512758ded6e9d263ef4e8bbbd12bcf2dc"
+BRIDGE_RC9_TRANSFORM_URL="$BASE/overrides/apply-bridge-rc9.py"
+BRIDGE_RC9_TRANSFORM_BLOB="b70d131d977e1fc0698c2f4201133feb1a11858f"
+CORE_RC18_TRANSFORM_URL="$BASE/overrides/apply-core-rc18.py"
+CORE_RC18_TRANSFORM_BLOB="d02464851749fb36b1016d58c048342435efe194"
 LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"
 
 MODEL_REV="e9cf779"
@@ -276,7 +280,9 @@ PY
     "$CORE_RC14_TRANSFORM_URL|$CORE_RC14_TRANSFORM_BLOB|apply-core-rc14.py" \
     "$CORE_RC15_TRANSFORM_URL|$CORE_RC15_TRANSFORM_BLOB|apply-core-rc15.py" \
     "$CORE_RC16_TRANSFORM_URL|$CORE_RC16_TRANSFORM_BLOB|apply-core-rc16.py" \
-    "$CORE_RC17_TRANSFORM_URL|$CORE_RC17_TRANSFORM_BLOB|apply-core-rc17.py"; do
+    "$CORE_RC17_TRANSFORM_URL|$CORE_RC17_TRANSFORM_BLOB|apply-core-rc17.py" \
+    "$BRIDGE_RC9_TRANSFORM_URL|$BRIDGE_RC9_TRANSFORM_BLOB|apply-bridge-rc9.py" \
+    "$CORE_RC18_TRANSFORM_URL|$CORE_RC18_TRANSFORM_BLOB|apply-core-rc18.py"; do
     IFS='|' read -r url blob name <<< "$spec"
     curl -fsSL --retry 3 "$url" -o "$TMP/$name"
     verify_git_blob "$TMP/$name" "$blob"
@@ -288,7 +294,7 @@ PY
   for file in memory.py response.py vision.py embeddings.py local_vision.py events.py naturalness.py prospective.py device_context.py fastpath.py lexicon.py chat_surface.py tool_runtime.py direct_control.py long_input.py paste_input.py mind_v2.py cognition.py version.py tui.py; do
     test -f "$SRC/core/furina_agent/$file"
   done
-  grep -q 'VERSION = "1.0.0-rc17"' "$SRC/core/furina_agent/version.py"
+  grep -q 'VERSION = "1.0.0-rc18"' "$SRC/core/furina_agent/version.py"
   grep -q 'event.prevent_default()' "$SRC/core/furina_agent/paste_input.py"
   grep -q 'select_on_focus=False' "$SRC/core/furina_agent/chat_surface.py"
   grep -q 'config_revision: int = 11' "$SRC/core/furina_agent/config.py"
@@ -316,8 +322,8 @@ PY
   grep -q '_try_fast_skill' "$SRC/core/furina_agent/agent.py"
   grep -q 'LocalVision' "$SRC/core/furina_agent/routing.py"
   grep -q 'waitForExactText' "$SRC/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
-  grep -q 'versionCode 10008' "$SRC/bridge/app/build.gradle" || { echo "Bridge staging bukan RC8 (versionCode)." >&2; return 1; }
-  grep -q "versionName '1.0.0-rc8'" "$SRC/bridge/app/build.gradle" || { echo "Bridge staging bukan RC8 (versionName)." >&2; return 1; }
+  grep -q 'versionCode 10009' "$SRC/bridge/app/build.gradle" || { echo "Bridge staging bukan RC9 (versionCode)." >&2; return 1; }
+  grep -q "versionName '1.0.0-rc9'" "$SRC/bridge/app/build.gradle" || { echo "Bridge staging bukan RC9 (versionName)." >&2; return 1; }
 
   # Validate the entire staged Core before replacing the active installation.
   # Syntax/import failures therefore leave the previous Core untouched.
@@ -346,7 +352,7 @@ EOF
   grep -Fqx "$LINE" "$HOME/.bashrc" 2>/dev/null || echo "$LINE" >> "$HOME/.bashrc"
 }
 
-run_quiet "Memasang Furina Core RC17" 44 prepare_core
+run_quiet "Memasang Furina Core RC18" 44 prepare_core
 
 prepare_llama() {
   LLAMA="$ROOT/llama.cpp"
@@ -445,6 +451,6 @@ ui_ok "Furina siap"
 if [[ "$MODE" == "install" ]]; then
   printf '\033[2mBuka dengan:\033[0m  \033[1;36mfurina\033[0m\n'
 else
-  printf '\033[2mRC17 sudah terpasang. Jalankan:\033[0m  \033[1;36mfurina\033[0m\n'
+  printf '\033[2mRC18 sudah terpasang. Jalankan:\033[0m  \033[1;36mfurina\033[0m\n'
 fi
 printf '\033[2mLog setup: %s\033[0m\n\n' "$LOG"
