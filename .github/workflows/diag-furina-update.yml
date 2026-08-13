@@ -1,0 +1,40 @@
+name: Diagnose Furina Update
+
+on:
+  push:
+    branches:
+      - diag/furina-rc11-update
+
+jobs:
+  inspect-update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect cmd_update and upgrade script
+        shell: bash
+        run: |
+          set -euo pipefail
+          META="experiments/furina-agent-final"
+          ARCHIVE=/tmp/furina-agent-final.tar.gz
+          : > "$ARCHIVE"
+          for chunk in "$META"/source-*.b64; do base64 --decode "$chunk" >> "$ARCHIVE"; done
+          rm -rf /tmp/furina-agent-src && mkdir -p /tmp/furina-agent-src
+          tar -xzf "$ARCHIVE" -C /tmp/furina-agent-src
+          ROOT=/tmp/furina-agent-src/termux
+          echo '=== cli.py cmd_update ==='
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/furina-agent-src/termux/core/furina_agent/cli.py')
+          text=p.read_text(encoding='utf-8')
+          start=text.find('def cmd_update')
+          if start < 0:
+              print('cmd_update not found')
+          else:
+              end=text.find('\ndef ', start+1)
+              if end < 0: end=len(text)
+              print(text[start:end])
+          PY
+          echo '=== upgrade.sh ==='
+          cat "$ROOT/upgrade.sh"
+          echo '=== parser update registration ==='
+          grep -n -C 4 -E 'cmd_update|update' "$ROOT/core/furina_agent/cli.py" | tail -n 100
