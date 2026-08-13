@@ -34,7 +34,6 @@ jobs:
           done
           python3 -m compileall -q "$ROOT/core/furina_agent"
           PYTHONPATH="$ROOT/core" python3 - <<'PY'
-          import time
           from furina_agent.prospective import extract_prospectives
           from furina_agent.direct_control import DirectDeviceControl
           due=extract_prospectives('ingatkan aku minum 5 menit lagi', now=1_700_000_000)[0][1]
@@ -64,3 +63,4 @@ jobs:
           ./gradlew :bridge:app:assembleDebug --no-daemon --stacktrace
           test -f bridge/app/build/outputs/apk/debug/app-debug.apk
           echo RC13_BRIDGE_BUILD_OK
+          # rerun after client anchor fix
