@@ -1,0 +1,97 @@
+name: Apply RC12 Unified TUI
+
+on:
+  push:
+    branches:
+      - feature/furina-rc12-unified-tui
+
+permissions:
+  contents: write
+
+jobs:
+  apply-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch RC12 installer and release manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          install = Path('experiments/furina-agent-final/install.sh')
+          text = install.read_text(encoding='utf-8')
+          text = text.replace('VERSION="1.0.0-rc11"', 'VERSION="1.0.0-rc12"', 1)
+          anchor = 'CORE_RC11_TRANSFORM_BLOB="d51cf9db71da074e7f03397ce7ae6f4b5edd7add"\n'
+          add = anchor + 'UI_RC12_TRANSFORM_URL="$BASE/overrides/apply-ui-rc12.py"\nUI_RC12_TRANSFORM_BLOB="b0de5483c3c9381f3e5371f29438289e72cc7f2b"\n'
+          if 'UI_RC12_TRANSFORM_URL=' not in text:
+              if anchor not in text: raise SystemExit('RC12 installer constant anchor missing')
+              text = text.replace(anchor, add, 1)
+          old = '    "$CORE_RC11_TRANSFORM_URL|$CORE_RC11_TRANSFORM_BLOB|apply-core-rc11.py"; do\n'
+          new = '    "$CORE_RC11_TRANSFORM_URL|$CORE_RC11_TRANSFORM_BLOB|apply-core-rc11.py" \\\n    "$UI_RC12_TRANSFORM_URL|$UI_RC12_TRANSFORM_BLOB|apply-ui-rc12.py"; do\n'
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif 'apply-ui-rc12.py"; do' not in text:
+              raise SystemExit('RC12 transform loop anchor missing')
+          text = text.replace('grep -q \'VERSION = "1.0.0-rc11"\'', 'grep -q \'VERSION = "1.0.0-rc12"\'', 1)
+          text = text.replace('run_quiet "Memasang Furina Core RC11" 44 prepare_core', 'run_quiet "Memasang Furina Core RC12" 44 prepare_core', 1)
+          install.write_text(text, encoding='utf-8')
+
+          manifest = Path('experiments/furina-agent-final/manifest.json')
+          data = json.loads(manifest.read_text(encoding='utf-8'))
+          data['version'] = '1.0.0-rc12'
+          manifest.write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8')
+          PY
+
+      - name: Reassemble and validate RC12
+        shell: bash
+        run: |
+          set -euo pipefail
+          META=experiments/furina-agent-final
+          ARCHIVE=/tmp/furina-agent-final.tar.gz
+          : > "$ARCHIVE"
+          for chunk in "$META"/source-*.b64; do base64 --decode "$chunk" >> "$ARCHIVE"; done
+          rm -rf /tmp/furina-agent-src && mkdir -p /tmp/furina-agent-src
+          tar -xzf "$ARCHIVE" -C /tmp/furina-agent-src
+          ROOT=/tmp/furina-agent-src/termux
+          patch -p0 -d /tmp/furina-agent-src < "$META/patches/api30-inputstream.patch"
+          patch -p0 -d /tmp/furina-agent-src < "$META/patches/runtime-online-agent.patch"
+          python3 "$META/overrides/apply-bridge-primitives-rc5.py" "$ROOT"
+          python3 - "$META/overrides" "$ROOT" <<'PY'
+          import hashlib,json,pathlib,sys
+          src=pathlib.Path(sys.argv[1]).resolve(); dst=pathlib.Path(sys.argv[2]).resolve()
+          manifest=json.loads((src/'manifest.json').read_text(encoding='utf-8'))
+          def sha(data): return hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()
+          for item in manifest['files']:
+              data=(src/item['path']).read_bytes(); assert sha(data)==item['git_blob_sha'], item['path']
+              target=(dst/item['target']).resolve(); target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(data)
+          PY
+          for f in apply-bridge-rc4.py apply-universal-agent-rc5.py apply-core-rc6.py apply-core-rc6-postfix.py apply-bridge-rc6.py apply-core-rc7.py apply-bridge-rc7.py apply-core-rc8.py apply-core-rc8-postfix.py apply-core-rc9.py apply-ui-rc10.py apply-ui-rc10-hotfix.py apply-core-rc11.py apply-ui-rc12.py; do
+            python3 "$META/overrides/$f" "$ROOT"
+          done
+          python3 -m pip install -q 'rich>=13.9,<15' 'textual==8.2.8'
+          PYTHONPATH="$ROOT/core" python3 "$META/overrides/tests/smoke_chat_surface.py"
+          grep -q 'VERSION = "1.0.0-rc12"' "$ROOT/core/furina_agent/version.py"
+          grep -q 'ChatApp().run(mouse=False)' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q 'padding: 1 2 0 2;' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q 'Esc kembali  ·  /back' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q 'class _ThemedConsole:' "$ROOT/core/furina_agent/tui.py"
+          grep -q 'ACCENT = "#5de4c7"' "$ROOT/core/furina_agent/tui.py"
+          bash -n "$META/install.sh"
+          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["version"])')" = '1.0.0-rc12'
+
+      - name: Commit code changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Wynn Dev"
+          git config user.email "indonesiafilmku@gmail.com"
+          git add experiments/furina-agent-final/install.sh experiments/furina-agent-final/manifest.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "feat: publish Furina RC12 unified Termux UI"
+          git push origin HEAD:feature/furina-rc12-unified-tui
