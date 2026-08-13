@@ -1,4 +1,4 @@
-name: RC20 Agent Diagnostic
+name: RC22 System Diagnostic
 
 on:
   pull_request:
@@ -7,6 +7,7 @@ on:
     paths:
       - 'experiments/furina-agent-final/**'
       - '.github/workflows/rc20-diagnostic.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,10 +15,10 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
-      - name: Reassemble transformed RC19 source
+      - name: Reassemble transformed RC21 source
         shell: bash
         run: |
           set -euo pipefail
@@ -50,20 +51,25 @@ jobs:
             apply-core-rc13.py apply-bridge-rc8.py apply-core-rc14.py \
             apply-core-rc15.py apply-core-rc16.py apply-core-rc17-hotfix.py \
             apply-bridge-rc9.py apply-core-rc18.py \
-            apply-ui-performance-bridge-rc10.py apply-ui-performance-rc19.py; do
+            apply-ui-performance-bridge-rc10.py apply-ui-performance-rc19.py \
+            apply-reactive-bridge-rc11.py apply-reactive-core-rc20.py \
+            apply-reactive-bridge-rc12.py apply-reactive-core-rc21.py; do
             python3 "$META/overrides/$f" "$ROOT"
           done
-          mkdir -p /tmp/rc20-diagnostic
-          cp "$ROOT/core/furina_agent/agent.py" /tmp/rc20-diagnostic/
-          cp "$ROOT/core/furina_agent/chat_surface.py" /tmp/rc20-diagnostic/
-          cp "$ROOT/core/furina_agent/tool_runtime.py" /tmp/rc20-diagnostic/
-          cp "$ROOT/core/furina_agent/direct_control.py" /tmp/rc20-diagnostic/
-          cp "$ROOT/core/furina_agent/companion.py" /tmp/rc20-diagnostic/
-          cp "$ROOT/core/furina_agent/events.py" /tmp/rc20-diagnostic/
-          grep -n -E 'Tugas dihentikan|kembali ke Termux|perlu menggunakan layar|Enter izinkan|Esc batal|approve|run_ui_sequence|open_app' /tmp/rc20-diagnostic/*.py || true
+          mkdir -p /tmp/rc22-diagnostic
+          for f in agent.py chat.py chat_surface.py tool_runtime.py direct_control.py companion.py events.py routing.py providers.py config.py llm.py memory.py tui.py bridge.py; do
+            cp "$ROOT/core/furina_agent/$f" /tmp/rc22-diagnostic/
+          done
+          cp "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java" /tmp/rc22-diagnostic/
+          cp "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/LocalBridgeServer.java" /tmp/rc22-diagnostic/
+          cp "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/BridgeUpdater.java" /tmp/rc22-diagnostic/
+          cp "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java" /tmp/rc22-diagnostic/
+          cp "$ROOT/bridge/app/build.gradle" /tmp/rc22-diagnostic/bridge-build.gradle
+          cp "$META/install.sh" /tmp/rc22-diagnostic/install.sh
+          grep -R -n -E 'timeout=120|routing_mode|provider_max_models|/health|versionName|run_ui_sequence|sleep\(|except Exception|termux-open-url|Bridge RC12' /tmp/rc22-diagnostic || true
       - name: Upload transformed source
         uses: actions/upload-artifact@v4
         with:
-          name: rc20-transformed-source
-          path: /tmp/rc20-diagnostic
+          name: rc22-transformed-source
+          path: /tmp/rc22-diagnostic
           if-no-files-found: error
