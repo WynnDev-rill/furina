@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: fix/furina-full-multiline-paste-rc15
-      - name: Wire RC15 installer and permanent validation
+      - name: Wire RC15 installer and manifest
         shell: bash
         run: |
           set -euo pipefail
@@ -49,48 +49,15 @@ jobs:
               raise SystemExit('unexpected manifest version')
           manifest['version'] = '1.0.0-rc15'
           manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
-
-          w = Path('.github/workflows/rc11-unified-ui-smoke.yml')
-          x = w.read_text(encoding='utf-8')
-          x = x.replace('RC14 Furina Termux UI + Unbounded Chat Smoke', 'RC15 Furina Termux UI + Full Paste Smoke', 1)
-          if '      - fix/furina-full-multiline-paste-rc15\n' not in x:
-              x = once(x, '      - experiment/furina-agent-termux\n', '      - experiment/furina-agent-termux\n      - fix/furina-full-multiline-paste-rc15\n', 'smoke branch')
-          x = x.replace('validate RC14', 'validate RC15', 1)
-          x = once(x, 'apply-core-rc13.py apply-bridge-rc8.py apply-core-rc14.py; do', 'apply-core-rc13.py apply-bridge-rc8.py apply-core-rc14.py apply-core-rc15.py; do', 'smoke transform loop')
-          x = x.replace('VERSION = "1.0.0-rc14"', 'VERSION = "1.0.0-rc15"')
-          x = once(x, "          grep -q 'max_length=0' \"$ROOT/core/furina_agent/chat_surface.py\"\n", "          grep -q 'max_length=0' \"$ROOT/core/furina_agent/chat_surface.py\"\n          grep -q 'FullPasteInput' \"$ROOT/core/furina_agent/chat_surface.py\"\n          test -f \"$ROOT/core/furina_agent/paste_input.py\"\n", 'smoke paste static')
-          marker = '          bash -n "$META/install.sh"\n'
-          paste_test = """          PYTHONPATH=\"$ROOT/core\" python3 - <<'PYPASTE'\n          import asyncio\n          from textual import events\n          from textual.app import App, ComposeResult\n          from furina_agent.paste_input import FullPasteInput\n\n          class PasteApp(App):\n              def compose(self) -> ComposeResult:\n                  yield FullPasteInput(id=\"composer\", max_length=0)\n\n          async def main():\n              payload = \"START-PASTE\\n\" + (\"baris panjang 0123456789\\n\" * 5000) + \"END-PASTE\"\n              app = PasteApp()\n              async with app.run_test() as pilot:\n                  composer = app.query_one(\"#composer\", FullPasteInput)\n                  composer.focus()\n                  composer.post_message(events.Paste(payload))\n                  await pilot.pause()\n                  assert composer.value == payload\n                  assert composer.value.startswith(\"START-PASTE\\n\")\n                  assert composer.value.endswith(\"END-PASTE\")\n                  assert composer.value.count(\"\\n\") == 5001\n              print(\"RC15_FULL_PASTE_OK\", len(payload))\n\n          asyncio.run(main())\n          PYPASTE\n"""
-          x = once(x, marker, paste_test + "          grep -q 'apply-core-rc15.py' \"$META/install.sh\"\n          grep -q \"CORE_RC15_TRANSFORM_BLOB=\\\"$(git hash-object \"$META/overrides/apply-core-rc15.py\")\\\"\" \"$META/install.sh\"\n" + marker, 'smoke paste runtime')
-          x = x.replace('RC14_TERMUX_', 'RC15_TERMUX_')
-          w.write_text(x, encoding='utf-8')
-
-          w = Path('.github/workflows/furina-agent-bridge-experiment.yml')
-          x = w.read_text(encoding='utf-8')
-          x = x.replace('Build Furina Agent RC14 + Bridge RC8', 'Build Furina Agent RC15 + Bridge RC8', 1)
-          if '      - fix/furina-full-multiline-paste-rc15\n' not in x:
-              x = once(x, '      - experiment/furina-agent-termux\n', '      - experiment/furina-agent-termux\n      - fix/furina-full-multiline-paste-rc15\n', 'build branch')
-          x = x.replace('group: furina-agent-rc14-', 'group: furina-agent-rc15-', 1)
-          x = x.replace('Reassemble and layer Furina RC14', 'Reassemble and layer Furina RC15', 1)
-          x = x.replace('"1.0.0-rc14"', '"1.0.0-rc15"', 1)
-          x = once(x, 'apply-core-rc13.py apply-bridge-rc8.py apply-core-rc14.py; do', 'apply-core-rc13.py apply-bridge-rc8.py apply-core-rc14.py apply-core-rc15.py; do', 'build transform loop')
-          x = x.replace('VERSION = "1.0.0-rc14"', 'VERSION = "1.0.0-rc15"')
-          x = once(x, '          test -f "$ROOT/core/furina_agent/long_input.py"\n', '          test -f "$ROOT/core/furina_agent/long_input.py"\n          test -f "$ROOT/core/furina_agent/paste_input.py"\n          grep -q \'class FullPasteInput(Input):\' "$ROOT/core/furina_agent/paste_input.py"\n', 'build paste contract')
-          x = x.replace('Validate installer and Core RC14', 'Validate installer and Core RC15', 1)
-          x = x.replace('Memasang Furina Core RC14', 'Memasang Furina Core RC15')
-          x = once(x, "          grep -q 'apply-core-rc14.py' \"$META/install.sh\"\n", "          grep -q 'apply-core-rc14.py' \"$META/install.sh\"\n          grep -q 'apply-core-rc15.py' \"$META/install.sh\"\n          grep -q \"CORE_RC15_TRANSFORM_BLOB=\\\"$(git hash-object \"$META/overrides/apply-core-rc15.py\")\\\"\" \"$META/install.sh\"\n", 'build installer rc15')
-          x = x.replace('Furina-Agent-Core-RC14-Bridge-RC8', 'Furina-Agent-Core-RC15-Bridge-RC8')
-          x = x.replace('Core RC14', 'Core RC15')
-          w.write_text(x, encoding='utf-8')
           PY
           bash -n experiments/furina-agent-final/install.sh
           git diff --check
-      - name: Commit RC15 wiring
+      - name: Commit RC15 installer metadata
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'Wynn Dev'
           git config user.email 'indonesiafilmku@gmail.com'
-          git add experiments/furina-agent-final/install.sh experiments/furina-agent-final/manifest.json .github/workflows/rc11-unified-ui-smoke.yml .github/workflows/furina-agent-bridge-experiment.yml
-          git commit -m 'ci: wire RC15 full multiline paste validation'
+          git add experiments/furina-agent-final/install.sh experiments/furina-agent-final/manifest.json
+          git commit -m 'build: wire Furina Core RC15 installer'
           git push origin HEAD:fix/furina-full-multiline-paste-rc15
