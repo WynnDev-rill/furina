@@ -60,12 +60,11 @@ jobs:
           echo '=== transformed version ==='
           cat "$ROOT/core/furina_agent/version.py"
           python3 -m pip install -q 'rich>=13.9,<15' 'textual==8.2.8'
+          python3 -c 'import textual; print("TEXTUAL", textual.__version__)'
 
           echo '=== Textual RC11 mount smoke ==='
-          HOME=/tmp/furina-home PYTHONPATH="$ROOT/core" python3 - <<'PY'
+          PYTHONPATH="$ROOT/core" python3 - <<'PY'
           import asyncio
-          from pathlib import Path
-          Path('/tmp/furina-home').mkdir(parents=True, exist_ok=True)
           from textual.app import App
 
           def smoke_run(self, *args, **kwargs):
