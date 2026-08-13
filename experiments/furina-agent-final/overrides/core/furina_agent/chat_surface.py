@@ -69,10 +69,10 @@ def run_chat_surface() -> None:
         }
         """
         BINDINGS = [
-            ("enter", "allow", "", False),
-            ("y", "allow", "", False),
-            ("escape", "cancel", "", False),
-            ("n", "cancel", "", False),
+            ("enter", "allow", ""),
+            ("y", "allow", ""),
+            ("escape", "cancel", ""),
+            ("n", "cancel", ""),
         ]
 
         def compose(self) -> ComposeResult:
@@ -143,10 +143,10 @@ def run_chat_surface() -> None:
         }
         """
         BINDINGS = [
-            ("escape", "back", "", False),
-            ("pageup", "scroll_up", "", False),
-            ("pagedown", "scroll_down", "", False),
-            ("ctrl+l", "clear_view", "", False),
+            ("escape", "back", ""),
+            ("pageup", "scroll_up", ""),
+            ("pagedown", "scroll_down", ""),
+            ("ctrl+l", "clear_view", ""),
         ]
 
         def __init__(self) -> None:
