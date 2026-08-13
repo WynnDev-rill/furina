@@ -267,12 +267,12 @@ class DirectDeviceControl:
     b = replace_once(
         b,
         '''    def action(self, action: dict):
-        return self._request("POST", "/action", action, timeout=20)
+        return self._request("POST", "/action", action)
 
-    def screenshot(self) -> str:
+    def screenshot_base64(self) -> str:
 ''',
         '''    def action(self, action: dict):
-        return self._request("POST", "/action", action, timeout=20)
+        return self._request("POST", "/action", action)
 
     def control(self, action: dict):
         return self._request("POST", "/control", action, timeout=20)
@@ -280,7 +280,7 @@ class DirectDeviceControl:
     def control_status(self):
         return self._request("GET", "/control/status", timeout=6)
 
-    def screenshot(self) -> str:
+    def screenshot_base64(self) -> str:
 ''',
         "bridge direct control endpoint",
     )
