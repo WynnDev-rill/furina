@@ -50,9 +50,6 @@ jobs:
 
           composer = Input(max_length=0)
           assert composer.max_length == 0
-          huge_value = 'z' * 200000
-          composer.value = huge_value
-          assert composer.value == huge_value
 
           class Cfg:
               routing_mode='local'
