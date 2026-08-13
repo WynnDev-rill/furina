@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-VERSION="1.0.0-rc15"
+VERSION="1.0.0-rc16"
 ROOT="$HOME/.furina-agent"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 MANIFEST_URL="$BASE/manifest.json"
@@ -49,6 +49,8 @@ CORE_RC14_TRANSFORM_URL="$BASE/overrides/apply-core-rc14.py"
 CORE_RC14_TRANSFORM_BLOB="d328c13404a01846a90bb8ad12e9bf858a323e19"
 CORE_RC15_TRANSFORM_URL="$BASE/overrides/apply-core-rc15.py"
 CORE_RC15_TRANSFORM_BLOB="95da7480859e8ccdef8f7e7c6dfeafa06bed4b1d"
+CORE_RC16_TRANSFORM_URL="$BASE/overrides/apply-core-rc16.py"
+CORE_RC16_TRANSFORM_BLOB="5d779d1d6adf2438c9a3c5bf2ead5f64402e703e"
 LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"
 
 MODEL_REV="e9cf779"
@@ -270,7 +272,8 @@ PY
     "$CORE_RC13_TRANSFORM_URL|$CORE_RC13_TRANSFORM_BLOB|apply-core-rc13.py" \
     "$BRIDGE_RC8_TRANSFORM_URL|$BRIDGE_RC8_TRANSFORM_BLOB|apply-bridge-rc8.py" \
     "$CORE_RC14_TRANSFORM_URL|$CORE_RC14_TRANSFORM_BLOB|apply-core-rc14.py" \
-    "$CORE_RC15_TRANSFORM_URL|$CORE_RC15_TRANSFORM_BLOB|apply-core-rc15.py"; do
+    "$CORE_RC15_TRANSFORM_URL|$CORE_RC15_TRANSFORM_BLOB|apply-core-rc15.py" \
+    "$CORE_RC16_TRANSFORM_URL|$CORE_RC16_TRANSFORM_BLOB|apply-core-rc16.py"; do
     IFS='|' read -r url blob name <<< "$spec"
     curl -fsSL --retry 3 "$url" -o "$TMP/$name"
     verify_git_blob "$TMP/$name" "$blob"
@@ -282,7 +285,9 @@ PY
   for file in memory.py response.py vision.py embeddings.py local_vision.py events.py naturalness.py prospective.py device_context.py fastpath.py lexicon.py chat_surface.py tool_runtime.py direct_control.py long_input.py paste_input.py version.py tui.py; do
     test -f "$SRC/core/furina_agent/$file"
   done
-  grep -q 'VERSION = "1.0.0-rc15"' "$SRC/core/furina_agent/version.py"
+  grep -q 'VERSION = "1.0.0-rc16"' "$SRC/core/furina_agent/version.py"
+  grep -q 'event.prevent_default()' "$SRC/core/furina_agent/paste_input.py"
+  grep -q 'select_on_focus=False' "$SRC/core/furina_agent/chat_surface.py"
   grep -q 'config_revision: int = 10' "$SRC/core/furina_agent/config.py"
   grep -q 'fast_path_enabled: bool = True' "$SRC/core/furina_agent/config.py"
   grep -q 'lexicon_enabled: bool = True' "$SRC/core/furina_agent/config.py"
@@ -332,7 +337,7 @@ EOF
   grep -Fqx "$LINE" "$HOME/.bashrc" 2>/dev/null || echo "$LINE" >> "$HOME/.bashrc"
 }
 
-run_quiet "Memasang Furina Core RC15" 44 prepare_core
+run_quiet "Memasang Furina Core RC16" 44 prepare_core
 
 prepare_llama() {
   LLAMA="$ROOT/llama.cpp"
@@ -431,6 +436,6 @@ ui_ok "Furina siap"
 if [[ "$MODE" == "install" ]]; then
   printf '\033[2mBuka dengan:\033[0m  \033[1;36mfurina\033[0m\n'
 else
-  printf '\033[2mRC15 sudah terpasang. Jalankan:\033[0m  \033[1;36mfurina\033[0m\n'
+  printf '\033[2mRC16 sudah terpasang. Jalankan:\033[0m  \033[1;36mfurina\033[0m\n'
 fi
 printf '\033[2mLog setup: %s\033[0m\n\n' "$LOG"
