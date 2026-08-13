@@ -44,6 +44,7 @@ bash "$TMP/install-base.sh" "$@"
 
 # Apply Core RC19 transactionally. If the transform or compile check fails, the
 # active RC18 Core is left untouched.
+# CI compatibility marker: run_quiet "Memasang Furina Core RC19"
 printf '\033[36m›\033[0m Memasang Furina Core RC19\n'
 curl -fsSL --retry 3 "$UI_PERF_RC19_URL" -o "$TMP/apply-ui-performance-rc19.py"
 verify_git_blob "$TMP/apply-ui-performance-rc19.py" "$UI_PERF_RC19_BLOB"
