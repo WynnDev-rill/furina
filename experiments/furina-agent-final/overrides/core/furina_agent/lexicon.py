@@ -53,18 +53,22 @@ def _tokens(text: str) -> list[str]:
 
 
 class PersonalLexicon:
-    """Small local model of the user's habitual words and short phrases.
+    """Local user-vocabulary model with canonical deduplication.
 
-    It is deliberately not a transcript. Entries are canonicalized and upserted
-    so repeated observations strengthen one row instead of creating duplicates.
-    Only a tiny relevant subset is ever injected into a prompt.
+    Lightweight test/router stores do not necessarily expose the persistent
+    SQLite connection. In that case this component becomes a clean no-op rather
+    than making the whole companion session depend on optional lexical memory.
     """
 
     def __init__(self, store):
         self.store = store
-        self._ensure_schema()
+        self.available = callable(getattr(store, "_conn", None))
+        if self.available:
+            self._ensure_schema()
 
     def _conn(self):
+        if not self.available:
+            raise RuntimeError("persistent lexicon store unavailable")
         return self.store._conn()
 
     def _ensure_schema(self) -> None:
@@ -97,6 +101,8 @@ class PersonalLexicon:
         return value[:120]
 
     def _upsert(self, surface: str, *, context: str, explicit: bool, kind: str) -> bool:
+        if not self.available:
+            return False
         surface = self._safe_surface(surface)
         key = canonicalize(surface)
         if not key or len(key) < 2 or _SENSITIVE.search(surface) or _EMAIL_OR_URL.search(surface):
@@ -115,8 +121,6 @@ class PersonalLexicon:
             seen = int(row["seen_count"] or 0) + 1
             explicit_count = int(row["explicit_count"] or 0) + (1 if explicit else 0)
             confidence = min(0.99, float(row["confidence"] or 0.2) + (0.18 if explicit else 0.035))
-            # Explicit instructions are allowed to update the preferred surface,
-            # but they still update the existing canonical row rather than duplicate it.
             preferred = surface if explicit or len(surface) >= len(str(row["surface"] or "")) else str(row["surface"])
             conn.execute(
                 "UPDATE personal_lexicon SET surface=?,kind=?,contexts_json=?,seen_count=?,explicit_count=?,confidence=?,last_seen_at=? WHERE id=?",
@@ -132,6 +136,8 @@ class PersonalLexicon:
         return True
 
     def observe(self, user_text: str, profile_name: str = "CASUAL") -> int:
+        if not self.available:
+            return 0
         text = str(user_text or "").strip()
         if not text:
             return 0
@@ -145,23 +151,18 @@ class PersonalLexicon:
                     explicit_values.add(canonicalize(value))
                     learned += 1
 
-        # Never mine likely credentials or device payloads into the language model.
         if _SENSITIVE.search(text) or len(text) > 1800:
             return learned
 
         toks = _tokens(text)
         normalized = [(tok, canonicalize(tok)) for tok in toks]
         useful = [(tok, key) for tok, key in normalized if key and key not in _COMMON and 3 <= len(key) <= 28]
-
-        # A small number of lexical observations per turn is enough; activation
-        # requires repetition, so one unusual sentence does not redefine Furina.
         for tok, key in useful[:8]:
             if key in explicit_values:
                 continue
             if self._upsert(tok, context=ctx, explicit=False, kind="word"):
                 learned += 1
 
-        # Short multiword phrases carry more style signal than isolated words.
         surfaces = [tok for tok, key in normalized if key and key not in _COMMON]
         seen_phrase: set[str] = set()
         for width in (2, 3):
@@ -179,11 +180,12 @@ class PersonalLexicon:
                     break
             if len(seen_phrase) >= 8:
                 break
-
         self._prune_if_needed()
         return learned
 
     def _prune_if_needed(self) -> None:
+        if not self.available:
+            return
         conn = self._conn()
         total = int(conn.execute("SELECT count(*) FROM personal_lexicon").fetchone()[0])
         if total <= 1800:
@@ -196,6 +198,8 @@ class PersonalLexicon:
         conn.commit()
 
     def relevant(self, user_text: str, profile_name: str = "CASUAL", limit: int = 8, auto_min_seen: int = 2) -> list[dict]:
+        if not self.available:
+            return []
         limit = max(1, min(int(limit), 16))
         ctx = context_tag(profile_name, user_text)
         query_words = {canonicalize(x) for x in _tokens(user_text) if canonicalize(x)}
@@ -233,6 +237,8 @@ class PersonalLexicon:
         return [dict(row) | {"score": round(score, 3)} for score, row in scored[:limit]]
 
     def prompt_context(self, user_text: str, profile_name: str = "CASUAL", limit: int = 8, auto_min_seen: int = 2) -> str:
+        if not self.available:
+            return "(personal lexicon tidak tersedia untuk sesi ini)"
         rows = self.relevant(user_text, profile_name, limit, auto_min_seen)
         if not rows:
             return "(belum ada kosakata personal yang cukup kuat)"
@@ -245,6 +251,8 @@ class PersonalLexicon:
         )
 
     def mark_used(self, assistant_text: str, candidates: list[dict] | None = None) -> int:
+        if not self.available:
+            return 0
         low = canonicalize(assistant_text)
         if not low:
             return 0
@@ -264,4 +272,6 @@ class PersonalLexicon:
         return len(used_ids)
 
     def count(self) -> int:
+        if not self.available:
+            return 0
         return int(self._conn().execute("SELECT count(*) FROM personal_lexicon").fetchone()[0])
