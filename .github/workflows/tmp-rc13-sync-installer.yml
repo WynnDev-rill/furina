@@ -13,30 +13,34 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: feature/furina-direct-device-control-rc13
-      - shell: bash
-        env:
-          SETTINGS_B64: "ICAgICMgU2V0dGluZ3Mgb25seTogc3RhdHVzIHN0YXlzIG91dHNpZGUgY2hhdCB0byBrZWVwIGNvbnZlcnNhdGlvbiBjbGVhbi4KICAgIHQgPSB0dWkucmVhZF90ZXh0KGVuY29kaW5nPSJ1dGYtOCIpCiAgICBjb250ZXh0X2xpbmUgPSByJycnICAgICAgICBjb25zb2xlLnByaW50KGYiW2RpbV1Db250ZXh0Wy9dICAgIHtjZmcuY29udGV4dF9zaXplfVxuIikKJycnCiAgICBzdGF0dXNfYmxvY2sgPSByJycnICAgICAgICBzdGF0dXMgPSAiIgogICAgICAgIHRyeToKICAgICAgICAgICAgY29udHJvbCA9IEFuZHJvaWRCcmlkZ2UoY2ZnKS5jb250cm9sX3N0YXR1cygpCiAgICAgICAgICAgIHNlbGVjdGVkID0gc3RyKGNmZy5kZXZpY2VfY29udHJvbF9tb2RlKS5sb3dlcigpCiAgICAgICAgICAgIGlmIHNlbGVjdGVkID09ICJzaGl6dWt1IjoKICAgICAgICAgICAgICAgIHN0YXR1cyA9ICJzaWFwIiBpZiBjb250cm9sLmdldCgic2hpenVrdV9yZWFkeSIpIGVsc2UgInBlcmx1IGl6aW4iCiAgICAgICAgICAgIGVsaWYgc2VsZWN0ZWQgPT0gInJvb3QiOgogICAgICAgICAgICAgICAgc3RhdHVzID0gInNpYXAiIGlmIGNvbnRyb2wuZ2V0KCJyb290X3JlYWR5IikgZWxzZSAicGVybHUgaXppbiIKICAgICAgICAgICAgZWxzZToKICAgICAgICAgICAgICAgIHN0YXR1cyA9ICJBY2Nlc3NpYmlsaXR5IgogICAgICAgIGV4Y2VwdCBFeGNlcHRpb246CiAgICAgICAgICAgIHN0YXR1cyA9ICJCcmlkZ2Ugb2ZmbGluZSIKICAgICAgICBjb25zb2xlLnByaW50KGYiW2RpbV1Lb250cm9sWy9dICAgICB7Y2ZnLmRldmljZV9jb250cm9sX21vZGUudXBwZXIoKX0gwrcge3N0YXR1c30iKQonJycKICAgIHQgPSByZXBsYWNlX29uY2UodCwgY29udGV4dF9saW5lLCBzdGF0dXNfYmxvY2sgKyBjb250ZXh0X2xpbmUsICJzZXR0aW5ncyBzdGF0dXMgcm93IikKICAgIG9sZF9jaG9pY2UgPSAnICAgICAgICBjaG9pY2UgPSBfY2hvb3NlKCIiLCBbIk5hbWEgcGFuZ2dpbGFuIiwgIk5hbWEgRnVyaW5hIiwgIlRvZ2dsZSBsb2NhbCBhdXRvLXN0YXJ0IiwgIkJhY2siXSwgaGVpZ2h0PTYpXG4nCiAgICBuZXdfY2hvaWNlID0gJyAgICAgICAgY2hvaWNlID0gX2Nob29zZSgiIiwgWyJOYW1hIHBhbmdnaWxhbiIsICJOYW1hIEZ1cmluYSIsICJLb250cm9sIHBlcmFuZ2thdCIsICJUb2dnbGUgbG9jYWwgYXV0by1zdGFydCIsICJCYWNrIl0sIGhlaWdodD03KVxuJwogICAgdCA9IHJlcGxhY2Vfb25jZSh0LCBvbGRfY2hvaWNlLCBuZXdfY2hvaWNlLCAic2V0dGluZ3MgY29udHJvbCBjaG9pY2UiKQogICAgdG9nZ2xlX21hcmtlciA9ICcgICAgICAgIGVsaWYgY2hvaWNlID09ICJUb2dnbGUgbG9jYWwgYXV0by1zdGFydCI6XG4nCiAgICBtb2RlX2Jsb2NrID0gcicnJyAgICAgICAgZWxpZiBjaG9pY2UgPT0gIktvbnRyb2wgcGVyYW5na2F0IjoKICAgICAgICAgICAgbW9kZSA9IF9jaG9vc2UoIktvbnRyb2wgcGVyYW5na2F0IiwgWyJOb3JtYWwiLCAiU2hpenVrdSIsICJSb290IiwgIkJhY2siXSwgaGVpZ2h0PTYpCiAgICAgICAgICAgIGlmIG1vZGUgaW4geyJOb3JtYWwiLCAiU2hpenVrdSIsICJSb290In06CiAgICAgICAgICAgICAgICBjZmcuZGV2aWNlX2NvbnRyb2xfbW9kZSA9IG1vZGUubG93ZXIoKQogICAgICAgICAgICAgICAgaWYgbW9kZSBpbiB7IlNoaXp1a3UiLCAiUm9vdCJ9OgogICAgICAgICAgICAgICAgICAgIHRyeToKICAgICAgICAgICAgICAgICAgICAgICAgcmVzdWx0ID0gQW5kcm9pZEJyaWRnZShjZmcpLmNvbnRyb2woeyJ0eXBlIjogInByZXBhcmVfIiArIG1vZGUubG93ZXIoKSwgIm1vZGUiOiBtb2RlLmxvd2VyKCl9KQogICAgICAgICAgICAgICAgICAgICAgICBtZXNzYWdlID0gc3RyKHJlc3VsdC5nZXQoIm1lc3NhZ2UiKSBvciAoIlNpYXAiIGlmIHJlc3VsdC5nZXQoIm9rIikgZWxzZSAiSXppbiBiZWx1bSBha3RpZiIpKQogICAgICAgICAgICAgICAgICAgICAgICBjb25zb2xlLnByaW50KGYiW2RpbV17bWVzc2FnZX1bL10iKQogICAgICAgICAgICAgICAgICAgICAgICBfcGF1c2UoKQogICAgICAgICAgICAgICAgICAgIGV4Y2VwdCBFeGNlcHRpb246CiAgICAgICAgICAgICAgICAgICAgICAgIGNvbnNvbGUucHJpbnQoIlt5ZWxsb3ddQnJpZGdlIGJlbHVtIHNpYXAuIE1vZGUgdGVyc2ltcGFuOyBha3RpZmthbiBpemlubnlhIG5hbnRpLlsvXSIpCiAgICAgICAgICAgICAgICAgICAgICAgIF9wYXVzZSgpCicnJwogICAgdCA9IHJlcGxhY2Vfb25jZSh0LCB0b2dnbGVfbWFya2VyLCBtb2RlX2Jsb2NrICsgdG9nZ2xlX21hcmtlciwgInNldHRpbmdzIG1vZGUgc2VsZWN0aW9uIikKICAgIHR1aS53cml0ZV90ZXh0KHQsIGVuY29kaW5nPSJ1dGYtOCIpCg=="
+      - name: Enable AndroidX and repin installer
+        shell: bash
         run: |
           set -euo pipefail
           META=experiments/furina-agent-final
-          python3 - "$META/overrides/apply-core-rc13.py" "$SETTINGS_B64" <<'PY'
-          import base64,pathlib,sys
-          p=pathlib.Path(sys.argv[1]); replacement=base64.b64decode(sys.argv[2]).decode(); s=p.read_text()
-          start=s.index('    # Settings only: status stays outside chat to keep conversation clean.\n')
-          end=s.index('    tui.write_text(t, encoding="utf-8")\n',start)+len('    tui.write_text(t, encoding="utf-8")\n')
-          p.write_text(s[:start]+replacement+s[end:])
+          TRANSFORM="$META/overrides/apply-bridge-rc8.py"
+          INSTALLER="$META/install.sh"
+          python3 - "$TRANSFORM" <<'PY'
+          import pathlib,sys
+          p=pathlib.Path(sys.argv[1]); s=p.read_text(encoding='utf-8')
+          anchor='''    for p in (gradle, manifest, server, runtime, boot):\n        if not p.is_file():\n            raise SystemExit(f"missing Bridge RC8 source: {p}")\n\n'''
+          addition='''    for p in (gradle, manifest, server, runtime, boot):\n        if not p.is_file():\n            raise SystemExit(f"missing Bridge RC8 source: {p}")\n\n    gradle_props = root / "gradle.properties"\n    props = gradle_props.read_text(encoding="utf-8") if gradle_props.exists() else ""\n    if not any(line.strip() == "android.useAndroidX=true" for line in props.splitlines()):\n        props = props.rstrip() + "\\nandroid.useAndroidX=true\\n"\n        gradle_props.write_text(props, encoding="utf-8")\n\n'''
+          if 'android.useAndroidX=true' not in s:
+              if s.count(anchor)!=1: raise SystemExit('Bridge RC8 gradle.properties anchor mismatch')
+              s=s.replace(anchor,addition,1)
+              p.write_text(s,encoding='utf-8')
           PY
-          CORE_SHA="$(git hash-object "$META/overrides/apply-core-rc13.py")"
-          BRIDGE_SHA="$(git hash-object "$META/overrides/apply-bridge-rc8.py")"
-          python3 - "$META/install.sh" "$CORE_SHA" "$BRIDGE_SHA" <<'PY'
+          BRIDGE_SHA="$(git hash-object "$TRANSFORM")"
+          python3 - "$INSTALLER" "$BRIDGE_SHA" <<'PY'
           import pathlib,re,sys
-          p=pathlib.Path(sys.argv[1]); s=p.read_text(); core,bridge=sys.argv[2:]
-          s,n=re.subn(r'CORE_RC13_TRANSFORM_BLOB="[0-9a-f]{40}"',f'CORE_RC13_TRANSFORM_BLOB="{core}"',s,count=1); assert n==1
-          s,n=re.subn(r'BRIDGE_RC8_TRANSFORM_BLOB="[0-9a-f]{40}"',f'BRIDGE_RC8_TRANSFORM_BLOB="{bridge}"',s,count=1); assert n==1
-          p.write_text(s)
+          p=pathlib.Path(sys.argv[1]); s=p.read_text(encoding='utf-8'); sha=sys.argv[2]
+          s,n=re.subn(r'BRIDGE_RC8_TRANSFORM_BLOB="[0-9a-f]{40}"',f'BRIDGE_RC8_TRANSFORM_BLOB="{sha}"',s,count=1)
+          if n!=1: raise SystemExit('Bridge RC8 installer pin missing')
+          p.write_text(s,encoding='utf-8')
           PY
           git config user.name 'Wynn Dev'
           git config user.email 'indonesiafilmku@gmail.com'
-          git add "$META/overrides/apply-core-rc13.py" "$META/install.sh"
-          git commit -m 'fix: make RC13 settings transform deterministic'
+          git add "$TRANSFORM" "$INSTALLER"
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'fix: enable AndroidX for Shizuku Bridge RC8'
           git push origin HEAD:feature/furina-direct-device-control-rc13
