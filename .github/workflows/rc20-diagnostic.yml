@@ -1,12 +1,12 @@
-name: RC20 Agent Diagnostic
+name: RC22 System Diagnostic
 
 on:
   pull_request:
-    branches:
-      - experiment/furina-agent-termux
+    branches: [experiment/furina-agent-termux]
     paths:
       - 'experiments/furina-agent-final/**'
       - '.github/workflows/rc20-diagnostic.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,10 +14,10 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
-      - name: Reassemble transformed RC19 source
+      - name: Reassemble transformed RC22 source
         shell: bash
         run: |
           set -euo pipefail
@@ -37,33 +37,27 @@ jobs:
           manifest=json.loads((src/'manifest.json').read_text(encoding='utf-8'))
           def sha(data): return hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()
           for item in manifest['files']:
-              source=(src/item['path']).resolve(); target=(dst/item['target']).resolve()
-              data=source.read_bytes(); assert sha(data)==item['git_blob_sha'], item['path']
-              target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(data)
+              data=(src/item['path']).read_bytes(); assert sha(data)==item['git_blob_sha'], item['path']
+              target=(dst/item['target']).resolve(); target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(data)
           PY
-          for f in \
-            apply-bridge-rc4.py apply-universal-agent-rc5.py apply-core-rc6.py \
-            apply-core-rc6-postfix.py apply-bridge-rc6.py apply-core-rc7.py \
-            apply-bridge-rc7.py apply-core-rc8.py apply-core-rc8-postfix.py \
-            apply-core-rc9.py apply-ui-rc10.py apply-ui-rc10-hotfix.py \
-            apply-core-rc11.py apply-ui-rc12.py apply-ui-rc12-postfix.py \
-            apply-core-rc13.py apply-bridge-rc8.py apply-core-rc14.py \
-            apply-core-rc15.py apply-core-rc16.py apply-core-rc17-hotfix.py \
-            apply-bridge-rc9.py apply-core-rc18.py \
-            apply-ui-performance-bridge-rc10.py apply-ui-performance-rc19.py; do
+          for f in apply-bridge-rc4.py apply-universal-agent-rc5.py apply-core-rc6.py apply-core-rc6-postfix.py apply-bridge-rc6.py apply-core-rc7.py apply-bridge-rc7.py apply-core-rc8.py apply-core-rc8-postfix.py apply-core-rc9.py apply-ui-rc10.py apply-ui-rc10-hotfix.py apply-core-rc11.py apply-ui-rc12.py apply-ui-rc12-postfix.py apply-core-rc13.py apply-bridge-rc8.py apply-core-rc14.py apply-core-rc15.py apply-core-rc16.py apply-core-rc17-hotfix.py apply-bridge-rc9.py apply-core-rc18.py apply-ui-performance-bridge-rc10.py apply-ui-performance-rc19.py apply-reactive-bridge-rc11.py apply-reactive-core-rc20.py apply-reactive-bridge-rc12.py apply-reactive-core-rc21.py apply-bridge-rc13.py apply-system-rc22.py apply-safety-rc22.py; do
             python3 "$META/overrides/$f" "$ROOT"
           done
-          mkdir -p /tmp/rc20-diagnostic
-          cp "$ROOT/core/furina_agent/agent.py" /tmp/rc20-diagnostic/
-          cp "$ROOT/core/furina_agent/chat_surface.py" /tmp/rc20-diagnostic/
-          cp "$ROOT/core/furina_agent/tool_runtime.py" /tmp/rc20-diagnostic/
-          cp "$ROOT/core/furina_agent/direct_control.py" /tmp/rc20-diagnostic/
-          cp "$ROOT/core/furina_agent/companion.py" /tmp/rc20-diagnostic/
-          cp "$ROOT/core/furina_agent/events.py" /tmp/rc20-diagnostic/
-          grep -n -E 'Tugas dihentikan|kembali ke Termux|perlu menggunakan layar|Enter izinkan|Esc batal|approve|run_ui_sequence|open_app' /tmp/rc20-diagnostic/*.py || true
+          mkdir -p /tmp/rc22-diagnostic
+          cp "$ROOT/core/furina_agent/agent.py" /tmp/rc22-diagnostic/
+          cp "$ROOT/core/furina_agent/routing.py" /tmp/rc22-diagnostic/
+          cp "$ROOT/core/furina_agent/providers.py" /tmp/rc22-diagnostic/
+          cp "$ROOT/core/furina_agent/companion.py" /tmp/rc22-diagnostic/
+          cp "$ROOT/core/furina_agent/chat_surface.py" /tmp/rc22-diagnostic/
+          cp "$ROOT/core/furina_agent/tui.py" /tmp/rc22-diagnostic/
+          cp "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java" /tmp/rc22-diagnostic/
+          cp "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/BridgeRuntime.java" /tmp/rc22-diagnostic/
+          cp "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/BridgeUpdater.java" /tmp/rc22-diagnostic/
+          cp "$META/install.sh" /tmp/rc22-diagnostic/install.sh
+          grep -R -n -E 'timeout=120|provider_total_budget|version_code|steps.length|pending.event.wait|needs_approval|_approve_agent_action|termux-open-url' /tmp/rc22-diagnostic || true
       - name: Upload transformed source
         uses: actions/upload-artifact@v4
         with:
-          name: rc20-transformed-source
-          path: /tmp/rc20-diagnostic
+          name: rc22-transformed-source
+          path: /tmp/rc22-diagnostic
           if-no-files-found: error

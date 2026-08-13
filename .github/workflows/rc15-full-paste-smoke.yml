@@ -77,26 +77,21 @@ jobs:
               async with app.run_test() as pilot:
                   composer = app.query_one('#composer', FullPasteInput)
                   composer.focus()
-
                   await dispatch_paste(composer, pilot, payload)
                   assert composer.value == payload, (len(composer.value), len(payload))
                   assert composer.value.count('START-PASTE') == 1
                   assert composer.value.count('END-PASTE') == 1
                   assert '\r\n' in composer.value
-
                   second = '\nSECOND-PASTE\n'
                   await dispatch_paste(composer, pilot, second)
                   assert composer.value == payload + second
                   assert composer.value.count('SECOND-PASTE') == 1
-
                   composer.value = 'ABCDE'
                   composer.selection = (1, 4)
                   await dispatch_paste(composer, pilot, 'X\nY')
                   assert composer.value == 'AX\nYE', repr(composer.value)
                   assert composer.max_length == 0
-
               print('RC16_PASTE_EXACTLY_ONCE_OK', len(payload))
-
           asyncio.run(check())
           PY
 
@@ -107,14 +102,12 @@ jobs:
           grep -q 'command = text.strip().casefold()' "$ROOT/core/furina_agent/chat_surface.py"
           grep -q 'select_on_focus=False' "$ROOT/core/furina_agent/chat_surface.py"
 
-          # Keep testing RC16 paste behavior while validating packaging against
-          # the release currently declared by the manifest.
           CURRENT_RELEASE="$(python3 -c 'import json; print(json.load(open("experiments/furina-agent-final/manifest.json"))["version"])')"
           grep -q "VERSION=\"$CURRENT_RELEASE\"" "$META/install.sh"
           grep -q 'BASE_INSTALL_URL=' "$META/install.sh"
           grep -q 'MANIFEST_URL=' "$META/install.sh"
-          grep -q 'RC21_URL=' "$META/install.sh"
-          test "$CURRENT_RELEASE" = '1.0.0-rc21'
+          grep -q 'RC22_URL=' "$META/install.sh"
+          test "$CURRENT_RELEASE" = '1.0.0-rc22'
           bash -n "$META/install.sh"
           git diff --check
           echo RC16_PASTE_SMOKE_OK

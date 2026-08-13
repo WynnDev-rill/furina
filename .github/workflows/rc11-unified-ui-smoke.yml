@@ -84,9 +84,7 @@ jobs:
               routing_mode='local'; context_size=4096
           class LLM:
               def __init__(self): self.calls=[]
-              def chat(self,messages,**kwargs):
-                  self.calls.append(messages[-1]['content'])
-                  return 'note-' + str(len(self.calls))
+              def chat(self,messages,**kwargs): self.calls.append(messages[-1]['content']); return 'note-' + str(len(self.calls))
           raw='START-EXACT\n' + ('abcdef0123456789 detail penting 42 jangan hapus\n' * 5000) + 'END-EXACT'
           llm=LLM(); prepared=prepare_long_message(raw,CfgLong(),llm)
           assert prepared.chunked and prepared.chunks > 10
@@ -121,13 +119,11 @@ jobs:
           grep -q 'ACCENT = "#5de4c7"' "$ROOT/core/furina_agent/tui.py"
           grep -q '\["Chat", "Memory", "Provider", "Settings", "System", "Update", "Exit"\]' "$ROOT/core/furina_agent/tui.py"
 
-          # Keep testing RC14 behavior above, but validate release packaging
-          # against whatever version the current manifest declares.
           CURRENT_RELEASE="$(python3 -c 'import json; print(json.load(open("experiments/furina-agent-final/manifest.json"))["version"])')"
           grep -q "VERSION=\"$CURRENT_RELEASE\"" "$META/install.sh"
           grep -q 'BASE_INSTALL_URL=' "$META/install.sh"
           grep -q 'MANIFEST_URL=' "$META/install.sh"
-          grep -q 'RC21_URL=' "$META/install.sh"
-          test "$CURRENT_RELEASE" = '1.0.0-rc21'
+          grep -q 'RC22_URL=' "$META/install.sh"
+          test "$CURRENT_RELEASE" = '1.0.0-rc22'
           bash -n "$META/install.sh"
           echo RC14_TERMUX_UNBOUNDED_UI_OK
