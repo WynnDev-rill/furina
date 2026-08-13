@@ -1,0 +1,163 @@
+name: Apply RC11 Chat Hotfix
+
+on:
+  push:
+    branches:
+      - fix/furina-rc11-chat-runtime-padding
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply runtime compatibility and padding fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json, re
+
+          chat = Path('experiments/furina-agent-final/overrides/core/furina_agent/chat_surface.py')
+          text = chat.read_text(encoding='utf-8')
+          replacements = {
+              '("enter", "allow", "", False)': '("enter", "allow", "")',
+              '("y", "allow", "", False)': '("y", "allow", "")',
+              '("escape", "cancel", "", False)': '("escape", "cancel", "")',
+              '("n", "cancel", "", False)': '("n", "cancel", "")',
+              '("escape", "back", "", False)': '("escape", "back", "")',
+              '("pageup", "scroll_up", "", False)': '("pageup", "scroll_up", "")',
+              '("pagedown", "scroll_down", "", False)': '("pagedown", "scroll_down", "")',
+              '("ctrl+l", "clear_view", "", False)': '("ctrl+l", "clear_view", "")',
+          }
+          for old, new in replacements.items():
+              text = text.replace(old, new)
+
+          # Keep every chat-facing surface one terminal cell away from the edge.
+          for selector in ('#header', '#messages', '#status', '#composer'):
+              marker = selector + ' {'
+              start = text.find(marker)
+              if start < 0:
+                  raise SystemExit(f'missing CSS selector: {selector}')
+              end = text.find('}', start)
+              block = text[start:end]
+              if 'padding:' not in block:
+                  insert = text.find('\n', start) + 1
+                  text = text[:insert] + '            padding: 0 1;\n' + text[insert:]
+              else:
+                  block_new = re.sub(r'padding:\s*[^;]+;', 'padding: 0 1;', block, count=1)
+                  text = text[:start] + block_new + text[end:]
+
+          if ', False)' in text:
+              raise SystemExit('legacy 4-item Textual binding remains')
+          chat.write_text(text, encoding='utf-8')
+
+          def git_blob_sha(data: bytes) -> str:
+              return hashlib.sha1(f'blob {len(data)}\0'.encode() + data).hexdigest()
+
+          manifest_path = Path('experiments/furina-agent-final/overrides/manifest.json')
+          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+          chat_blob = git_blob_sha(chat.read_bytes())
+          found = False
+          for item in manifest['files']:
+              if item['path'] == 'core/furina_agent/chat_surface.py':
+                  item['git_blob_sha'] = chat_blob
+                  found = True
+                  break
+          if not found:
+              raise SystemExit('chat_surface.py missing from override manifest')
+          manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          manifest_blob = git_blob_sha(manifest_path.read_bytes())
+          installer = Path('experiments/furina-agent-final/install.sh')
+          inst = installer.read_text(encoding='utf-8')
+          inst, count = re.subn(
+              r'OVERRIDE_MANIFEST_BLOB="[0-9a-f]{40}"',
+              f'OVERRIDE_MANIFEST_BLOB="{manifest_blob}"',
+              inst,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit('installer manifest pin not found')
+          installer.write_text(inst, encoding='utf-8')
+
+          workflow = Path('.github/workflows/furina-agent-bridge-experiment.yml')
+          wf = workflow.read_text(encoding='utf-8')
+          branch_line = '      - fix/furina-rc11-chat-runtime-padding\n'
+          if branch_line not in wf:
+              anchor = '      - feature/furina-rc11-chat-agent-foundation\n'
+              if anchor not in wf:
+                  raise SystemExit('workflow branch anchor missing')
+              wf = wf.replace(anchor, anchor + branch_line, 1)
+          smoke = "          PYTHONPATH=core python3 \"$GITHUB_WORKSPACE/experiments/furina-agent-final/overrides/tests/smoke_chat_surface.py\"\n"
+          if smoke not in wf:
+              anchor = "          PYTHONPATH=core python3 -c 'import textual; from furina_agent.chat_surface import run_chat_surface; from furina_agent.tool_runtime import AgentToolRuntime'\n"
+              if anchor not in wf:
+                  raise SystemExit('workflow smoke anchor missing')
+              wf = wf.replace(anchor, anchor + smoke, 1)
+          workflow.write_text(wf, encoding='utf-8')
+          PY
+
+      - name: Reassemble RC11 and run chat mount smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          META="experiments/furina-agent-final"
+          ARCHIVE=/tmp/furina-agent-final.tar.gz
+          : > "$ARCHIVE"
+          for chunk in "$META"/source-*.b64; do base64 --decode "$chunk" >> "$ARCHIVE"; done
+          rm -rf /tmp/furina-agent-src && mkdir -p /tmp/furina-agent-src
+          tar -xzf "$ARCHIVE" -C /tmp/furina-agent-src
+          ROOT=/tmp/furina-agent-src/termux
+          patch -p0 -d /tmp/furina-agent-src < "$META/patches/api30-inputstream.patch"
+          patch -p0 -d /tmp/furina-agent-src < "$META/patches/runtime-online-agent.patch"
+          python3 "$META/overrides/apply-bridge-primitives-rc5.py" "$ROOT"
+          python3 - "$META/overrides" "$ROOT" <<'PY'
+          import hashlib,json,pathlib,sys
+          src=pathlib.Path(sys.argv[1]).resolve(); dst=pathlib.Path(sys.argv[2]).resolve()
+          manifest=json.loads((src/'manifest.json').read_text(encoding='utf-8'))
+          def sha(data): return hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()
+          for item in manifest['files']:
+              data=(src/item['path']).read_bytes()
+              assert sha(data)==item['git_blob_sha'], item['path']
+              target=(dst/item['target']).resolve(); target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(data)
+          PY
+          python3 "$META/overrides/apply-bridge-rc4.py" "$ROOT"
+          python3 "$META/overrides/apply-universal-agent-rc5.py" "$ROOT"
+          python3 "$META/overrides/apply-core-rc6.py" "$ROOT"
+          python3 "$META/overrides/apply-core-rc6-postfix.py" "$ROOT"
+          python3 "$META/overrides/apply-bridge-rc6.py" "$ROOT"
+          python3 "$META/overrides/apply-core-rc7.py" "$ROOT"
+          python3 "$META/overrides/apply-bridge-rc7.py" "$ROOT"
+          python3 "$META/overrides/apply-core-rc8.py" "$ROOT"
+          python3 "$META/overrides/apply-core-rc8-postfix.py" "$ROOT"
+          python3 "$META/overrides/apply-core-rc9.py" "$ROOT"
+          python3 "$META/overrides/apply-ui-rc10.py" "$ROOT"
+          python3 "$META/overrides/apply-ui-rc10-hotfix.py" "$ROOT"
+          python3 "$META/overrides/apply-core-rc11.py" "$ROOT"
+          python3 -m pip install -q 'rich>=13.9,<15' 'textual==8.2.8'
+          PYTHONPATH="$ROOT/core" python3 "$META/overrides/tests/smoke_chat_surface.py"
+          grep -q 'padding: 0 1;' "$ROOT/core/furina_agent/chat_surface.py"
+          ! grep -q ', False)' "$ROOT/core/furina_agent/chat_surface.py"
+          bash -n "$META/install.sh"
+
+      - name: Commit hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/rc11-hotfix-apply.yml
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git config user.name "Wynn Dev"
+          git config user.email "indonesiafilmku@gmail.com"
+          git add -A
+          git commit -m "fix: make RC11 chat surface run on Textual 8.2.8"
+          git push origin HEAD:fix/furina-rc11-chat-runtime-padding
