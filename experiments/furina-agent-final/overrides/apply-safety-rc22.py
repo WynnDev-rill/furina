@@ -62,10 +62,10 @@ def main() -> None:
     )
     c = rep(
         c,
-        '''                "Izin menggunakan layar untuk menyelesaikan tugas ini.\n\n"
+        r'''                "Izin menggunakan layar untuk menyelesaikan tugas ini.\n\n"
                 + allow + "        " + cancel
 ''',
-        '''                + self._message + "\n\n"
+        r'''                + self._message + "\n\n"
                 + allow + "        " + cancel
 ''',
         "confirmation message",
@@ -86,7 +86,7 @@ def main() -> None:
                 return False
             return pending.value
 ''',
-        '''        def _request_confirmation(self, message: str, *, default_allow: bool) -> bool:
+        r'''        def _request_confirmation(self, message: str, *, default_allow: bool) -> bool:
             pending = _PendingConfirm(threading.Event())
 
             def show() -> None:
