@@ -10,7 +10,7 @@ from furina_agent.config import Config
 
 
 class FinalReleaseContractTests(unittest.TestCase):
-    def test_legacy_config_migrates_to_rc9_cognition_under_rc10_ui(self):
+    def test_legacy_config_migrates_to_rc9_cognition_under_rc11_ui(self):
         with tempfile.TemporaryDirectory() as td:
             home = Path(td)
             cfg_path = home / "config.json"
@@ -66,7 +66,7 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertEqual(cfg.lexicon_prompt_limit, 8)
         self.assertEqual(cfg.lexicon_auto_min_seen, 2)
 
-    def test_installer_is_pinned_and_applies_rc10_ui_on_rc7_bridge(self):
+    def test_installer_is_pinned_and_applies_rc11_chat_on_rc7_bridge(self):
         root = Path(__file__).resolve().parents[1]
         workspace = Path(os.environ.get("GITHUB_WORKSPACE", "")) if os.environ.get("GITHUB_WORKSPACE") else None
         release_installer = workspace / "experiments/furina-agent-final/install.sh" if workspace else None
@@ -74,26 +74,30 @@ class FinalReleaseContractTests(unittest.TestCase):
         installer = installer_path.read_text(encoding="utf-8")
         self.assertNotIn("storage/shared", installer)
         self.assertNotIn("/storage/emulated", installer)
-        self.assertIn('VERSION="1.0.0-rc10"', installer)
-        self.assertIn("companion-v7", installer)
+        self.assertIn('VERSION="1.0.0-rc11"', installer)
+        self.assertIn("companion-v8", installer)
         self.assertIn("apply-ui-rc10.py", installer)
         self.assertIn("apply-ui-rc10-hotfix.py", installer)
+        self.assertIn("apply-core-rc11.py", installer)
         self.assertIn("apply-core-rc9.py", installer)
         self.assertIn("apply-core-rc8.py", installer)
         self.assertIn("apply-core-rc7.py", installer)
         self.assertIn("apply-bridge-rc7.py", installer)
+        self.assertIn("chat_surface.py", installer)
+        self.assertIn("tool_runtime.py", installer)
+        self.assertIn("textual==8.2.8", installer)
         self.assertIn("fastpath.py", installer)
         self.assertIn("lexicon.py", installer)
         self.assertIn("llama-embedding", installer)
         self.assertIn("-DGGML_CPU_KLEIDIAI=ON", installer)
         self.assertIn("pkg install -y python python-pip git cmake ninja clang make curl ccache util-linux termux-tools patch gum", installer)
         self.assertIn('if [[ "$MODE" == "install" ]]; then', installer)
-        self.assertIn('run_quiet "Memasang Furina Core RC10"', installer)
+        self.assertIn('run_quiet "Memasang Furina Core RC11"', installer)
         self.assertIn('LOG="$ROOT/logs/setup.log"', installer)
         self.assertIn("ui_progress", installer)
         self.assertIn("Furina siap", installer)
 
-    def test_core_has_rc9_fastpath_lexicon_and_rc8_memory_context(self):
+    def test_core_has_rc11_tool_runtime_plus_rc9_fastpath_and_rc8_memory_context(self):
         root = Path(__file__).resolve().parents[1]
         memory = (root / "core/furina_agent/memory.py").read_text(encoding="utf-8")
         chat = (root / "core/furina_agent/chat.py").read_text(encoding="utf-8")
@@ -104,6 +108,7 @@ class FinalReleaseContractTests(unittest.TestCase):
         routing = (root / "core/furina_agent/routing.py").read_text(encoding="utf-8")
         fastpath = (root / "core/furina_agent/fastpath.py").read_text(encoding="utf-8")
         lexicon = (root / "core/furina_agent/lexicon.py").read_text(encoding="utf-8")
+        tool_runtime = (root / "core/furina_agent/tool_runtime.py").read_text(encoding="utf-8")
         self.assertIn("CREATE TABLE IF NOT EXISTS memory_vectors", memory)
         self.assertIn("CREATE TABLE IF NOT EXISTS memory_vector_lsh", memory)
         self.assertIn("CREATE TABLE IF NOT EXISTS prospective_memories", memory)
@@ -125,6 +130,9 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertIn("compile_fast_contract", agent)
         self.assertIn("_try_fast_skill", agent)
         self.assertIn("_wait_after_action", agent)
+        self.assertIn("AgentToolRuntime", agent)
+        self.assertIn("self.tools.execute(payload)", agent)
+        self.assertIn("RC11: relevance-ranked compact screen", agent)
         self.assertNotIn('time.sleep(0.9 if typ == "open_app" else 0.48)', agent)
         self.assertIn("watch_user_return", agent)
         self.assertIn("duplicate_suppressed", agent)
@@ -133,12 +141,16 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertIn("wait_for_event", fastpath)
         self.assertIn("CREATE TABLE IF NOT EXISTS personal_lexicon", lexicon)
         self.assertIn("canonical TEXT NOT NULL UNIQUE", lexicon)
+        self.assertIn("class AgentToolRuntime", tool_runtime)
+        self.assertIn("suppressed_duplicate_failure", tool_runtime)
+        self.assertIn("def register", tool_runtime)
 
-    def test_rc10_tui_is_compact_gum_visible_and_preserves_task_approval(self):
+    def test_rc11_chat_surface_is_mobile_clean_and_streaming(self):
         root = Path(__file__).resolve().parents[1]
         tui = (root / "core/furina_agent/tui.py").read_text(encoding="utf-8")
+        chat_surface = (root / "core/furina_agent/chat_surface.py").read_text(encoding="utf-8")
         version = (root / "core/furina_agent/version.py").read_text(encoding="utf-8")
-        self.assertIn('VERSION = "1.0.0-rc10"', version)
+        self.assertIn('VERSION = "1.0.0-rc11"', version)
         self.assertIn("def _gum() -> str | None:", tui)
         self.assertIn('["Chat", "Memory", "Provider", "Settings", "System", "Update", "Exit"]', tui)
         self.assertIn('"--cursor", "› "', tui)
@@ -148,7 +160,8 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertNotIn("capture_output=True", tui)
         self.assertIn("def _display_name() -> str:", tui)
         self.assertIn("By Wynn", tui)
-        self.assertIn('[dim]Mode[/]', tui)
+        self.assertIn("run_chat_surface", tui)
+        self.assertIn("def _chat_legacy(console):", tui)
         self.assertIn("due_prospectives", tui)
         self.assertIn("Furina perlu memakai layar untuk tugas ini", tui)
         self.assertIn("termasuk Send/Kirim/Post/Share yang memang eksplisit", tui)
@@ -158,8 +171,19 @@ class FinalReleaseContractTests(unittest.TestCase):
         self.assertNotIn("Percakapan + tindakan Android", tui)
         self.assertNotIn("AI ROUTER", tui)
         self.assertNotIn("MEMORY / RESPONSE", tui)
+        self.assertIn("class ChatApp", chat_surface)
+        self.assertIn('padding: 0 1;', chat_surface)
+        self.assertIn('f"[{name}] :"', chat_surface)
+        self.assertIn("/back untuk kembali", chat_surface)
+        self.assertIn("@work(thread=True, exclusive=True)", chat_surface)
+        self.assertIn("on_token", chat_surface)
+        self.assertIn("scroll_relative", chat_surface)
+        self.assertIn("self._history", chat_surface)
+        self.assertNotIn("Mode  AUTO", chat_surface)
+        self.assertNotIn("bridge", chat_surface.lower())
+        self.assertNotIn("memory_count", chat_surface)
 
-    def test_bridge_rc7_is_preserved_unchanged_for_core_rc10(self):
+    def test_bridge_rc7_is_preserved_unchanged_for_core_rc11(self):
         root = Path(__file__).resolve().parents[1]
         manifest = (root / "bridge/app/src/main/AndroidManifest.xml").read_text()
         updater = (root / "bridge/app/src/main/java/com/wynndev/furinaagentbridge/BridgeUpdater.java").read_text()

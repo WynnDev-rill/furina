@@ -1,14 +1,14 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-VERSION="1.0.0-rc10"
+VERSION="1.0.0-rc11"
 ROOT="$HOME/.furina-agent"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 MANIFEST_URL="$BASE/manifest.json"
 RUNTIME_PATCH_URL="$BASE/patches/runtime-online-agent.patch"
 RUNTIME_PATCH_SHA256="bef40bd02af2eb9714f1197337a0f1a5f3ad5fa9ff1e71adfa073141c3756549"
 OVERRIDE_MANIFEST_URL="$BASE/overrides/manifest.json"
-OVERRIDE_MANIFEST_BLOB="16bb72c89951bd2570208672e77604876efe31be"
+OVERRIDE_MANIFEST_BLOB="3aa2b1909dce2c24f6c61ba862ea6f3dbadb7f4d"
 PRIMITIVE_TRANSFORM_URL="$BASE/overrides/apply-bridge-primitives-rc5.py"
 PRIMITIVE_TRANSFORM_BLOB="2f90a928d0808f23889750fe2a09f8d8689c5ad5"
 BRIDGE_TRANSFORM_URL="$BASE/overrides/apply-bridge-rc4.py"
@@ -35,6 +35,8 @@ UI_RC10_TRANSFORM_URL="$BASE/overrides/apply-ui-rc10.py"
 UI_RC10_TRANSFORM_BLOB="e1908850edbb62c0696f25bd991700ee91f181ba"
 UI_RC10_HOTFIX_URL="$BASE/overrides/apply-ui-rc10-hotfix.py"
 UI_RC10_HOTFIX_BLOB="5b6fdbf0115f63dfc849fba479ddfd86b25f1849"
+CORE_RC11_TRANSFORM_URL="$BASE/overrides/apply-core-rc11.py"
+CORE_RC11_TRANSFORM_BLOB="d51cf9db71da074e7f03397ce7ae6f4b5edd7add"
 LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"
 
 MODEL_REV="e9cf779"
@@ -145,7 +147,7 @@ if [[ "$MODE" == "install" ]]; then
   run_quiet "Menyiapkan Termux" 8 env DEBIAN_FRONTEND=noninteractive pkg update -y
 fi
 run_quiet "Menyiapkan runtime Furina" 18 env DEBIAN_FRONTEND=noninteractive pkg install -y python python-pip git cmake ninja clang make curl ccache util-linux termux-tools patch gum
-run_quiet "Menyiapkan tampilan" 22 python -m pip install --quiet 'rich>=13.9,<15'
+run_quiet "Menyiapkan tampilan" 22 python -m pip install --quiet 'rich>=13.9,<15' 'textual==8.2.8'
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -210,7 +212,7 @@ def git_blob_sha(data): return hashlib.sha1(f"blob {len(data)}\0".encode()+data)
 if git_blob_sha(manifest_raw)!=expected_manifest_blob:
     raise SystemExit('Manifest override Furina berubah; update dibatalkan.')
 manifest=json.loads(manifest_raw.decode('utf-8'))
-if manifest.get('revision')!='companion-v7':
+if manifest.get('revision')!='companion-v8':
     raise SystemExit('Revision override Furina tidak dikenali.')
 root=pathlib.Path(termux_root).resolve()
 for item in manifest.get('files',[]):
@@ -239,7 +241,8 @@ PY
     "$CORE_RC8_POSTFIX_URL|$CORE_RC8_POSTFIX_BLOB|apply-core-rc8-postfix.py" \
     "$CORE_RC9_TRANSFORM_URL|$CORE_RC9_TRANSFORM_BLOB|apply-core-rc9.py" \
     "$UI_RC10_TRANSFORM_URL|$UI_RC10_TRANSFORM_BLOB|apply-ui-rc10.py" \
-    "$UI_RC10_HOTFIX_URL|$UI_RC10_HOTFIX_BLOB|apply-ui-rc10-hotfix.py"; do
+    "$UI_RC10_HOTFIX_URL|$UI_RC10_HOTFIX_BLOB|apply-ui-rc10-hotfix.py" \
+    "$CORE_RC11_TRANSFORM_URL|$CORE_RC11_TRANSFORM_BLOB|apply-core-rc11.py"; do
     IFS='|' read -r url blob name <<< "$spec"
     curl -fsSL --retry 3 "$url" -o "$TMP/$name"
     verify_git_blob "$TMP/$name" "$blob"
@@ -248,10 +251,10 @@ PY
 
   SRC="$TMP/src/termux"
   test -f "$SRC/core/furina_agent/cli.py"
-  for file in memory.py response.py vision.py embeddings.py local_vision.py events.py naturalness.py prospective.py device_context.py fastpath.py lexicon.py version.py tui.py; do
+  for file in memory.py response.py vision.py embeddings.py local_vision.py events.py naturalness.py prospective.py device_context.py fastpath.py lexicon.py chat_surface.py tool_runtime.py version.py tui.py; do
     test -f "$SRC/core/furina_agent/$file"
   done
-  grep -q 'VERSION = "1.0.0-rc10"' "$SRC/core/furina_agent/version.py"
+  grep -q 'VERSION = "1.0.0-rc11"' "$SRC/core/furina_agent/version.py"
   grep -q 'config_revision: int = 9' "$SRC/core/furina_agent/config.py"
   grep -q 'fast_path_enabled: bool = True' "$SRC/core/furina_agent/config.py"
   grep -q 'lexicon_enabled: bool = True' "$SRC/core/furina_agent/config.py"
@@ -262,6 +265,11 @@ PY
   grep -q 'stderr=None' "$SRC/core/furina_agent/tui.py"
   ! grep -q 'capture_output=True' "$SRC/core/furina_agent/tui.py"
   grep -q 'By Wynn' "$SRC/core/furina_agent/tui.py"
+  grep -q 'run_chat_surface' "$SRC/core/furina_agent/tui.py"
+  grep -q '\[.*\] :' "$SRC/core/furina_agent/chat_surface.py"
+  grep -q 'AgentToolRuntime' "$SRC/core/furina_agent/agent.py"
+  grep -q 'self.tools.execute(payload)' "$SRC/core/furina_agent/agent.py"
+  grep -q 'RC11: relevance-ranked compact screen' "$SRC/core/furina_agent/agent.py"
   grep -q 'compile_fast_contract' "$SRC/core/furina_agent/agent.py"
   grep -q '_try_fast_skill' "$SRC/core/furina_agent/agent.py"
   grep -q 'LocalVision' "$SRC/core/furina_agent/routing.py"
@@ -289,7 +297,7 @@ EOF
   grep -Fqx "$LINE" "$HOME/.bashrc" 2>/dev/null || echo "$LINE" >> "$HOME/.bashrc"
 }
 
-run_quiet "Memasang Furina Core RC10" 44 prepare_core
+run_quiet "Memasang Furina Core RC11" 44 prepare_core
 
 prepare_llama() {
   LLAMA="$ROOT/llama.cpp"
@@ -377,6 +385,7 @@ run_quiet "Memeriksa Furina Bridge" 96 prepare_bridge
 
 verify_install() {
   PYTHONPATH="$ROOT/core" python -m compileall -q "$ROOT/core/furina_agent"
+  PYTHONPATH="$ROOT/core" python -c 'import textual; from furina_agent.chat_surface import run_chat_surface; from furina_agent.tool_runtime import AgentToolRuntime'
   furina status >/dev/null || true
   command -v gum >/dev/null
 }
@@ -387,6 +396,6 @@ ui_ok "Furina siap"
 if [[ "$MODE" == "install" ]]; then
   printf '\033[2mBuka dengan:\033[0m  \033[1;36mfurina\033[0m\n'
 else
-  printf '\033[2mRC10 sudah terpasang. Jalankan:\033[0m  \033[1;36mfurina\033[0m\n'
+  printf '\033[2mRC11 sudah terpasang. Jalankan:\033[0m  \033[1;36mfurina\033[0m\n'
 fi
 printf '\033[2mLog setup: %s\033[0m\n\n' "$LOG"

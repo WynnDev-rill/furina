@@ -1,9 +1,10 @@
 {
-  "revision": "companion-v7",
+  "revision": "companion-v8",
   "files": [
     {"path": "core/furina_agent/agent.py", "target": "core/furina_agent/agent.py", "git_blob_sha": "115fca0819c7977172d3df402a6d8367c6dba1f4"},
     {"path": "core/furina_agent/bridge.py", "target": "core/furina_agent/bridge.py", "git_blob_sha": "f8bbdff38d4336f65e7beca5a14cc6f3d1a63dab"},
     {"path": "core/furina_agent/chat.py", "target": "core/furina_agent/chat.py", "git_blob_sha": "58227fc62f6f5ebb0191637e634eb3c67a2a4772"},
+    {"path": "core/furina_agent/chat_surface.py", "target": "core/furina_agent/chat_surface.py", "git_blob_sha": "7afaa31799467481297aa4adcb2669f7f818a154"},
     {"path": "core/furina_agent/companion.py", "target": "core/furina_agent/companion.py", "git_blob_sha": "5fe68fa5ef76ecd1aa68c3e67b64869e4477d981"},
     {"path": "core/furina_agent/config.py", "target": "core/furina_agent/config.py", "git_blob_sha": "12344f64fda00269c4f37e9b4065b34adb517e0d"},
     {"path": "core/furina_agent/device_context.py", "target": "core/furina_agent/device_context.py", "git_blob_sha": "8775c4e112cb94914bfd7bb8eef93e110978f2bb"},
@@ -20,6 +21,7 @@
     {"path": "core/furina_agent/providers.py", "target": "core/furina_agent/providers.py", "git_blob_sha": "a8de9ee6b94d16ce36e3fca0a905d0bf1e2ea2fb"},
     {"path": "core/furina_agent/response.py", "target": "core/furina_agent/response.py", "git_blob_sha": "a566c7ac385b92a3712c36b2bd8fb4745239ca7f"},
     {"path": "core/furina_agent/routing.py", "target": "core/furina_agent/routing.py", "git_blob_sha": "787bf8eb086432a1360ca738c7479e4e65241dc5"},
+    {"path": "core/furina_agent/tool_runtime.py", "target": "core/furina_agent/tool_runtime.py", "git_blob_sha": "5a8947c8460bfad58f64d0db63f07b67780cc715"},
     {"path": "core/furina_agent/tui.py", "target": "core/furina_agent/tui.py", "git_blob_sha": "16004d096432c34d11f3e76525c6498c7af252ce"},
     {"path": "core/furina_agent/tui_rc10.py", "target": "core/furina_agent/tui_rc10.py", "git_blob_sha": "18edb57a74ea3e2b7e769a19273bd191f6fcd3ed"},
     {"path": "core/furina_agent/version.py", "target": "core/furina_agent/version.py", "git_blob_sha": "f1ec1f23e9d64bb3ecaebe331832e9e0b577bb0c"},
