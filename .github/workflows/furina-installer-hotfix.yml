@@ -1,0 +1,151 @@
+name: Furina Installer Hotfix
+
+on:
+  push:
+    branches:
+      - fix/furina-update-bootstrap-and-transaction
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch installer for postfix, dependencies, and staged validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('experiments/furina-agent-final/install.sh')
+          t = p.read_text(encoding='utf-8')
+
+          anchor = 'UI_RC12_TRANSFORM_BLOB="07d10d060f1e0e3e7b299e57661f2967ae7986d2"\n'
+          addition = anchor + 'UI_RC12_POSTFIX_URL="$BASE/overrides/apply-ui-rc12-postfix.py"\nUI_RC12_POSTFIX_BLOB="965ecc146715dc5daa2ec702cf37ca6749654df6"\n'
+          if 'UI_RC12_POSTFIX_URL=' not in t:
+              if anchor not in t:
+                  raise SystemExit('RC12 pin anchor missing')
+              t = t.replace(anchor, addition, 1)
+
+          old_loop = '    "$UI_RC12_TRANSFORM_URL|$UI_RC12_TRANSFORM_BLOB|apply-ui-rc12.py"; do\n'
+          new_loop = '    "$UI_RC12_TRANSFORM_URL|$UI_RC12_TRANSFORM_BLOB|apply-ui-rc12.py" \\\n    "$UI_RC12_POSTFIX_URL|$UI_RC12_POSTFIX_BLOB|apply-ui-rc12-postfix.py"; do\n'
+          if old_loop in t:
+              t = t.replace(old_loop, new_loop, 1)
+          elif 'apply-ui-rc12-postfix.py"; do' not in t:
+              raise SystemExit('RC12 transform loop anchor missing')
+
+          old_deps = '''if [[ "$MODE" == "install" ]]; then
+  run_quiet "Menyiapkan Termux" 8 env DEBIAN_FRONTEND=noninteractive pkg update -y
+fi
+run_quiet "Menyiapkan runtime Furina" 18 env DEBIAN_FRONTEND=noninteractive pkg install -y python python-pip git cmake ninja clang make curl ccache util-linux termux-tools patch gum
+run_quiet "Menyiapkan tampilan" 22 python -m pip install --quiet 'rich>=13.9,<15' 'textual==8.2.8'
+'''
+          new_deps = '''# Install/update is intentionally self-contained. A beginner should not need to
+# diagnose missing packages manually; every required Termux and Python runtime
+# dependency is reconciled on every install and update.
+run_quiet "Menyinkronkan Termux" 8 env DEBIAN_FRONTEND=noninteractive pkg update -y
+run_quiet "Memasang dependency Furina" 18 env DEBIAN_FRONTEND=noninteractive pkg install -y python python-pip git cmake ninja clang make curl ccache coreutils tar gzip util-linux termux-tools patch gum
+run_quiet "Menyiapkan dependency Python" 22 python -m pip install --quiet --upgrade 'rich>=13.9,<15' 'textual==8.2.8'
+
+verify_dependencies() {
+  local cmd
+  for cmd in python git cmake ninja clang make curl sha256sum tar gzip patch gum; do
+    command -v "$cmd" >/dev/null 2>&1 || { echo "Dependency wajib tidak ditemukan: $cmd" >&2; return 1; }
+  done
+  python - <<'PYDEP'
+import rich, textual
+assert tuple(int(x) for x in textual.__version__.split('.')[:2]) >= (8, 2)
+PYDEP
+}
+run_quiet "Memeriksa dependency" 24 verify_dependencies
+'''
+          if old_deps in t:
+              t = t.replace(old_deps, new_deps, 1)
+          elif 'verify_dependencies() {' not in t:
+              raise SystemExit('dependency block anchor missing')
+
+          swap_anchor = '''  rm -rf "$ROOT/core.new"
+  mkdir -p "$ROOT/core.new"
+  cp -R "$SRC/core/furina_agent" "$ROOT/core.new/"
+'''
+          staged = '''  # Validate the complete staged Core before touching the active installation.
+  # This makes updates transactional for syntax/import failures and preserves
+  # the previous working Core when a transform is malformed.
+  PYTHONPATH="$SRC/core" python -m compileall -q "$SRC/core/furina_agent"
+  PYTHONPATH="$SRC/core" python - <<'PYPREFLIGHT'
+import rich, textual
+import furina_agent.tui
+from furina_agent.chat_surface import run_chat_surface
+from furina_agent.tool_runtime import AgentToolRuntime
+PYPREFLIGHT
+
+  rm -rf "$ROOT/core.new"
+  mkdir -p "$ROOT/core.new"
+  cp -R "$SRC/core/furina_agent" "$ROOT/core.new/"
+  PYTHONPATH="$ROOT/core.new" python -m compileall -q "$ROOT/core.new/furina_agent"
+'''
+          if swap_anchor in t:
+              t = t.replace(swap_anchor, staged, 1)
+          elif 'PYPREFLIGHT' not in t:
+              raise SystemExit('transactional swap anchor missing')
+
+          p.write_text(t, encoding='utf-8')
+          PY
+
+      - name: Reassemble final Core and validate installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          META=experiments/furina-agent-final
+          ARCHIVE=/tmp/furina-agent-final.tar.gz
+          : > "$ARCHIVE"
+          for chunk in "$META"/source-*.b64; do base64 --decode "$chunk" >> "$ARCHIVE"; done
+          rm -rf /tmp/furina-agent-src && mkdir -p /tmp/furina-agent-src
+          tar -xzf "$ARCHIVE" -C /tmp/furina-agent-src
+          ROOT=/tmp/furina-agent-src/termux
+          patch -p0 -d /tmp/furina-agent-src < "$META/patches/api30-inputstream.patch"
+          patch -p0 -d /tmp/furina-agent-src < "$META/patches/runtime-online-agent.patch"
+          python3 "$META/overrides/apply-bridge-primitives-rc5.py" "$ROOT"
+          python3 - "$META/overrides" "$ROOT" <<'PY'
+          import hashlib,json,pathlib,sys
+          src=pathlib.Path(sys.argv[1]).resolve(); dst=pathlib.Path(sys.argv[2]).resolve()
+          manifest=json.loads((src/'manifest.json').read_text(encoding='utf-8'))
+          def sha(data): return hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()
+          for item in manifest['files']:
+              data=(src/item['path']).read_bytes(); assert sha(data)==item['git_blob_sha'], item['path']
+              target=(dst/item['target']).resolve(); target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(data)
+          PY
+          for f in apply-bridge-rc4.py apply-universal-agent-rc5.py apply-core-rc6.py apply-core-rc6-postfix.py apply-bridge-rc6.py apply-core-rc7.py apply-bridge-rc7.py apply-core-rc8.py apply-core-rc8-postfix.py apply-core-rc9.py apply-ui-rc10.py apply-ui-rc10-hotfix.py apply-core-rc11.py apply-ui-rc12.py apply-ui-rc12-postfix.py; do
+            python3 "$META/overrides/$f" "$ROOT"
+          done
+          python3 -m compileall -q "$ROOT/core/furina_agent"
+          python3 -m pip install -q 'rich>=13.9,<15' 'textual==8.2.8'
+          PYTHONPATH="$ROOT/core" python3 - <<'PY'
+          import furina_agent.tui
+          from furina_agent.chat_surface import run_chat_surface
+          from furina_agent.tool_runtime import AgentToolRuntime
+          PY
+          grep -q 'def _main_menu(console) -> str:' "$ROOT/core/furina_agent/tui.py"
+          test "$(grep -c '^def _main_menu(console) -> str:$' "$ROOT/core/furina_agent/tui.py")" = 1
+          grep -q 'ChatApp().run(mouse=False)' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q 'verify_dependencies()' "$META/install.sh"
+          grep -q 'PYPREFLIGHT' "$META/install.sh"
+          grep -q 'apply-ui-rc12-postfix.py' "$META/install.sh"
+          bash -n "$META/install.sh"
+
+      - name: Commit installer hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Wynn Dev"
+          git config user.email "indonesiafilmku@gmail.com"
+          git add experiments/furina-agent-final/install.sh
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "fix: make Furina install self-contained and transactional"
+          git push origin HEAD:fix/furina-update-bootstrap-and-transaction
