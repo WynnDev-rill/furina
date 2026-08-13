@@ -1,0 +1,66 @@
+name: Temp sync RC14 installer metadata
+on:
+  push:
+    branches: [feature/furina-unbounded-chat-input-rc14]
+    paths: ['.github/workflows/tmp-rc14-meta.yml']
+permissions:
+  contents: write
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/furina-unbounded-chat-input-rc14
+      - name: Wire RC14 installer and manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, subprocess
+
+          meta = Path('experiments/furina-agent-final')
+          transform = meta / 'overrides/apply-core-rc14.py'
+          blob = subprocess.check_output(['git','hash-object',str(transform)], text=True).strip()
+
+          p = meta / 'install.sh'
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('VERSION="1.0.0-rc13"', 'VERSION="1.0.0-rc14"', 1)
+          anchor = 'BRIDGE_RC8_TRANSFORM_BLOB="8102238998611c9cec6a42c1df9ab56191b0067b"\n'
+          if 'CORE_RC14_TRANSFORM_URL=' not in s:
+              assert anchor in s
+              s = s.replace(anchor, anchor + 'CORE_RC14_TRANSFORM_URL="$BASE/overrides/apply-core-rc14.py"\nCORE_RC14_TRANSFORM_BLOB="' + blob + '"\n', 1)
+          loop = '    "$BRIDGE_RC8_TRANSFORM_URL|$BRIDGE_RC8_TRANSFORM_BLOB|apply-bridge-rc8.py"; do\n'
+          assert loop in s
+          s = s.replace(loop, '    "$BRIDGE_RC8_TRANSFORM_URL|$BRIDGE_RC8_TRANSFORM_BLOB|apply-bridge-rc8.py" \\\n    "$CORE_RC14_TRANSFORM_URL|$CORE_RC14_TRANSFORM_BLOB|apply-core-rc14.py"; do\n', 1)
+          assert 'direct_control.py version.py tui.py; do' in s
+          s = s.replace('direct_control.py version.py tui.py; do', 'direct_control.py long_input.py version.py tui.py; do', 1)
+          assert 'grep -q \'VERSION = "1.0.0-rc13"\'' in s
+          s = s.replace('grep -q \'VERSION = "1.0.0-rc13"\'', 'grep -q \'VERSION = "1.0.0-rc14"\'', 1)
+          assert 'run_quiet "Memasang Furina Core RC13" 44 prepare_core' in s
+          s = s.replace('run_quiet "Memasang Furina Core RC13" 44 prepare_core', 'run_quiet "Memasang Furina Core RC14" 44 prepare_core', 1)
+          assert 'RC13 sudah terpasang. Jalankan:' in s
+          s = s.replace('RC13 sudah terpasang. Jalankan:', 'RC14 sudah terpasang. Jalankan:', 1)
+          p.write_text(s, encoding='utf-8')
+
+          manifest_path = meta / 'manifest.json'
+          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+          manifest['version'] = '1.0.0-rc14'
+          manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+          PY
+          bash -n experiments/furina-agent-final/install.sh
+          grep -q 'CORE_RC14_TRANSFORM_URL=' experiments/furina-agent-final/install.sh
+          grep -q 'apply-core-rc14.py' experiments/furina-agent-final/install.sh
+          grep -q 'VERSION = "1.0.0-rc14"' experiments/furina-agent-final/install.sh
+          test "$(python3 -c 'import json; print(json.load(open("experiments/furina-agent-final/manifest.json"))["version"])')" = "1.0.0-rc14"
+          git diff --check
+      - name: Commit installer metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Wynn Dev"
+          git config user.email "indonesiafilmku@gmail.com"
+          git add experiments/furina-agent-final/install.sh experiments/furina-agent-final/manifest.json
+          git commit -m "wire RC14 unbounded chat into installer"
+          git push origin HEAD:feature/furina-unbounded-chat-input-rc14
