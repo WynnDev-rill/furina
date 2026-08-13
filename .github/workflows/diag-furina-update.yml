@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect cmd_update and upgrade script
+      - name: Inspect updater and smoke-test RC11 chat
         shell: bash
         run: |
           set -euo pipefail
@@ -21,20 +21,62 @@ jobs:
           rm -rf /tmp/furina-agent-src && mkdir -p /tmp/furina-agent-src
           tar -xzf "$ARCHIVE" -C /tmp/furina-agent-src
           ROOT=/tmp/furina-agent-src/termux
+
           echo '=== cli.py cmd_update ==='
           python3 - <<'PY'
           from pathlib import Path
           p=Path('/tmp/furina-agent-src/termux/core/furina_agent/cli.py')
           text=p.read_text(encoding='utf-8')
           start=text.find('def cmd_update')
-          if start < 0:
-              print('cmd_update not found')
-          else:
-              end=text.find('\ndef ', start+1)
-              if end < 0: end=len(text)
-              print(text[start:end])
+          end=text.find('\ndef ', start+1)
+          print(text[start:end if end >= 0 else None])
           PY
-          echo '=== upgrade.sh ==='
-          cat "$ROOT/upgrade.sh"
-          echo '=== parser update registration ==='
-          grep -n -C 4 -E 'cmd_update|update' "$ROOT/core/furina_agent/cli.py" | tail -n 100
+
+          python3 "$META/overrides/apply-bridge-primitives-rc5.py" "$ROOT"
+          python3 - "$META/overrides" "$ROOT" <<'PY'
+          import json,pathlib,sys
+          src=pathlib.Path(sys.argv[1]).resolve(); dst=pathlib.Path(sys.argv[2]).resolve()
+          manifest=json.loads((src/'manifest.json').read_text(encoding='utf-8'))
+          print('override revision:', manifest.get('revision'))
+          for item in manifest['files']:
+              source=(src/item['path']).resolve(); target=(dst/item['target']).resolve()
+              target.parent.mkdir(parents=True,exist_ok=True)
+              target.write_bytes(source.read_bytes())
+          PY
+          python3 "$META/overrides/apply-bridge-rc4.py" "$ROOT"
+          python3 "$META/overrides/apply-universal-agent-rc5.py" "$ROOT"
+          python3 "$META/overrides/apply-core-rc6.py" "$ROOT"
+          python3 "$META/overrides/apply-core-rc6-postfix.py" "$ROOT"
+          python3 "$META/overrides/apply-bridge-rc6.py" "$ROOT"
+          python3 "$META/overrides/apply-core-rc7.py" "$ROOT"
+          python3 "$META/overrides/apply-bridge-rc7.py" "$ROOT"
+          python3 "$META/overrides/apply-core-rc8.py" "$ROOT"
+          python3 "$META/overrides/apply-core-rc8-postfix.py" "$ROOT"
+          python3 "$META/overrides/apply-core-rc9.py" "$ROOT"
+          python3 "$META/overrides/apply-ui-rc10.py" "$ROOT"
+          python3 "$META/overrides/apply-ui-rc10-hotfix.py" "$ROOT"
+          python3 "$META/overrides/apply-core-rc11.py" "$ROOT"
+
+          echo '=== transformed version ==='
+          cat "$ROOT/core/furina_agent/version.py"
+          python3 -m pip install -q 'rich>=13.9,<15' 'textual==8.2.8'
+
+          echo '=== Textual RC11 mount smoke ==='
+          HOME=/tmp/furina-home PYTHONPATH="$ROOT/core" python3 - <<'PY'
+          import asyncio
+          from pathlib import Path
+          Path('/tmp/furina-home').mkdir(parents=True, exist_ok=True)
+          from textual.app import App
+
+          def smoke_run(self, *args, **kwargs):
+              async def go():
+                  async with self.run_test(size=(72, 28)) as pilot:
+                      await pilot.pause()
+                      print('MOUNT_OK', type(self).__name__)
+                      print('WIDGETS', [w.id for w in self.query('*') if getattr(w, 'id', None)])
+              asyncio.run(go())
+
+          App.run = smoke_run
+          from furina_agent.chat_surface import run_chat_surface
+          run_chat_surface()
+          PY
