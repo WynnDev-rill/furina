@@ -5,6 +5,7 @@ on:
     branches:
       - experiment/furina-agent-termux
       - feat/furina-rc10-modern-termux-ui
+      - fix/furina-rc10-ui-hotfix
     paths:
       - 'experiments/furina-agent-final/**'
       - '.github/workflows/furina-agent-bridge-experiment.yml'
@@ -72,6 +73,7 @@ jobs:
           python3 "$META/overrides/apply-core-rc8-postfix.py" /tmp/furina-agent-src/termux
           python3 "$META/overrides/apply-core-rc9.py" /tmp/furina-agent-src/termux
           python3 "$META/overrides/apply-ui-rc10.py" /tmp/furina-agent-src/termux
+          python3 "$META/overrides/apply-ui-rc10-hotfix.py" /tmp/furina-agent-src/termux
           cp "$META/overrides/tests/test_final_contract.py" /tmp/furina-agent-src/termux/tests/test_final_contract.py
           cp "$META/overrides/tests/test_final_release_contract.py" /tmp/furina-agent-src/termux/tests/test_final_release_contract.py
 
@@ -107,6 +109,13 @@ jobs:
           grep -q 'wait_for_event' "$ROOT/core/furina_agent/fastpath.py"
           grep -q 'def _gum() -> str | None:' "$ROOT/core/furina_agent/tui.py"
           grep -q '\["Chat", "Memory", "Provider", "Settings", "System", "Update", "Exit"\]' "$ROOT/core/furina_agent/tui.py"
+          grep -q 'stdout=subprocess.PIPE' "$ROOT/core/furina_agent/tui.py"
+          grep -q 'stderr=None' "$ROOT/core/furina_agent/tui.py"
+          ! grep -q 'capture_output=True' "$ROOT/core/furina_agent/tui.py"
+          grep -q '"--cursor", "› "' "$ROOT/core/furina_agent/tui.py"
+          grep -q 'def _display_name()' "$ROOT/core/furina_agent/tui.py"
+          grep -q 'By Wynn' "$ROOT/core/furina_agent/tui.py"
+          grep -q '\[dim\]Mode\[/\]' "$ROOT/core/furina_agent/tui.py"
           grep -q 'Furina perlu memakai layar untuk tugas ini' "$ROOT/core/furina_agent/tui.py"
           ! grep -q 'title="SYSTEM"' "$ROOT/core/furina_agent/tui.py"
           ! grep -q 'title="ACTIONS"' "$ROOT/core/furina_agent/tui.py"
@@ -130,6 +139,8 @@ jobs:
           grep -q 'pkg install -y python python-pip git cmake ninja clang make curl ccache util-linux termux-tools patch gum' "$GITHUB_WORKSPACE/experiments/furina-agent-final/install.sh"
           grep -q 'run_quiet "Memasang Furina Core RC10"' "$GITHUB_WORKSPACE/experiments/furina-agent-final/install.sh"
           grep -q 'apply-ui-rc10.py' "$GITHUB_WORKSPACE/experiments/furina-agent-final/install.sh"
+          grep -q 'apply-ui-rc10-hotfix.py' "$GITHUB_WORKSPACE/experiments/furina-agent-final/install.sh"
+          grep -q 'ui_progress' "$GITHUB_WORKSPACE/experiments/furina-agent-final/install.sh"
           PYTHONPATH=core python3 -m compileall -q core tests
           PYTHONPATH=core python3 -m unittest discover -s tests -v
 
@@ -229,6 +240,6 @@ jobs:
           else
             gh release create "$TAG" "$APK_NAME" bridge.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
               --title "Furina Agent 1.0.0 RC7 — By Wynn" \
-              --notes "Bridge RC7 remains current. Furina Core RC10 redesigns the Termux surface into a compact Gum-first UI, keeps Rich only for streaming Markdown, and gives install/update a quieter Furina-specific progress experience." \
+              --notes "Bridge RC7 remains current. Furina Core RC10 keeps its compact Termux UI and adds a visible Gum rendering hotfix, dynamic companion title, compact mode-only status, and clearer install/update progress." \
               --prerelease
           fi

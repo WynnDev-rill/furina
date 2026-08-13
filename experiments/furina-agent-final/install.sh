@@ -33,6 +33,8 @@ CORE_RC9_TRANSFORM_URL="$BASE/overrides/apply-core-rc9.py"
 CORE_RC9_TRANSFORM_BLOB="ca85d455ec1c24c1b48e51b7a5d87733c8940ea5"
 UI_RC10_TRANSFORM_URL="$BASE/overrides/apply-ui-rc10.py"
 UI_RC10_TRANSFORM_BLOB="e1908850edbb62c0696f25bd991700ee91f181ba"
+UI_RC10_HOTFIX_URL="$BASE/overrides/apply-ui-rc10-hotfix.py"
+UI_RC10_HOTFIX_BLOB="5b6fdbf0115f63dfc849fba479ddfd86b25f1849"
 LLAMA_REV="f785fc9ea485e6cfdda129978310aa52939c3619"
 
 MODEL_REV="e9cf779"
@@ -66,9 +68,25 @@ mkdir -p "$ROOT"/{bin,models,logs,run,data,cache}
 LOG="$ROOT/logs/setup.log"
 : > "$LOG"
 
+DISPLAY_NAME="Furina"
+if [[ -f "$ROOT/config.json" ]] && command -v python >/dev/null 2>&1; then
+  DISPLAY_NAME="$(python - "$ROOT/config.json" <<'PY' 2>/dev/null || true
+import json,sys
+try:
+    data=json.load(open(sys.argv[1],encoding='utf-8'))
+    name=str(data.get('persona_name') or 'Furina').strip()[:48]
+    print(name or 'Furina')
+except Exception:
+    print('Furina')
+PY
+)"
+  [[ -n "$DISPLAY_NAME" ]] || DISPLAY_NAME="Furina"
+fi
+
+PROGRESS=0
 ui_title() {
   printf '\033[2J\033[H'
-  printf '\033[1;36mFURINA\033[0m  \033[2m%s\033[0m\n' "$VERSION"
+  printf '\033[1;36m%s\033[0m \033[1mBy Wynn\033[0m\n' "$DISPLAY_NAME"
   if [[ "$MODE" == "update" ]]; then
     printf '\033[2mUpdate Core · memory dan model dipertahankan\033[0m\n\n'
   else
@@ -76,40 +94,58 @@ ui_title() {
   fi
 }
 
+ui_progress() {
+  local pct="$1" label="$2" glyph="${3:-›}" width=22 filled empty bar="" i
+  (( pct < 0 )) && pct=0
+  (( pct > 100 )) && pct=100
+  filled=$(( pct * width / 100 )); empty=$(( width - filled ))
+  for ((i=0; i<filled; i++)); do bar+="█"; done
+  for ((i=0; i<empty; i++)); do bar+="░"; done
+  printf '\r\033[K\033[35m%s\033[0m \033[2m[%s]\033[0m \033[1m%3d%%\033[0m %s' "$glyph" "$bar" "$pct" "$label"
+}
+
 ui_ok() { printf '\033[32m✓\033[0m %s\n' "$1"; }
 ui_info() { printf '\033[36m›\033[0m %s\n' "$1"; }
 ui_warn() { printf '\033[33m!\033[0m %s\n' "$1"; }
 
+progress_mark() {
+  local target="$1" label="$2"
+  PROGRESS="$target"
+  ui_progress "$PROGRESS" "$label" "✓"
+  printf '\n'
+}
+
 run_quiet() {
-  local label="$1"; shift
-  local frames='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' i=0 rc
-  printf '\033[35m%s\033[0m %s' "${frames:0:1}" "$label"
+  local label="$1" target="$2"; shift 2
+  local frames='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' i=0 rc next
+  next="$PROGRESS"
+  ui_progress "$next" "$label" "${frames:0:1}"
   "$@" >>"$LOG" 2>&1 &
   local pid=$!
   while kill -0 "$pid" >/dev/null 2>&1; do
+    if (( next < target - 1 )); then next=$((next + 1)); fi
     i=$(( (i + 1) % 10 ))
-    printf '\r\033[K\033[35m%s\033[0m %s' "${frames:$i:1}" "$label"
-    sleep 0.11
+    ui_progress "$next" "$label" "${frames:$i:1}"
+    sleep 0.25
   done
   set +e
   wait "$pid"; rc=$?
   set -e
-  printf '\r\033[K'
   if [[ "$rc" -ne 0 ]]; then
-    printf '\033[31m×\033[0m %s\n' "$label"
+    printf '\r\033[K\033[31m×\033[0m %s\n' "$label"
     tail -n 18 "$LOG" >&2 || true
     exit "$rc"
   fi
-  ui_ok "$label"
+  progress_mark "$target" "$label"
 }
 
 ui_title
 
 if [[ "$MODE" == "install" ]]; then
-  run_quiet "Menyiapkan Termux" env DEBIAN_FRONTEND=noninteractive pkg update -y
+  run_quiet "Menyiapkan Termux" 8 env DEBIAN_FRONTEND=noninteractive pkg update -y
 fi
-run_quiet "Menyiapkan runtime Furina" env DEBIAN_FRONTEND=noninteractive pkg install -y python python-pip git cmake ninja clang make curl ccache util-linux termux-tools patch gum
-run_quiet "Menyiapkan tampilan" python -m pip install --quiet 'rich>=13.9,<15'
+run_quiet "Menyiapkan runtime Furina" 18 env DEBIAN_FRONTEND=noninteractive pkg install -y python python-pip git cmake ninja clang make curl ccache util-linux termux-tools patch gum
+run_quiet "Menyiapkan tampilan" 22 python -m pip install --quiet 'rich>=13.9,<15'
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -126,17 +162,18 @@ PY
 }
 
 fetch_model_checked() {
-  local target="$ROOT/models/$1" url="$2" sha="$3" label="${4:-$1}"
+  local target="$ROOT/models/$1" url="$2" sha="$3" label="${4:-$1}" target_progress="${5:-90}"
   if [[ -s "$target" ]] && echo "$sha  $target" | sha256sum -c - >/dev/null 2>&1; then
-    ui_ok "$label"
+    progress_mark "$target_progress" "$label"
     return
   fi
   rm -f "$target.part"
-  ui_info "$label"
+  printf '\n'
+  ui_info "$label · download"
   curl -L --fail --retry 4 --progress-bar "$url" -o "$target.part"
   echo "$sha  $target.part" | sha256sum -c - >/dev/null
   mv "$target.part" "$target"
-  ui_ok "$label"
+  progress_mark "$target_progress" "$label"
 }
 
 prepare_core() {
@@ -201,7 +238,8 @@ PY
     "$CORE_RC8_TRANSFORM_URL|$CORE_RC8_TRANSFORM_BLOB|apply-core-rc8.py" \
     "$CORE_RC8_POSTFIX_URL|$CORE_RC8_POSTFIX_BLOB|apply-core-rc8-postfix.py" \
     "$CORE_RC9_TRANSFORM_URL|$CORE_RC9_TRANSFORM_BLOB|apply-core-rc9.py" \
-    "$UI_RC10_TRANSFORM_URL|$UI_RC10_TRANSFORM_BLOB|apply-ui-rc10.py"; do
+    "$UI_RC10_TRANSFORM_URL|$UI_RC10_TRANSFORM_BLOB|apply-ui-rc10.py" \
+    "$UI_RC10_HOTFIX_URL|$UI_RC10_HOTFIX_BLOB|apply-ui-rc10-hotfix.py"; do
     IFS='|' read -r url blob name <<< "$spec"
     curl -fsSL --retry 3 "$url" -o "$TMP/$name"
     verify_git_blob "$TMP/$name" "$blob"
@@ -220,6 +258,10 @@ PY
   grep -q 'CREATE TABLE IF NOT EXISTS personal_lexicon' "$SRC/core/furina_agent/lexicon.py"
   grep -q 'def _gum() -> str | None:' "$SRC/core/furina_agent/tui.py"
   grep -q '\["Chat", "Memory", "Provider", "Settings", "System", "Update", "Exit"\]' "$SRC/core/furina_agent/tui.py"
+  grep -q 'stdout=subprocess.PIPE' "$SRC/core/furina_agent/tui.py"
+  grep -q 'stderr=None' "$SRC/core/furina_agent/tui.py"
+  ! grep -q 'capture_output=True' "$SRC/core/furina_agent/tui.py"
+  grep -q 'By Wynn' "$SRC/core/furina_agent/tui.py"
   grep -q 'compile_fast_contract' "$SRC/core/furina_agent/agent.py"
   grep -q '_try_fast_skill' "$SRC/core/furina_agent/agent.py"
   grep -q 'LocalVision' "$SRC/core/furina_agent/routing.py"
@@ -247,7 +289,7 @@ EOF
   grep -Fqx "$LINE" "$HOME/.bashrc" 2>/dev/null || echo "$LINE" >> "$HOME/.bashrc"
 }
 
-run_quiet "Memasang Furina Core RC10" prepare_core
+run_quiet "Memasang Furina Core RC10" 44 prepare_core
 
 prepare_llama() {
   LLAMA="$ROOT/llama.cpp"
@@ -262,8 +304,7 @@ prepare_llama() {
   BUILD_MARKER="$ROOT/data/llama-build-$LLAMA_REV-kleidiai-rc7"
   if [[ ! -x "$LLAMA/build/bin/llama-server" || ! -x "$LLAMA/build/bin/llama-embedding" || ! -f "$BUILD_MARKER" ]]; then
     rm -rf "$LLAMA/build"
-    JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
-    [[ "$JOBS" -gt 6 ]] && JOBS=6
+    JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"; [[ "$JOBS" -gt 6 ]] && JOBS=6
     if cmake -S "$LLAMA" -B "$LLAMA/build" -G Ninja \
         -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=ON -DGGML_OPENMP=OFF \
         -DGGML_CPU_KLEIDIAI=ON -DLLAMA_BUILD_UI=OFF -DLLAMA_OPENSSL=OFF \
@@ -280,7 +321,7 @@ prepare_llama() {
   fi
 }
 
-run_quiet "Menyiapkan local engine" prepare_llama
+run_quiet "Menyiapkan local engine" 62 prepare_llama
 
 MODEL_CURRENT="$(PYTHONPATH="$ROOT/core" python - <<'PY'
 from furina_agent.config import load_config
@@ -291,30 +332,29 @@ PY
 )"
 
 if [[ -n "$MODEL_CURRENT" ]]; then
-  ui_ok "Model chat dipertahankan"
+  progress_mark 70 "Model chat dipertahankan"
 elif [[ "$MODE" == "update" || "$NO_MODEL" -eq 1 ]]; then
-  ui_info "Model chat utama tidak diubah"
+  progress_mark 70 "Model chat utama tidak diubah"
 else
   TARGET="$ROOT/models/$MODEL_NAME"
   if [[ ! -s "$TARGET" ]]; then
-    ui_info "Model chat lokal · 2.7 GB"
+    printf '\n'; ui_info "Model chat lokal · 2.7 GB"
     curl -L --fail --retry 4 --progress-bar "$MODEL_URL" -o "$TARGET.part"
-    GOT_BYTES="$(wc -c < "$TARGET.part" | tr -d ' ')"
-    GOT_SHA="$(sha256sum "$TARGET.part" | awk '{print $1}')"
+    GOT_BYTES="$(wc -c < "$TARGET.part" | tr -d ' ')"; GOT_SHA="$(sha256sum "$TARGET.part" | awk '{print $1}')"
     [[ "$GOT_BYTES" == "$MODEL_BYTES" ]] || { echo "Ukuran model salah" >&2; exit 1; }
     [[ "$GOT_SHA" == "$MODEL_SHA256" ]] || { echo "SHA-256 model salah" >&2; exit 1; }
     mv "$TARGET.part" "$TARGET"
   fi
   furina model "$TARGET" >>"$LOG" 2>&1
-  ui_ok "Model chat lokal"
+  progress_mark 70 "Model chat lokal"
 fi
 
 if [[ "$NO_MODEL" -eq 0 ]]; then
-  fetch_model_checked "$EMBED_NAME" "$EMBED_URL" "$EMBED_SHA256" "Semantic memory"
-  fetch_model_checked "$VISION_NAME" "$VISION_URL" "$VISION_SHA256" "Local vision"
-  fetch_model_checked "$MMPROJ_NAME" "$MMPROJ_URL" "$MMPROJ_SHA256" "Vision projector"
+  fetch_model_checked "$EMBED_NAME" "$EMBED_URL" "$EMBED_SHA256" "Semantic memory" 78
+  fetch_model_checked "$VISION_NAME" "$VISION_URL" "$VISION_SHA256" "Local vision" 85
+  fetch_model_checked "$MMPROJ_NAME" "$MMPROJ_URL" "$MMPROJ_SHA256" "Vision projector" 90
 else
-  ui_info "Cognition model dilewati (--no-model)"
+  progress_mark 90 "Cognition model dilewati (--no-model)"
 fi
 
 prepare_bridge() {
@@ -333,14 +373,14 @@ prepare_bridge() {
   termux-open-url "$APK_URL" >/dev/null 2>&1 || true
 }
 
-run_quiet "Memeriksa Furina Bridge" prepare_bridge
+run_quiet "Memeriksa Furina Bridge" 96 prepare_bridge
 
 verify_install() {
   PYTHONPATH="$ROOT/core" python -m compileall -q "$ROOT/core/furina_agent"
   furina status >/dev/null || true
   command -v gum >/dev/null
 }
-run_quiet "Verifikasi akhir" verify_install
+run_quiet "Verifikasi akhir" 100 verify_install
 
 printf '\n'
 ui_ok "Furina siap"
