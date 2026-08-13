@@ -6,6 +6,7 @@ on:
       - experiment/furina-agent-termux
       - feat/furina-rc10-modern-termux-ui
       - fix/furina-rc10-ui-hotfix
+      - feature/furina-rc11-chat-agent-foundation
     paths:
       - 'experiments/furina-agent-final/**'
       - '.github/workflows/furina-agent-bridge-experiment.yml'
@@ -31,7 +32,7 @@ jobs:
       - name: Checkout isolated experiment branch
         uses: actions/checkout@v4
 
-      - name: Reassemble and layer Furina RC10
+      - name: Reassemble and layer Furina RC11
         shell: bash
         run: |
           set -euo pipefail
@@ -41,7 +42,7 @@ jobs:
           for chunk in "$META"/source-*.b64; do base64 --decode "$chunk" >> "$ARCHIVE"; done
           echo "$EXPECTED_SOURCE_SHA  $ARCHIVE" | sha256sum -c -
           test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["source_sha256"])')" = "$EXPECTED_SOURCE_SHA"
-          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["version"])')" = "1.0.0-rc10"
+          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["version"])')" = "1.0.0-rc11"
           test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["bridge_version"])')" = "1.0.0-rc7"
           rm -rf /tmp/furina-agent-src && mkdir -p /tmp/furina-agent-src
           tar -xzf "$ARCHIVE" -C /tmp/furina-agent-src
@@ -53,7 +54,7 @@ jobs:
           import hashlib,json,pathlib,sys
           src=pathlib.Path(sys.argv[1]).resolve(); dst=pathlib.Path(sys.argv[2]).resolve()
           manifest=json.loads((src/'manifest.json').read_text(encoding='utf-8'))
-          assert manifest.get('revision')=='companion-v7'
+          assert manifest.get('revision')=='companion-v8'
           def sha(data): return hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()
           for item in manifest['files']:
               source=(src/item['path']).resolve(); target=(dst/item['target']).resolve()
@@ -74,11 +75,12 @@ jobs:
           python3 "$META/overrides/apply-core-rc9.py" /tmp/furina-agent-src/termux
           python3 "$META/overrides/apply-ui-rc10.py" /tmp/furina-agent-src/termux
           python3 "$META/overrides/apply-ui-rc10-hotfix.py" /tmp/furina-agent-src/termux
+          python3 "$META/overrides/apply-core-rc11.py" /tmp/furina-agent-src/termux
           cp "$META/overrides/tests/test_final_contract.py" /tmp/furina-agent-src/termux/tests/test_final_contract.py
           cp "$META/overrides/tests/test_final_release_contract.py" /tmp/furina-agent-src/termux/tests/test_final_release_contract.py
 
           ROOT=/tmp/furina-agent-src/termux
-          grep -q 'VERSION = "1.0.0-rc10"' "$ROOT/core/furina_agent/version.py"
+          grep -q 'VERSION = "1.0.0-rc11"' "$ROOT/core/furina_agent/version.py"
           grep -q 'config_revision: int = 9' "$ROOT/core/furina_agent/config.py"
           grep -q 'fast_path_enabled: bool = True' "$ROOT/core/furina_agent/config.py"
           grep -q 'lexicon_enabled: bool = True' "$ROOT/core/furina_agent/config.py"
@@ -87,6 +89,9 @@ jobs:
           grep -q 'compile_fast_contract' "$ROOT/core/furina_agent/agent.py"
           grep -q '_try_fast_skill' "$ROOT/core/furina_agent/agent.py"
           grep -q '_wait_after_action' "$ROOT/core/furina_agent/agent.py"
+          grep -q 'AgentToolRuntime' "$ROOT/core/furina_agent/agent.py"
+          grep -q 'self.tools.execute(payload)' "$ROOT/core/furina_agent/agent.py"
+          grep -q 'RC11: relevance-ranked compact screen' "$ROOT/core/furina_agent/agent.py"
           ! grep -q 'time.sleep(0.9 if typ == "open_app" else 0.48)' "$ROOT/core/furina_agent/agent.py"
           grep -q 'agent_cancelled_user_return' "$ROOT/core/furina_agent/agent.py"
           grep -q 'duplicate_suppressed' "$ROOT/core/furina_agent/agent.py"
@@ -103,10 +108,14 @@ jobs:
           grep -q 'PERSONAL LEXICON' "$ROOT/core/furina_agent/chat.py"
           test -f "$ROOT/core/furina_agent/fastpath.py"
           test -f "$ROOT/core/furina_agent/lexicon.py"
+          test -f "$ROOT/core/furina_agent/chat_surface.py"
+          test -f "$ROOT/core/furina_agent/tool_runtime.py"
           grep -q 'CREATE TABLE IF NOT EXISTS personal_lexicon' "$ROOT/core/furina_agent/lexicon.py"
           grep -q 'canonical TEXT NOT NULL UNIQUE' "$ROOT/core/furina_agent/lexicon.py"
           grep -q 'choose_fast_skill' "$ROOT/core/furina_agent/fastpath.py"
           grep -q 'wait_for_event' "$ROOT/core/furina_agent/fastpath.py"
+          grep -q 'class AgentToolRuntime' "$ROOT/core/furina_agent/tool_runtime.py"
+          grep -q 'suppressed_duplicate_failure' "$ROOT/core/furina_agent/tool_runtime.py"
           grep -q 'def _gum() -> str | None:' "$ROOT/core/furina_agent/tui.py"
           grep -q '\["Chat", "Memory", "Provider", "Settings", "System", "Update", "Exit"\]' "$ROOT/core/furina_agent/tui.py"
           grep -q 'stdout=subprocess.PIPE' "$ROOT/core/furina_agent/tui.py"
@@ -115,8 +124,12 @@ jobs:
           grep -q '"--cursor", "› "' "$ROOT/core/furina_agent/tui.py"
           grep -q 'def _display_name()' "$ROOT/core/furina_agent/tui.py"
           grep -q 'By Wynn' "$ROOT/core/furina_agent/tui.py"
-          grep -q '\[dim\]Mode\[/\]' "$ROOT/core/furina_agent/tui.py"
-          grep -q 'Furina perlu memakai layar untuk tugas ini' "$ROOT/core/furina_agent/tui.py"
+          grep -q 'run_chat_surface' "$ROOT/core/furina_agent/tui.py"
+          grep -q 'def _chat_legacy(console):' "$ROOT/core/furina_agent/tui.py"
+          grep -q 'class ChatApp' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q 'f"\[{name}\] :"' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q '/back untuk kembali' "$ROOT/core/furina_agent/chat_surface.py"
+          grep -q '@work(thread=True, exclusive=True)' "$ROOT/core/furina_agent/chat_surface.py"
           ! grep -q 'title="SYSTEM"' "$ROOT/core/furina_agent/tui.py"
           ! grep -q 'title="ACTIONS"' "$ROOT/core/furina_agent/tui.py"
           grep -q 'ReminderDaemon' "$ROOT/core/furina_agent/companion.py"
@@ -130,18 +143,22 @@ jobs:
           grep -q 'versionCode 10007' "$ROOT/bridge/app/build.gradle"
           grep -q "versionName '1.0.0-rc7'" "$ROOT/bridge/app/build.gradle"
 
-      - name: Validate installer and RC10 regression suite
+      - name: Validate installer and RC11 regression suite
         working-directory: /tmp/furina-agent-src/termux
         shell: bash
         run: |
           set -euo pipefail
+          python3 -m pip install --quiet 'rich>=13.9,<15' 'textual==8.2.8'
           bash -n install.sh upgrade.sh uninstall.sh "$GITHUB_WORKSPACE/experiments/furina-agent-final/install.sh"
           grep -q 'pkg install -y python python-pip git cmake ninja clang make curl ccache util-linux termux-tools patch gum' "$GITHUB_WORKSPACE/experiments/furina-agent-final/install.sh"
-          grep -q 'run_quiet "Memasang Furina Core RC10"' "$GITHUB_WORKSPACE/experiments/furina-agent-final/install.sh"
+          grep -q 'run_quiet "Memasang Furina Core RC11"' "$GITHUB_WORKSPACE/experiments/furina-agent-final/install.sh"
           grep -q 'apply-ui-rc10.py' "$GITHUB_WORKSPACE/experiments/furina-agent-final/install.sh"
           grep -q 'apply-ui-rc10-hotfix.py' "$GITHUB_WORKSPACE/experiments/furina-agent-final/install.sh"
+          grep -q 'apply-core-rc11.py' "$GITHUB_WORKSPACE/experiments/furina-agent-final/install.sh"
+          grep -q 'textual==8.2.8' "$GITHUB_WORKSPACE/experiments/furina-agent-final/install.sh"
           grep -q 'ui_progress' "$GITHUB_WORKSPACE/experiments/furina-agent-final/install.sh"
           PYTHONPATH=core python3 -m compileall -q core tests
+          PYTHONPATH=core python3 -c 'import textual; from furina_agent.chat_surface import run_chat_surface; from furina_agent.tool_runtime import AgentToolRuntime'
           PYTHONPATH=core python3 -m unittest discover -s tests -v
 
       - name: Set up Java 17
@@ -221,7 +238,7 @@ jobs:
       - name: Upload CI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Furina-Agent-Final-Core-RC10-Bridge-RC7
+          name: Furina-Agent-Final-Core-RC11-Bridge-RC7
           path: |
             Furina-Agent-Bridge-v1.0.0-rc7.apk
             bridge.json
@@ -240,6 +257,6 @@ jobs:
           else
             gh release create "$TAG" "$APK_NAME" bridge.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
               --title "Furina Agent 1.0.0 RC7 — By Wynn" \
-              --notes "Bridge RC7 remains current. Furina Core RC10 keeps its compact Termux UI and adds a visible Gum rendering hotfix, dynamic companion title, compact mode-only status, and clearer install/update progress." \
+              --notes "Bridge RC7 remains current. Furina Core RC11 adds a full-screen mobile chat surface, in-place streaming, cleaner input/navigation, an extensible tool runtime, repeated-failure suppression, and relevance-ranked semantic screen context while preserving the RC9 cognition and RC10 menu foundation." \
               --prerelease
           fi
