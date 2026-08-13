@@ -15,13 +15,9 @@ jobs:
           ARCHIVE=/tmp/src.tar.gz
           : > "$ARCHIVE"
           for chunk in "$META"/source-*.b64; do base64 --decode "$chunk" >> "$ARCHIVE"; done
-          mkdir -p /tmp/src && tar -xzf "$ARCHIVE" -C /tmp/src
-          echo '=== JAVA FILES ==='
-          find /tmp/src/termux/bridge/app/src/main -type f | sort
-          echo '=== ACTION ENDPOINT ==='
-          grep -R -n -E '(/action|bootstrap|class .*Server|NanoHTTP|ServerSocket|FurinaAccessibilityService)' /tmp/src/termux/bridge/app/src/main/java || true
-          echo '=== BUILD GRADLE ==='
-          cat /tmp/src/termux/bridge/app/build.gradle
-          echo '=== SETTINGS GRADLE ==='
-          cat /tmp/src/termux/settings.gradle 2>/dev/null || true
-          cat /tmp/src/termux/build.gradle 2>/dev/null || true
+          rm -rf /tmp/src && mkdir -p /tmp/src && tar -xzf "$ARCHIVE" -C /tmp/src
+          ROOT=/tmp/src/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge
+          echo '=== LocalBridgeServer.java ==='; cat "$ROOT/LocalBridgeServer.java"
+          echo '=== BridgeRuntime.java ==='; cat "$ROOT/BridgeRuntime.java"
+          echo '=== BootReceiver.java ==='; cat "$ROOT/BootReceiver.java"
+          echo '=== FurinaAccessibilityService action area ==='; sed -n '1,210p' "$ROOT/FurinaAccessibilityService.java"
