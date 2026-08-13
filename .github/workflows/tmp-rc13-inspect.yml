@@ -1,0 +1,27 @@
+name: Temp RC13 bridge inspect
+on:
+  push:
+    branches: [feature/furina-direct-device-control-rc13]
+    paths: ['.github/workflows/tmp-rc13-inspect.yml']
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          set -euo pipefail
+          META=experiments/furina-agent-final
+          ARCHIVE=/tmp/src.tar.gz
+          : > "$ARCHIVE"
+          for chunk in "$META"/source-*.b64; do base64 --decode "$chunk" >> "$ARCHIVE"; done
+          mkdir -p /tmp/src && tar -xzf "$ARCHIVE" -C /tmp/src
+          echo '=== JAVA FILES ==='
+          find /tmp/src/termux/bridge/app/src/main -type f | sort
+          echo '=== ACTION ENDPOINT ==='
+          grep -R -n -E '(/action|bootstrap|class .*Server|NanoHTTP|ServerSocket|FurinaAccessibilityService)' /tmp/src/termux/bridge/app/src/main/java || true
+          echo '=== BUILD GRADLE ==='
+          cat /tmp/src/termux/bridge/app/build.gradle
+          echo '=== SETTINGS GRADLE ==='
+          cat /tmp/src/termux/settings.gradle 2>/dev/null || true
+          cat /tmp/src/termux/build.gradle 2>/dev/null || true
