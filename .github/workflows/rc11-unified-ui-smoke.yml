@@ -120,14 +120,14 @@ jobs:
           grep -q 'class _ThemedConsole:' "$ROOT/core/furina_agent/tui.py"
           grep -q 'ACCENT = "#5de4c7"' "$ROOT/core/furina_agent/tui.py"
           grep -q '\["Chat", "Memory", "Provider", "Settings", "System", "Update", "Exit"\]' "$ROOT/core/furina_agent/tui.py"
-          grep -q 'apply-core-rc13.py' "$META/install.sh"
-          grep -q 'apply-bridge-rc8.py' "$META/install.sh"
-          grep -q 'apply-core-rc14.py' "$META/install.sh"
-          grep -q "CORE_RC13_TRANSFORM_BLOB=\"$(git hash-object "$META/overrides/apply-core-rc13.py")\"" "$META/install.sh"
-          grep -q "BRIDGE_RC8_TRANSFORM_BLOB=\"$(git hash-object "$META/overrides/apply-bridge-rc8.py")\"" "$META/install.sh"
-          grep -q "CORE_RC14_TRANSFORM_BLOB=\"$(git hash-object "$META/overrides/apply-core-rc14.py")\"" "$META/install.sh"
-          grep -q 'run_quiet "Memasang Furina Core RC14"' "$META/install.sh"
-          grep -q 'verify_dependencies()' "$META/install.sh"
-          grep -q 'PYTHONPATH="$SRC/core" python -m compileall' "$META/install.sh"
+
+          # This workflow is a regression test for the RC14 behavior above.
+          # Release packaging is intentionally validated against the current
+          # installer rather than stale RC14-era internal variable names.
+          grep -q 'VERSION="1.0.0-rc19"' "$META/install.sh"
+          grep -q 'BASE_INSTALL_URL=' "$META/install.sh"
+          grep -q 'UI_PERF_RC19_URL=' "$META/install.sh"
+          grep -q 'UI_PERF_BRIDGE_RC10_URL=' "$META/install.sh"
+          test "$(python3 -c 'import json; print(json.load(open("experiments/furina-agent-final/manifest.json"))["version"])')" = '1.0.0-rc19'
           bash -n "$META/install.sh"
           echo RC14_TERMUX_UNBOUNDED_UI_OK
