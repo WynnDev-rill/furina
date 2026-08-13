@@ -9,7 +9,7 @@ BASE_INSTALL_BLOB="29f11a7c5d4452ca6c9e69f413118329e5958765"
 UI_PERF_RC19_URL="$BASE/overrides/apply-ui-performance-rc19.py"
 UI_PERF_RC19_BLOB="8e2e4f7248057c1cf8888fd15a990736767ed1fa"
 UI_PERF_BRIDGE_RC10_URL="$BASE/overrides/apply-ui-performance-bridge-rc10.py"
-UI_PERF_BRIDGE_RC10_BLOB="2bedb4da75b943d65bc1ea440b3720df54ed32fb"
+UI_PERF_BRIDGE_RC10_BLOB="0e264beb38271209e0bb89ea6cd78a6e8d8ddfee"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
   echo "Installer ini harus dijalankan dari Termux." >&2
