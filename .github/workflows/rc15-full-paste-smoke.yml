@@ -111,11 +111,14 @@ jobs:
           grep -q 'text = event.value' "$ROOT/core/furina_agent/chat_surface.py"
           grep -q 'command = text.strip().casefold()' "$ROOT/core/furina_agent/chat_surface.py"
           grep -q 'select_on_focus=False' "$ROOT/core/furina_agent/chat_surface.py"
-          grep -q 'CORE_RC16_TRANSFORM_URL=' "$META/install.sh"
-          grep -q "CORE_RC16_TRANSFORM_BLOB=\"$(git hash-object "$META/overrides/apply-core-rc16.py")\"" "$META/install.sh"
-          grep -q 'apply-core-rc16.py' "$META/install.sh"
-          grep -q 'run_quiet "Memasang Furina Core RC16"' "$META/install.sh"
-          test "$(python3 -c 'import json; print(json.load(open("experiments/furina-agent-final/manifest.json"))["version"])')" = '1.0.0-rc16'
+
+          # This remains an RC16 paste regression test while release metadata
+          # follows the current RC19 installer.
+          grep -q 'VERSION="1.0.0-rc19"' "$META/install.sh"
+          grep -q 'BASE_INSTALL_URL=' "$META/install.sh"
+          grep -q 'UI_PERF_RC19_URL=' "$META/install.sh"
+          grep -q 'UI_PERF_BRIDGE_RC10_URL=' "$META/install.sh"
+          test "$(python3 -c 'import json; print(json.load(open("experiments/furina-agent-final/manifest.json"))["version"])')" = '1.0.0-rc19'
           bash -n "$META/install.sh"
           git diff --check
           echo RC16_PASTE_SMOKE_OK
