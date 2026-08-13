@@ -9,7 +9,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - shell: bash
+      - name: Assemble transformed source and validate Core
+        shell: bash
         run: |
           set -euo pipefail
           META=experiments/furina-agent-final
@@ -28,10 +29,7 @@ jobs:
           for i in m['files']:
               d=(src/i['path']).read_bytes(); assert sha(d)==i['git_blob_sha']; t=dst/i['target']; t.parent.mkdir(parents=True,exist_ok=True); t.write_bytes(d)
           PY
-          for f in apply-bridge-rc4.py apply-universal-agent-rc5.py apply-core-rc6.py apply-core-rc6-postfix.py apply-bridge-rc6.py apply-core-rc7.py apply-bridge-rc7.py apply-core-rc8.py apply-core-rc8-postfix.py apply-core-rc9.py apply-ui-rc10.py apply-ui-rc10-hotfix.py apply-core-rc11.py apply-ui-rc12.py apply-ui-rc12-postfix.py apply-core-rc13.py apply-bridge-rc8.py; do
-            echo "APPLY $f"
-            python3 "$META/overrides/$f" "$ROOT"
-          done
+          for f in apply-bridge-rc4.py apply-universal-agent-rc5.py apply-core-rc6.py apply-core-rc6-postfix.py apply-bridge-rc6.py apply-core-rc7.py apply-bridge-rc7.py apply-core-rc8.py apply-core-rc8-postfix.py apply-core-rc9.py apply-ui-rc10.py apply-ui-rc10-hotfix.py apply-core-rc11.py apply-ui-rc12.py apply-ui-rc12-postfix.py apply-core-rc13.py apply-bridge-rc8.py; do python3 "$META/overrides/$f" "$ROOT"; done
           python3 -m compileall -q "$ROOT/core/furina_agent"
           PYTHONPATH="$ROOT/core" python3 - <<'PY'
           from furina_agent.prospective import extract_prospectives
@@ -63,7 +61,24 @@ jobs:
           grep -q 'versionCode 10008' "$ROOT/bridge/app/build.gradle"
           grep -q "versionName '1.0.0-rc8'" "$ROOT/bridge/app/build.gradle"
           grep -q 'SCHEDULE_EXACT_ALARM' "$ROOT/bridge/app/src/main/AndroidManifest.xml"
-          cd "$ROOT"
-          ./gradlew :bridge:app:assembleDebug --no-daemon --stacktrace
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Compile Bridge RC8
+        working-directory: /tmp/src/termux
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon --stacktrace :bridge:app:assembleDebug
           test -f bridge/app/build/outputs/apk/debug/app-debug.apk
           echo RC13_BRIDGE_BUILD_OK
