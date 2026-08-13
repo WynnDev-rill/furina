@@ -97,10 +97,6 @@ def main() -> None:
     c = replace_once(c, "    ChatApp().run()\n", "    ChatApp().run(mouse=False)\n", "Termux touch keyboard compatibility")
     chat.write_text(c, encoding="utf-8")
 
-    v = version.read_text(encoding="utf-8")
-    v = replace_once(v, 'VERSION = "1.0.0-rc11"', 'VERSION = "1.0.0-rc12"', "version bump")
-    version.write_text(v, encoding="utf-8")
-
     rendered_tui = tui.read_text(encoding="utf-8")
     rendered_chat = chat.read_text(encoding="utf-8")
     required = [
@@ -110,7 +106,7 @@ def main() -> None:
         (rendered_chat, "padding: 1 2 0 2;"),
         (rendered_chat, "Esc kembali  ·  /back"),
         (rendered_chat, "ChatApp().run(mouse=False)"),
-        (version.read_text(encoding="utf-8"), 'VERSION = "1.0.0-rc12"'),
+        (version.read_text(encoding="utf-8"), 'VERSION = "1.0.0-rc11"'),
     ]
     missing = [needle for haystack, needle in required if needle not in haystack]
     if missing:
