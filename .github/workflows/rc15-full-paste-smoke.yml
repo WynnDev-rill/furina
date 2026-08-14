@@ -1,111 +1,17 @@
-name: RC16 Furina Paste Exactly-Once Smoke
+name: RC16 Furina Paste Exactly-Once Smoke (Archived)
 
 on:
-  push:
-    branches:
-      - experiment/furina-agent-termux
-      - fix/furina-paste-once-rc16
-    paths:
-      - 'experiments/furina-agent-final/**'
-      - '.github/workflows/rc15-full-paste-smoke.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  paste-smoke:
+  archived:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Reassemble RC16 and verify paste exactly once
+      - name: Archived version-specific smoke
         shell: bash
         run: |
-          set -euo pipefail
-          META=experiments/furina-agent-final
-          ARCHIVE=/tmp/furina-agent-final.tar.gz
-          : > "$ARCHIVE"
-          for chunk in "$META"/source-*.b64; do base64 --decode "$chunk" >> "$ARCHIVE"; done
-          rm -rf /tmp/furina-agent-src && mkdir -p /tmp/furina-agent-src
-          tar -xzf "$ARCHIVE" -C /tmp/furina-agent-src
-          ROOT=/tmp/furina-agent-src/termux
-
-          patch -p0 -d /tmp/furina-agent-src < "$META/patches/api30-inputstream.patch"
-          patch -p0 -d /tmp/furina-agent-src < "$META/patches/runtime-online-agent.patch"
-          python3 "$META/overrides/apply-bridge-primitives-rc5.py" "$ROOT"
-
-          python3 - "$META/overrides" "$ROOT" <<'PY'
-          import hashlib,json,pathlib,sys
-          src=pathlib.Path(sys.argv[1]).resolve(); dst=pathlib.Path(sys.argv[2]).resolve()
-          manifest=json.loads((src/'manifest.json').read_text(encoding='utf-8'))
-          def sha(data): return hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()
-          for item in manifest['files']:
-              data=(src/item['path']).read_bytes()
-              assert sha(data)==item['git_blob_sha'], item['path']
-              target=(dst/item['target']).resolve()
-              target.parent.mkdir(parents=True,exist_ok=True)
-              target.write_bytes(data)
-          PY
-
-          for f in apply-bridge-rc4.py apply-universal-agent-rc5.py apply-core-rc6.py apply-core-rc6-postfix.py apply-bridge-rc6.py apply-core-rc7.py apply-bridge-rc7.py apply-core-rc8.py apply-core-rc8-postfix.py apply-core-rc9.py apply-ui-rc10.py apply-ui-rc10-hotfix.py apply-core-rc11.py apply-ui-rc12.py apply-ui-rc12-postfix.py apply-core-rc13.py apply-bridge-rc8.py apply-core-rc14.py apply-core-rc15.py apply-core-rc16.py; do
-            python3 "$META/overrides/$f" "$ROOT"
-          done
-
-          python3 -m compileall -q "$ROOT/core/furina_agent"
-          python3 -m pip install -q 'rich>=13.9,<15' 'textual==8.2.8'
-
-          PYTHONPATH="$ROOT/core" python3 - <<'PY'
-          import asyncio
-          from textual import events
-          from textual.app import App, ComposeResult
-          from furina_agent.paste_input import FullPasteInput
-
-          class PasteApp(App):
-              def compose(self) -> ComposeResult:
-                  yield FullPasteInput(id='composer', max_length=0, select_on_focus=False)
-
-          async def dispatch_paste(composer, pilot, payload):
-              composer.post_message(events.Paste(payload))
-              await pilot.pause()
-
-          async def check():
-              payload = '  START-PASTE\r\n' + ('baris panjang 0123456789 abcdefghijklmnopqrstuvwxyz Ω水\n' * 5000) + 'END-PASTE  \n'
-              assert len(payload) > 250_000
-              app = PasteApp()
-              async with app.run_test() as pilot:
-                  composer = app.query_one('#composer', FullPasteInput)
-                  composer.focus()
-                  await dispatch_paste(composer, pilot, payload)
-                  assert composer.value == payload, (len(composer.value), len(payload))
-                  assert composer.value.count('START-PASTE') == 1
-                  assert composer.value.count('END-PASTE') == 1
-                  assert '\r\n' in composer.value
-                  second = '\nSECOND-PASTE\n'
-                  await dispatch_paste(composer, pilot, second)
-                  assert composer.value == payload + second
-                  assert composer.value.count('SECOND-PASTE') == 1
-                  composer.value = 'ABCDE'
-                  composer.selection = (1, 4)
-                  await dispatch_paste(composer, pilot, 'X\nY')
-                  assert composer.value == 'AX\nYE', repr(composer.value)
-                  assert composer.max_length == 0
-              print('RC16_PASTE_EXACTLY_ONCE_OK', len(payload))
-          asyncio.run(check())
-          PY
-
-          grep -q 'VERSION = "1.0.0-rc16"' "$ROOT/core/furina_agent/version.py"
-          grep -q 'event.prevent_default()' "$ROOT/core/furina_agent/paste_input.py"
-          grep -q 'event.stop()' "$ROOT/core/furina_agent/paste_input.py"
-          grep -q 'text = event.value' "$ROOT/core/furina_agent/chat_surface.py"
-          grep -q 'command = text.strip().casefold()' "$ROOT/core/furina_agent/chat_surface.py"
-          grep -q 'select_on_focus=False' "$ROOT/core/furina_agent/chat_surface.py"
-
-          CURRENT_RELEASE="$(python3 -c 'import json; print(json.load(open("experiments/furina-agent-final/manifest.json"))["version"])')"
-          grep -q "VERSION=\"$CURRENT_RELEASE\"" "$META/install.sh"
-          grep -q 'BASE_INSTALL_URL=' "$META/install.sh"
-          grep -q 'MANIFEST_URL=' "$META/install.sh"
-          bash -n "$META/install.sh"
-          git diff --check
-          echo RC16_PASTE_SMOKE_OK
+          echo "RC16 paste smoke is archived because it asserts RC16-specific version markers."
+          echo "Current experiment validation is owned by .github/workflows/furina-agent-rc20.yml (FurinaHub RC35+)."
