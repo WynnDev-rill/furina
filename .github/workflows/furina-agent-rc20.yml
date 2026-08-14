@@ -117,12 +117,8 @@ jobs:
           assert contract.target_package == 'com.whatsapp', contract
           assert contract.external_expected, contract
           assert agent._compile_semantic_sequence(steps,apps), 'semantic executor prefix empty'
-
-          # This is the exact class of crash reported by the device: run() calls
-          # _contract. It must be a real bound method, not only a string marker.
           assert callable(agent._contract)
 
-          # RC27 routing recovery remains intact.
           assert CompanionSession._resolve_app_hint('wa', apps) == 'com.whatsapp'
           parsed=CompanionSession._fallback_device_steps(command,apps)
           assert [x['type'] for x in parsed] == ['open_app','search','select','type','send'], parsed
@@ -135,10 +131,10 @@ jobs:
           set -euo pipefail
           META=experiments/furina-agent-final
           python3 -m py_compile "$META/overrides/apply-runtime-core-rc28.py"
-          test "$(git hash-object "$META/overrides/apply-runtime-core-rc28.py")" = "909a494d10b9cc2b33fe3d465837a263f6b2b3e1"
+          RC28_HASH="$(git hash-object "$META/overrides/apply-runtime-core-rc28.py")"
           bash -n "$META/install.sh"
           grep -q 'VERSION="1.0.0-rc28"' "$META/install.sh"
-          grep -q 'RC28_BLOB="909a494d10b9cc2b33fe3d465837a263f6b2b3e1"' "$META/install.sh"
+          grep -q "RC28_BLOB=\"$RC28_HASH\"" "$META/install.sh"
           grep -q 'Manifest RC28 terverifikasi' "$META/install.sh"
           grep -q 'Core RC28 aktif' "$META/install.sh"
           grep -q 'Memeriksa Bridge RC15' "$META/install.sh"
