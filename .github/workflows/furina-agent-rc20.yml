@@ -29,3 +29,6 @@ jobs:
       - name: Reconstruct and validate RC33
         shell: bash
         run: bash experiments/furina-agent-final/overrides/rc33/validate.sh
+      - name: Validate updater progress and installed-core health checks
+        shell: bash
+        run: bash experiments/furina-agent-final/overrides/rc33/validate-updater.sh
