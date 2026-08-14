@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-VERSION="1.0.0-rc25"
+VERSION="1.0.0-rc26"
 ROOT="$HOME/.furina-agent"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 MANIFEST_URL="$BASE/manifest.json"
@@ -27,6 +27,8 @@ RC25_URL="$BASE/overrides/apply-stateful-core-rc25.py"
 RC25_BLOB="45d763724a3385eab3f278a14f0465279357b67c"
 RC25_POSTFIX_URL="$BASE/overrides/apply-stateful-core-rc25-postfix.py"
 RC25_POSTFIX_BLOB="16cb897717beb33063bcd1863b30060e1607b092"
+RC26_URL="$BASE/overrides/apply-semantic-resilience-rc26.py"
+RC26_BLOB="9fd353b275a2a426fe9ab2e8d7ebb5808586b965"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
   echo "Installer ini harus dijalankan dari Termux." >&2
@@ -36,7 +38,7 @@ fi
 mkdir -p "$ROOT"/{cache,logs,run,data,models}
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-LOG="$ROOT/logs/update-rc25.log"
+LOG="$ROOT/logs/update-rc26.log"
 : > "$LOG"
 
 DISPLAY_NAME="Furina"
@@ -56,7 +58,7 @@ PROGRESS=0
 ui_title() {
   printf '\033[2J\033[H'
   printf '\033[1;36m%s\033[0m \033[1mBy Wynn\033[0m\n' "$DISPLAY_NAME"
-  printf '\033[2mUpdate Agent RC25 · memory dan model dipertahankan\033[0m\n\n'
+  printf '\033[2mUpdate Agent RC26 · memory dan model dipertahankan\033[0m\n\n'
 }
 ui_progress() {
   local pct="$1" label="$2" glyph="${3:-›}" width=16 filled empty bar="" i
@@ -118,8 +120,8 @@ mark 31 "Core saat ini: $CURRENT"
 
 curl -fsSL --retry 3 "$MANIFEST_URL" -o "$TMP/manifest.json"
 EXPECTED="$(python -c 'import json;print(json.load(open("'"$TMP"'/manifest.json"))["version"])')"
-[[ "$EXPECTED" == "1.0.0-rc25" ]] || { echo "Manifest belum menunjuk RC25: $EXPECTED" >&2; exit 1; }
-mark 37 "Manifest RC25 terverifikasi"
+[[ "$EXPECTED" == "1.0.0-rc26" ]] || { echo "Manifest belum menunjuk RC26: $EXPECTED" >&2; exit 1; }
+mark 37 "Manifest RC26 terverifikasi"
 
 mkdir -p "$TMP/stage"
 cp -R "$ROOT/core" "$TMP/stage/core"
@@ -166,32 +168,43 @@ apply_core_updates() {
     python "$TMP/rc25.py" "$TMP/stage"
     current="1.0.0-rc25"
   fi
-  [[ "$current" == "1.0.0-rc25" ]] || { echo "Versi Core tidak dapat dimigrasikan otomatis: $current" >&2; return 1; }
-  fetch_transform "$RC25_POSTFIX_URL" "$RC25_POSTFIX_BLOB" "$TMP/rc25-postfix.py"
-  python "$TMP/rc25-postfix.py" "$TMP/stage"
+  if [[ "$current" == "1.0.0-rc25" ]]; then
+    fetch_transform "$RC25_POSTFIX_URL" "$RC25_POSTFIX_BLOB" "$TMP/rc25-postfix.py"
+    python "$TMP/rc25-postfix.py" "$TMP/stage"
+    fetch_transform "$RC26_URL" "$RC26_BLOB" "$TMP/rc26.py"
+    python "$TMP/rc26.py" "$TMP/stage"
+    current="1.0.0-rc26"
+  fi
+  [[ "$current" == "1.0.0-rc26" ]] || { echo "Versi Core tidak dapat dimigrasikan otomatis: $current" >&2; return 1; }
 }
-run_quiet "Menerapkan Core RC25" 66 apply_core_updates "$CURRENT"
+run_quiet "Menerapkan Core RC26" 66 apply_core_updates "$CURRENT"
 
 validate_core() {
   PYTHONPATH="$TMP/stage/core" python -m compileall -q "$TMP/stage/core/furina_agent"
   PYTHONPATH="$TMP/stage/core" python - <<'PY'
 from furina_agent.version import VERSION
 from furina_agent.agent import AndroidAgent
-if VERSION != '1.0.0-rc25':
-    raise SystemExit(f'Validasi RC25 gagal: versi Core {VERSION!r}')
+from furina_agent.companion import CompanionSession
+if VERSION != '1.0.0-rc26':
+    raise SystemExit(f'Validasi RC26 gagal: versi Core {VERSION!r}')
 for method in ('_try_ui_sequence', '_compile_semantic_sequence', '_semantic_send_action'):
     if not hasattr(AndroidAgent, method):
-        raise SystemExit(f'Validasi RC25 gagal: AndroidAgent.{method} tidak tersedia')
+        raise SystemExit(f'Validasi RC26 gagal: AndroidAgent.{method} tidak tersedia')
+if not hasattr(CompanionSession, '_app_anchors'):
+    raise SystemExit('Validasi RC26 gagal: app-anchor semantic fallback tidak tersedia')
 agent=open(__import__('furina_agent.agent').agent.__file__,encoding='utf-8').read()
 assert 'return_to_termux_result' in agent
 assert 'task_started_wall = time.time()' in agent
 assert 'semantic_send_completed' in agent
+assert 'semantic_sequence_deferred' in agent
+assert 'steps = self._compile_ui_sequence(goal, contract, apps)' not in agent
 text=open(__import__('furina_agent.chat_surface').chat_surface.__file__,encoding='utf-8').read()
 assert '#080f0d' in text and 'Furina[/]' in text
 assert 'def _approve_agent_action' in text
 assert 'lambda *_args: True' not in text
 companion=open(__import__('furina_agent.companion').companion.__file__,encoding='utf-8').read()
-assert 'semantic intent parser Android internal' in companion
+assert 'semantic_intent_device_fallback' in companion
+assert 'for json_mode in (True, False)' in companion
 assert 'Repair common model omissions' in companion
 assert 'field_role' in companion
 tui=open(__import__('furina_agent.tui').tui.__file__,encoding='utf-8').read()
@@ -199,12 +212,12 @@ assert 'semantic_steps=intent.steps' in tui
 assert 'lambda *_args: True' not in tui
 PY
 }
-run_quiet "Memvalidasi Core, state graph, dan guard aksi" 78 validate_core
+run_quiet "Memvalidasi semantic routing dan state graph" 78 validate_core
 
 rm -rf "$ROOT/core.prev"
 mv "$ROOT/core" "$ROOT/core.prev"
 mv "$TMP/stage/core" "$ROOT/core"
-mark 84 "Core RC25 aktif · memory/model tetap"
+mark 84 "Core RC26 aktif · memory/model tetap"
 
 BRIDGE_NEEDS_INSTALL=0
 BRIDGE_STATUS_UNKNOWN=0
@@ -274,12 +287,12 @@ else
 fi
 mark 100 "Update selesai"
 
-printf '\n\033[32m✓\033[0m Furina Agent RC25 siap.\n'
+printf '\n\033[32m✓\033[0m Furina Agent RC26 siap.\n'
 if (( BRIDGE_NEEDS_INSTALL )); then
   printf '\033[33m!\033[0m Bridge yang terpasang lebih lama. URL APK resmi RC15 dibuka satu kali; setelah download pilih \033[1mPerbarui\033[0m.\n'
 elif (( BRIDGE_STATUS_UNKNOWN )); then
   printf '\033[33m!\033[0m Bridge tidak merespons, jadi updater tidak menebak dan tidak membuka download. Buka Furina Bridge lalu jalankan \033[1;36mfurina update\033[0m lagi untuk verifikasi.\n'
 else
-  printf '\033[2mCore RC25 · Bridge RC15 sudah sesuai · memory dan model dipertahankan.\033[0m\n'
+  printf '\033[2mCore RC26 · Bridge RC15 sudah sesuai · memory dan model dipertahankan.\033[0m\n'
 fi
 printf '\n'
