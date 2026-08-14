@@ -34,7 +34,7 @@ furina optimize
 
 `furina optimize` benchmarks the local GGUF on the phone and selects a more suitable CPU thread count. It is not run on every startup.
 
-## Android control — Core RC32 / Bridge RC18
+## Android control — Core RC34 / Bridge RC18
 
 The Android agent uses an observe → plan → act → verify loop. Accessibility remains the primary semantic control plane; visual analysis is only a fallback when the semantic tree is insufficient. The ranked Accessibility state is refreshed throughout a task instead of treating the initial screen as permanent.
 
@@ -46,9 +46,37 @@ open_app → search(contact) → select(contact) → type(message) → send
 
 The final external action remains separate from preparation. A send/post/share/call requires specific authorization, and an ambiguous final send is not automatically retried because doing so could duplicate an external effect.
 
+### RC34 chat-first intent boundary
+
+RC34 separates ordinary conversation from device execution before AndroidAgent is allowed to start:
+
+- Mentioning an installed application is only context for target resolution; it is never authority to execute a device action.
+- Questions, explanations, reports about past actions, hypotheticals, examples, quotations, and negated commands remain ordinary chat.
+- A model-generated `device` classification must also prove that the user made a current command/request and provide an exact action span from the user's message. A deterministic gate validates that evidence before Agent routing.
+- If the intent parser/provider fails, the fallback is chat unless the message itself is a structurally explicit device request.
+- The fast/direct executor uses the same chat guard so conversational phrases containing action verbs cannot bypass semantic classification.
+- Intent-model routing uses its own `intent` role and does not replace the preferred conversation model.
+
+Examples that remain chat:
+
+```text
+WhatsApp sekarang sering lambat menurutmu kenapa?
+Tadi aku buka WhatsApp lalu chat Ariel
+Kalau aku bilang "buka WhatsApp", kamu bakal apa?
+Jangan buka WhatsApp
+```
+
+Examples that are device requests:
+
+```text
+Bisa buka WhatsApp?
+Tolong bukain WhatsApp
+Buka WhatsApp lalu cari Ariel
+```
+
 ### RC32 execution boundary
 
-RC32 adds a policy layer that is independent from the planner model:
+RC32 remains the independent policy layer after RC34 intent routing:
 
 - **Goal Lock** freezes the trusted task scope from the user's goal and grounded semantic intent. Text found in a webpage, message, note, notification, screenshot, or Accessibility node cannot add a new app/capability to the task.
 - **Action Firewall** checks every proposed action after planning and before execution. Unknown capabilities fail closed instead of inheriting generic Bridge privileges.
@@ -78,7 +106,7 @@ bka gogle trus cri makanan sehat
 buka WhatsApp, cari Budi, tulis "aku pulang jam 8", lalu kirim
 ```
 
-Dynamic tasks use the current real screen instead of assuming a previously observed node is still valid. Core RC32 continues to use Bridge RC18; this RC is a Core policy update, so no new Bridge APK is required when RC18 is already installed.
+Dynamic tasks use the current real screen instead of assuming a previously observed node is still valid. Core RC34 continues to use Bridge RC18, so no new Bridge APK is required when RC18 is already installed.
 
 ## Reminders
 
@@ -108,4 +136,4 @@ AUTO routing prefers a configured online provider and falls back to local infere
 
 Ordinary navigation/text preparation can be authorized per task. External side effects such as Send/Post/Share remain on the guarded path and require specific confirmation. Payment, transfer, uninstall, destructive deletion, factory reset, and security-sensitive changes remain blocked from autonomous execution.
 
-The RC32 CI reconstructs the effective Core from the archived baseline through RC31 and then applies RC32. Regression checks cover package-scope escape, unrequested Send/Delete/Allow controls, IME submission, parser-hallucinated external intent, sensitive-data redaction, stale Accessibility targets, cross-app state changes, unauthorized compiled sequences, and unknown runtime capabilities. Installer updates use the same deterministic transform with Git blob verification and staged Core activation.
+The RC34 CI reconstructs the effective Core from the archived baseline through RC33, applies the RC34 intent boundary, and then runs behavioral regression. Tests cover normal chat containing app names/action words, reports/hypotheticals/negations, parser failure with app mentions, explicit device requests, intent commitment evidence, role isolation, RC32 package/action policy, unknown runtime capabilities, and Bridge RC18 preservation. Installer updates use Git blob verification, staged validation, and atomic Core activation.
