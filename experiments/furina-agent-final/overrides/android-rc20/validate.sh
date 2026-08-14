@@ -88,8 +88,12 @@ assert 'beginConnect();' not in body
 print('FURINAHUB_RC20_NO_AUTO_TERMUX_START_OK')
 PY
 
-test -f "$REPO/.agents/skills/ui-ux-pro-max/SKILL.md"
-test -f "$REPO/.agents/skills/ui-ux-pro-max/scripts/search.py"
-grep -q 'Touch & Interaction' "$REPO/.agents/skills/ui-ux-pro-max/SKILL.md"
+test -s "$REPO/.agents/skills/ui-ux-pro-max/SKILL.md"
+test -s "$REPO/.agents/skills/ui-ux-pro-max/scripts/search.py"
+grep -q 'ui-ux-pro-max' "$REPO/.agents/skills/ui-ux-pro-max/SKILL.md"
+grep -q -- '--design-system' "$REPO/.agents/skills/ui-ux-pro-max/scripts/search.py"
+test -s "$REPO/design-system/furinahub/MASTER.md"
+grep -q '44x44' "$REPO/design-system/furinahub/MASTER.md"
+grep -q 'prefers-reduced-motion' "$REPO/design-system/furinahub/MASTER.md"
 
 echo "FURINAHUB_ANDROID_RC20_FULL_VALIDATION_OK"
