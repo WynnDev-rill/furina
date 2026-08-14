@@ -15,7 +15,7 @@
   "hub_host": "127.0.0.1",
   "hub_port": 8787,
   "dependency_revision": "2026.08.14-r1",
-  "bridge_version": "1.0.0-rc19",
-  "bridge_version_code": 10019,
-  "bridge_release_base": "https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc19"
+  "bridge_version": "1.0.0-rc20",
+  "bridge_version_code": 10020,
+  "bridge_release_base": "https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc20"
 }

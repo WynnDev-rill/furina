@@ -2,23 +2,19 @@
 set -euo pipefail
 
 VERSION="1.0.0-rc35"
-HUB_VERSION="1.0.0-rc19"
+HUB_VERSION="1.0.0-rc20"
 DEPENDENCY_REVISION="2026.08.14-r1"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 BODY_URL="$BASE/overrides/rc35/install-body.sh"
-BODY_BLOB="8c5f00c692260b46dbac15f1aa7d51282b3ca9b8"
+BODY_BLOB="7100c51c7bab745a1476b0212447cdc8e2a62c89"
 
 # Hashes are duplicated here intentionally so CI binds the public bootstrap to
-# the exact RC35 payloads used by the verified installer body.
+# the exact RC35 Core payloads used by the verified installer body.
 APPLY_BLOB="386f092c94c1d6d0d45e215772e8320dc127271d"
 SETTINGS_BLOB="d6bb11623353a3ff26a9000fb4b3a419c1919392"
 HUB_BLOB="0d36622263bee864baa4a43477852bac7edc7f5a"
 WEB_BLOB="e78482e18887cebaf8c4d2f4ec51c3c246d5b36a"
 MAIN_ACTIVITY_BLOB="0999791565430cce8034d75e79bbb8c4beec12d8"
-
-# Verified install-body provisions allow-external-apps=true, the furina-hub
-# launcher, $HOME/FurinaHub.apk + furinahub_apk_revision, and preserves the
-# "Keep the currently running FurinaHub UI alive" atomic-swap behavior.
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
   echo "Installer FurinaHub harus dijalankan dari Termux." >&2
@@ -40,8 +36,8 @@ if actual != expected:
     raise SystemExit(f"Integritas bootstrap FurinaHub berubah: {actual} != {expected}")
 PY
 
-# The body blob was produced before the pycache hardening transform. Patch only
-# its pinned apply hash after the body itself has been authenticated.
+# RC35 apply.py received a later bytecode-cache hardening fix. Authenticate the
+# installer body first, then replace only that pinned Core transform hash.
 python - "$TMP" "$APPLY_BLOB" <<'PY'
 from pathlib import Path
 import sys
