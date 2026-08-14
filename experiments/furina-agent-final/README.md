@@ -42,7 +42,7 @@ RC23 separates **understanding the user's goal** from **executing Android primit
 
 The semantic parser is intended to tolerate casual phrasing, abbreviations, mixed language and minor typos without growing a large hard-coded vocabulary. Fuzzy matching is limited to resolving an app hint against the actual installed-app list. Once the intent is understood, predictable low-risk steps are compiled into the persistent Bridge executor so the model is not called between every tap.
 
-The deterministic direct path is now only an atomic latency optimization. An exact command such as opening one known app may execute immediately, while a request such as `buka Google dan cari makanan sehat` must retain both `open_app` and `search` before Furina can report completion.
+The deterministic direct path is now only an atomic latency optimization. An exact command such as opening one known app may execute immediately, while a request such as `buka Google dan cari makanan sehat` must retain both `open_app` and `search` before Furina can report completion. RC23 CI includes a regression test specifically preventing that request from being short-circuited after `open_app`.
 
 The selected backend is configured under **Settings → Kontrol perangkat**. Runtime diagnostics stay in Settings and are not printed into the conversation.
 
