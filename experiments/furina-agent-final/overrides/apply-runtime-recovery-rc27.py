@@ -249,30 +249,32 @@ def main() -> None:
 
     ch = chat.read_text(encoding="utf-8")
     if "import traceback\n" not in ch:
-        ch = rep(ch, "import time\n", "import time\nimport traceback\nfrom pathlib import Path\n", "runtime traceback imports")
+        if "from pathlib import Path\n" in ch:
+            ch = rep(ch, "import time\n", "import time\nimport traceback\n", "runtime traceback import")
+        else:
+            ch = rep(ch, "import time\n", "import time\nimport traceback\nfrom pathlib import Path\n", "runtime traceback imports")
 
-    ch = rep(
-        ch,
-        '''            except Exception:
-                self.call_from_thread(self._fail, assistant_id)
-''',
-        '''            except Exception as exc:
-                try:
+    if "chat-runtime.log" not in ch:
+        call_marker = "                self.call_from_thread(self._fail, assistant_id)\n"
+        if ch.count(call_marker) != 1:
+            raise SystemExit(f"RC27 marker mismatch failure call: {ch.count(call_marker)}")
+        logging_call = '''                try:
+                    trace = traceback.format_exc()
                     log_dir = Path.home() / ".furina-agent" / "logs"
                     log_dir.mkdir(parents=True, exist_ok=True)
                     with (log_dir / "chat-runtime.log").open("a", encoding="utf-8") as fh:
-                        fh.write(f"\\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] {type(exc).__name__}: {exc}\\n")
-                        fh.write(traceback.format_exc())
+                        fh.write(f"\\n[{time.strftime('%Y-%m-%d %H:%M:%S')}]\\n")
+                        fh.write(trace)
+                    tail = trace.strip().splitlines()[-1] if trace.strip() else "unknown runtime error"
                     self.session.store.log_event(
                         "chat_surface_runtime_error",
-                        {"type": type(exc).__name__, "error": str(exc)[:500]},
+                        {"error": tail[:500]},
                     )
                 except Exception:
                     pass
                 self.call_from_thread(self._fail, assistant_id)
-''',
-        "persist runtime traceback",
-    )
+'''
+        ch = ch.replace(call_marker, logging_call, 1)
     chat.write_text(ch, encoding="utf-8")
 
     v = version.read_text(encoding="utf-8")
