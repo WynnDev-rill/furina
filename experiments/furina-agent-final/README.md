@@ -36,17 +36,25 @@ furina optimize
 
 `furina optimize` benchmarks the actual local GGUF on the phone and selects a better CPU thread count. It is not run every startup.
 
-## Android control — Core RC24 / Bridge RC14
+## Android control — Core RC25 / Bridge RC15
 
-RC23 separates **understanding the user's goal** from **executing Android primitives**. The Core first preserves a device request as a semantic intent with ordered conceptual steps. This prevents a multi-step request from being declared complete merely because its first action, such as opening an app, succeeded.
+The Android agent separates **understanding the complete goal**, **tracking the current UI state**, and **executing low-level Android primitives**. A multi-step request must retain every requested stage instead of being considered complete because its first action succeeded.
 
-The semantic parser is intended to tolerate casual phrasing, abbreviations, mixed language and minor typos without growing a large hard-coded vocabulary. Fuzzy matching is limited to resolving an app hint against the actual installed-app list. Once the intent is understood, predictable low-risk steps are compiled into the persistent Bridge executor so the model is not called between every tap.
+RC25 makes those stages state-aware. Semantic tasks can distinguish `search`, `select`, `type`, and `send`, and text input carries a field role such as `search`, `message`, or generic `input`. This prevents later message text from being written back into a still-focused search field. If the semantic parser omits an obvious transition in a send workflow, the Core repairs the generic state graph—for example a search followed by message composition requires selecting the searched result before typing into the destination UI. This repair is based on the action relationship rather than a hard-coded WhatsApp path.
 
-RC24 adds a terminal lifecycle around that executor. After Furina has genuinely left Termux, returning to Termux becomes an explicit stop signal in roughly a tenth of a second rather than leaving enough time for another planner cycle. The Core keeps the last external screen as evidence: if the deterministic goal contract is already satisfied the visible result becomes `Berhasil.`; otherwise Furina stops cleanly instead of replaying an app launch. Successful completion also closes the return watcher so completed tasks do not leave a background watcher alive.
+A typical messaging workflow is therefore modeled as:
 
-Bridge RC14 adds the same rule locally to continuous UI sequences. Once a sequence has left Termux, if Termux becomes foreground again the Bridge aborts remaining steps and reports `cancelled_user_return` to the Core. Tap, text, IME and scroll sequence primitives are guarded from continuing against the Termux UI after that return.
+```text
+open_app → search(contact) → select(contact) → type(message) → send
+```
 
-The deterministic direct path is only an atomic latency optimization. An exact command such as opening one known app may execute immediately, while a request such as `buka Google dan cari makanan sehat` must retain both `open_app` and `search` before Furina can report completion.
+Bridge RC15 scores editable fields from Accessibility metadata such as hints, content descriptions and resource IDs. Search fields and message/composer fields are treated as different roles. After a `select` step the Bridge requires a material UI transition before it continues, so it will not blindly type the next payload while still on the previous search screen. Apps that expose only one poorly-labelled editable field retain a conservative single-field fallback for compatibility.
+
+External effects remain separated from ordinary navigation. A final `send` requires a specific confirmation containing the intended target/message context. After confirmation, it is appended to the already-prepared local sequence. If the final send control cannot be verified, Furina does not automatically retry it because a retry could duplicate an external action.
+
+RC25 also strengthens task termination when the user returns to Termux. The Core combines the foreground package, the Bridge's persistent Termux-session state, return timestamps and a bounded direct Bridge snapshot fallback while a task is active. Bridge RC15 refreshes foreground/session state from window-state, windows-changed and relevant content-change events and keeps a stable-package fallback when Android temporarily exposes no active root. This is intended to handle devices/ROMs where a Termux return does not always produce the same Accessibility event pattern.
+
+The deterministic direct path remains only an atomic latency optimization. An exact command such as opening one known app may execute immediately, while longer requests keep their ordered semantic state graph.
 
 The selected backend is configured under **Settings → Kontrol perangkat**. Runtime diagnostics stay in Settings and are not printed into the conversation.
 
@@ -66,7 +74,7 @@ buka WhatsApp, cari Budi, tulis "aku pulang jam 8", lalu kirim
 
 Multi-step tasks that require the screen ask for screen permission. External side effects such as Send/Post/Share remain on the guarded agent path and require a specific confirmation before execution. Dynamic tasks can fall back to the universal planner from the current real screen instead of replaying completed steps.
 
-RC24 requires Bridge RC14 for the local sequence circuit breaker. Once RC14 is installed, later Core-only updates do not download the Bridge again unless the manifest's Bridge version increases.
+RC25 requires Bridge RC15 for role-aware fields, transition guards and the broader foreground tracker. Once RC15 is installed, later Core-only updates do not download the Bridge again unless the manifest's Bridge version increases.
 
 ## Reminders
 
