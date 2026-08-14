@@ -106,8 +106,8 @@ jobs:
           grep -q "VERSION=\"$CURRENT_RELEASE\"" "$META/install.sh"
           grep -q 'BASE_INSTALL_URL=' "$META/install.sh"
           grep -q 'MANIFEST_URL=' "$META/install.sh"
-          grep -q 'RC23_URL=' "$META/install.sh"
-          test "$CURRENT_RELEASE" = '1.0.0-rc23'
+          grep -q 'RC24_URL=' "$META/install.sh"
+          test "$CURRENT_RELEASE" = '1.0.0-rc24'
           bash -n "$META/install.sh"
           git diff --check
           echo RC16_PASTE_SMOKE_OK
