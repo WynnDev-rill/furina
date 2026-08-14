@@ -25,7 +25,7 @@ def main() -> None:
         raise SystemExit("missing RC28 Core source")
 
     a = agent.read_text(encoding="utf-8")
-    runtime = '''    def _contract(self, goal: str, apps: list[dict], semantic_steps: list[dict] | None = None) -> TaskContract:
+    runtime = r'''    def _contract(self, goal: str, apps: list[dict], semantic_steps: list[dict] | None = None) -> TaskContract:
         semantic = self._semantic_contract(goal, semantic_steps or [], apps)
         if semantic is not None:
             self.store.log_event("agent_contract_semantic", {"goal": str(goal)[:240], "steps": len(semantic_steps or [])})
