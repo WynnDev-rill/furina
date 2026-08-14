@@ -6,11 +6,15 @@ on:
     paths:
       - 'experiments/furina-agent-final/**'
       - '.github/workflows/furina-agent-rc20.yml'
+      - '.github/workflows/rc11-unified-ui-smoke.yml'
+      - '.github/workflows/rc15-full-paste-smoke.yml'
   push:
     branches: [experiment/furina-agent-termux]
     paths:
       - 'experiments/furina-agent-final/**'
       - '.github/workflows/furina-agent-rc20.yml'
+      - '.github/workflows/rc11-unified-ui-smoke.yml'
+      - '.github/workflows/rc15-full-paste-smoke.yml'
   workflow_dispatch:
 
 permissions:
