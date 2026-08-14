@@ -6,7 +6,7 @@ HUB_VERSION="1.0.0-rc20"
 DEPENDENCY_REVISION="2026.08.14-r1"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 BODY_URL="$BASE/overrides/rc35/install-body.sh"
-BODY_BLOB="4b3b6c48b22c21b4dc31d55afb14025286b964f0"
+BODY_BLOB="7100c51c7bab745a1476b0212447cdc8e2a62c89"
 
 # Hashes are duplicated here intentionally so CI binds the public bootstrap to
 # the exact RC35 Core payloads used by the verified installer body.
