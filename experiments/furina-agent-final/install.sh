@@ -19,6 +19,8 @@ RC22_SAFETY_URL="$BASE/overrides/apply-safety-rc22.py"
 RC22_SAFETY_BLOB="38237e878d206e831677e9d83980a436e7f3bc80"
 RC23_URL="$BASE/overrides/apply-semantic-core-rc23.py"
 RC23_BLOB="9f339191a3b0ddab2b89f0690e019b63552fe377"
+RC23_GUARD_URL="$BASE/overrides/apply-semantic-guard-rc23.py"
+RC23_GUARD_BLOB="92e5a56d678af9d97991844fad4b353b8a9b5561"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
   echo "Installer ini harus dijalankan dari Termux." >&2
@@ -147,6 +149,8 @@ apply_core_updates() {
     current="1.0.0-rc23"
   fi
   [[ "$current" == "1.0.0-rc23" ]] || { echo "Versi Core tidak dapat dimigrasikan otomatis: $current" >&2; return 1; }
+  fetch_transform "$RC23_GUARD_URL" "$RC23_GUARD_BLOB" "$TMP/rc23-guard.py"
+  python "$TMP/rc23-guard.py" "$TMP/stage"
 }
 run_quiet "Menerapkan Core RC23" 66 apply_core_updates "$CURRENT"
 
@@ -166,6 +170,9 @@ assert 'lambda *_args: True' not in text
 companion=open(__import__('furina_agent.companion').companion.__file__,encoding='utf-8').read()
 assert 'semantic intent parser Android internal' in companion
 assert '_DEVICE_VERBS = re.compile' not in companion
+tui=open(__import__('furina_agent.tui').tui.__file__,encoding='utf-8').read()
+assert 'semantic_steps=intent.steps' in tui
+assert 'lambda *_args: True' not in tui
 PY
 }
 run_quiet "Memvalidasi Core, UI, dan guard aksi" 78 validate_core
