@@ -1,4 +1,4 @@
-name: Validate FurinaHub RC35 + Build RC19
+name: Build FurinaHub RC35 + Android RC19
 
 on:
   pull_request:
@@ -27,11 +27,13 @@ env:
 jobs:
   validate-build-release:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Reconstruct and validate RC35 + FurinaHub RC19
+      - name: Reconstruct and validate RC35
         shell: bash
         run: bash experiments/furina-agent-final/overrides/rc35/validate.sh
 
@@ -52,77 +54,91 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build FurinaHub RC19 on PR
+      - name: Build FurinaHub debug on PR
         if: github.event_name == 'pull_request'
-        working-directory: /tmp/furinahub-rc35-validate/termux
+        working-directory: /tmp/furina-agent-rc34-validate/termux
         shell: bash
         run: gradle --no-daemon --stacktrace :bridge:app:assembleDebug
 
-      - name: Restore FurinaHub signing identity
+      - name: Check immutable release
         if: github.event_name != 'pull_request'
-        working-directory: /tmp/furinahub-rc35-validate/termux
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; immutable release will not be overwritten."
+            echo "FURINAHUB_RELEASE_EXISTS=1" >> "$GITHUB_ENV"
+          else
+            echo "FURINAHUB_RELEASE_EXISTS=0" >> "$GITHUB_ENV"
+          fi
+
+      - name: Restore FurinaHub signing identity
+        if: github.event_name != 'pull_request' && env.FURINAHUB_RELEASE_EXISTS != '1'
+        working-directory: /tmp/furina-agent-rc34-validate/termux
+        shell: bash
         env:
           FURINA_RELEASE_KEYSTORE_B64: ${{ secrets.FURINA_RELEASE_KEYSTORE_B64 }}
-        shell: bash
         run: |
           test -n "$FURINA_RELEASE_KEYSTORE_B64"
           printf '%s' "$FURINA_RELEASE_KEYSTORE_B64" | base64 --decode > bridge/app/furina-agent-release.jks
           chmod 600 bridge/app/furina-agent-release.jks
 
       - name: Build signed FurinaHub RC19
-        if: github.event_name != 'pull_request'
-        working-directory: /tmp/furinahub-rc35-validate/termux
+        if: github.event_name != 'pull_request' && env.FURINAHUB_RELEASE_EXISTS != '1'
+        working-directory: /tmp/furina-agent-rc34-validate/termux
+        shell: bash
         env:
-          FURINA_AGENT_KEYSTORE_PATH: /tmp/furinahub-rc35-validate/termux/bridge/app/furina-agent-release.jks
+          FURINA_AGENT_KEYSTORE_PATH: /tmp/furina-agent-rc34-validate/termux/bridge/app/furina-agent-release.jks
           FURINA_KEYSTORE_PASSWORD: ${{ secrets.FURINA_KEYSTORE_PASSWORD }}
           FURINA_KEY_ALIAS: ${{ secrets.FURINA_KEY_ALIAS }}
           FURINA_KEY_PASSWORD: ${{ secrets.FURINA_KEY_PASSWORD }}
-        shell: bash
         run: |
           test -n "$FURINA_KEYSTORE_PASSWORD"
           test -n "$FURINA_KEY_ALIAS"
           test -n "$FURINA_KEY_PASSWORD"
           gradle --no-daemon --stacktrace :bridge:app:assembleRelease
 
-      - name: Verify and publish FurinaHub RC19
-        if: github.event_name != 'pull_request'
+      - name: Verify signed APK and publish immutable RC19
+        if: github.event_name != 'pull_request' && env.FURINAHUB_RELEASE_EXISTS != '1'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          SOURCE=/tmp/furinahub-rc35-validate/termux/bridge/app/build/outputs/apk/release/app-release.apk
+          SOURCE=/tmp/furina-agent-rc34-validate/termux/bridge/app/build/outputs/apk/release/app-release.apk
           cp "$SOURCE" "$APK_NAME"
+
           APKANALYZER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer | sort | tail -n1)"
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n1)"
-          PACKAGE="$($APKANALYZER manifest application-id "$APK_NAME" | tr -d '\r')"
-          CODE="$($APKANALYZER manifest version-code "$APK_NAME" | tr -d '\r')"
-          NAME="$($APKANALYZER manifest version-name "$APK_NAME" | tr -d '\r')"
+          PACKAGE="$("$APKANALYZER" manifest application-id "$APK_NAME" | tr -d '\r')"
+          CODE="$("$APKANALYZER" manifest version-code "$APK_NAME" | tr -d '\r')"
+          NAME="$("$APKANALYZER" manifest version-name "$APK_NAME" | tr -d '\r')"
           SHA="$(sha256sum "$APK_NAME" | awk '{print $1}')"
-          CERT="$($APKSIGNER verify --verbose --print-certs "$APK_NAME")"
+          CERT="$("$APKSIGNER" verify --verbose --print-certs "$APK_NAME")"
           SIGNER="$(printf '%s\n' "$CERT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
+
           test "$PACKAGE" = com.wynndev.furinaagentbridge
           test "$CODE" = 10019
           test "$NAME" = 1.0.0-rc19
-          test -n "$SIGNER"
+          test "${#SHA}" = 64
+          test "${#SIGNER}" = 64
+
           export PACKAGE CODE NAME SHA SIGNER
           python3 - <<'PY'
           import json,os
           data={
-            'version':os.environ['NAME'],
-            'version_code':int(os.environ['CODE']),
-            'package_name':os.environ['PACKAGE'],
-            'sha256':os.environ['SHA'],
-            'signer_sha256':os.environ['SIGNER'],
-            'apk_url':'https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc19/FurinaHub-v1.0.0-rc19.apk'
+            "version":os.environ["NAME"],
+            "version_code":int(os.environ["CODE"]),
+            "package_name":os.environ["PACKAGE"],
+            "sha256":os.environ["SHA"],
+            "signer_sha256":os.environ["SIGNER"],
+            "apk_url":"https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc19/FurinaHub-v1.0.0-rc19.apk",
           }
-          open('bridge.json','w',encoding='utf-8').write(json.dumps(data,indent=2)+'\n')
+          open("bridge.json","w",encoding="utf-8").write(json.dumps(data,indent=2)+"\n")
           PY
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$APK_NAME" bridge.json --clobber
-            gh release edit "$TAG" --title "FurinaHub RC19" --notes "FurinaHub WebView shell for Core RC35. Same signed package identity as Furina Agent Bridge RC18, so it upgrades in place."
-          else
-            gh release create "$TAG" "$APK_NAME" bridge.json \
-              --title "FurinaHub RC19" \
-              --notes "FurinaHub WebView shell for Core RC35. Same signed package identity as Furina Agent Bridge RC18, so it upgrades in place."
-          fi
+
+          gh release create "$TAG" "$APK_NAME" bridge.json \
+            --target "$GITHUB_SHA" \
+            --title "FurinaHub v1.0.0-rc19" \
+            --notes "FurinaHub replaces the Bridge utility screen with a chat-first Android shell backed by Furina Core RC35 in Termux. Same package/signing identity for in-place upgrade from Bridge RC18."

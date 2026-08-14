@@ -1,12 +1,12 @@
-# FurinaHub — Furina Agent Experiment
+# FurinaHub — Furina Agent Experimental
 
-FurinaHub is the Android-facing UI for the Furina Agent experiment. The AI Core still runs in Termux, while the APK provides a chat-first interface, Android Bridge services, device permissions, app update flow, and settings.
+FurinaHub is the Android front-end for the experimental Furina Agent. The AI runtime, local models, Psyche, memory, and Android agent still live in Termux; FurinaHub provides a chat-first Android interface over the local loopback Core.
 
-The experiment remains isolated from the main Furina APK project.
+The experiment remains isolated from the main Furina APK. The layout direction is inspired by the clean, chat-first Android ergonomics of RikkaHub; FurinaHub keeps its own implementation and Furina Agent architecture.
 
 ## Install baru
 
-Open Termux and run:
+From a fresh Termux:
 
 ```bash
 pkg update -y && pkg install -y curl && curl -fsSL https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final/install.sh | bash
@@ -14,132 +14,155 @@ pkg update -y && pkg install -y curl && curl -fsSL https://raw.githubusercontent
 
 The installer:
 
-1. installs/reconciles the required Termux dependencies;
+1. checks and reconciles only the dependencies required by the current dependency revision;
 2. reconstructs and verifies Furina Core;
-3. preserves model, memory, Psyche, and provider data;
-4. installs the `furina` CLI and the `furinahub` local UI launcher;
-5. enables the Termux RUN_COMMAND integration needed for one-tap APK startup;
-6. downloads the signed FurinaHub APK release and opens Android's installer when available.
+3. keeps the `furina` CLI and installs the `furina-hub` local GUI launcher;
+4. enables the explicit Termux integration needed by the Android shell;
+5. downloads the signed FurinaHub APK, verifies its release SHA-256, and opens the Android installer when possible.
 
-After installation, both entry points remain valid:
+The APK is also left at:
+
+```text
+~/FurinaHub.apk
+```
+
+Termux remains fully usable:
 
 ```bash
 furina
 ```
 
-and, for the local web UI without the APK:
+and the local FurinaHub server can be started manually with:
 
 ```bash
-furinahub serve
+furina-hub
 ```
 
-## FurinaHub RC19 + Core RC35
+## FurinaHub UI
 
-Opening the FurinaHub APK goes directly to Chat. There is no onboarding dashboard.
+Opening the APK goes directly to **Percakapan**. There is no dashboard or onboarding screen between the user and chat.
 
-The APK is a restricted WebView shell around a Core-owned loopback UI at `127.0.0.1:8787`. FurinaHub starts that UI through Termux's explicit RUN_COMMAND integration using a fixed `furinahub serve` command. The page receives a per-install random token from the native shell; mutation API endpoints require that token.
+The navigation drawer contains:
 
-FurinaHub keeps Android-native responsibilities in the APK:
+- Percakapan
+- Memori & Psyche
+- Model & Provider
+- Personalisasi
+- Agent & Skill
+- Update & Diagnostik
+- Pengaturan Lanjutan
 
-- Persistent Bridge foreground service
-- Accessibility service
-- Shizuku/root-backed fixed primitives
-- Termux start integration
-- signed APK update check/install flow
-- Android permission surfaces
-
-The Termux Core continues to own:
-
-- conversation and model routing
-- local/online models
-- Psyche Engine and memory
-- chat-vs-Agent intent boundary
-- Android Agent planning
-- RC32 Goal Lock and Action Firewall
-- personalization state
-- Agent Skill restrictions
-- Core/dependency updates
-
-## UI sections
-
-FurinaHub uses a chat-first Material-style layout inspired by modern Android LLM clients without copying another project's source or branding.
-
-- **Chat** — default landing page. Device tasks remain inside the same conversation.
-- **Memori** — stored memories, learned preferences, and open goals. No relationship-summary score is shown.
-- **Model & Provider** — local GGUF choice, Local/AUTO/Online routing, and provider API keys.
-- **Personalisasi** — base style, companion archetype presets, characteristics, and custom instructions.
-- **Agent & Skills** — Normal/Shizuku/Root mode and user-toggleable Agent capabilities.
-- **Pengaturan & Update** — assistant/user names, FurinaHub APK update, Core update, dependency reconciliation, and diagnostics.
-
-Settings written from FurinaHub use the same Core config/data files as the Termux CLI, so switching between APK and `furina` does not create two separate identities.
+The Memori screen intentionally does **not** expose a relationship score/summary. Relationship context may still be used internally by Psyche when relevant to conversation.
 
 ## Personalization
 
-RC35 separates conversational personalization from device authority.
+Personalization is an expression layer, not a replacement for Psyche or persistent identity.
 
-Base styles include Adaptive, Friendly, Efficient, Professional, Playful, Calm, and Cynical. Optional character presets include Berkembang Alami, Tsundere, Deredere, Kuudere, Suka Menggoda, Elegan, Playful/Chaotic, and Custom.
+Base styles:
 
-Characteristics are independently adjustable:
+- Adaptif
+- Ramah
+- Langsung
+- Profesional
+- Playful
+- Tsundere
+- Cool / Dry
+- Lembut
+- Kustom
 
-- warmth
-- intimacy
-- expressiveness
-- playfulness
-- sarcasm
-- directness
-- formality
-- verbosity
-- emotional sensitivity
+Each preset only supplies starting expression biases. The user can independently tune:
 
-Presets are soft presentation biases rather than hard personality scripts. PsycheState and experience can still change expression over time. Custom instructions can affect conversation style but cannot grant device permission, disable confirmations, or change the Action Firewall.
+- Kehangatan
+- Ketegasan / Langsung
+- Playfulness
+- Sinis / Sarkas
+- Kemesraan
+- Ekspresivitas
+- Formalitas
+- Panjang Jawaban
+- Suka Menggoda
+- Keterbukaan Emosi
 
-## Agent Skills
+There is also a free-form **Instruksi khusus** field.
 
-Agent Skills are opt-in restrictions over capabilities the Agent already has; they are not downloadable executable code in RC35.
+PsycheState, memories, current emotion, and context are still allowed to change how the companion behaves naturally. Personalization never grants Android permissions or bypasses the policy layer.
 
-Available toggles include:
+## Model & provider
 
-- app control
-- UI navigation
-- screen inspection
-- text input
-- messaging/external workflows
-- privileged control
-- vision fallback
+The APK mirrors the important Core controls that were previously Termux-only:
 
-Turning a skill off can only remove capability. It cannot add Android permissions or bypass RC32 policy.
+- local GGUF selection;
+- LOCAL / AUTO / ONLINE routing;
+- configured OpenRouter, Groq, NVIDIA, and Gemini providers;
+- local persona/display name and user nickname;
+- generation limits and performance settings under Advanced.
 
-## Updates
+API keys remain stored locally in the existing protected provider store.
 
-### FurinaHub APK
+## Agent modes
 
-The native updater downloads signed release metadata, verifies package name, version, SHA-256, and signing certificate, then opens Android's package installer. RC19 retains the same package ID and release signing identity as Bridge RC18, allowing an in-place rename/update.
+Device-control mode can be selected from FurinaHub:
 
-### Core
+- **Biasa** — Accessibility / Android intents.
+- **Shizuku** — fixed privileged primitives when explicitly enabled.
+- **Root** — fixed root primitives when explicitly enabled.
 
-FurinaHub can start the existing verified `furina update` flow. Core activation remains staged and atomic.
+There is no automatic escalation from Normal to Shizuku/root.
 
-### Dependencies
+### Skill Agent
 
-The app can run the `furinahub-deps` helper, which reconciles only the dependencies FurinaHub currently requires instead of performing an uncontrolled full-device update.
+Skills are capability switches that can only reduce what the Agent is allowed to use:
 
-## Current safety boundaries
+- Navigasi Android
+- Baca Konteks Layar
+- Input Teks
+- Workflow Semantik
+- Vision Fallback
+- Kontrol Privileged
 
-RC34's chat-first intent guard remains active: mentioning an app or discussing an action is not authority to run the Agent.
+Disabling a skill blocks its associated action before execution. Enabling a skill does not bypass RC32 Goal Lock, Action Firewall, external-action confirmation, privacy filtering, or destructive-action blocks.
 
-RC32 remains the action boundary after routing:
+## Update
 
-- Goal Lock freezes trusted task scope.
-- Action Firewall checks proposed device actions.
-- unknown capabilities fail closed.
-- fresh-state resolution verifies targets before state-changing actions.
-- external/uncertain actions receive fresh confirmation.
-- sensitive UI data is redacted before planner use.
-- personality, memory, or Agent Skills cannot create new privileges.
+FurinaHub has two update paths from the app:
 
-Current versions:
+**APK FurinaHub**
+- checks release metadata;
+- verifies package name, version, SHA-256, and signing certificate;
+- opens the Android package installer only after verification.
+
+**Core & dependency**
+- invokes the fixed `furina update` command through Termux;
+- uses the same staged Core validation as CLI updates;
+- dependencies are reconciled against a versioned `dependency_revision`, not blindly upgraded.
+
+Core RC35 targets FurinaHub Android RC19. The Android package ID and signing identity remain compatible with Bridge RC18 so the APK is an in-place upgrade rather than a separate application.
+
+## Local architecture
 
 ```text
-Core       1.0.0-rc35
-FurinaHub  1.0.0-rc19
+FurinaHub APK / WebView
+        │
+        │ http://127.0.0.1:8787 + per-session token
+        ▼
+Furina Core in Termux
+  ├─ conversation
+  ├─ Psyche
+  ├─ memory
+  ├─ model router
+  └─ Android Agent
+        │
+        │ authenticated local Bridge
+        ▼
+Android / Accessibility / Shizuku / root fixed primitives
 ```
+
+The FurinaHub HTTP UI binds only to `127.0.0.1`. A new per-session access token is passed by the Android shell when it starts the server; API endpoints require that token. WebView navigation is limited to the FurinaHub loopback origin and file/content access is disabled.
+
+## Current versions
+
+- Core: `1.0.0-rc35`
+- FurinaHub Android: `1.0.0-rc19`
+- Dependency revision: `2026.08.14-r1`
+
+RC34 chat-first intent separation and RC32 execution policy remain active underneath RC35.

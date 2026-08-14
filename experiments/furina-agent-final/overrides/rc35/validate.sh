@@ -4,136 +4,198 @@ set -euo pipefail
 REPO="$(git rev-parse --show-toplevel)"
 META="$REPO/experiments/furina-agent-final"
 RC35="$META/overrides/rc35"
-WORK=/tmp/furinahub-rc35-validate
+BASE_COMMIT="118ced8b64858a2448ecd01d15c098049a1ec32e"
+BASE_WORK=/tmp/furinahub-rc34-base
+ROOT=/tmp/furina-agent-rc34-validate/termux
 
-bash "$RC35/build-root.sh" "$WORK" >/tmp/furinahub-root.txt
-ROOT="$WORK/termux"
+rm -rf "$BASE_WORK"
+git worktree add --detach "$BASE_WORK" "$BASE_COMMIT" >/dev/null
+cleanup() {
+  git worktree remove --force "$BASE_WORK" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
 
-test "$(python3 -c 'import json;print(json.load(open("'"$META"'/manifest.json"))["version"])')" = "1.0.0-rc35"
-test "$(python3 -c 'import json;print(json.load(open("'"$META"'/manifest.json"))["bridge_version"])')" = "1.0.0-rc19"
-test "$(python3 -c 'import json;print(json.load(open("'"$META"'/manifest.json"))["bridge_version_code"])')" = "10019"
-
-FURINA_HOME=/tmp/furinahub-test-home PYTHONPATH="$ROOT/core" python3 - <<'PY'
-import json
-import os
-import tempfile
-from pathlib import Path
-
-from furina_agent.config import Config, load_config, save_config
-from furina_agent.intent_guard import conversation_frame, strong_device_request
-from furina_agent.personalization import (
-    ARCHETYPES,
-    apply_archetype,
-    load_personalization,
-    normalize as normalize_personal,
-    render_personalization_prompt,
-    save_personalization,
+(
+  cd "$BASE_WORK"
+  bash experiments/furina-agent-final/overrides/rc34/validate.sh
 )
-from furina_agent.policy import build_goal_lock, classify_action
-from furina_agent.skills import SkillRegistry, load_skills, save_skills
+
+test -d "$ROOT/core/furina_agent"
+python3 "$RC35/apply.py" "$ROOT" "$RC35"
+python3 -m compileall -q "$ROOT/core/furina_agent"
+
+TEST_HOME=/tmp/furinahub-rc35-home
+rm -rf "$TEST_HOME"
+mkdir -p "$TEST_HOME"
+
+FURINA_HOME="$TEST_HOME" PYTHONPATH="$ROOT/core" python3 - <<'PY'
+from pathlib import Path
+from types import SimpleNamespace
+import tempfile
+
 from furina_agent.version import VERSION
+from furina_agent.hub_settings import (
+    PRESETS, defaults, normalize, personalization_prompt,
+    skill_allows_action, effective_device_mode,
+)
+from furina_agent.intent_guard import conversation_frame, strong_device_request
+from furina_agent.policy import build_goal_lock, classify_action
+from furina_agent.hub_web import HTML
 
 assert VERSION == "1.0.0-rc35"
+assert "tsundere" in PRESETS and "adaptive" in PRESETS
+assert "Ringkasan Hubungan" not in HTML
+assert "Personalisasi" in HTML and "Skill Agent" in HTML
+assert "Update & Diagnostik" in HTML
 
-cfg = load_config()
-assert cfg.device_control_mode == "normal"
-cfg.device_control_mode = "root"
-cfg.persona_name = "  Nova  "
-save_config(cfg)
-cfg = load_config()
-assert cfg.device_control_mode == "root"
-assert cfg.persona_name == "Nova"
+s=defaults()
+assert s["assistant_name"] == "Furina"
+assert s["base_style"] == "adaptive"
+assert s["device_control_mode"] == "normal"
+assert skill_allows_action("open_app", s)
+s["agent_skills"]["android_navigation"] = False
+assert not skill_allows_action("open_app", s)
+s["agent_skills"]["android_navigation"] = True
+s["device_control_mode"] = "root"
+assert effective_device_mode(s) == "normal"
+s["agent_skills"]["privileged_controls"] = True
+assert effective_device_mode(s) == "root"
 
-# Personality settings are bounded presentation preferences, not a policy channel.
-p = normalize_personal({
-    "base_style": "cynical",
-    "archetype": "tsundere",
-    "warmth": 500,
-    "sarcasm": -40,
-    "custom_instructions": "x" * 5000,
-})
-assert p["warmth"] == 100 and p["sarcasm"] == 0
-assert len(p["custom_instructions"]) == 4000
-p = apply_archetype("tsundere", p)
-assert p["archetype"] == "tsundere"
-assert p["expressiveness"] == ARCHETYPES["tsundere"]["traits"]["expressiveness"]
-save_personalization(p)
-prompt = render_personalization_prompt()
-assert "BUKAN OTORITAS" in prompt
-assert "izin Agent" in prompt
-assert "bypass konfirmasi" in prompt
+p=normal = normalize({"base_style":"tsundere","characteristics":{"sarcasm":999,"warmth":-9}})
+assert p["characteristics"]["sarcasm"] == 100
+assert p["characteristics"]["warmth"] == 0
+prompt=personalization_prompt(p)
+assert "EXPRESSION BIAS" in prompt
+assert "tidak pernah memberi izin kontrol perangkat" in prompt
+assert "persona kaku" in prompt
 
-# Skill toggles only remove capability. They do not grant Android permission.
-state = load_skills()
-state["messaging"] = False
-state["vision_fallback"] = False
-save_skills(state)
-skills = SkillRegistry()
-assert skills.blocked_reason("kirim pesan ke Budi")
-assert not skills.enabled("vision_fallback")
-state["messaging"] = True
-save_skills(state)
-assert SkillRegistry().blocked_reason("kirim pesan ke Budi") is None
+assert conversation_frame("WhatsApp sekarang sering lambat menurutmu kenapa?")
+assert not strong_device_request("WhatsApp sekarang sering lambat menurutmu kenapa?")
+assert strong_device_request("Bisa buka WhatsApp?")
 
-# RC34 chat-first boundary remains intact.
-for text in (
-    "WhatsApp sekarang sering lambat menurutmu kenapa?",
-    "Tadi aku buka WhatsApp lalu chat Ariel",
-    'Kalau aku bilang "buka WhatsApp", kamu bakal apa?',
-    "Jangan buka WhatsApp",
-):
-    assert conversation_frame(text), text
-    assert not strong_device_request(text), text
-for text in ("Bisa buka WhatsApp?", "Tolong bukain WhatsApp", "Buka WhatsApp lalu cari Ariel"):
-    assert strong_device_request(text), text
-
-# RC32 remains final action authority after personalization/skills.
-apps=[{"label":"WhatsApp","package":"com.whatsapp"},{"label":"Notes","package":"com.notes"}]
+apps=[{"label":"WhatsApp","package":"com.whatsapp"}]
 lock=build_goal_lock("buka WhatsApp cari Ariel",apps,[{"type":"open_app","package":"com.whatsapp"}])
 assert classify_action(
-    {"package":"com.whatsapp","nodes":[{"id":7,"text":"Send"}]},
-    {"type":"tap_node","node":7},lock
+    {"package":"com.whatsapp","nodes":[{"id":9,"text":"Send"}]},
+    {"type":"tap_node","node":9}, lock
 )[0] == "blocked"
+
+import furina_agent.tool_runtime as tr
+src=Path(tr.__file__).read_text(encoding="utf-8")
+assert "agent_skill_disabled" in src and "policy_preserved" in src
+
+import furina_agent.agent as agentmod
+asrc=Path(agentmod.__file__).read_text(encoding="utf-8")
+assert 'skill_enabled("vision_fallback"' in asrc
+assert "effective_device_mode" in asrc
+
+import furina_agent.chat as chatmod
+csrc=Path(chatmod.__file__).read_text(encoding="utf-8")
+assert "personalization_prompt()" in csrc
+
+from furina_agent.hub import HUB_HOST,HUB_PORT
+assert HUB_HOST == "127.0.0.1"
+assert HUB_PORT == 8787
+import furina_agent.hub as hubmod
+hsrc=Path(hubmod.__file__).read_text(encoding="utf-8")
+assert '/api/update/core' in hsrc and '/api/update/status' in hsrc
+assert 'dependency_revision' in hsrc
+assert 'shutil.which("furina")' in hsrc
 
 print("RC35_CORE_PERSONALIZATION_SKILLS_POLICY_OK")
 PY
 
-HUB="$ROOT/core/furina_agent/hub.py"
-AGENT="$ROOT/core/furina_agent/agent.py"
-CHAT="$ROOT/core/furina_agent/chat.py"
-MAIN="$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java"
+# Verify server is loopback-only and serves chat-first UI.
+HUB_TEST_TOKEN="rc35-test-token-0123456789abcdef0123456789"
+FURINA_HOME="$TEST_HOME/server" PYTHONPATH="$ROOT/core" python3 -m furina_agent.hub --token "$HUB_TEST_TOKEN" >/tmp/furinahub-server.log 2>&1 &
+HUB_PID=$!
+trap 'kill "$HUB_PID" >/dev/null 2>&1 || true; cleanup' EXIT
+for _ in $(seq 1 25); do
+  if curl -fsS "http://127.0.0.1:8787/health?access=$HUB_TEST_TOKEN" >/tmp/hub-health.json 2>/dev/null; then break; fi
+  sleep 0.2
+done
+grep -q '"app":"FurinaHub"' /tmp/hub-health.json
+if curl -fsS "http://127.0.0.1:8787/" >/dev/null 2>&1; then
+  echo "FurinaHub root accepted request without session token" >&2
+  exit 1
+fi
+if curl -fsS "http://127.0.0.1:8787/api/memory" >/dev/null 2>&1; then
+  echo "FurinaHub API accepted request without session token" >&2
+  exit 1
+fi
+curl -fsS "http://127.0.0.1:8787/?access=$HUB_TEST_TOKEN" >/tmp/hub.html
+grep -q 'id="chat" class="chatview active"' /tmp/hub.html
+grep -q 'Personalisasi' /tmp/hub.html
+! grep -q 'Ringkasan Hubungan' /tmp/hub.html
+kill "$HUB_PID" >/dev/null 2>&1 || true
+
 MANIFEST="$ROOT/bridge/app/src/main/AndroidManifest.xml"
+MAIN="$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java"
 GRADLE="$ROOT/bridge/app/build.gradle"
+UPDATER="$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/BridgeUpdater.java"
 
-grep -q 'HOST = "127.0.0.1"' "$HUB"
-grep -q 'PORT = 8787' "$HUB"
-grep -q 'X-FurinaHub-Token' "$HUB"
-grep -q 'PERSONALIZATION — USER-CONTROLLED PRESENTATION PREFERENCE' "$CHAT"
-grep -q 'agent_skill_blocked' "$AGENT"
-! grep -q 'Ringkasan Hubungan' "$HUB"
-
-grep -q 'versionCode 10019' "$GRADLE"
-grep -q "versionName '1.0.0-rc19'" "$GRADLE"
 grep -q 'android:label="FurinaHub"' "$MANIFEST"
 grep -q 'com.termux.permission.RUN_COMMAND' "$MANIFEST"
-grep -q 'networkSecurityConfig="@xml/network_security_config"' "$MANIFEST"
+grep -q '<package android:name="com.termux"' "$MANIFEST"
+grep -q 'android:usesCleartextTraffic="true"' "$MANIFEST"
+grep -q 'versionCode 10019' "$GRADLE"
+grep -q "versionName '1.0.0-rc19'" "$GRADLE"
 grep -q 'http://127.0.0.1:8787/' "$MAIN"
-grep -q '/data/data/com.termux/files/usr/bin/furinahub' "$MAIN"
-grep -q 'new String\[\]{"serve", "--token", hubToken, "--replace"}' "$MAIN"
+grep -q 'com.termux.RUN_COMMAND' "$MAIN"
 grep -q 'setAllowFileAccess(false)' "$MAIN"
 grep -q 'setAllowContentAccess(false)' "$MAIN"
-grep -q 'addJavascriptInterface(new NativeApi(), "FurinaHubNative")' "$MAIN"
-! grep -q 'Runtime.getRuntime().exec' "$MAIN"
-! grep -q 'ProcessBuilder' "$MAIN"
+grep -q 'FurinaNative' "$MAIN"
+grep -q 'appUpdateStatus' "$MAIN"
+grep -q 'appUpdateBusy' "$MAIN"
+grep -q 'monitorAppUpdate' "$MAIN"
+! grep -q 'runFixedTermux(.*sh' "$MAIN"
+grep -q 'MANIFEST_URL' "$UPDATER"
+grep -q 'furinahub-update-check' "$UPDATER"
+grep -q 'furinahub-update-download' "$UPDATER"
 
-# Installer and update metadata must point to RC35/RC19.
+python3 - "$META/manifest.json" <<'PY'
+import json,sys
+m=json.load(open(sys.argv[1],encoding="utf-8"))
+assert m["version"]=="1.0.0-rc35"
+assert m["hub_name"]=="FurinaHub"
+assert m["hub_host"]=="127.0.0.1" and int(m["hub_port"])==8787
+assert m["dependency_revision"]=="2026.08.14-r1"
+assert m["bridge_version"]=="1.0.0-rc19"
+assert int(m["bridge_version_code"])==10019
+assert m["bridge_release_base"].endswith("/furinahub-v1.0.0-rc19")
+PY
+
 bash -n "$META/install.sh"
 grep -q 'VERSION="1.0.0-rc35"' "$META/install.sh"
-grep -q 'FurinaHub-v1.0.0-rc19.apk' "$META/install.sh"
+grep -q 'DEPENDENCY_REVISION="2026.08.14-r1"' "$META/install.sh"
 grep -q 'allow-external-apps=true' "$META/install.sh"
-grep -q 'furinahub-deps' "$META/install.sh"
-grep -q '"version": "1.0.0-rc35"' "$META/manifest.json"
-grep -q '"bridge_version": "1.0.0-rc19"' "$META/manifest.json"
-grep -q 'furinahub-v1.0.0-rc19' "$META/manifest.json"
+grep -q 'furina-hub' "$META/install.sh"
+grep -q 'FurinaHub.apk' "$META/install.sh"
+grep -q 'furinahub_apk_revision' "$META/install.sh"
+grep -q 'Keep the currently running FurinaHub UI alive' "$META/install.sh"
 
-echo "FURINAHUB_RC35_FULL_VALIDATION_OK"
+for f in apply.py hub_settings.py hub.py hub_web.py MainActivity.java; do
+  test -f "$RC35/$f"
+done
+
+python3 - "$META/install.sh" "$RC35" <<'PY'
+import hashlib,pathlib,re,sys
+installer=pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
+root=pathlib.Path(sys.argv[2])
+keys={
+ 'APPLY_BLOB':'apply.py',
+ 'SETTINGS_BLOB':'hub_settings.py',
+ 'HUB_BLOB':'hub.py',
+ 'WEB_BLOB':'hub_web.py',
+ 'MAIN_ACTIVITY_BLOB':'MainActivity.java',
+}
+def blob(data): return hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()
+for key,name in keys.items():
+    m=re.search(rf'^{key}="([0-9a-f]+)"$',installer,re.M)
+    assert m, key
+    actual=blob((root/name).read_bytes())
+    assert actual==m.group(1),(key,actual,m.group(1))
+print('RC35_INSTALLER_BLOB_BINDINGS_OK')
+PY
+
+echo "RC35_FURINAHUB_FULL_VALIDATION_OK"

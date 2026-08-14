@@ -2,39 +2,42 @@
 set -euo pipefail
 
 VERSION="1.0.0-rc35"
+HUB_VERSION="1.0.0-rc19"
+DEPENDENCY_REVISION="2026.08.14-r1"
 ROOT="$HOME/.furina-agent"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 PREV_COMMIT="118ced8b64858a2448ecd01d15c098049a1ec32e"
 PREV_BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/$PREV_COMMIT/experiments/furina-agent-final"
 PREV_INSTALL_URL="$PREV_BASE/install.sh"
 PREV_INSTALL_BLOB="dd9773ae9de73acb34f9ae70453d54624018536d"
-
-RC35_DIR_URL="$BASE/overrides/rc35"
-APPLY_BLOB="77e98fe15bfb719eccc3d86f737b8c0996e58211"
-PERSONALIZATION_BLOB="b01f19328f7e03b649494c05953de5dc1dbb0a55"
-SKILLS_BLOB="88ca051744fd34c62f3ad16ceaf49cb744b1fb4e"
-HUB_BLOB="00701e08ca74348c2c88109fba6bc4a34ec97f49"
+RC35_URL="$BASE/overrides/rc35"
+APPLY_BLOB="bf10a9360a80b30faa245e63fca72c43b2599a28"
+SETTINGS_BLOB="d6bb11623353a3ff26a9000fb4b3a419c1919392"
+HUB_BLOB="0d36622263bee864baa4a43477852bac7edc7f5a"
+WEB_BLOB="e78482e18887cebaf8c4d2f4ec51c3c246d5b36a"
+MAIN_ACTIVITY_BLOB="0999791565430cce8034d75e79bbb8c4beec12d8"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
-  echo "Installer ini harus dijalankan dari Termux." >&2
+  echo "Installer FurinaHub harus dijalankan dari Termux." >&2
   exit 1
 fi
 
 mkdir -p "$ROOT"/{cache,logs,run,data,models}
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-LOG="$ROOT/logs/update-rc35.log"
+LOG="$ROOT/logs/update-rc35-furinahub.log"
 : > "$LOG"
 PROGRESS=0
+PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 
 ui_title() {
   printf '\033[2J\033[H'
-  printf '\033[1;38;5;99mFurinaHub\033[0m \033[1mBy Wynn\033[0m\n'
-  printf '\033[2mCore RC35 · WebView companion · personalization · Agent Skills\033[0m\n\n'
+  printf '\033[1;35mFurinaHub\033[0m  \033[1mBy Wynn\033[0m\n'
+  printf '\033[2mCore RC35 · Android RC19 · chat-first companion\033[0m\n\n'
 }
 
 ui_progress() {
-  local pct="$1" label="$2" glyph="${3:-›}" width=16 filled empty bar="" i
+  local pct="$1" label="$2" glyph="${3:-›}" width=18 filled empty bar="" i
   (( pct < 0 )) && pct=0
   (( pct > 100 )) && pct=100
   filled=$(( pct * width / 100 )); empty=$(( width - filled ))
@@ -52,9 +55,7 @@ run_quiet() {
   "$@" >>"$LOG" 2>&1 & local pid=$!
   while kill -0 "$pid" >/dev/null 2>&1; do
     (( next < target - 1 )) && next=$((next+1))
-    i=$(((i+1)%10))
-    ui_progress "$next" "$label" "${frames:$i:1}"
-    sleep 0.16
+    i=$(((i+1)%10)); ui_progress "$next" "$label" "${frames:$i:1}"; sleep 0.16
   done
   set +e; wait "$pid"; rc=$?; set -e
   if (( rc != 0 )); then
@@ -66,18 +67,6 @@ run_quiet() {
   mark "$target" "$label"
 }
 
-ensure_dependencies() {
-  pkg install -y python curl
-  python -m pip install --disable-pip-version-check --upgrade 'rich>=13,<15' 'requests>=2.31,<3'
-}
-
-if [[ "${1:-}" == "--dependencies-only" ]]; then
-  ui_title
-  run_quiet "Memeriksa paket Termux yang dibutuhkan" 45 ensure_dependencies
-  mark 100 "Dependency FurinaHub terverifikasi dan diperbarui"
-  exit 0
-fi
-
 verify_git_blob() {
   python - "$1" "$2" <<'PY'
 import hashlib,pathlib,sys
@@ -85,7 +74,7 @@ path,expected=sys.argv[1:]
 data=pathlib.Path(path).read_bytes()
 actual=hashlib.sha1(f"blob {len(data)}\0".encode()+data).hexdigest()
 if actual != expected:
-    raise SystemExit(f"Integritas update berubah: {path} {actual} != {expected}")
+    raise SystemExit(f"Integritas file berubah: {path} {actual} != {expected}")
 PY
 }
 
@@ -99,8 +88,7 @@ core_version() {
   python - "$ROOT/core/furina_agent/version.py" <<'PY'
 import re,sys
 try: s=open(sys.argv[1],encoding='utf-8').read()
-except Exception:
-    print('missing'); raise SystemExit
+except Exception: print('missing'); raise SystemExit
 m=re.search(r'VERSION\s*=\s*["\x27]([^"\x27]+)',s)
 print(m.group(1) if m else 'unknown')
 PY
@@ -111,20 +99,22 @@ fetch_manifest() {
   python - "$TMP/manifest.json" <<'PY'
 import json,sys
 m=json.load(open(sys.argv[1],encoding='utf-8'))
-assert m.get('version') == '1.0.0-rc35', m.get('version')
-assert m.get('bridge_version') == '1.0.0-rc19', m.get('bridge_version')
+assert m.get('version') == '1.0.0-rc35'
+assert m.get('bridge_version') == '1.0.0-rc19'
 assert int(m.get('bridge_version_code')) == 10019
-assert 'furinahub-v1.0.0-rc19' in m.get('bridge_release_base','')
-assert len(m.get('source_sha256','')) == 64
+assert m.get('dependency_revision') == '2026.08.14-r1'
+assert m.get('hub_name') == 'FurinaHub'
+assert str(m.get('bridge_release_base','')).startswith('https://github.com/WynnDev-rill/furina/releases/download/')
 PY
 }
 
 fetch_rc35_bundle() {
   mkdir -p "$TMP/rc35"
-  fetch_blob "$RC35_DIR_URL/apply.py" "$APPLY_BLOB" "$TMP/rc35/apply.py"
-  fetch_blob "$RC35_DIR_URL/personalization.py" "$PERSONALIZATION_BLOB" "$TMP/rc35/personalization.py"
-  fetch_blob "$RC35_DIR_URL/skills.py" "$SKILLS_BLOB" "$TMP/rc35/skills.py"
-  fetch_blob "$RC35_DIR_URL/hub.py" "$HUB_BLOB" "$TMP/rc35/hub.py"
+  fetch_blob "$RC35_URL/apply.py" "$APPLY_BLOB" "$TMP/rc35/apply.py"
+  fetch_blob "$RC35_URL/hub_settings.py" "$SETTINGS_BLOB" "$TMP/rc35/hub_settings.py"
+  fetch_blob "$RC35_URL/hub.py" "$HUB_BLOB" "$TMP/rc35/hub.py"
+  fetch_blob "$RC35_URL/hub_web.py" "$WEB_BLOB" "$TMP/rc35/hub_web.py"
+  fetch_blob "$RC35_URL/MainActivity.java" "$MAIN_ACTIVITY_BLOB" "$TMP/rc35/MainActivity.java"
   python -m py_compile "$TMP/rc35/"*.py
 }
 
@@ -144,151 +134,202 @@ PY
   [[ "$(core_version)" == "1.0.0-rc34" ]]
 }
 
+reconcile_dependencies() {
+  local marker="$ROOT/data/dependency_revision"
+  local current=""
+  [[ -f "$marker" ]] && current="$(cat "$marker" 2>/dev/null || true)"
+  if [[ "$current" == "$DEPENDENCY_REVISION" ]] && command -v python >/dev/null && command -v curl >/dev/null; then
+    python - <<'PY' >/dev/null
+import rich
+PY
+    return 0
+  fi
+  pkg install -y python curl >/dev/null
+  if ! python - <<'PY' >/dev/null 2>&1
+import rich
+PY
+  then
+    python -m pip install 'rich>=13,<15' >/dev/null
+  fi
+  printf '%s\n' "$DEPENDENCY_REVISION" > "$marker"
+}
+
+enable_termux_integration() {
+  mkdir -p "$HOME/.termux"
+  local props="$HOME/.termux/termux.properties"
+  touch "$props"
+  python - "$props" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+lines=[x for x in p.read_text(encoding='utf-8').splitlines() if not x.strip().startswith('allow-external-apps=')]
+lines.append('allow-external-apps=true')
+p.write_text('\n'.join(lines)+'\n',encoding='utf-8')
+PY
+  command -v termux-reload-settings >/dev/null 2>&1 && termux-reload-settings >/dev/null 2>&1 || true
+}
+
 stage_core() {
-  rm -rf "$TMP/stage"
-  mkdir -p "$TMP/stage"
+  rm -rf "$TMP/stage"; mkdir -p "$TMP/stage"
   cp -R "$ROOT/core" "$TMP/stage/core"
 }
 
-apply_rc35() { python "$TMP/rc35/apply.py" "$TMP/stage" "$TMP/rc35"; }
+apply_rc35() {
+  python "$TMP/rc35/apply.py" "$TMP/stage" "$TMP/rc35"
+}
 
 validate_core() {
-  rm -rf "$TMP/test-home"
-  FURINA_HOME="$TMP/test-home" PYTHONPATH="$TMP/stage/core" python -m compileall -q "$TMP/stage/core/furina_agent"
-  FURINA_HOME="$TMP/test-home" PYTHONPATH="$TMP/stage/core" python - <<'PY'
-from furina_agent.config import load_config,save_config
-from furina_agent.intent_guard import conversation_frame,strong_device_request
-from furina_agent.personalization import normalize,render_personalization_prompt
-from furina_agent.skills import SkillRegistry,load_skills,save_skills
+  FURINA_HOME="$TMP/home-test" PYTHONPATH="$TMP/stage/core" python -m compileall -q "$TMP/stage/core/furina_agent"
+  FURINA_HOME="$TMP/home-test" PYTHONPATH="$TMP/stage/core" python - <<'PY'
 from furina_agent.version import VERSION
+from furina_agent.hub_settings import defaults,normalize,skill_allows_action,effective_device_mode,personalization_prompt
+from furina_agent.intent_guard import conversation_frame,strong_device_request
 assert VERSION == '1.0.0-rc35'
-cfg=load_config(); cfg.device_control_mode='shizuku'; save_config(cfg)
-assert load_config().device_control_mode == 'shizuku'
-p=normalize({'warmth':999,'sarcasm':-4,'custom_instructions':'x'*5001})
-assert p['warmth']==100 and p['sarcasm']==0 and len(p['custom_instructions'])==4000
-assert 'BUKAN OTORITAS' in render_personalization_prompt(p)
-state=load_skills(); state['messaging']=False; save_skills(state)
-assert SkillRegistry().blocked_reason('kirim pesan ke Budi')
-assert conversation_frame('WhatsApp lambat menurutmu kenapa?')
-assert strong_device_request('Tolong bukain WhatsApp')
+s=defaults()
+assert s['base_style']=='adaptive' and 'tsundere' not in s['base_style']
+s['agent_skills']['android_navigation']=False
+assert not skill_allows_action('open_app',s)
+s['device_control_mode']='root'
+assert effective_device_mode(s)=='normal'
+s['agent_skills']['privileged_controls']=True
+assert effective_device_mode(s)=='root'
+assert 'tidak pernah memberi izin kontrol perangkat' in personalization_prompt(s)
+assert conversation_frame('WhatsApp sekarang sering lambat menurutmu kenapa?')
+assert strong_device_request('Bisa buka WhatsApp?')
+from furina_agent.hub import HUB_HOST,HUB_PORT
+assert HUB_HOST=='127.0.0.1' and HUB_PORT==8787
+import furina_agent.hub as hubmod
+src=open(hubmod.__file__,encoding='utf-8').read()
+assert '/api/update/core' in src and 'dependency_revision' in src
+print('FURINAHUB_RC35_CORE_OK')
 PY
-  ! grep -q 'Ringkasan Hubungan' "$TMP/stage/core/furina_agent/hub.py"
-  grep -q 'HOST = "127.0.0.1"' "$TMP/stage/core/furina_agent/hub.py"
-  grep -q 'X-FurinaHub-Token' "$TMP/stage/core/furina_agent/hub.py"
+}
+
+install_launchers() {
+  cat > "$PREFIX/bin/furina-hub" <<'SH'
+#!/data/data/com.termux/files/usr/bin/bash
+set -euo pipefail
+ROOT="$HOME/.furina-agent"
+export FURINA_HOME="$ROOT"
+export PYTHONPATH="$ROOT/core${PYTHONPATH:+:$PYTHONPATH}"
+
+if [[ -f "$ROOT/run/furinahub.pid" ]]; then
+  old_pid="$(cat "$ROOT/run/furinahub.pid" 2>/dev/null || true)"
+  if [[ "$old_pid" =~ ^[0-9]+$ ]]; then
+    kill "$old_pid" >/dev/null 2>&1 || true
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      kill -0 "$old_pid" >/dev/null 2>&1 || break
+      sleep 0.1
+    done
+  fi
+  rm -f "$ROOT/run/furinahub.pid"
+fi
+
+exec python -m furina_agent.hub "$@"
+SH
+  chmod 755 "$PREFIX/bin/furina-hub"
+}
+
+stop_hub() {
+  if [[ -f "$ROOT/run/furinahub.pid" ]]; then
+    local pid
+    pid="$(cat "$ROOT/run/furinahub.pid" 2>/dev/null || true)"
+    [[ "$pid" =~ ^[0-9]+$ ]] && kill "$pid" >/dev/null 2>&1 || true
+    rm -f "$ROOT/run/furinahub.pid"
+  fi
 }
 
 install_stage() {
+  # Keep the currently running FurinaHub UI alive while files are swapped.
+  # The process keeps its already-imported modules until the app reconnects.
   furina stop >/dev/null 2>&1 || true
   rm -rf "$ROOT/core.prev"
   mv "$ROOT/core" "$ROOT/core.prev"
   mv "$TMP/stage/core" "$ROOT/core"
 }
 
-install_launchers() {
-  local prefix="/data/data/com.termux/files/usr/bin"
-  cat > "$prefix/furinahub" <<'EOF'
-#!/data/data/com.termux/files/usr/bin/bash
-export FURINA_HOME="${FURINA_HOME:-$HOME/.furina-agent}"
-export PYTHONPATH="$FURINA_HOME/core${PYTHONPATH:+:$PYTHONPATH}"
-exec python -m furina_agent.hub "$@"
-EOF
-  chmod 755 "$prefix/furinahub"
-
-  cat > "$prefix/furinahub-deps" <<'EOF'
-#!/data/data/com.termux/files/usr/bin/bash
-set -euo pipefail
-pkg install -y python curl
-python -m pip install --disable-pip-version-check --upgrade 'rich>=13,<15' 'requests>=2.31,<3'
-echo "Dependency FurinaHub selesai direkonsiliasi."
-EOF
-  chmod 755 "$prefix/furinahub-deps"
-}
-
-enable_termux_external_commands() {
-  mkdir -p "$HOME/.termux"
-  local file="$HOME/.termux/termux.properties"
-  touch "$file"
-  if grep -q '^allow-external-apps=' "$file"; then
-    sed -i 's/^allow-external-apps=.*/allow-external-apps=true/' "$file"
-  else
-    printf '\nallow-external-apps=true\n' >> "$file"
+download_hub_apk() {
+  local release_base apk_url sha out="$HOME/FurinaHub.apk" marker="$ROOT/data/furinahub_apk_revision"
+  if [[ -f "$marker" ]] && [[ "$(cat "$marker" 2>/dev/null || true)" == "$HUB_VERSION" ]] && [[ -s "$out" ]]; then
+    return 0
   fi
-  command -v termux-reload-settings >/dev/null 2>&1 && termux-reload-settings || true
-}
-
-offer_furinahub_apk() {
-  local release_base apk_url sha apk meta="$TMP/bridge.json"
-  release_base="$(python - "$TMP/manifest.json" <<'PY'
+  release_base="$(pythol - "$TMP/manifest.json" <<'PY'
 import json,sys
 print(json.load(open(sys.argv[1],encoding='utf-8'))['bridge_release_base'])
 PY
 )"
-  if ! curl -fsSL --retry 2 "$release_base/bridge.json" -o "$meta"; then
-    echo "FurinaHub APK belum tersedia di release; Core tetap siap dipakai dari Termux." >>"$LOG"
-    return 0
-  fi
-  read -r apk_url sha < <(python - "$meta" <<'PY'
+  curl -fsSL --retry 4 "$release_base/bridge.json" -o "$TMP/bridge.json"
+  read -r apk_url sha < <(python - "$TMP/bridge.json" <<'PY'
 import json,sys
 m=json.load(open(sys.argv[1],encoding='utf-8'))
-assert m['version']=='1.0.0-rc19'
-assert int(m['version_code'])==10019
 assert m['package_name']=='com.wynndev.furinaagentbridge'
+assert int(m['version_code'])==10019
+assert m['version']=='1.0.0-rc19'
+assert str(m['apk_url']).startswith('https://github.com/WynnDev-rill/furina/releases/download/')
+assert len(str(m['sha256']))==64
 print(m['apk_url'],m['sha256'])
 PY
 )
-  apk="$ROOT/cache/FurinaHub-v1.0.0-rc19.apk"
-  curl -fsSL --retry 3 "$apk_url" -o "$apk"
-  echo "$sha  $apk" | sha256sum -c -
-  printf '%s\n' "$apk" > "$ROOT/data/furinahub-apk-path"
+  curl -fL --retry 4 "$apk_url" -o "$TMP/FurinaHub.apk"
+  echo "$sha  $TMP/FurinaHub.apk" | sha256sum -c -
+  cp "$TMP/FurinaHub.apk" "$out"
+  chmod 600 "$out"
+  printf '%s
+' "$HUB_VERSION" > "$marker"
+}
+
+open_hub_apk() {
+  local out="$HOME/FurinaHub.apk"
   if command -v termux-open >/dev/null 2>&1; then
-    termux-open "$apk" >/dev/null 2>&1 || true
+    termux-open --content-type application/vnd.android.package-archive "$out" >/dev/null 2>&1 || true
   fi
 }
 
 ui_title
-run_quiet "Memeriksa dependency inti Termux" 8 ensure_dependencies
+run_quiet "Memeriksa dependency terkelola" 8 reconcile_dependencies
 CURRENT="$(core_version 2>/dev/null || true)"
-mark 13 "Versi Core saat ini: ${CURRENT:-missing}"
-run_quiet "Memeriksa manifest Core RC35 + FurinaHub RC19" 21 fetch_manifest
-run_quiet "Memverifikasi paket RC35" 31 fetch_rc35_bundle
+mark 14 "Versi Core saat ini: ${CURRENT:-missing}"
+run_quiet "Memeriksa manifest RC35 / FurinaHub RC19" 22 fetch_manifest
+run_quiet "Memverifikasi hash paket RC35" 32 fetch_rc35_bundle
 
 if [[ "$CURRENT" != "1.0.0-rc34" && "$CURRENT" != "1.0.0-rc35" ]]; then
-  run_quiet "Merekonstruksi fondasi Core RC34" 51 prepare_rc34
+  run_quiet "Merekonstruksi fondasi Core hingga RC34" 52 prepare_rc34
   CURRENT="$(core_version)"
 elif [[ "$CURRENT" == "1.0.0-rc34" ]]; then
-  mark 51 "Core RC34 ditemukan; siap migrasi FurinaHub"
+  mark 52 "Core RC34 ditemukan; siap migrasi FurinaHub"
 else
-  mark 51 "Core RC35 ditemukan; lanjut health-check penuh"
+  mark 52 "Core RC35 ditemukan; menjalankan health-check penuh"
 fi
 
-run_quiet "Membuat salinan aman Core" 58 stage_core
+run_quiet "Membuat salinan aman Core" 59 stage_core
 UPGRADED=0
 if [[ "$CURRENT" == "1.0.0-rc34" ]]; then
-  run_quiet "Menerapkan FurinaHub + personalisasi + Agent Skills" 72 apply_rc35
+  run_quiet "Menerapkan Core FurinaHub RC35" 70 apply_rc35
   UPGRADED=1
-elif [[ "$CURRENT" == "1.0.0-rc35" ]]; then
-  mark 72 "Tidak perlu menulis ulang Core RC35"
 else
-  echo "Versi Core tidak dapat divalidasi: $CURRENT" >&2
-  exit 1
+  mark 70 "Tidak perlu menulis ulang Core RC35"
 fi
-
-run_quiet "Compile, config migration, personalisasi & skill guard" 84 validate_core
-run_quiet "Memasang launcher FurinaHub dan dependency updater" 89 install_launchers
-run_quiet "Menyiapkan integrasi start otomatis dari APK" 93 enable_termux_external_commands
+run_quiet "Compile + regression chat/personality/skill" 80 validate_core
+run_quiet "Menyiapkan integrasi Termux ↔ FurinaHub" 86 enable_termux_integration
+run_quiet "Memasang launcher furina-hub" 89 install_launchers
 
 if (( UPGRADED == 1 )); then
-  run_quiet "Memasang Core secara atomik" 97 install_stage
+  run_quiet "Memasang Core secara atomik" 93 install_stage
 else
-  mark 97 "Core RC35 terverifikasi sehat"
+  mark 93 "Core RC35 sehat; data tidak diubah"
 fi
 
-run_quiet "Memeriksa FurinaHub APK RC19" 99 offer_furinahub_apk
-mark 100 "FurinaHub RC35 siap"
+APK_BEFORE="$(cat "$ROOT/data/furinahub_apk_revision" 2>/dev/null || true)"
+run_quiet "Memeriksa / menyiapkan APK FurinaHub" 98 download_hub_apk
+APK_AFTER="$(cat "$ROOT/data/furinahub_apk_revision" 2>/dev/null || true)"
+if [[ "$APK_BEFORE" != "$APK_AFTER" ]]; then
+  open_hub_apk
+fi
+mark 100 "FurinaHub siap"
 
 printf '\n\033[32m✓\033[0m FurinaHub Core RC35 aktif.\n'
-printf '  CLI lama tetap tersedia: \033[36mfurina\033[0m\n'
-printf '  UI lokal manual: \033[36mfurinahub serve\033[0m\n'
-printf '  APK FurinaHub RC19 disiapkan dari release terverifikasi jika tersedia.\n'
-printf '  Jika Android membuka installer, izinkan instalasi dari Termux satu kali.\n'
+printf '  CLI tetap tersedia: \033[1mfurina\033[0m\n'
+printf '  GUI server manual:  \033[1mfurina-hub\033[0m\n'
+printf '  APK: %s\n' "$HOME/FurinaHub.apk"
+printf '  Jika installer Android belum terbuka otomatis, buka file APK tersebut dari Termux/file manager.\n'
 printf '\033[2m  Log lengkap: %s\033[0m\n' "$LOG"
