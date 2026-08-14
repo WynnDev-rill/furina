@@ -11,7 +11,7 @@ PREV_BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/$PREV_COMMIT/ex
 PREV_INSTALL_URL="$PREV_BASE/install.sh"
 PREV_INSTALL_BLOB="dd9773ae9de73acb34f9ae70453d54624018536d"
 RC35_URL="$BASE/overrides/rc35"
-APPLY_BLOB="bf10a9360a80b30faa245e63fca72c43b2599a28"
+APPLY_BLOB="42446503423986177fb31a73d879441616059953"
 SETTINGS_BLOB="d6bb11623353a3ff26a9000fb4b3a419c1919392"
 HUB_BLOB="0d36622263bee864baa4a43477852bac7edc7f5a"
 WEB_BLOB="e78482e18887cebaf8c4d2f4ec51c3c246d5b36a"
@@ -115,7 +115,9 @@ fetch_rc35_bundle() {
   fetch_blob "$RC35_URL/hub.py" "$HUB_BLOB" "$TMP/rc35/hub.py"
   fetch_blob "$RC35_URL/hub_web.py" "$WEB_BLOB" "$TMP/rc35/hub_web.py"
   fetch_blob "$RC35_URL/MainActivity.java" "$MAIN_ACTIVITY_BLOB" "$TMP/rc35/MainActivity.java"
-  python -m py_compile "$TMP/rc35/"*.py
+  # hub_web.py is reviewed/stored as plain HTML and is packaged into a Python
+  # string module by apply.py. Compile only actual Python templates here.
+  python -m py_compile "$TMP/rc35/apply.py" "$TMP/rc35/hub_settings.py" "$TMP/rc35/hub.py"
 }
 
 prepare_rc34() {
@@ -253,7 +255,7 @@ download_hub_apk() {
   if [[ -f "$marker" ]] && [[ "$(cat "$marker" 2>/dev/null || true)" == "$HUB_VERSION" ]] && [[ -s "$out" ]]; then
     return 0
   fi
-  release_base="$(pythol - "$TMP/manifest.json" <<'PY'
+  release_base="$(python - "$TMP/manifest.json" <<'PY'
 import json,sys
 print(json.load(open(sys.argv[1],encoding='utf-8'))['bridge_release_base'])
 PY
@@ -274,8 +276,7 @@ PY
   echo "$sha  $TMP/FurinaHub.apk" | sha256sum -c -
   cp "$TMP/FurinaHub.apk" "$out"
   chmod 600 "$out"
-  printf '%s
-' "$HUB_VERSION" > "$marker"
+  printf '%s\n' "$HUB_VERSION" > "$marker"
 }
 
 open_hub_apk() {

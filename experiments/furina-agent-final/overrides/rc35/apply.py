@@ -48,11 +48,20 @@ def main() -> None:
     if 'VERSION = "1.0.0-rc34"' not in v:
         raise SystemExit("RC35 hanya dapat diterapkan dari Core RC34")
 
-    for name in ("hub_settings.py", "hub.py", "hub_web.py"):
+    for name in ("hub_settings.py", "hub.py"):
         src = templates / name
         if not src.is_file():
             raise SystemExit(f"RC35 template hilang: {src}")
         shutil.copyfile(src, core / name)
+
+    # hub_web.py in the repository is intentionally authored as plain HTML so it
+    # can be reviewed as UI source. The installed Core needs a Python module,
+    # therefore package it deterministically as one string constant here.
+    web_src = templates / "hub_web.py"
+    if not web_src.is_file():
+        raise SystemExit(f"RC35 template hilang: {web_src}")
+    web_html = web_src.read_text(encoding="utf-8")
+    (core / "hub_web.py").write_text("HTML = " + repr(web_html) + "\n", encoding="utf-8")
 
     c = config.read_text(encoding="utf-8")
     if "device_control_mode: str" not in c:
