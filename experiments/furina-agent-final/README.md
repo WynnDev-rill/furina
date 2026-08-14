@@ -10,23 +10,21 @@ Install/open Furina Bridge and enable Persistent Bridge + Accessibility. For a f
 pkg update -y && pkg install -y curl && curl -fsSL https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final/install.sh | bash
 ```
 
-That one command bootstraps `curl`, then the Furina installer automatically reconciles all required Termux packages and Python dependencies, installs the Core, validates it before activation, and keeps the model/data directories separate. No ZIP needs to be copied to internal storage and no pairing code is required.
+The installer reconciles the required Termux/Python dependencies, stages and validates the Core before activation, and keeps model/memory data separate from replaceable Core files. No ZIP needs to be copied manually.
 
-If Furina is already installed, normal maintenance remains:
+If Furina is already installed, update with:
 
 ```bash
 furina update
 ```
 
-The updater uses staged validation, so an invalid new Core is rejected before it can replace the currently installed Core. Model and memory data remain separate from the active Core. Bridge updates are only offered when the installed Bridge version is actually older than the version required by the manifest.
-
-After setup, daily use is simply:
+After setup, daily use is:
 
 ```bash
 furina
 ```
 
-Other maintenance commands:
+Maintenance commands:
 
 ```bash
 furina doctor
@@ -34,35 +32,43 @@ furina repair
 furina optimize
 ```
 
-`furina optimize` benchmarks the actual local GGUF on the phone and selects a better CPU thread count. It is not run every startup.
+`furina optimize` benchmarks the local GGUF on the phone and selects a more suitable CPU thread count. It is not run on every startup.
 
-## Android control — Core RC25 / Bridge RC15
+## Android control — Core RC32 / Bridge RC18
 
-The Android agent separates **understanding the complete goal**, **tracking the current UI state**, and **executing low-level Android primitives**. A multi-step request must retain every requested stage instead of being considered complete because its first action succeeded.
+The Android agent uses an observe → plan → act → verify loop. Accessibility remains the primary semantic control plane; visual analysis is only a fallback when the semantic tree is insufficient. The ranked Accessibility state is refreshed throughout a task instead of treating the initial screen as permanent.
 
-RC25 makes those stages state-aware. Semantic tasks can distinguish `search`, `select`, `type`, and `send`, and text input carries a field role such as `search`, `message`, or generic `input`. This prevents later message text from being written back into a still-focused search field. If the semantic parser omits an obvious transition in a send workflow, the Core repairs the generic state graph—for example a search followed by message composition requires selecting the searched result before typing into the destination UI. This repair is based on the action relationship rather than a hard-coded WhatsApp path.
-
-A typical messaging workflow is therefore modeled as:
+Semantic tasks distinguish stages such as `open_app`, `search`, `select`, `type`, and `send`. A messaging workflow can therefore be represented as:
 
 ```text
 open_app → search(contact) → select(contact) → type(message) → send
 ```
 
-Bridge RC15 scores editable fields from Accessibility metadata such as hints, content descriptions and resource IDs. Search fields and message/composer fields are treated as different roles. After a `select` step the Bridge requires a material UI transition before it continues, so it will not blindly type the next payload while still on the previous search screen. Apps that expose only one poorly-labelled editable field retain a conservative single-field fallback for compatibility.
+The final external action remains separate from preparation. A send/post/share/call requires specific authorization, and an ambiguous final send is not automatically retried because doing so could duplicate an external effect.
 
-External effects remain separated from ordinary navigation. A final `send` requires a specific confirmation containing the intended target/message context. After confirmation, it is appended to the already-prepared local sequence. If the final send control cannot be verified, Furina does not automatically retry it because a retry could duplicate an external action.
+### RC32 execution boundary
 
-RC25 also strengthens task termination when the user returns to Termux. The Core combines the foreground package, the Bridge's persistent Termux-session state, return timestamps and a bounded direct Bridge snapshot fallback while a task is active. Bridge RC15 refreshes foreground/session state from window-state, windows-changed and relevant content-change events and keeps a stable-package fallback when Android temporarily exposes no active root. This is intended to handle devices/ROMs where a Termux return does not always produce the same Accessibility event pattern.
+RC32 adds a policy layer that is independent from the planner model:
 
-The deterministic direct path remains only an atomic latency optimization. An exact command such as opening one known app may execute immediately, while longer requests keep their ordered semantic state graph.
+- **Goal Lock** freezes the trusted task scope from the user's goal and grounded semantic intent. Text found in a webpage, message, note, notification, screenshot, or Accessibility node cannot add a new app/capability to the task.
+- **Action Firewall** checks every proposed action after planning and before execution. Unknown capabilities fail closed instead of inheriting generic Bridge privileges.
+- **Fresh-state resolution** reads the current screen again immediately before a state-changing action. Node IDs are not trusted by themselves; a stable selector must still resolve on the fresh UI state.
+- **Package scope guard** blocks an action if the task unexpectedly moves into another installed app outside the Goal Lock.
+- **IME classification** treats search submission differently from an ambiguous Enter/IME action that may send or submit data. Message-like IME actions are elevated to the external/uncertain path instead of being treated as ordinary local text input.
+- **Privacy filtering** redacts password/PIN/OTP/token/API-key-like Accessibility values before compact UI state is sent to a planner. Vision fallback is disabled on screens classified as sensitive.
+- **Sequence validation** checks compiled multi-step UI sequences against the same Goal Lock before the Bridge receives them.
+
+These checks complement, rather than replace, the existing semantic send confirmation, duplicate-send protection, ranked Accessibility tree, high-confidence visual targeting, and deterministic completion gates.
+
+### Device-control modes
 
 The selected backend is configured under **Settings → Kontrol perangkat**. Runtime diagnostics stay in Settings and are not printed into the conversation.
 
 - **Normal** — default. Uses native Android intents where possible and Accessibility for UI actions. No Shizuku or root is required.
-- **Shizuku** — optional. Furina Bridge requests Shizuku permission only when the user selects this mode. A persistent Shizuku Binder UserService is reused for supported privileged primitives instead of starting a new remote process for every action.
-- **Root** — optional. Furina Bridge requests root only when this mode is selected and keeps an authorized root shell warm for supported fixed primitives.
+- **Shizuku** — optional. Furina Bridge requests Shizuku permission only when this mode is selected and reuses a privileged UserService for supported fixed primitives.
+- **Root** — optional. Root is used only when explicitly selected for supported fixed primitives.
 
-Shizuku/root do not expose an arbitrary remote shell through the Furina Core API. The privileged interface is restricted to explicit device-control primitives, with Accessibility/native control retained as fallback.
+Shizuku/root do not expose an arbitrary remote shell through the Furina Core planner API. The privileged interface remains restricted to fixed device-control primitives, with normal Android/Accessibility control retained as fallback.
 
 Natural Android tasks can be given to the Agent, for example:
 
@@ -72,9 +78,7 @@ bka gogle trus cri makanan sehat
 buka WhatsApp, cari Budi, tulis "aku pulang jam 8", lalu kirim
 ```
 
-Multi-step tasks that require the screen ask for screen permission. External side effects such as Send/Post/Share remain on the guarded agent path and require a specific confirmation before execution. Dynamic tasks can fall back to the universal planner from the current real screen instead of replaying completed steps.
-
-RC25 requires Bridge RC15 for role-aware fields, transition guards and the broader foreground tracker. Once RC15 is installed, later Core-only updates do not download the Bridge again unless the manifest's Bridge version increases.
+Dynamic tasks use the current real screen instead of assuming a previously observed node is still valid. Core RC32 continues to use Bridge RC18; this RC is a Core policy update, so no new Bridge APK is required when RC18 is already installed.
 
 ## Reminders
 
@@ -91,7 +95,7 @@ The Bridge persists pending reminders, schedules them with Android `AlarmManager
 
 ## Online provider diagnostics
 
-Use the provider test before blaming the API key itself:
+Use the provider test before blaming an API key itself:
 
 ```bash
 furina provider-test groq
@@ -100,6 +104,8 @@ furina provider-test nvidia
 
 AUTO routing prefers a configured online provider and falls back to local inference when online providers are unavailable within the bounded failover budget.
 
-## Safety
+## Safety and validation
 
-Normal navigation/text input can be approved per task. External side effects such as Send/Post/Share remain on the guarded agent path and require specific confirmation. Payment, transfer, uninstall, destructive deletion, factory reset and security changes remain blocked from autonomous execution. The same guard is retained in the fallback TUI if the primary Textual chat surface cannot start. Normal mode remains the default; Shizuku/root are opt-in and initiated from Settings rather than from conversation text.
+Ordinary navigation/text preparation can be authorized per task. External side effects such as Send/Post/Share remain on the guarded path and require specific confirmation. Payment, transfer, uninstall, destructive deletion, factory reset, and security-sensitive changes remain blocked from autonomous execution.
+
+The RC32 CI reconstructs the effective Core from the archived baseline through RC31 and then applies RC32. Regression checks cover package-scope escape, unrequested Send/Delete/Allow controls, IME submission, parser-hallucinated external intent, sensitive-data redaction, stale Accessibility targets, cross-app state changes, unauthorized compiled sequences, and unknown runtime capabilities. Installer updates use the same deterministic transform with Git blob verification and staged Core activation.
