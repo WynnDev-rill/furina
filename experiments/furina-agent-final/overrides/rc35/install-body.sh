@@ -258,7 +258,7 @@ assert str(m['apk_url']).startswith('https://github.com/WynnDev-rill/furina/rele
 assert len(str(m['sha256']))==64
 print(m['apk_url'],m['sha256'])
 PY
-)"
+)
   curl -fL --retry 4 "$apk_url" -o "$TMP/FurinaHub.apk"
   echo "$sha  $TMP/FurinaHub.apk" | sha256sum -c -
   cp "$TMP/FurinaHub.apk" "$out"
