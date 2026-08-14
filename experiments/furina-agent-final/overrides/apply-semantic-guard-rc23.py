@@ -3,15 +3,6 @@ from __future__ import annotations
 import pathlib, sys
 
 
-def rep(text: str, old: str, new: str, label: str) -> str:
-    if new in text and old not in text:
-        return text
-    n = text.count(old)
-    if n != 1:
-        raise SystemExit(f"RC23 guard marker mismatch {label}: {n}")
-    return text.replace(old, new, 1)
-
-
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("usage: apply-semantic-guard-rc23.py <termux-root>")
@@ -20,28 +11,22 @@ def main() -> None:
     if not tui.is_file():
         raise SystemExit("missing RC23 TUI source")
     text = tui.read_text(encoding="utf-8")
-    old = '''            if intent.mode == "device":
-                allowed = _confirm(
-                    "Furina perlu memakai layar untuk tugas ini. Izin berlaku untuk seluruh tugas yang kamu minta, "
-                    "termasuk Send/Kirim/Post/Share yang memang eksplisit. Lanjut?",
-                    default=False,
-                )
-                if not allowed:
-                    console.print(f"[bright_magenta]{_display_name()}[/]  Baik. Aku tidak menyentuh layar.\n")
-                    continue
-                store.add_message("user", text)
-                with console.status("[#5de4c7]Menggunakan layar…[/]", spinner="dots"):
-                    reply = session.agent.run(
-                        intent.goal,
-                        lambda *_args: True,
-                        task_authorized=True,
-                    )
-                store.add_message("assistant", reply)
-                console.print(f"[bold bright_magenta]{_display_name()}[/]  {reply}\n")
-            else:
-                _stream_chat(console, session, text)
-'''
-    new = '''            semantic_direct = session.try_direct_intent(intent)
+
+    done_marker = "def approve_agent_action(summary, action, risk, detail):"
+    if done_marker in text and "semantic_steps=intent.steps" in text:
+        compile(text, str(tui), "exec")
+        print("Furina RC23 fallback TUI semantic safety: already applied")
+        return
+
+    start_marker = '            if intent.mode == "device":\n'
+    end_marker = '            else:\n                _stream_chat(console, session, text)\n'
+    start = text.find(start_marker)
+    end = text.find(end_marker, start + len(start_marker)) if start >= 0 else -1
+    if start < 0 or end < 0:
+        raise SystemExit(f"RC23 guard marker range missing: start={start} end={end}")
+    end += len(end_marker)
+
+    replacement = r'''            semantic_direct = session.try_direct_intent(intent)
             if semantic_direct.handled:
                 store.add_message("user", text)
                 store.add_message("assistant", semantic_direct.reply)
@@ -84,12 +69,12 @@ def main() -> None:
             else:
                 _stream_chat(console, session, text)
 '''
-    text = rep(text, old, new, "fallback device approval")
+    text = text[:start] + replacement + text[end:]
     tui.write_text(text, encoding="utf-8")
     compile(text, str(tui), "exec")
     checks = [
         "semantic_direct = session.try_direct_intent(intent)",
-        "def approve_agent_action(summary, action, risk, detail):",
+        done_marker,
         'risk not in {"external", "uncertain"}',
         "default=False",
         "semantic_steps=intent.steps",
