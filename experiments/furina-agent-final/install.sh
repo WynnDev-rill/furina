@@ -11,11 +11,11 @@ PREV_INSTALL_BLOB="198fb6b21d739388481c18fb21e3209fa3c34425"
 
 RC33_DIR_URL="$BASE/overrides/rc33"
 APPLY_BLOB="8d3f94bcac059242f6d00a3bb6e4bc48d0983b4f"
-PSYCHE_BLOB="86511776ef51929dc59aedecf7a11fc16a7823ad"
-CHAT_BLOB="eca023f64be0c39e9ad2f9d518c2dfdb0c46a68d"
-PERSONA_BLOB="8d16d8c9df8afd29821c415f2f6ae33f9962ba8e"
-RESPONSE_BLOB="0947dcf577853f497fb6281a5d5d3e55fae76e30"
-MIND_BLOB="223bd9c3663ca1974513059207c2f7a33f5c2d6c"
+PSYCHE_BLOB="f94cbe1b0226a1d26d68c67e55a524a84fa999eb"
+CHAT_BLOB="284cb76fc9afcc12b8e2d8b590597eab0addf57e"
+PERSONA_BLOB="40ebd81d3a98e00747a0ec5d48230a5edada8fb5"
+RESPONSE_BLOB="e69b27483b13dc38d8fb33719e70d45d50fa265a"
+MIND_BLOB="7eeaf824add40123f1dc9a6943d34041cbf2fbed"
 ROUTING_BLOB="fca98541d9fec5d777b89427d6f398f9a8dddb4f"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
@@ -111,7 +111,7 @@ python "$TMP/rc33/apply.py" "$TMP/stage" "$TMP/rc33" >>"$LOG" 2>&1
 PYTHONPATH="$TMP/stage/core" python -m compileall -q "$TMP/stage/core/furina_agent"
 PYTHONPATH="$TMP/stage/core" python - <<'PY'
 from furina_agent.version import VERSION
-from furina_agent.psyche import PsycheEngine, STATE_KEY
+from furina_agent.psyche import STATE_KEY
 from furina_agent.routing import RoutingLLM
 
 assert VERSION == "1.0.0-rc33"
