@@ -20,7 +20,7 @@ RC22_SAFETY_BLOB="38237e878d206e831677e9d83980a436e7f3bc80"
 RC23_URL="$BASE/overrides/apply-semantic-core-rc23.py"
 RC23_BLOB="9f339191a3b0ddab2b89f0690e019b63552fe377"
 RC23_GUARD_URL="$BASE/overrides/apply-semantic-guard-rc23.py"
-RC23_GUARD_BLOB="92e5a56d678af9d97991844fad4b353b8a9b5561"
+RC23_GUARD_BLOB="a1bbd134c2b2424465e1b85fbc478ad20f9ea0ea"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
   echo "Installer ini harus dijalankan dari Termux." >&2
