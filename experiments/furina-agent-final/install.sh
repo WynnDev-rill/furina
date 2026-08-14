@@ -177,11 +177,11 @@ validate_core() {
   PYTHONPATH="$TMP/stage/core" python - <<'PY'
 from furina_agent.version import VERSION
 from furina_agent.agent import AndroidAgent
-assert VERSION == '1.0.0-rc25', VERSION
-assert hasattr(AndroidAgent, '_compile_ui_sequence')
-assert hasattr(AndroidAgent, '_try_ui_sequence')
-assert hasattr(AndroidAgent, '_compile_semantic_sequence')
-assert hasattr(AndroidAgent, '_semantic_send_action')
+if VERSION != '1.0.0-rc25':
+    raise SystemExit(f'Validasi RC25 gagal: versi Core {VERSION!r}')
+for method in ('_try_ui_sequence', '_compile_semantic_sequence', '_semantic_send_action'):
+    if not hasattr(AndroidAgent, method):
+        raise SystemExit(f'Validasi RC25 gagal: AndroidAgent.{method} tidak tersedia')
 agent=open(__import__('furina_agent.agent').agent.__file__,encoding='utf-8').read()
 assert 'return_to_termux_result' in agent
 assert 'task_started_wall = time.time()' in agent
