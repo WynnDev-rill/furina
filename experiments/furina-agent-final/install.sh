@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-VERSION="1.0.0-rc31"
+VERSION="1.0.0-rc32"
 ROOT="$HOME/.furina-agent"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 MANIFEST_URL="$BASE/manifest.json"
@@ -23,6 +23,7 @@ RC28_URL="$BASE/overrides/apply-runtime-core-rc28.py"; RC28_BLOB="98038cd52fa886
 RC29_URL="$BASE/overrides/apply-universal-ui-core-rc29.py"; RC29_BLOB="eb0a507da074d280f2f263ae70e3c0e4e2afd220"
 RC30_URL="$BASE/overrides/apply-privileged-core-rc30.py"; RC30_BLOB="e2a98f867c86786de99c942c3baf832fdc330e5d"
 RC31_URL="$BASE/overrides/apply-device-control-core-rc31.py"; RC31_BLOB="8ce33b8a81feb379f6187583f350b4bf3097268c"
+RC32_URL="$BASE/overrides/apply-policy-boundary-core-rc32.py"; RC32_BLOB="3f8869288010512f764eb094e1be5e4291420c69"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
   echo "Installer ini harus dijalankan dari Termux." >&2
@@ -31,7 +32,7 @@ fi
 mkdir -p "$ROOT"/{cache,logs,run,data,models}
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-LOG="$ROOT/logs/update-rc31.log"
+LOG="$ROOT/logs/update-rc32.log"
 : > "$LOG"
 
 DISPLAY_NAME="Furina"
@@ -51,7 +52,7 @@ PROGRESS=0
 ui_title() {
   printf '\033[2J\033[H'
   printf '\033[1;36m%s\033[0m \033[1mBy Wynn\033[0m\n' "$DISPLAY_NAME"
-  printf '\033[2mUpdate Agent RC31 · hanya runtime device-control yang diperbarui\033[0m\n\n'
+  printf '\033[2mUpdate Agent RC32 · Goal Lock + Action Firewall + fresh-state/privacy boundary\033[0m\n\n'
 }
 ui_progress() {
   local pct="$1" label="$2" glyph="${3:-›}" width=16 filled empty bar="" i
@@ -111,8 +112,8 @@ CURRENT="$(read_core_version)"
 mark 33 "Core saat ini: $CURRENT"
 curl -fsSL --retry 3 "$MANIFEST_URL" -o "$TMP/manifest.json"
 EXPECTED="$(python -c 'import json;print(json.load(open("'"$TMP"'/manifest.json"))["version"])')"
-[[ "$EXPECTED" == "1.0.0-rc31" ]] || { echo "Manifest belum menunjuk RC31: $EXPECTED" >&2; exit 1; }
-mark 39 "Manifest RC31 terverifikasi"
+[[ "$EXPECTED" == "1.0.0-rc32" ]] || { echo "Manifest belum menunjuk RC32: $EXPECTED" >&2; exit 1; }
+mark 39 "Manifest RC32 terverifikasi"
 
 mkdir -p "$TMP/stage"
 cp -R "$ROOT/core" "$TMP/stage/core"
@@ -142,32 +143,99 @@ apply_core_updates() {
   if [[ "$current" == "1.0.0-rc28" ]]; then fetch_transform "$RC29_URL" "$RC29_BLOB" "$TMP/rc29.py"; python "$TMP/rc29.py" "$TMP/stage"; current="1.0.0-rc29"; fi
   if [[ "$current" == "1.0.0-rc29" ]]; then fetch_transform "$RC30_URL" "$RC30_BLOB" "$TMP/rc30.py"; python "$TMP/rc30.py" "$TMP/stage"; current="1.0.0-rc30"; fi
   if [[ "$current" == "1.0.0-rc30" ]]; then fetch_transform "$RC31_URL" "$RC31_BLOB" "$TMP/rc31.py"; python "$TMP/rc31.py" "$TMP/stage"; current="1.0.0-rc31"; fi
-  [[ "$current" == "1.0.0-rc31" ]] || { echo "Versi Core tidak dapat dimigrasikan otomatis: $current" >&2; return 1; }
+  if [[ "$current" == "1.0.0-rc31" ]]; then fetch_transform "$RC32_URL" "$RC32_BLOB" "$TMP/rc32.py"; python "$TMP/rc32.py" "$TMP/stage"; current="1.0.0-rc32"; fi
+  [[ "$current" == "1.0.0-rc32" ]] || { echo "Versi Core tidak dapat dimigrasikan otomatis: $current" >&2; return 1; }
 }
-run_quiet "Menerapkan runtime device-control RC31" 67 apply_core_updates "$CURRENT"
+run_quiet "Menerapkan policy boundary RC32" 67 apply_core_updates "$CURRENT"
 
 validate_core() {
   PYTHONPATH="$TMP/stage/core" python -m compileall -q "$TMP/stage/core/furina_agent"
   PYTHONPATH="$TMP/stage/core" python - <<'PY'
 from furina_agent.version import VERSION
 from furina_agent.agent import AndroidAgent
-if VERSION != '1.0.0-rc31': raise SystemExit(VERSION)
+from furina_agent.policy import (
+    build_goal_lock, classify_action, redact_compact_screen,
+    validate_fresh_target, validate_sequence,
+)
+from furina_agent.tool_runtime import AgentToolRuntime
+
+if VERSION != '1.0.0-rc32': raise SystemExit(VERSION)
 for name in ('_compact_screen','_with_vision','_plan','risk','_wait_after_action','_try_fast_skill','_device_mode'):
     if not hasattr(AndroidAgent,name): raise SystemExit('missing '+name)
-src=open(__import__('furina_agent.agent').agent.__file__,encoding='utf-8').read()
-for marker in ('STATE_UI_UNTRUSTED','nodes_ranked','agent_vision_rescue','event_then_single_snapshot','choose_fast_skill'):
-    assert marker in src, marker
+
+agent_src=open(__import__('furina_agent.agent').agent.__file__,encoding='utf-8').read()
+for marker in (
+    'STATE_UI_UNTRUSTED','nodes_ranked','agent_vision_rescue','event_then_single_snapshot',
+    'choose_fast_skill','RC32_POLICY_BOUNDARY','agent_goal_lock','agent_action_firewall',
+    'agent_privacy_vision_blocked','stale_target',
+):
+    assert marker in agent_src, marker
+
+apps=[
+    {'label':'WhatsApp','package':'com.whatsapp'},
+    {'label':'Notes','package':'com.notes'},
+]
+lock=build_goal_lock(
+    'buka WhatsApp cari Ariel',
+    apps,
+    [{'type':'open_app','package':'com.whatsapp'},{'type':'search','query':'Ariel'}],
+)
+assert lock.allowed_packages == frozenset({'com.whatsapp'})
+assert classify_action({'package':'com.whatsapp','nodes':[]},{'type':'open_app','package':'com.notes'},lock)[0]=='blocked'
+assert classify_action({'package':'com.whatsapp','nodes':[]},{'type':'ime_action','role':'search'},lock)[0]=='write'
+assert classify_action({'package':'com.whatsapp','nodes':[]},{'type':'ime_action','role':'message'},lock)[0]=='uncertain'
+assert classify_action(
+    {'package':'com.whatsapp','nodes':[{'id':7,'text':'Send'}]},
+    {'type':'tap_node','node':7},
+    lock,
+)[0]=='blocked'
+
+send_lock=build_goal_lock(
+    'buka WhatsApp lalu kirim pesan test',
+    apps,
+    [{'type':'open_app','package':'com.whatsapp'},{'type':'type','text':'test','field_role':'message'},{'type':'send'}],
+)
+assert send_lock.external_allowed is True
+assert classify_action({'package':'com.whatsapp','nodes':[]},{'type':'ime_action','role':'message'},send_lock)[0]=='external'
+
+redacted=redact_compact_screen({'nodes':[{'id':1,'text':'OTP 123456','view_id':'otp_code'}]})
+assert redacted['nodes'][0]['text']=='[REDACTED_SENSITIVE]'
+
+origin={'package':'com.whatsapp','nodes':[{'id':1,'view_id':'message','class':'EditText','bounds':'[0,0][10,10]'}]}
+fresh={'package':'com.whatsapp','nodes':[{'id':9,'view_id':'message','class':'EditText','bounds':'[0,0][10,10]'}]}
+ok,_=validate_fresh_target(origin,fresh,{'type':'set_text','node':1,'target':{'view_id':'message','class':'EditText','bounds':'[0,0][10,10]'}})
+assert ok
+bad={'package':'com.whatsapp','nodes':[{'id':9,'view_id':'other','class':'EditText','bounds':'[0,0][10,10]'}]}
+ok,_=validate_fresh_target(origin,bad,{'type':'set_text','node':1,'target':{'view_id':'message','class':'EditText','bounds':'[0,0][10,10]'}})
+assert not ok
+
+ok,_=validate_sequence([{'type':'open_app','package':'com.notes'}],lock)
+assert not ok
+ok,_=validate_sequence([{'type':'arbitrary_shell'}],lock)
+assert not ok
+
+runtime=AgentToolRuntime.__new__(AgentToolRuntime)
+runtime._handlers={}
+try:
+    runtime._handler_for('arbitrary_shell')
+except ValueError:
+    pass
+else:
+    raise AssertionError('unknown runtime capability did not fail closed')
+
 rt=open(__import__('furina_agent.tool_runtime').tool_runtime.__file__,encoding='utf-8').read()
+assert 'RC32_BRIDGE_FALLBACK' in rt
 assert '"requested_mode": requested_mode[:16]' in rt
+print('RC32_POLICY_REGRESSION_OK')
 PY
 }
-run_quiet "Memvalidasi runtime Agent" 79 validate_core
+run_quiet "Memvalidasi policy dan regression guard" 79 validate_core
 
 furina stop >/dev/null 2>&1 || true
 rm -rf "$ROOT/core.prev"
 mv "$ROOT/core" "$ROOT/core.prev"
 mv "$TMP/stage/core" "$ROOT/core"
-mark 85 "Core RC31 aktif · data percakapan/model tidak diubah"
+mark 85 "Core RC32 aktif · memory/model tidak diubah"
 
 prepare_bridge() {
   local health expected_name expected_code installed_name installed_code release meta_name meta_code meta_package apk_url
@@ -218,5 +286,5 @@ elif [[ "$BRIDGE_STATE" == "unknown" ]]; then
 else
   printf '\n\033[32m✓\033[0m Bridge RC18 sudah siap.\n'
 fi
-mark 100 "Update Agent RC31 selesai"
+mark 100 "Update Agent RC32 selesai"
 printf '\n'
