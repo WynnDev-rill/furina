@@ -49,30 +49,30 @@ grep -q 'Personalisasi' "$ASSET"
 ! grep -q 'Ringkasan Hubungan' "$ASSET"
 ! grep -q 'http://127.0.0.1:8787' "$ASSET"
 
-python3 - "$META/manifest.json" <<'PY'
-import json,sys
-m=json.load(open(sys.argv[1],encoding='utf-8'))
+python3 - "$META/manifest.json" "$META/install.sh" "$META/overrides/rc35/install-body.sh" <<'PY'
+import hashlib,json,pathlib,re,sys
+manifest_path,bootstrap_path,body_path=map(pathlib.Path,sys.argv[1:])
+m=json.loads(manifest_path.read_text(encoding='utf-8'))
 assert m['version']=='1.0.0-rc35'
 assert m['bridge_version']=='1.0.0-rc20'
 assert int(m['bridge_version_code'])==10020
 assert m['bridge_release_base'].endswith('/furinahub-v1.0.0-rc20')
+
+bootstrap=bootstrap_path.read_text(encoding='utf-8')
+body_text=body_path.read_text(encoding='utf-8')
+body=body_path.read_bytes()
+assert 'HUB_VERSION="1.0.0-rc20"' in bootstrap
+assert 'HUB_VERSION="1.0.0-rc20"' in body_text
+assert "assert int(m['version_code'])==10020" in body_text
+assert "assert m['version']=='1.0.0-rc20'" in body_text
+actual=hashlib.sha1(f'blob {len(body)}\0'.encode()+body).hexdigest()
+match=re.search(r'^BODY_BLOB="([0-9a-f]+)"$',bootstrap,re.M)
+assert match and match.group(1)==actual,(match.group(1) if match else None,actual)
+print('FURINAHUB_RC20_INSTALLER_BINDING_OK')
 PY
 
 bash -n "$META/install.sh"
 bash -n "$META/overrides/rc35/install-body.sh"
-grep -q 'HUB_VERSION="1.0.0-rc20"' "$META/install.sh"
-grep -q 'HUB_VERSION="1.0.0-rc20"' "$META/overrides/rc35/install-body.sh"
-grep -q "version_code.*10020\|version_code')==10020\|version_code'\])==10020" "$META/overrides/rc35/install-body.sh" || grep -q "version_code'])==10020" "$META/overrides/rc35/install-body.sh"
-
-python3 - "$META/install.sh" "$META/overrides/rc35/install-body.sh" <<'PY'
-import hashlib,pathlib,re,sys
-bootstrap=pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
-body=pathlib.Path(sys.argv[2]).read_bytes()
-actual=hashlib.sha1(f'blob {len(body)}\0'.encode()+body).hexdigest()
-m=re.search(r'^BODY_BLOB="([0-9a-f]+)"$',bootstrap,re.M)
-assert m and m.group(1)==actual,(m.group(1) if m else None,actual)
-print('FURINAHUB_RC20_INSTALLER_BINDING_OK')
-PY
 
 python3 - "$MAIN" <<'PY'
 from pathlib import Path
@@ -87,5 +87,9 @@ assert 'startCoreConnection();' not in body
 assert 'beginConnect();' not in body
 print('FURINAHUB_RC20_NO_AUTO_TERMUX_START_OK')
 PY
+
+test -f "$REPO/.agents/skills/ui-ux-pro-max/SKILL.md"
+test -f "$REPO/.agents/skills/ui-ux-pro-max/scripts/search.py"
+grep -q 'Touch & Interaction' "$REPO/.agents/skills/ui-ux-pro-max/SKILL.md"
 
 echo "FURINAHUB_ANDROID_RC20_FULL_VALIDATION_OK"
