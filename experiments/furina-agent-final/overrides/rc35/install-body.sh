@@ -2,7 +2,7 @@
 set -euo pipefail
 
 VERSION="1.0.0-rc35"
-HUB_VERSION="1.0.0-rc19"
+HUB_VERSION="1.0.0-rc20"
 DEPENDENCY_REVISION="2026.08.14-r1"
 ROOT="$HOME/.furina-agent"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
@@ -33,7 +33,7 @@ PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 ui_title() {
   printf '\033[2J\033[H'
   printf '\033[1;35mFurinaHub\033[0m  \033[1mBy Wynn\033[0m\n'
-  printf '\033[2mCore RC35 · Android RC19 · chat-first companion\033[0m\n\n'
+  printf '\033[2mCore RC35 · Android RC20 · offline-first companion\033[0m\n\n'
 }
 
 ui_progress() {
@@ -100,8 +100,8 @@ fetch_manifest() {
 import json,sys
 m=json.load(open(sys.argv[1],encoding='utf-8'))
 assert m.get('version') == '1.0.0-rc35'
-assert m.get('bridge_version') == '1.0.0-rc19'
-assert int(m.get('bridge_version_code')) == 10019
+assert m.get('bridge_version') == '1.0.0-rc20'
+assert int(m.get('bridge_version_code')) == 10020
 assert m.get('dependency_revision') == '2026.08.14-r1'
 assert m.get('hub_name') == 'FurinaHub'
 assert str(m.get('bridge_release_base','')).startswith('https://github.com/WynnDev-rill/furina/releases/download/')
@@ -115,8 +115,6 @@ fetch_rc35_bundle() {
   fetch_blob "$RC35_URL/hub.py" "$HUB_BLOB" "$TMP/rc35/hub.py"
   fetch_blob "$RC35_URL/hub_web.py" "$WEB_BLOB" "$TMP/rc35/hub_web.py"
   fetch_blob "$RC35_URL/MainActivity.java" "$MAIN_ACTIVITY_BLOB" "$TMP/rc35/MainActivity.java"
-  # hub_web.py is reviewed/stored as plain HTML and is packaged into a Python
-  # string module by apply.py. Compile only actual Python templates here.
   python -m py_compile "$TMP/rc35/apply.py" "$TMP/rc35/hub_settings.py" "$TMP/rc35/hub.py"
 }
 
@@ -232,18 +230,7 @@ SH
   chmod 755 "$PREFIX/bin/furina-hub"
 }
 
-stop_hub() {
-  if [[ -f "$ROOT/run/furinahub.pid" ]]; then
-    local pid
-    pid="$(cat "$ROOT/run/furinahub.pid" 2>/dev/null || true)"
-    [[ "$pid" =~ ^[0-9]+$ ]] && kill "$pid" >/dev/null 2>&1 || true
-    rm -f "$ROOT/run/furinahub.pid"
-  fi
-}
-
 install_stage() {
-  # Keep the currently running FurinaHub UI alive while files are swapped.
-  # The process keeps its already-imported modules until the app reconnects.
   furina stop >/dev/null 2>&1 || true
   rm -rf "$ROOT/core.prev"
   mv "$ROOT/core" "$ROOT/core.prev"
@@ -265,13 +252,13 @@ PY
 import json,sys
 m=json.load(open(sys.argv[1],encoding='utf-8'))
 assert m['package_name']=='com.wynndev.furinaagentbridge'
-assert int(m['version_code'])==10019
-assert m['version']=='1.0.0-rc19'
+assert int(m['version_code'])==10020
+assert m['version']=='1.0.0-rc20'
 assert str(m['apk_url']).startswith('https://github.com/WynnDev-rill/furina/releases/download/')
 assert len(str(m['sha256']))==64
 print(m['apk_url'],m['sha256'])
 PY
-)
+)"
   curl -fL --retry 4 "$apk_url" -o "$TMP/FurinaHub.apk"
   echo "$sha  $TMP/FurinaHub.apk" | sha256sum -c -
   cp "$TMP/FurinaHub.apk" "$out"
@@ -290,7 +277,7 @@ ui_title
 run_quiet "Memeriksa dependency terkelola" 8 reconcile_dependencies
 CURRENT="$(core_version 2>/dev/null || true)"
 mark 14 "Versi Core saat ini: ${CURRENT:-missing}"
-run_quiet "Memeriksa manifest RC35 / FurinaHub RC19" 22 fetch_manifest
+run_quiet "Memeriksa manifest RC35 / FurinaHub RC20" 22 fetch_manifest
 run_quiet "Memverifikasi hash paket RC35" 32 fetch_rc35_bundle
 
 if [[ "$CURRENT" != "1.0.0-rc34" && "$CURRENT" != "1.0.0-rc35" ]]; then
@@ -321,7 +308,7 @@ else
 fi
 
 APK_BEFORE="$(cat "$ROOT/data/furinahub_apk_revision" 2>/dev/null || true)"
-run_quiet "Memeriksa / menyiapkan APK FurinaHub" 98 download_hub_apk
+run_quiet "Memeriksa / menyiapkan APK FurinaHub RC20" 98 download_hub_apk
 APK_AFTER="$(cat "$ROOT/data/furinahub_apk_revision" 2>/dev/null || true)"
 if [[ "$APK_BEFORE" != "$APK_AFTER" ]]; then
   open_hub_apk
@@ -331,6 +318,6 @@ mark 100 "FurinaHub siap"
 printf '\n\033[32m✓\033[0m FurinaHub Core RC35 aktif.\n'
 printf '  CLI tetap tersedia: \033[1mfurina\033[0m\n'
 printf '  GUI server manual:  \033[1mfurina-hub\033[0m\n'
-printf '  APK: %s\n' "$HOME/FurinaHub.apk"
-printf '  Jika installer Android belum terbuka otomatis, buka file APK tersebut dari Termux/file manager.\n'
+printf '  APK RC20: %s\n' "$HOME/FurinaHub.apk"
+printf '  FurinaHub kini dapat dibuka tanpa Core; hubungkan Termux dari Pengaturan APK.\n'
 printf '\033[2m  Log lengkap: %s\033[0m\n' "$LOG"
