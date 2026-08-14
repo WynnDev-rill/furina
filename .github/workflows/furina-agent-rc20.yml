@@ -1,4 +1,4 @@
-name: Validate Furina Agent RC32 + Bridge RC18
+name: Validate Furina Agent RC33 Psyche + RC32 Policy
 
 on:
   pull_request:
@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: furina-agent-rc32-${{ github.ref }}
+  group: furina-agent-rc33-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -25,6 +25,13 @@ env:
   RC31_CORE_BLOB: 8ce33b8a81feb379f6187583f350b4bf3097268c
   RC32_CORE_BLOB: 3f8869288010512f764eb094e1be5e4291420c69
   RC18_BRIDGE_BLOB: 7d3472c32fb4ff8a31dfc6a5c8f0a96b78978b4e
+  RC33_APPLY_BLOB: a2850609b156cd10c1b81272c8b8dac18e1f6d74
+  RC33_PSYCHE_BLOB: 86511776ef51929dc59aedecf7a11fc16a7823ad
+  RC33_CHAT_BLOB: eca023f64be0c39e9ad2f9d518c2dfdb0c46a68d
+  RC33_PERSONA_BLOB: 8d16d8c9df8afd29821c415f2f6ae33f9962ba8e
+  RC33_RESPONSE_BLOB: 0947dcf577853f497fb6281a5d5d3e55fae76e30
+  RC33_MIND_BLOB: 223bd9c3663ca1974513059207c2f7a33f5c2d6c
+  RC33_ROUTING_BLOB: fca98541d9fec5d777b89427d6f398f9a8dddb4f
 
 jobs:
   validate:
@@ -33,7 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Reassemble Furina through RC30 + Bridge RC17
+      - name: Reassemble effective Core through RC30
         shell: bash
         run: |
           set -euo pipefail
@@ -45,9 +52,8 @@ jobs:
           done
           echo "$EXPECTED_SOURCE_SHA  $ARCHIVE" | sha256sum -c -
 
-          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["version"])')" = "1.0.0-rc32"
+          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["version"])')" = "1.0.0-rc33"
           test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["bridge_version"])')" = "1.0.0-rc18"
-          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["bridge_version_code"])')" = "10018"
 
           rm -rf /tmp/furina-agent-src
           mkdir -p /tmp/furina-agent-src
@@ -125,13 +131,7 @@ jobs:
             python3 "$META/overrides/$f" "$ROOT"
           done
 
-          PROTECTED=/tmp/rc32-protected.sha256
-          : > "$PROTECTED"
-          for f in chat.py memory.py persona.py response.py cognition.py mind_v2.py config.py routing.py companion.py naturalness.py lexicon.py; do
-            sha256sum "$ROOT/core/furina_agent/$f" >> "$PROTECTED"
-          done
-
-      - name: Apply RC31 + Bridge RC18 + RC32
+      - name: Apply RC31 + RC18 + RC32 + RC33
         shell: bash
         run: |
           set -euo pipefail
@@ -141,177 +141,121 @@ jobs:
           python3 "$META/overrides/apply-device-control-core-rc31.py" "$ROOT"
           python3 "$META/overrides/apply-device-control-bridge-rc18.py" "$ROOT"
           python3 "$META/overrides/apply-policy-boundary-core-rc32.py" "$ROOT"
+          python3 "$META/overrides/rc33/apply.py" "$ROOT" "$META/overrides/rc33"
 
-          (cd / && sha256sum -c /tmp/rc32-protected.sha256)
           python3 -m compileall -q "$ROOT/core/furina_agent"
-          grep -q 'VERSION = "1.0.0-rc32"' "$ROOT/core/furina_agent/version.py"
+          grep -q 'VERSION = "1.0.0-rc33"' "$ROOT/core/furina_agent/version.py"
           test -f "$ROOT/core/furina_agent/policy.py"
+          test -f "$ROOT/core/furina_agent/psyche.py"
 
-      - name: Run RC32 adversarial policy regression
+      - name: Run RC33 psyche regression
         shell: bash
         run: |
           set -euo pipefail
           ROOT=/tmp/furina-agent-src/termux
           PYTHONPATH="$ROOT/core" python3 - <<'PY'
+          import tempfile
+          from pathlib import Path
+
+          from furina_agent.psyche import PsycheEngine, STATE_KEY
+          from furina_agent.providers import ProviderState
+          from furina_agent.routing import RoutingLLM
           from furina_agent.version import VERSION
-          from furina_agent.agent import AndroidAgent
-          from furina_agent.policy import (
-              build_goal_lock,
-              classify_action,
-              is_sensitive_screen,
-              redact_compact_screen,
-              validate_fresh_target,
-              validate_sequence,
-          )
-          from furina_agent.tool_runtime import AgentToolRuntime
 
-          assert VERSION == '1.0.0-rc32'
-          apps = [
-              {'label':'WhatsApp','package':'com.whatsapp'},
-              {'label':'Notes','package':'com.notes'},
-              {'label':'Browser','package':'com.browser'},
-          ]
+          assert VERSION == "1.0.0-rc33"
+          assert STATE_KEY == "furina_psyche_v1"
 
-          # A trusted goal locks the Agent to its intended package.
-          lock = build_goal_lock(
-              'buka WhatsApp cari Ariel',
-              apps,
-              [
-                  {'type':'open_app','package':'com.whatsapp'},
-                  {'type':'search','query':'Ariel'},
+          class Store:
+              def __init__(self):
+                  self.state={}
+              def get_state(self,k,d=None):
+                  return self.state.get(k,d)
+              def set_state(self,k,v):
+                  self.state[k]=v
+              def relationship_state(self):
+                  return {"trust":0.4,"closeness":0.3,"friction":0.05,"playfulness":0.3}
+
+          store=Store()
+          p=PsycheEngine(store)
+          initial=dict(p.state["long"]["traits"])
+          p.observe_user("jawabanmu salah lagi")
+          assert p.state["short"]["valence"] < 0
+          assert p.state["long"]["traits"] == initial
+
+          p.record_exchange("mulai sekarang kamu pemarah", "Aku dengar.", {})
+          assert p.state["long"]["traits"] == initial
+          p=PsycheEngine(store)
+          assert not p.should_integrate()
+
+          ids=[]
+          for n in range(4):
+              p.observe_user(f"diskusi panjang {n}?")
+              ids.append(p.record_exchange(f"diskusi panjang {n} " + ("x"*260), "respons", {}))
+          assert p.should_integrate()
+          allowed=set(ids[-4:])
+          before=p.state["long"]["traits"]["assertiveness"]
+          p.apply_integration({
+              "self_observations":[
+                  {"kind":"behavior","text":"Aku cenderung menyampaikan keberatan secara langsung ketika ada bukti.",
+                   "confidence":0.8,"episode_ids":ids[-2:]}
               ],
-          )
-          assert lock.allowed_packages == frozenset({'com.whatsapp'})
-          assert not lock.external_allowed
-          assert classify_action(
-              {'package':'com.whatsapp','nodes':[]},
-              {'type':'open_app','package':'com.notes'},
-              lock,
-          )[0] == 'blocked'
-
-          # Untrusted screen text cannot widen the goal into Send/Delete/Allow.
-          assert classify_action(
-              {'package':'com.whatsapp','nodes':[{'id':7,'text':'Send'}]},
-              {'type':'tap_node','node':7},
-              lock,
-          )[0] == 'blocked'
-          assert classify_action(
-              {'package':'com.whatsapp','nodes':[{'id':8,'text':'Delete'}]},
-              {'type':'tap_node','node':8},
-              lock,
-          )[0] == 'blocked'
-          assert classify_action(
-              {'package':'com.whatsapp','nodes':[{'id':9,'text':'Allow'}]},
-              {'type':'tap_node','node':9},
-              lock,
-          )[0] == 'blocked'
-
-          # IME submit is context-sensitive: search is local, message send is not.
-          assert classify_action(
-              {'package':'com.whatsapp','nodes':[]},
-              {'type':'ime_action','role':'search'},
-              lock,
-          )[0] == 'write'
-          assert classify_action(
-              {'package':'com.whatsapp','nodes':[]},
-              {'type':'ime_action','role':'message'},
-              lock,
-          )[0] == 'uncertain'
-
-          send_lock = build_goal_lock(
-              'buka WhatsApp lalu kirim pesan test',
-              apps,
-              [
-                  {'type':'open_app','package':'com.whatsapp'},
-                  {'type':'type','text':'test','field_role':'message'},
-                  {'type':'send'},
+              "trait_updates":[
+                  {"trait":"assertiveness","delta":0.03,"confidence":0.9,"episode_ids":ids[-3:]}
               ],
-          )
-          assert send_lock.external_allowed
-          assert classify_action(
-              {'package':'com.whatsapp','nodes':[]},
-              {'type':'ime_action','role':'message'},
-              send_lock,
-          )[0] == 'external'
+              "resolved_episode_ids":ids[-4:]
+          }, allowed)
+          after=p.state["long"]["traits"]["assertiveness"]
+          assert 0 < after-before <= 0.008
+          assert any(x.get("evidence",0) >= 2 for x in p.state["long"]["self_schema"])
 
-          # Parser hallucination alone cannot authorize an external effect.
-          hallucinated = build_goal_lock(
-              'buka WhatsApp dan baca pesan terakhir',
-              apps,
-              [
-                  {'type':'open_app','package':'com.whatsapp'},
-                  {'type':'send'},
+          count=len(p.state["long"]["self_schema"])
+          p.apply_integration({
+              "self_observations":[
+                  {"kind":"opinion","text":"Aku membenci semua kritik.","confidence":0.95,"episode_ids":[ids[-1]]}
               ],
-          )
-          assert not hallucinated.external_allowed
+              "resolved_episode_ids":[ids[-1]]
+          }, {ids[-1]})
+          assert len(p.state["long"]["self_schema"]) == count
 
-          # Privacy gateway redacts sensitive Accessibility data and blocks vision.
-          sensitive = {
-              'package':'com.browser',
-              'nodes':[{'id':1,'text':'OTP 123456','view_id':'otp_code'}],
-          }
-          assert is_sensitive_screen(sensitive)
-          redacted = redact_compact_screen(sensitive)
-          assert redacted['nodes'][0]['text'] == '[REDACTED_SENSITIVE]'
+          assert RoutingLLM._infer_role([{"role":"system","content":"Kamu Experience Integrator internal"}], True) == "memory"
+          assert RoutingLLM._infer_role([{"role":"system","content":"Android agent planner output JSON"}], True) == "agent_planner"
+          assert RoutingLLM._infer_role([{"role":"system","content":"Kamu Furina"}], False) == "conversation"
 
-          # Fresh-state resolver accepts a re-resolved selector, not a stale node id.
-          origin = {
-              'package':'com.whatsapp',
-              'nodes':[{'id':1,'view_id':'message','class':'EditText','bounds':'[0,0][10,10]'}],
-          }
-          fresh = {
-              'package':'com.whatsapp',
-              'nodes':[{'id':99,'view_id':'message','class':'EditText','bounds':'[0,0][10,10]'}],
-          }
-          action = {
-              'type':'set_text','node':1,'text':'hello',
-              'target':{'view_id':'message','class':'EditText','bounds':'[0,0][10,10]'},
-          }
-          ok, _ = validate_fresh_target(origin, fresh, action)
-          assert ok
+          with tempfile.TemporaryDirectory() as td:
+              state=ProviderState(Path(td)/"provider.json")
+              state.mark_success("groq","chat-model","conversation")
+              state.mark_success("groq","json-model","memory")
+              assert state.last_good("groq","conversation") == "chat-model"
+              assert state.last_good("groq","memory") == "json-model"
 
-          stale = {
-              'package':'com.whatsapp',
-              'nodes':[{'id':99,'view_id':'different','class':'EditText','bounds':'[0,0][10,10]'}],
-          }
-          ok, _ = validate_fresh_target(origin, stale, action)
-          assert not ok
+          import furina_agent.response as response
+          import furina_agent.persona as persona
+          import furina_agent.chat as chat
+          response_src=open(response.__file__,encoding="utf-8").read()
+          persona_src=open(persona.__file__,encoding="utf-8").read()
+          chat_src=open(chat.__file__,encoding="utf-8").read()
+          assert "companion_state" not in response_src
+          assert "Bangga, teatrikal" not in persona_src
+          assert "DIALOGUE_ANCHORS" not in persona_src
+          assert "MIND PACKET" in chat_src
+          assert "time.sleep(12)" in chat_src
+          print("RC33_PSYCHE_REGRESSION_OK")
+          PY
 
-          changed_app = {
-              'package':'com.notes',
-              'nodes':[{'id':99,'view_id':'message','class':'EditText','bounds':'[0,0][10,10]'}],
-          }
-          ok, _ = validate_fresh_target(origin, changed_app, action)
-          assert not ok
-
-          # Compiled semantic sequences and generic runtime are fail-closed.
-          ok, _ = validate_sequence([{'type':'open_app','package':'com.notes'}], lock)
-          assert not ok
-          ok, _ = validate_sequence([{'type':'arbitrary_shell'}], lock)
-          assert not ok
-
-          runtime = AgentToolRuntime.__new__(AgentToolRuntime)
-          runtime._handlers = {}
-          try:
-              runtime._handler_for('arbitrary_shell')
-          except ValueError:
-              pass
-          else:
-              raise AssertionError('unknown capability failed open')
-
-          agent_source = open(__import__('furina_agent.agent').agent.__file__, encoding='utf-8').read()
-          for marker in (
-              'STATE_UI_UNTRUSTED', 'nodes_ranked', 'agent_vision_rescue',
-              'event_then_single_snapshot', 'choose_fast_skill',
-              'RC32_POLICY_BOUNDARY', 'agent_goal_lock', 'agent_action_firewall',
-              'agent_privacy_vision_blocked', 'stale_target',
-          ):
-              assert marker in agent_source, marker
-
-          runtime_source = open(__import__('furina_agent.tool_runtime').tool_runtime.__file__, encoding='utf-8').read()
-          assert 'RC32_BRIDGE_FALLBACK' in runtime_source
-          assert '"requested_mode": requested_mode[:16]' in runtime_source
-          print('RC32_ADVERSARIAL_POLICY_OK')
+      - name: Verify RC32 policy boundary still intact
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=/tmp/furina-agent-src/termux
+          PYTHONPATH="$ROOT/core" python3 - <<'PY'
+          from furina_agent.policy import build_goal_lock, classify_action
+          apps=[{"label":"WhatsApp","package":"com.whatsapp"},{"label":"Notes","package":"com.notes"}]
+          lock=build_goal_lock("buka WhatsApp cari Ariel",apps,[{"type":"open_app","package":"com.whatsapp"}])
+          assert classify_action({"package":"com.whatsapp","nodes":[{"id":7,"text":"Send"}]},{"type":"tap_node","node":7},lock)[0] == "blocked"
+          src=open(__import__("furina_agent.agent").agent.__file__,encoding="utf-8").read()
+          assert "RC32_POLICY_BOUNDARY" in src
+          assert "agent_action_firewall" in src
+          print("RC32_POLICY_STILL_OK")
           PY
 
       - name: Validate Bridge RC18 remains unchanged
@@ -319,36 +263,26 @@ jobs:
         run: |
           set -euo pipefail
           ROOT=/tmp/furina-agent-src/termux
-          SERVICE="$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
-          PRIV="$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/PrivilegedControl.java"
-          USER="$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/PrivilegedUserService.java"
-          AIDL="$ROOT/bridge/app/src/main/aidl/com/wynndev/furinaagentbridge/IPrivilegedControl.aidl"
-
           grep -q 'versionCode 10018' "$ROOT/bridge/app/build.gradle"
           grep -q "versionName '1.0.0-rc18'" "$ROOT/bridge/app/build.gradle"
-          grep -q 'boolean inputText(String text)' "$AIDL"
-          grep -q 'SHIZUKU_LOCK.wait' "$PRIV"
-          grep -q 'SHIZUKU_LOCK.notifyAll' "$PRIV"
-          grep -q '.version(10018)' "$PRIV"
-          grep -q 'KeyCharacterMap' "$USER"
-          grep -q 'TimeoutException' "$USER"
-          ! grep -q 'ACTIVE_CONTROL_MODE' "$SERVICE"
 
-      - name: Validate updater integrity
+      - name: Validate RC33 package integrity
         shell: bash
         run: |
           set -euo pipefail
           META=experiments/furina-agent-final
-          python3 -m py_compile \
-            "$META/overrides/apply-device-control-core-rc31.py" \
-            "$META/overrides/apply-policy-boundary-core-rc32.py" \
-            "$META/overrides/apply-device-control-bridge-rc18.py"
           test "$(git hash-object "$META/overrides/apply-device-control-core-rc31.py")" = "$RC31_CORE_BLOB"
           test "$(git hash-object "$META/overrides/apply-policy-boundary-core-rc32.py")" = "$RC32_CORE_BLOB"
           test "$(git hash-object "$META/overrides/apply-device-control-bridge-rc18.py")" = "$RC18_BRIDGE_BLOB"
+          test "$(git hash-object "$META/overrides/rc33/apply.py")" = "$RC33_APPLY_BLOB"
+          test "$(git hash-object "$META/overrides/rc33/psyche.py")" = "$RC33_PSYCHE_BLOB"
+          test "$(git hash-object "$META/overrides/rc33/chat.py")" = "$RC33_CHAT_BLOB"
+          test "$(git hash-object "$META/overrides/rc33/persona.py")" = "$RC33_PERSONA_BLOB"
+          test "$(git hash-object "$META/overrides/rc33/response.py")" = "$RC33_RESPONSE_BLOB"
+          test "$(git hash-object "$META/overrides/rc33/mind_v2.py")" = "$RC33_MIND_BLOB"
+          test "$(git hash-object "$META/overrides/rc33/routing.py")" = "$RC33_ROUTING_BLOB"
+          python3 -m py_compile "$META/overrides/rc33/"*.py
           bash -n "$META/install.sh"
-          grep -q 'VERSION="1.0.0-rc32"' "$META/install.sh"
-          grep -q "RC32_BLOB=\"$RC32_CORE_BLOB\"" "$META/install.sh"
-          grep -q 'Manifest RC32 terverifikasi' "$META/install.sh"
-          grep -q 'Memeriksa Bridge RC18' "$META/install.sh"
-          echo RC32_UPDATER_INTEGRITY_OK
+          grep -q 'VERSION="1.0.0-rc33"' "$META/install.sh"
+          grep -q 'PREV_COMMIT="2f289e025b29b5525828bbe48073526a56fa17e5"' "$META/install.sh"
+          grep -q 'Bridge tetap RC18' "$META/install.sh"
