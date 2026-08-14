@@ -1,4 +1,4 @@
-name: Build Furina Agent RC30 + Bridge RC17
+name: Build Furina Agent RC31 + Bridge RC18
 
 on:
   pull_request:
@@ -17,13 +17,15 @@ permissions:
   contents: write
 
 concurrency:
-  group: furina-agent-rc30-${{ github.ref }}
+  group: furina-agent-rc31-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  TAG: furina-agent-v1.0.0-rc17
-  APK_NAME: Furina-Agent-Bridge-v1.0.0-rc17.apk
+  TAG: furina-agent-v1.0.0-rc18
+  APK_NAME: Furina-Agent-Bridge-v1.0.0-rc18.apk
   EXPECTED_SOURCE_SHA: 6b51c907c8a79ab6af06ef891b5013ce8ed964bdc168cf0e71751eacf4161fea
+  RC31_CORE_BLOB: 8ce33b8a81feb379f6187583f350b4bf3097268c
+  RC18_BRIDGE_BLOB: 7d3472c32fb4ff8a31dfc6a5c8f0a96b78978b4e
 
 jobs:
   validate-and-release:
@@ -32,7 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Reassemble and validate RC30 + Bridge RC17
+      - name: Reassemble through RC30 + Bridge RC17
         shell: bash
         run: |
           set -euo pipefail
@@ -41,9 +43,9 @@ jobs:
           : > "$ARCHIVE"
           for chunk in "$META"/source-*.b64; do base64 --decode "$chunk" >> "$ARCHIVE"; done
           echo "$EXPECTED_SOURCE_SHA  $ARCHIVE" | sha256sum -c -
-          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["version"])')" = "1.0.0-rc30"
-          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["bridge_version"])')" = "1.0.0-rc17"
-          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["bridge_version_code"])')" = "10017"
+          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["version"])')" = "1.0.0-rc31"
+          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["bridge_version"])')" = "1.0.0-rc18"
+          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["bridge_version_code"])')" = "10018"
 
           rm -rf /tmp/furina-agent-src && mkdir -p /tmp/furina-agent-src
           tar -xzf "$ARCHIVE" -C /tmp/furina-agent-src
@@ -65,81 +67,94 @@ jobs:
             python3 "$META/overrides/$f" "$ROOT"
           done
 
-          python3 -m compileall -q "$ROOT/core/furina_agent"
-          grep -q 'VERSION = "1.0.0-rc30"' "$ROOT/core/furina_agent/version.py"
-          grep -q 'def _device_mode' "$ROOT/core/furina_agent/agent.py"
-          grep -q 'CONTROL_MODE:' "$ROOT/core/furina_agent/agent.py"
-          grep -q '"run_ui_sequence", "steps": steps, "mode": self._device_mode()' "$ROOT/core/furina_agent/agent.py"
-          grep -q 'payload.setdefault("mode", self._device_mode())' "$ROOT/core/furina_agent/agent.py"
-          SERVICE="$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
-          PRIV="$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/PrivilegedControl.java"
-          USER="$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/PrivilegedUserService.java"
-          grep -q 'ACTIVE_CONTROL_MODE' "$SERVICE"
-          grep -q 'PrivilegedControl.warm' "$SERVICE"
-          grep -q 'step.put("mode", executionMode)' "$SERVICE"
-          grep -q 'requested_mode' "$SERVICE"
-          grep -q 'execution_mode' "$SERVICE"
-          grep -q 'injectInputEvent' "$USER"
-          grep -q 'injectTap' "$USER"
-          grep -q 'injectSwipe' "$USER"
-          grep -q 'awaitShizuku' "$PRIV"
-          grep -q '.version(10017)' "$PRIV"
-          grep -q 'versionCode 10017' "$ROOT/bridge/app/build.gradle"
-          grep -q "versionName '1.0.0-rc17'" "$ROOT/bridge/app/build.gradle"
+          PROTECTED=/tmp/rc31-protected.sha256
+          : > "$PROTECTED"
+          for f in chat.py memory.py persona.py response.py cognition.py mind_v2.py config.py routing.py companion.py naturalness.py lexicon.py; do
+            sha256sum "$ROOT/core/furina_agent/$f" >> "$PROTECTED"
+          done
 
-      - name: Run RC30 capability routing regressions
+      - name: Apply and validate RC31 device-control only
         shell: bash
         run: |
           set -euo pipefail
+          META=experiments/furina-agent-final
           ROOT=/tmp/furina-agent-src/termux
+          python3 "$META/overrides/apply-device-control-core-rc31.py" "$ROOT"
+          python3 "$META/overrides/apply-device-control-bridge-rc18.py" "$ROOT"
+
+          (cd / && sha256sum -c /tmp/rc31-protected.sha256)
+          python3 -m compileall -q "$ROOT/core/furina_agent"
+          grep -q 'VERSION = "1.0.0-rc31"' "$ROOT/core/furina_agent/version.py"
+
           PYTHONPATH="$ROOT/core" python3 - <<'PY'
+          import threading
           from types import SimpleNamespace
+          import furina_agent.agent as agentmod
           from furina_agent.agent import AndroidAgent
+          from furina_agent.tool_runtime import AgentToolRuntime
 
-          agent=AndroidAgent.__new__(AndroidAgent)
-          agent.cfg=SimpleNamespace(device_control_mode='shizuku')
-          assert agent._device_mode()=='shizuku'
-          agent.cfg=SimpleNamespace(device_control_mode='root')
-          assert agent._device_mode()=='root'
-          agent.cfg=SimpleNamespace(device_control_mode='normal')
-          assert agent._device_mode()=='normal'
-          agent.cfg=SimpleNamespace(device_control_mode='invalid')
-          assert agent._device_mode()=='normal'
+          a=AndroidAgent.__new__(AndroidAgent)
+          a.cfg=SimpleNamespace(device_control_mode='normal')
+          a.store=SimpleNamespace(log_event=lambda *args, **kwargs: None)
 
-          source=open(__import__('furina_agent.agent').agent.__file__,encoding='utf-8').read()
-          assert '"run_ui_sequence", "steps": steps, "mode": self._device_mode()' in source
-          assert 'payload.setdefault("mode", self._device_mode())' in source
-          assert 'CONTROL_MODE:' in source
-          print('RC30_CORE_CAPABILITY_ROUTING_OK')
+          nodes=[]
+          for i in range(250):
+              nodes.append({'id':i,'text':('needle target' if i==220 else f'row {i}'),'clickable':i==220,'editable':False})
+          compact=a._compact_screen({'package':'pkg','nodes':nodes}, 'needle')
+          assert any(n.get('id')==220 for n in compact['nodes'])
+          assert compact['node_count']==250 and compact['nodes_ranked']>=180
+
+          assert a.risk({'nodes':[]},{'type':'set_text','text':'tolong tulis kata hapus dan kirim saja'})[0]=='write'
+          assert a.risk({'nodes':[]},{'type':'tap','x':10,'y':20})[0]=='uncertain'
+          assert a.risk({'nodes':[],'vision_elements':[{'x':10,'y':20,'text':'Open details','confidence':0.92}]},{'type':'tap','x':10,'y':20})[0]=='navigate'
+
+          calls={'screen':0}
+          class Bridge:
+              def screen(self): calls['screen']+=1; return {'package':'pkg','nodes':[]}
+          a.bridge=Bridge()
+          old=agentmod.wait_for_event
+          agentmod.wait_for_event=lambda *args, **kwargs: True
+          try:
+              out=a._wait_after_action({'package':'pkg','nodes':[]},0,'tap_node',threading.Event())
+          finally:
+              agentmod.wait_for_event=old
+          assert calls['screen']==1 and out['package']=='pkg'
+
+          fp=AgentToolRuntime._fingerprint
+          assert fp({'type':'tap','x':1,'y':2,'mode':'normal'}) != fp({'type':'tap','x':1,'y':2,'mode':'root'})
+          source=open(agentmod.__file__,encoding='utf-8').read()
+          assert 'choose_fast_skill' in source and 'STATE_UI_UNTRUSTED' in source and 'agent_vision_rescue' in source
+          print('RC31_CORE_DEVICE_CONTROL_OK')
           PY
+
+          SERVICE="$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
+          PRIV="$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/PrivilegedControl.java"
+          USER="$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/PrivilegedUserService.java"
+          AIDL="$ROOT/bridge/app/src/main/aidl/com/wynndev/furinaagentbridge/IPrivilegedControl.aidl"
+          grep -q 'versionCode 10018' "$ROOT/bridge/app/build.gradle"
+          grep -q "versionName '1.0.0-rc18'" "$ROOT/bridge/app/build.gradle"
+          grep -q 'boolean inputText(String text)' "$AIDL"
+          grep -q 'SHIZUKU_LOCK.wait' "$PRIV"
+          grep -q 'SHIZUKU_LOCK.notifyAll' "$PRIV"
+          grep -q '.version(10018)' "$PRIV"
+          grep -q 'KeyCharacterMap' "$USER"
+          grep -q 'TimeoutException' "$USER"
+          ! grep -q 'ACTIVE_CONTROL_MODE' "$SERVICE"
+          ! grep -q 'while ((line = output.readLine())' "$PRIV"
+          ! grep -q 'while ((line = output.readLine())' "$USER"
 
           python3 - <<'PY'
           from pathlib import Path
           root=Path('/tmp/furina-agent-src/termux')
-          service=(root/'bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java').read_text()
-          privileged=(root/'bridge/app/src/main/java/com/wynndev/furinaagentbridge/PrivilegedControl.java').read_text()
-          user=(root/'bridge/app/src/main/java/com/wynndev/furinaagentbridge/PrivilegedUserService.java').read_text()
-
-          # Normal mode stays on Accessibility/native without privileged warming.
-          assert 'boolean privilegedReady = "normal".equals(requestedMode) || PrivilegedControl.warm' in service
-          assert 'String executionMode = privilegedReady ? requestedMode : "normal"' in service
-          # Privileged modes are warmed once per sequence and injected into every step.
-          assert 'step.put("mode", executionMode)' in service
-          assert 'privilegedTapNode(action, node)' in service
-          assert 'privilegedSwipeRect(action' in service
-          assert 'PrivilegedControl.keyEvent(this, executionMode, 4)' in service
-          # Shizuku uses a daemon UserService; direct InputManager injection is primary.
-          assert '.daemon(true)' in privileged and '.version(10017)' in privileged
-          assert 'injectInputEvent' in user and 'if (injectTap(x, y)) return true;' in user
-          assert 'if (injectSwipe(x1, y1, x2, y2, duration)) return true;' in user
-          # Shell input remains only a fallback; it is not created per action.
-          assert 'private Process shell;' in user
-          assert 'private static final RootShell ROOT = new RootShell();' in privileged
-          # Foreground privileged lookup is only fallback when Accessibility root is unavailable.
-          access_index=service.index('AccessibilityNodeInfo root = getRootInActiveWindow();')
-          priv_index=service.index('PrivilegedControl.foregroundPackage(this, ACTIVE_CONTROL_MODE)')
-          assert access_index < priv_index
-          print('RC30_BRIDGE_CAPABILITY_ROUTING_OK')
+          s=(root/'bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java').read_text()
+          tap=s[s.index('private boolean tapNode'):s.index('private AccessibilityNodeInfo editableNode')]
+          assert tap.index('performAction(AccessibilityNodeInfo.ACTION_CLICK)') < tap.index('privilegedTapNode(action, node)')
+          scroll=s[s.index('private boolean scrollBestFast'):s.index('private boolean waitFastEvent')]
+          assert scroll.index('best.performAction(semantic)') < scroll.index('privilegedSwipeRect')
+          seq=s[s.index('private JSONObject runUiSequence'):s.index('private boolean scrollGlobal')]
+          assert seq.index('performGlobalAction(GLOBAL_ACTION_BACK)') < seq.index('PrivilegedControl.keyEvent(this, executionMode, 4)')
+          assert 'activeRootPackage(executionMode)' in seq
+          print('RC18_BRIDGE_SEMANTIC_FIRST_OK')
           PY
 
       - name: Validate updater and transform integrity
@@ -147,18 +162,14 @@ jobs:
         run: |
           set -euo pipefail
           META=experiments/furina-agent-final
-          python3 -m py_compile "$META/overrides/apply-privileged-core-rc30.py" "$META/overrides/apply-privileged-bridge-rc17.py"
-          CORE_HASH="$(git hash-object "$META/overrides/apply-privileged-core-rc30.py")"
-          BRIDGE_HASH="$(git hash-object "$META/overrides/apply-privileged-bridge-rc17.py")"
-          test "$CORE_HASH" = "e2a98f867c86786de99c942c3baf832fdc330e5d"
-          test "$BRIDGE_HASH" = "bd0d77248ea427d0cabffdc7e142187b3b71f5c2"
+          python3 -m py_compile "$META/overrides/apply-device-control-core-rc31.py" "$META/overrides/apply-device-control-bridge-rc18.py"
+          test "$(git hash-object "$META/overrides/apply-device-control-core-rc31.py")" = "$RC31_CORE_BLOB"
+          test "$(git hash-object "$META/overrides/apply-device-control-bridge-rc18.py")" = "$RC18_BRIDGE_BLOB"
           bash -n "$META/install.sh"
-          grep -q 'VERSION="1.0.0-rc30"' "$META/install.sh"
-          grep -q "RC30_BLOB=\"$CORE_HASH\"" "$META/install.sh"
-          grep -q 'Manifest RC30 terverifikasi' "$META/install.sh"
-          grep -q 'Core RC30 aktif' "$META/install.sh"
-          grep -q 'Memeriksa Bridge RC17' "$META/install.sh"
-          grep -q 'installed_code >= expected_code' "$META/install.sh"
+          grep -q 'VERSION="1.0.0-rc31"' "$META/install.sh"
+          grep -q "RC31_BLOB=\"$RC31_CORE_BLOB\"" "$META/install.sh"
+          grep -q 'Manifest RC31 terverifikasi' "$META/install.sh"
+          grep -q 'Memeriksa Bridge RC18' "$META/install.sh"
 
       - uses: actions/setup-java@v5
         with:
@@ -174,7 +185,7 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build Bridge RC17 on PR
+      - name: Build Bridge RC18 on PR
         if: github.event_name == 'pull_request'
         working-directory: /tmp/furina-agent-src/termux
         shell: bash
@@ -191,7 +202,7 @@ jobs:
           printf '%s' "$FURINA_RELEASE_KEYSTORE_B64" | base64 --decode > bridge/app/furina-agent-release.jks
           chmod 600 bridge/app/furina-agent-release.jks
 
-      - name: Build signed Bridge RC17
+      - name: Build signed Bridge RC18
         if: github.event_name != 'pull_request'
         working-directory: /tmp/furina-agent-src/termux
         env:
@@ -204,7 +215,7 @@ jobs:
           test -n "$FURINA_KEYSTORE_PASSWORD" && test -n "$FURINA_KEY_ALIAS" && test -n "$FURINA_KEY_PASSWORD"
           gradle --no-daemon --stacktrace :bridge:app:assembleRelease
 
-      - name: Verify and publish RC17
+      - name: Verify and publish RC18
         if: github.event_name != 'pull_request'
         shell: bash
         env:
@@ -222,8 +233,8 @@ jobs:
           CERT="$($APKSIGNER verify --verbose --print-certs "$APK_NAME")"
           SIGNER="$(printf '%s\n' "$CERT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
           test "$PACKAGE" = com.wynndev.furinaagentbridge
-          test "$CODE" = 10017
-          test "$NAME" = 1.0.0-rc17
+          test "$CODE" = 10018
+          test "$NAME" = 1.0.0-rc18
           export PACKAGE CODE NAME SHA SIGNER
           python3 - <<'PY'
           import json,os
@@ -233,7 +244,7 @@ jobs:
             'package_name':os.environ['PACKAGE'],
             'sha256':os.environ['SHA'],
             'signer_sha256':os.environ['SIGNER'],
-            'apk_url':'https://github.com/WynnDev-rill/furina/releases/download/furina-agent-v1.0.0-rc17/Furina-Agent-Bridge-v1.0.0-rc17.apk'
+            'apk_url':'https://github.com/WynnDev-rill/furina/releases/download/furina-agent-v1.0.0-rc18/Furina-Agent-Bridge-v1.0.0-rc18.apk'
           }
           open('bridge.json','w',encoding='utf-8').write(json.dumps(data,indent=2)+'\n')
           PY
@@ -241,6 +252,6 @@ jobs:
             gh release upload "$TAG" "$APK_NAME" bridge.json --clobber --repo "$GITHUB_REPOSITORY"
           else
             gh release create "$TAG" "$APK_NAME" bridge.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
-              --title "Furina Agent Bridge 1.0.0 RC17 — By Wynn" \
-              --notes "RC17 adds capability-routed privileged execution: persistent Shizuku UserService with direct input injection, persistent root execution, privileged foreground fallback, and unchanged full Normal Accessibility support."
+              --title "Furina Agent Bridge 1.0.0 RC18 — By Wynn" \
+              --notes "RC18 makes Accessibility semantic actions primary, bounds privileged shell fallbacks, adds event-driven Shizuku binding and privileged text fallback, and removes global control-mode leakage."
           fi
