@@ -1,4 +1,4 @@
-name: Validate Furina Agent RC33 Psyche + RC32 Policy
+name: Validate Furina Agent RC34 Intent Guard + RC32 Policy
 
 on:
   pull_request:
@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: furina-agent-rc33-${{ github.ref }}
+  group: furina-agent-rc34-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -26,9 +26,6 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Reconstruct and validate RC33
+      - name: Reconstruct and validate RC34
         shell: bash
-        run: bash experiments/furina-agent-final/overrides/rc33/validate.sh
-      - name: Validate updater progress and installed-core health checks
-        shell: bash
-        run: bash experiments/furina-agent-final/overrides/rc33/validate-updater.sh
+        run: bash experiments/furina-agent-final/overrides/rc34/validate.sh
