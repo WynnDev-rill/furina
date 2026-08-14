@@ -1,139 +1,145 @@
-# Furina Agent by Wynn — Final Candidate
+# FurinaHub — Furina Agent Experiment
 
-Furina Agent runs its AI core in Termux and uses a small Android Bridge APK for device control. It is isolated from the main Furina APK project.
+FurinaHub is the Android-facing UI for the Furina Agent experiment. The AI Core still runs in Termux, while the APK provides a chat-first interface, Android Bridge services, device permissions, app update flow, and settings.
 
-## First install
+The experiment remains isolated from the main Furina APK project.
 
-Install/open Furina Bridge and enable Persistent Bridge + Accessibility. For a fresh Termux, run this single line:
+## Install baru
+
+Open Termux and run:
 
 ```bash
 pkg update -y && pkg install -y curl && curl -fsSL https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final/install.sh | bash
 ```
 
-The installer reconciles the required Termux/Python dependencies, stages and validates the Core before activation, and keeps model/memory data separate from replaceable Core files. No ZIP needs to be copied manually.
+The installer:
 
-If Furina is already installed, update with:
+1. installs/reconciles the required Termux dependencies;
+2. reconstructs and verifies Furina Core;
+3. preserves model, memory, Psyche, and provider data;
+4. installs the `furina` CLI and the `furinahub` local UI launcher;
+5. enables the Termux RUN_COMMAND integration needed for one-tap APK startup;
+6. downloads the signed FurinaHub APK release and opens Android's installer when available.
 
-```bash
-furina update
-```
-
-After setup, daily use is:
+After installation, both entry points remain valid:
 
 ```bash
 furina
 ```
 
-Maintenance commands:
+and, for the local web UI without the APK:
 
 ```bash
-furina doctor
-furina repair
-furina optimize
+furinahub serve
 ```
 
-`furina optimize` benchmarks the local GGUF on the phone and selects a more suitable CPU thread count. It is not run on every startup.
+## FurinaHub RC19 + Core RC35
 
-## Android control — Core RC34 / Bridge RC18
+Opening the FurinaHub APK goes directly to Chat. There is no onboarding dashboard.
 
-The Android agent uses an observe → plan → act → verify loop. Accessibility remains the primary semantic control plane; visual analysis is only a fallback when the semantic tree is insufficient. The ranked Accessibility state is refreshed throughout a task instead of treating the initial screen as permanent.
+The APK is a restricted WebView shell around a Core-owned loopback UI at `127.0.0.1:8787`. FurinaHub starts that UI through Termux's explicit RUN_COMMAND integration using a fixed `furinahub serve` command. The page receives a per-install random token from the native shell; mutation API endpoints require that token.
 
-Semantic tasks distinguish stages such as `open_app`, `search`, `select`, `type`, and `send`. A messaging workflow can therefore be represented as:
+FurinaHub keeps Android-native responsibilities in the APK:
+
+- Persistent Bridge foreground service
+- Accessibility service
+- Shizuku/root-backed fixed primitives
+- Termux start integration
+- signed APK update check/install flow
+- Android permission surfaces
+
+The Termux Core continues to own:
+
+- conversation and model routing
+- local/online models
+- Psyche Engine and memory
+- chat-vs-Agent intent boundary
+- Android Agent planning
+- RC32 Goal Lock and Action Firewall
+- personalization state
+- Agent Skill restrictions
+- Core/dependency updates
+
+## UI sections
+
+FurinaHub uses a chat-first Material-style layout inspired by modern Android LLM clients without copying another project's source or branding.
+
+- **Chat** — default landing page. Device tasks remain inside the same conversation.
+- **Memori** — stored memories, learned preferences, and open goals. No relationship-summary score is shown.
+- **Model & Provider** — local GGUF choice, Local/AUTO/Online routing, and provider API keys.
+- **Personalisasi** — base style, companion archetype presets, characteristics, and custom instructions.
+- **Agent & Skills** — Normal/Shizuku/Root mode and user-toggleable Agent capabilities.
+- **Pengaturan & Update** — assistant/user names, FurinaHub APK update, Core update, dependency reconciliation, and diagnostics.
+
+Settings written from FurinaHub use the same Core config/data files as the Termux CLI, so switching between APK and `furina` does not create two separate identities.
+
+## Personalization
+
+RC35 separates conversational personalization from device authority.
+
+Base styles include Adaptive, Friendly, Efficient, Professional, Playful, Calm, and Cynical. Optional character presets include Berkembang Alami, Tsundere, Deredere, Kuudere, Suka Menggoda, Elegan, Playful/Chaotic, and Custom.
+
+Characteristics are independently adjustable:
+
+- warmth
+- intimacy
+- expressiveness
+- playfulness
+- sarcasm
+- directness
+- formality
+- verbosity
+- emotional sensitivity
+
+Presets are soft presentation biases rather than hard personality scripts. PsycheState and experience can still change expression over time. Custom instructions can affect conversation style but cannot grant device permission, disable confirmations, or change the Action Firewall.
+
+## Agent Skills
+
+Agent Skills are opt-in restrictions over capabilities the Agent already has; they are not downloadable executable code in RC35.
+
+Available toggles include:
+
+- app control
+- UI navigation
+- screen inspection
+- text input
+- messaging/external workflows
+- privileged control
+- vision fallback
+
+Turning a skill off can only remove capability. It cannot add Android permissions or bypass RC32 policy.
+
+## Updates
+
+### FurinaHub APK
+
+The native updater downloads signed release metadata, verifies package name, version, SHA-256, and signing certificate, then opens Android's package installer. RC19 retains the same package ID and release signing identity as Bridge RC18, allowing an in-place rename/update.
+
+### Core
+
+FurinaHub can start the existing verified `furina update` flow. Core activation remains staged and atomic.
+
+### Dependencies
+
+The app can run the `furinahub-deps` helper, which reconciles only the dependencies FurinaHub currently requires instead of performing an uncontrolled full-device update.
+
+## Current safety boundaries
+
+RC34's chat-first intent guard remains active: mentioning an app or discussing an action is not authority to run the Agent.
+
+RC32 remains the action boundary after routing:
+
+- Goal Lock freezes trusted task scope.
+- Action Firewall checks proposed device actions.
+- unknown capabilities fail closed.
+- fresh-state resolution verifies targets before state-changing actions.
+- external/uncertain actions receive fresh confirmation.
+- sensitive UI data is redacted before planner use.
+- personality, memory, or Agent Skills cannot create new privileges.
+
+Current versions:
 
 ```text
-open_app → search(contact) → select(contact) → type(message) → send
+Core       1.0.0-rc35
+FurinaHub  1.0.0-rc19
 ```
-
-The final external action remains separate from preparation. A send/post/share/call requires specific authorization, and an ambiguous final send is not automatically retried because doing so could duplicate an external effect.
-
-### RC34 chat-first intent boundary
-
-RC34 separates ordinary conversation from device execution before AndroidAgent is allowed to start:
-
-- Mentioning an installed application is only context for target resolution; it is never authority to execute a device action.
-- Questions, explanations, reports about past actions, hypotheticals, examples, quotations, and negated commands remain ordinary chat.
-- A model-generated `device` classification must also prove that the user made a current command/request and provide an exact action span from the user's message. A deterministic gate validates that evidence before Agent routing.
-- If the intent parser/provider fails, the fallback is chat unless the message itself is a structurally explicit device request.
-- The fast/direct executor uses the same chat guard so conversational phrases containing action verbs cannot bypass semantic classification.
-- Intent-model routing uses its own `intent` role and does not replace the preferred conversation model.
-
-Examples that remain chat:
-
-```text
-WhatsApp sekarang sering lambat menurutmu kenapa?
-Tadi aku buka WhatsApp lalu chat Ariel
-Kalau aku bilang "buka WhatsApp", kamu bakal apa?
-Jangan buka WhatsApp
-```
-
-Examples that are device requests:
-
-```text
-Bisa buka WhatsApp?
-Tolong bukain WhatsApp
-Buka WhatsApp lalu cari Ariel
-```
-
-### RC32 execution boundary
-
-RC32 remains the independent policy layer after RC34 intent routing:
-
-- **Goal Lock** freezes the trusted task scope from the user's goal and grounded semantic intent. Text found in a webpage, message, note, notification, screenshot, or Accessibility node cannot add a new app/capability to the task.
-- **Action Firewall** checks every proposed action after planning and before execution. Unknown capabilities fail closed instead of inheriting generic Bridge privileges.
-- **Fresh-state resolution** reads the current screen again immediately before a state-changing action. Node IDs are not trusted by themselves; a stable selector must still resolve on the fresh UI state.
-- **Package scope guard** blocks an action if the task unexpectedly moves into another installed app outside the Goal Lock.
-- **IME classification** treats search submission differently from an ambiguous Enter/IME action that may send or submit data. Message-like IME actions are elevated to the external/uncertain path instead of being treated as ordinary local text input.
-- **Privacy filtering** redacts password/PIN/OTP/token/API-key-like Accessibility values before compact UI state is sent to a planner. Vision fallback is disabled on screens classified as sensitive.
-- **Sequence validation** checks compiled multi-step UI sequences against the same Goal Lock before the Bridge receives them.
-
-These checks complement, rather than replace, the existing semantic send confirmation, duplicate-send protection, ranked Accessibility tree, high-confidence visual targeting, and deterministic completion gates.
-
-### Device-control modes
-
-The selected backend is configured under **Settings → Kontrol perangkat**. Runtime diagnostics stay in Settings and are not printed into the conversation.
-
-- **Normal** — default. Uses native Android intents where possible and Accessibility for UI actions. No Shizuku or root is required.
-- **Shizuku** — optional. Furina Bridge requests Shizuku permission only when this mode is selected and reuses a privileged UserService for supported fixed primitives.
-- **Root** — optional. Root is used only when explicitly selected for supported fixed primitives.
-
-Shizuku/root do not expose an arbitrary remote shell through the Furina Core planner API. The privileged interface remains restricted to fixed device-control primitives, with normal Android/Accessibility control retained as fallback.
-
-Natural Android tasks can be given to the Agent, for example:
-
-```text
-buka YouTube dan cari MrBeast
-bka gogle trus cri makanan sehat
-buka WhatsApp, cari Budi, tulis "aku pulang jam 8", lalu kirim
-```
-
-Dynamic tasks use the current real screen instead of assuming a previously observed node is still valid. Core RC34 continues to use Bridge RC18, so no new Bridge APK is required when RC18 is already installed.
-
-## Reminders
-
-Reminder scheduling is owned by **Furina Bridge on Android**, not by a Termux background thread. Once a reminder has been scheduled successfully, closing Furina or Termux does not cancel it.
-
-Natural relative forms such as these are supported:
-
-```text
-ingatkan aku minum dalam 5 menit
-ingatkan aku minum 5 menit lagi
-```
-
-The Bridge persists pending reminders, schedules them with Android `AlarmManager`, and restores future alarms after reboot. On Android versions with Exact Alarm access, exact alarms are used; otherwise Android's allow-while-idle fallback is used and delivery may be less exact. Notification permission must remain enabled for Furina Bridge.
-
-## Online provider diagnostics
-
-Use the provider test before blaming an API key itself:
-
-```bash
-furina provider-test groq
-furina provider-test nvidia
-```
-
-AUTO routing prefers a configured online provider and falls back to local inference when online providers are unavailable within the bounded failover budget.
-
-## Safety and validation
-
-Ordinary navigation/text preparation can be authorized per task. External side effects such as Send/Post/Share remain on the guarded path and require specific confirmation. Payment, transfer, uninstall, destructive deletion, factory reset, and security-sensitive changes remain blocked from autonomous execution.
-
-The RC34 CI reconstructs the effective Core from the archived baseline through RC33, applies the RC34 intent boundary, and then runs behavioral regression. Tests cover normal chat containing app names/action words, reports/hypotheticals/negations, parser failure with app mentions, explicit device requests, intent commitment evidence, role isolation, RC32 package/action policy, unknown runtime capabilities, and Bridge RC18 preservation. Installer updates use Git blob verification, staged validation, and atomic Core activation.
