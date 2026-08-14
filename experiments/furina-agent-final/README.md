@@ -36,13 +36,17 @@ furina optimize
 
 `furina optimize` benchmarks the actual local GGUF on the phone and selects a better CPU thread count. It is not run every startup.
 
-## Android control — Core RC23 / Bridge RC13
+## Android control — Core RC24 / Bridge RC14
 
 RC23 separates **understanding the user's goal** from **executing Android primitives**. The Core first preserves a device request as a semantic intent with ordered conceptual steps. This prevents a multi-step request from being declared complete merely because its first action, such as opening an app, succeeded.
 
 The semantic parser is intended to tolerate casual phrasing, abbreviations, mixed language and minor typos without growing a large hard-coded vocabulary. Fuzzy matching is limited to resolving an app hint against the actual installed-app list. Once the intent is understood, predictable low-risk steps are compiled into the persistent Bridge executor so the model is not called between every tap.
 
-The deterministic direct path is now only an atomic latency optimization. An exact command such as opening one known app may execute immediately, while a request such as `buka Google dan cari makanan sehat` must retain both `open_app` and `search` before Furina can report completion. RC23 CI includes a regression test specifically preventing that request from being short-circuited after `open_app`.
+RC24 adds a terminal lifecycle around that executor. After Furina has genuinely left Termux, returning to Termux becomes an explicit stop signal in roughly a tenth of a second rather than leaving enough time for another planner cycle. The Core keeps the last external screen as evidence: if the deterministic goal contract is already satisfied the visible result becomes `Berhasil.`; otherwise Furina stops cleanly instead of replaying an app launch. Successful completion also closes the return watcher so completed tasks do not leave a background watcher alive.
+
+Bridge RC14 adds the same rule locally to continuous UI sequences. Once a sequence has left Termux, if Termux becomes foreground again the Bridge aborts remaining steps and reports `cancelled_user_return` to the Core. Tap, text, IME and scroll sequence primitives are guarded from continuing against the Termux UI after that return.
+
+The deterministic direct path is only an atomic latency optimization. An exact command such as opening one known app may execute immediately, while a request such as `buka Google dan cari makanan sehat` must retain both `open_app` and `search` before Furina can report completion.
 
 The selected backend is configured under **Settings → Kontrol perangkat**. Runtime diagnostics stay in Settings and are not printed into the conversation.
 
@@ -62,7 +66,7 @@ buka WhatsApp, cari Budi, tulis "aku pulang jam 8", lalu kirim
 
 Multi-step tasks that require the screen ask for screen permission. External side effects such as Send/Post/Share remain on the guarded agent path and require a specific confirmation before execution. Dynamic tasks can fall back to the universal planner from the current real screen instead of replaying completed steps.
 
-RC23 is a Core-only update. Bridge remains RC13, so an already current RC13 installation should not be downloaded again during `furina update`.
+RC24 requires Bridge RC14 for the local sequence circuit breaker. Once RC14 is installed, later Core-only updates do not download the Bridge again unless the manifest's Bridge version increases.
 
 ## Reminders
 
