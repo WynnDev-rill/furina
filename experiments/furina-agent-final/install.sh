@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-VERSION="1.0.0-rc28"
+VERSION="1.0.0-rc29"
 ROOT="$HOME/.furina-agent"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 MANIFEST_URL="$BASE/manifest.json"
@@ -33,6 +33,8 @@ RC27_URL="$BASE/overrides/apply-runtime-recovery-rc27.py"
 RC27_BLOB="0329f71edfad6f34f1892bdbc7e0388f432ce070"
 RC28_URL="$BASE/overrides/apply-runtime-core-rc28.py"
 RC28_BLOB="98038cd52fa88652ca141a1af2ee3f9d10cebf5f"
+RC29_URL="$BASE/overrides/apply-universal-ui-core-rc29.py"
+RC29_BLOB="eb0a507da074d280f2f263ae70e3c0e4e2afd220"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
   echo "Installer ini harus dijalankan dari Termux." >&2
@@ -42,7 +44,7 @@ fi
 mkdir -p "$ROOT"/{cache,logs,run,data,models}
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-LOG="$ROOT/logs/update-rc28.log"
+LOG="$ROOT/logs/update-rc29.log"
 : > "$LOG"
 
 DISPLAY_NAME="Furina"
@@ -62,7 +64,7 @@ PROGRESS=0
 ui_title() {
   printf '\033[2J\033[H'
   printf '\033[1;36m%s\033[0m \033[1mBy Wynn\033[0m\n' "$DISPLAY_NAME"
-  printf '\033[2mUpdate Agent RC28 · memory dan model dipertahankan\033[0m\n\n'
+  printf '\033[2mUpdate Agent RC29 · memory dan model dipertahankan\033[0m\n\n'
 }
 ui_progress() {
   local pct="$1" label="$2" glyph="${3:-›}" width=16 filled empty bar="" i
@@ -124,8 +126,8 @@ mark 31 "Core saat ini: $CURRENT"
 
 curl -fsSL --retry 3 "$MANIFEST_URL" -o "$TMP/manifest.json"
 EXPECTED="$(python -c 'import json;print(json.load(open("'"$TMP"'/manifest.json"))["version"])')"
-[[ "$EXPECTED" == "1.0.0-rc28" ]] || { echo "Manifest belum menunjuk RC28: $EXPECTED" >&2; exit 1; }
-mark 37 "Manifest RC28 terverifikasi"
+[[ "$EXPECTED" == "1.0.0-rc29" ]] || { echo "Manifest belum menunjuk RC29: $EXPECTED" >&2; exit 1; }
+mark 37 "Manifest RC29 terverifikasi"
 
 mkdir -p "$TMP/stage"
 cp -R "$ROOT/core" "$TMP/stage/core"
@@ -189,9 +191,14 @@ apply_core_updates() {
     python "$TMP/rc28.py" "$TMP/stage"
     current="1.0.0-rc28"
   fi
-  [[ "$current" == "1.0.0-rc28" ]] || { echo "Versi Core tidak dapat dimigrasikan otomatis: $current" >&2; return 1; }
+  if [[ "$current" == "1.0.0-rc28" ]]; then
+    fetch_transform "$RC29_URL" "$RC29_BLOB" "$TMP/rc29.py"
+    python "$TMP/rc29.py" "$TMP/stage"
+    current="1.0.0-rc29"
+  fi
+  [[ "$current" == "1.0.0-rc29" ]] || { echo "Versi Core tidak dapat dimigrasikan otomatis: $current" >&2; return 1; }
 }
-run_quiet "Menerapkan Core RC28" 66 apply_core_updates "$CURRENT"
+run_quiet "Menerapkan Core RC29" 66 apply_core_updates "$CURRENT"
 
 validate_core() {
   PYTHONPATH="$TMP/stage/core" python -m compileall -q "$TMP/stage/core/furina_agent"
@@ -199,23 +206,27 @@ validate_core() {
 from furina_agent.version import VERSION
 from furina_agent.agent import AndroidAgent
 from furina_agent.companion import CompanionSession
-if VERSION != '1.0.0-rc28':
-    raise SystemExit(f'Validasi RC28 gagal: versi Core {VERSION!r}')
+if VERSION != '1.0.0-rc29':
+    raise SystemExit(f'Validasi RC29 gagal: versi Core {VERSION!r}')
 for method in (
     '_contract', '_compact_screen', '_plan', 'risk', '_deterministic_gate',
     '_verify_goal', '_wait_after_action', '_try_fast_skill', '_try_ui_sequence',
-    '_compile_semantic_sequence', '_semantic_send_action'
+    '_compile_semantic_sequence', '_semantic_send_action', '_screen_has_exact_editable_text'
 ):
     if not hasattr(AndroidAgent, method):
-        raise SystemExit(f'Validasi RC28 gagal: AndroidAgent.{method} tidak tersedia')
+        raise SystemExit(f'Validasi RC29 gagal: AndroidAgent.{method} tidak tersedia')
 for method in ('_app_anchors', '_fallback_device_steps', '_looks_like_device_imperative'):
     if not hasattr(CompanionSession, method):
-        raise SystemExit(f'Validasi RC28 gagal: CompanionSession.{method} tidak tersedia')
+        raise SystemExit(f'Validasi RC29 gagal: CompanionSession.{method} tidak tersedia')
 agent=open(__import__('furina_agent.agent').agent.__file__,encoding='utf-8').read()
 assert 'return_to_termux_result' in agent
 assert 'task_started_wall = time.time()' in agent
 assert 'semantic_send_completed' in agent
 assert 'semantic_sequence_deferred' in agent
+assert '"result_mode": True' in agent
+assert 'optional_if_target_visible' in agent
+assert 'SEMANTIC_STEPS:' in agent
+assert 'self._active_semantic_steps' in agent
 assert 'steps = self._compile_ui_sequence(goal, contract, apps)' not in agent
 text=open(__import__('furina_agent.chat_surface').chat_surface.__file__,encoding='utf-8').read()
 assert '#080f0d' in text and 'Furina[/]' in text
@@ -234,12 +245,12 @@ assert 'semantic_steps=intent.steps' in tui
 assert 'lambda *_args: True' not in tui
 PY
 }
-run_quiet "Memvalidasi runtime Agent dan state graph" 78 validate_core
+run_quiet "Memvalidasi runtime universal dan state graph" 78 validate_core
 
 rm -rf "$ROOT/core.prev"
 mv "$ROOT/core" "$ROOT/core.prev"
 mv "$TMP/stage/core" "$ROOT/core"
-mark 84 "Core RC28 aktif · memory/model tetap"
+mark 84 "Core RC29 aktif · memory/model tetap"
 
 BRIDGE_NEEDS_INSTALL=0
 BRIDGE_STATUS_UNKNOWN=0
@@ -293,7 +304,7 @@ PY2
   [[ "$apk_url" == https://github.com/WynnDev-rill/furina/releases/download/* ]] || { echo "URL Bridge tidak dipercaya." >&2; return 1; }
   printf '%s' "install" > "$TMP/bridge-state"
 }
-run_quiet "Memeriksa Bridge RC15" 94 prepare_bridge
+run_quiet "Memeriksa Bridge RC16" 94 prepare_bridge
 
 BRIDGE_STATE="$(cat "$TMP/bridge-state" 2>/dev/null || true)"
 if [[ "$BRIDGE_STATE" == "install" ]]; then
@@ -309,12 +320,12 @@ else
 fi
 mark 100 "Update selesai"
 
-printf '\n\033[32m✓\033[0m Furina Agent RC28 siap.\n'
+printf '\n\033[32m✓\033[0m Furina Agent RC29 siap.\n'
 if (( BRIDGE_NEEDS_INSTALL )); then
-  printf '\033[33m!\033[0m Bridge yang terpasang lebih lama. URL APK resmi RC15 dibuka satu kali; setelah download pilih \033[1mPerbarui\033[0m.\n'
+  printf '\033[33m!\033[0m Bridge yang terpasang lebih lama. URL APK resmi RC16 dibuka satu kali; setelah download pilih \033[1mPerbarui\033[0m.\n'
 elif (( BRIDGE_STATUS_UNKNOWN )); then
   printf '\033[33m!\033[0m Bridge tidak merespons. Buka Furina Bridge lalu jalankan \033[1;36mfurina update\033[0m lagi untuk verifikasi.\n'
 else
-  printf '\033[2mCore RC28 · Bridge RC15 sudah sesuai · memory dan model dipertahankan.\033[0m\n'
+  printf '\033[2mCore RC29 · Bridge RC16 sudah sesuai · memory dan model dipertahankan.\033[0m\n'
 fi
 printf '\n'
