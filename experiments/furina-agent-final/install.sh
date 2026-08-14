@@ -30,7 +30,7 @@ RC25_POSTFIX_BLOB="16cb897717beb33063bcd1863b30060e1607b092"
 RC26_URL="$BASE/overrides/apply-semantic-resilience-rc26.py"
 RC26_BLOB="9fd353b275a2a426fe9ab2e8d7ebb5808586b965"
 RC27_URL="$BASE/overrides/apply-runtime-recovery-rc27.py"
-RC27_BLOB="3e2a4080ce232ad38090bc44340dae0fd4e0c086"
+RC27_BLOB="0329f71edfad6f34f1892bdbc7e0388f432ce070"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
   echo "Installer ini harus dijalankan dari Termux." >&2
