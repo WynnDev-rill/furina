@@ -1,4 +1,4 @@
-name: Build FurinaHub RC35 + Android RC19
+name: Build FurinaHub Android RC20 + Core RC35
 
 on:
   pull_request:
@@ -6,27 +6,25 @@ on:
     paths:
       - 'experiments/furina-agent-final/**'
       - '.github/workflows/furina-agent-rc20.yml'
-      - '.github/workflows/rc11-unified-ui-smoke.yml'
-      - '.github/workflows/rc15-full-paste-smoke.yml'
+      - '.github/workflows/sync-ui-ux-pro-max.yml'
   push:
     branches: [experiment/furina-agent-termux]
     paths:
       - 'experiments/furina-agent-final/**'
       - '.github/workflows/furina-agent-rc20.yml'
-      - '.github/workflows/rc11-unified-ui-smoke.yml'
-      - '.github/workflows/rc15-full-paste-smoke.yml'
+      - '.github/workflows/sync-ui-ux-pro-max.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: furinahub-rc35-${{ github.ref }}
+  group: furinahub-android-rc20-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  TAG: furinahub-v1.0.0-rc19
-  APK_NAME: FurinaHub-v1.0.0-rc19.apk
+  TAG: furinahub-v1.0.0-rc20
+  APK_NAME: FurinaHub-v1.0.0-rc20.apk
 
 jobs:
   validate-build-release:
@@ -37,9 +35,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Reconstruct and validate RC35
+      - name: Reconstruct RC35 and validate Android RC20
         shell: bash
-        run: bash experiments/furina-agent-final/overrides/rc35/validate.sh
+        run: bash experiments/furina-agent-final/overrides/android-rc20/validate.sh
 
       - uses: actions/setup-java@v5
         with:
@@ -58,7 +56,7 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build FurinaHub debug on PR
+      - name: Build FurinaHub RC20 debug on PR
         if: github.event_name == 'pull_request'
         working-directory: /tmp/furina-agent-rc34-validate/termux
         shell: bash
@@ -88,7 +86,7 @@ jobs:
           printf '%s' "$FURINA_RELEASE_KEYSTORE_B64" | base64 --decode > bridge/app/furina-agent-release.jks
           chmod 600 bridge/app/furina-agent-release.jks
 
-      - name: Build signed FurinaHub RC19
+      - name: Build signed FurinaHub RC20
         if: github.event_name != 'pull_request' && env.FURINAHUB_RELEASE_EXISTS != '1'
         working-directory: /tmp/furina-agent-rc34-validate/termux
         shell: bash
@@ -103,7 +101,7 @@ jobs:
           test -n "$FURINA_KEY_PASSWORD"
           gradle --no-daemon --stacktrace :bridge:app:assembleRelease
 
-      - name: Verify signed APK and publish immutable RC19
+      - name: Verify signed APK and publish immutable RC20
         if: github.event_name != 'pull_request' && env.FURINAHUB_RELEASE_EXISTS != '1'
         shell: bash
         env:
@@ -123,8 +121,8 @@ jobs:
           SIGNER="$(printf '%s\n' "$CERT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
 
           test "$PACKAGE" = com.wynndev.furinaagentbridge
-          test "$CODE" = 10019
-          test "$NAME" = 1.0.0-rc19
+          test "$CODE" = 10020
+          test "$NAME" = 1.0.0-rc20
           test "${#SHA}" = 64
           test "${#SIGNER}" = 64
 
@@ -137,12 +135,12 @@ jobs:
             "package_name":os.environ["PACKAGE"],
             "sha256":os.environ["SHA"],
             "signer_sha256":os.environ["SIGNER"],
-            "apk_url":"https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc19/FurinaHub-v1.0.0-rc19.apk",
+            "apk_url":"https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc20/FurinaHub-v1.0.0-rc20.apk",
           }
           open("bridge.json","w",encoding="utf-8").write(json.dumps(data,indent=2)+"\n")
           PY
 
           gh release create "$TAG" "$APK_NAME" bridge.json \
             --target "$GITHUB_SHA" \
-            --title "FurinaHub v1.0.0-rc19" \
-            --notes "FurinaHub replaces the Bridge utility screen with a chat-first Android shell backed by Furina Core RC35 in Termux. Same package/signing identity for in-place upgrade from Bridge RC18."
+            --title "FurinaHub v1.0.0-rc20" \
+            --notes "Offline-first FurinaHub shell: APK opens without Termux Core, connection is user-initiated from Settings, RUN_COMMAND permission is requested only when connecting, and the bundled UI follows the repo UI UX Pro Max design guidance. Same package/signing identity for in-place upgrade from RC19."
