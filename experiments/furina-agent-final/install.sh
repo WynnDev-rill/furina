@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-VERSION="1.0.0-rc22"
+VERSION="1.0.0-rc23"
 ROOT="$HOME/.furina-agent"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 MANIFEST_URL="$BASE/manifest.json"
@@ -17,6 +17,10 @@ RC22_URL="$BASE/overrides/apply-system-rc22.py"
 RC22_BLOB="828146920bfbceba759e1163ffce731e9ad65b05"
 RC22_SAFETY_URL="$BASE/overrides/apply-safety-rc22.py"
 RC22_SAFETY_BLOB="38237e878d206e831677e9d83980a436e7f3bc80"
+RC23_URL="$BASE/overrides/apply-semantic-core-rc23.py"
+RC23_BLOB="9f339191a3b0ddab2b89f0690e019b63552fe377"
+RC23_GUARD_URL="$BASE/overrides/apply-semantic-guard-rc23.py"
+RC23_GUARD_BLOB="a1bbd134c2b2424465e1b85fbc478ad20f9ea0ea"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
   echo "Installer ini harus dijalankan dari Termux." >&2
@@ -26,7 +30,7 @@ fi
 mkdir -p "$ROOT"/{cache,logs,run,data,models}
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-LOG="$ROOT/logs/update-rc22.log"
+LOG="$ROOT/logs/update-rc23.log"
 : > "$LOG"
 
 DISPLAY_NAME="Furina"
@@ -46,7 +50,7 @@ PROGRESS=0
 ui_title() {
   printf '\033[2J\033[H'
   printf '\033[1;36m%s\033[0m \033[1mBy Wynn\033[0m\n' "$DISPLAY_NAME"
-  printf '\033[2mUpdate Agent RC22 · memory dan model dipertahankan\033[0m\n\n'
+  printf '\033[2mUpdate Agent RC23 · memory dan model dipertahankan\033[0m\n\n'
 }
 ui_progress() {
   local pct="$1" label="$2" glyph="${3:-›}" width=16 filled empty bar="" i
@@ -108,8 +112,8 @@ mark 31 "Core saat ini: $CURRENT"
 
 curl -fsSL --retry 3 "$MANIFEST_URL" -o "$TMP/manifest.json"
 EXPECTED="$(python -c 'import json;print(json.load(open("'"$TMP"'/manifest.json"))["version"])')"
-[[ "$EXPECTED" == "1.0.0-rc22" ]] || { echo "Manifest belum menunjuk RC22: $EXPECTED" >&2; exit 1; }
-mark 37 "Manifest RC22 terverifikasi"
+[[ "$EXPECTED" == "1.0.0-rc23" ]] || { echo "Manifest belum menunjuk RC23: $EXPECTED" >&2; exit 1; }
+mark 37 "Manifest RC23 terverifikasi"
 
 mkdir -p "$TMP/stage"
 cp -R "$ROOT/core" "$TMP/stage/core"
@@ -137,24 +141,38 @@ apply_core_updates() {
     python "$TMP/rc22.py" "$TMP/stage"
     current="1.0.0-rc22"
   fi
-  [[ "$current" == "1.0.0-rc22" ]] || { echo "Versi Core tidak dapat dimigrasikan otomatis: $current" >&2; return 1; }
-  fetch_transform "$RC22_SAFETY_URL" "$RC22_SAFETY_BLOB" "$TMP/rc22-safety.py"
-  python "$TMP/rc22-safety.py" "$TMP/stage"
+  if [[ "$current" == "1.0.0-rc22" ]]; then
+    fetch_transform "$RC22_SAFETY_URL" "$RC22_SAFETY_BLOB" "$TMP/rc22-safety.py"
+    python "$TMP/rc22-safety.py" "$TMP/stage"
+    fetch_transform "$RC23_URL" "$RC23_BLOB" "$TMP/rc23.py"
+    python "$TMP/rc23.py" "$TMP/stage"
+    current="1.0.0-rc23"
+  fi
+  [[ "$current" == "1.0.0-rc23" ]] || { echo "Versi Core tidak dapat dimigrasikan otomatis: $current" >&2; return 1; }
+  fetch_transform "$RC23_GUARD_URL" "$RC23_GUARD_BLOB" "$TMP/rc23-guard.py"
+  python "$TMP/rc23-guard.py" "$TMP/stage"
 }
-run_quiet "Menerapkan Core RC22" 66 apply_core_updates "$CURRENT"
+run_quiet "Menerapkan Core RC23" 66 apply_core_updates "$CURRENT"
 
 validate_core() {
   PYTHONPATH="$TMP/stage/core" python -m compileall -q "$TMP/stage/core/furina_agent"
   PYTHONPATH="$TMP/stage/core" python - <<'PY'
 from furina_agent.version import VERSION
 from furina_agent.agent import AndroidAgent
-assert VERSION == '1.0.0-rc22', VERSION
+assert VERSION == '1.0.0-rc23', VERSION
 assert hasattr(AndroidAgent, '_compile_ui_sequence')
 assert hasattr(AndroidAgent, '_try_ui_sequence')
+assert hasattr(AndroidAgent, '_compile_semantic_sequence')
 text=open(__import__('furina_agent.chat_surface').chat_surface.__file__,encoding='utf-8').read()
 assert '#080f0d' in text and 'Furina[/]' in text
 assert 'def _approve_agent_action' in text
 assert 'lambda *_args: True' not in text
+companion=open(__import__('furina_agent.companion').companion.__file__,encoding='utf-8').read()
+assert 'semantic intent parser Android internal' in companion
+assert '_DEVICE_VERBS = re.compile' not in companion
+tui=open(__import__('furina_agent.tui').tui.__file__,encoding='utf-8').read()
+assert 'semantic_steps=intent.steps' in tui
+assert 'lambda *_args: True' not in tui
 PY
 }
 run_quiet "Memvalidasi Core, UI, dan guard aksi" 78 validate_core
@@ -162,7 +180,7 @@ run_quiet "Memvalidasi Core, UI, dan guard aksi" 78 validate_core
 rm -rf "$ROOT/core.prev"
 mv "$ROOT/core" "$ROOT/core.prev"
 mv "$TMP/stage/core" "$ROOT/core"
-mark 84 "Core RC22 aktif · memory/model tetap"
+mark 84 "Core RC23 aktif · memory/model tetap"
 
 BRIDGE_NEEDS_INSTALL=0
 BRIDGE_STATUS_UNKNOWN=0
@@ -232,12 +250,12 @@ else
 fi
 mark 100 "Update selesai"
 
-printf '\n\033[32m✓\033[0m Furina Agent RC22 siap.\n'
+printf '\n\033[32m✓\033[0m Furina Agent RC23 siap.\n'
 if (( BRIDGE_NEEDS_INSTALL )); then
   printf '\033[33m!\033[0m Bridge yang terpasang lebih lama. URL APK resmi RC13 dibuka satu kali; setelah download pilih \033[1mPerbarui\033[0m.\n'
 elif (( BRIDGE_STATUS_UNKNOWN )); then
   printf '\033[33m!\033[0m Bridge tidak merespons, jadi updater tidak menebak dan tidak membuka download. Buka Furina Bridge lalu jalankan \033[1;36mfurina update\033[0m lagi untuk verifikasi.\n'
 else
-  printf '\033[2mCore RC22 · Bridge sudah sesuai · memory dan model dipertahankan.\033[0m\n'
+  printf '\033[2mCore RC23 · Bridge sudah sesuai · memory dan model dipertahankan.\033[0m\n'
 fi
 printf '\n'

@@ -18,7 +18,7 @@ If Furina is already installed, normal maintenance remains:
 furina update
 ```
 
-The updater uses the same dependency bootstrap and staged validation, so a missing package is repaired automatically and an invalid new Core is rejected before it can replace the currently installed Core.
+The updater uses staged validation, so an invalid new Core is rejected before it can replace the currently installed Core. Model and memory data remain separate from the active Core. Bridge updates are only offered when the installed Bridge version is actually older than the version required by the manifest.
 
 After setup, daily use is simply:
 
@@ -36,11 +36,13 @@ furina optimize
 
 `furina optimize` benchmarks the actual local GGUF on the phone and selects a better CPU thread count. It is not run every startup.
 
-## Android control — RC13
+## Android control — Core RC23 / Bridge RC13
 
-RC13 uses a **direct-first** control path. Clear low-risk commands are executed by the Bridge before Furina spends time on an LLM planner. The full agent remains the fallback for ambiguous, multi-step, external or sensitive tasks.
+RC23 separates **understanding the user's goal** from **executing Android primitives**. The Core first preserves a device request as a semantic intent with ordered conceptual steps. This prevents a multi-step request from being declared complete merely because its first action, such as opening an app, succeeded.
 
-Examples that can use the direct path include opening an installed app, Back/Home/Recents, simple scrolling, an unambiguous tap target, and text input into a clear editable field. Commands such as Send/Post/Share/Delete/Pay/Transfer/Login remain on the guarded full-agent path.
+The semantic parser is intended to tolerate casual phrasing, abbreviations, mixed language and minor typos without growing a large hard-coded vocabulary. Fuzzy matching is limited to resolving an app hint against the actual installed-app list. Once the intent is understood, predictable low-risk steps are compiled into the persistent Bridge executor so the model is not called between every tap.
+
+The deterministic direct path is now only an atomic latency optimization. An exact command such as opening one known app may execute immediately, while a request such as `buka Google dan cari makanan sehat` must retain both `open_app` and `search` before Furina can report completion. RC23 CI includes a regression test specifically preventing that request from being short-circuited after `open_app`.
 
 The selected backend is configured under **Settings → Kontrol perangkat**. Runtime diagnostics stay in Settings and are not printed into the conversation.
 
@@ -50,14 +52,17 @@ The selected backend is configured under **Settings → Kontrol perangkat**. Run
 
 Shizuku/root do not expose an arbitrary remote shell through the Furina Core API. The privileged interface is restricted to explicit device-control primitives, with Accessibility/native control retained as fallback.
 
-Natural Android tasks can still be given to the Agent, for example:
+Natural Android tasks can be given to the Agent, for example:
 
 ```text
 buka YouTube dan cari MrBeast
+bka gogle trus cri makanan sehat
 buka WhatsApp, cari Budi, tulis "aku pulang jam 8", lalu kirim
 ```
 
-Complex tasks may still require planning, but straightforward actions should begin without waiting for a planner round-trip. External side effects remain guarded.
+Multi-step tasks that require the screen ask for screen permission. External side effects such as Send/Post/Share remain on the guarded agent path and require a specific confirmation before execution. Dynamic tasks can fall back to the universal planner from the current real screen instead of replaying completed steps.
+
+RC23 is a Core-only update. Bridge remains RC13, so an already current RC13 installation should not be downloaded again during `furina update`.
 
 ## Reminders
 
@@ -81,8 +86,8 @@ furina provider-test groq
 furina provider-test nvidia
 ```
 
-The online routing hotfix keeps model metadata type-stable so providers that return an empty `pricing` object cannot crash model ranking.
+AUTO routing prefers a configured online provider and falls back to local inference when online providers are unavailable within the bounded failover budget.
 
 ## Safety
 
-Normal navigation/text input can be approved per task. External side effects such as Send/Post/Share remain on the guarded agent path. Payment, transfer, uninstall, destructive deletion, factory reset and security changes remain blocked from autonomous execution. Normal mode remains the default; Shizuku/root are opt-in and initiated from Settings rather than from conversation text.
+Normal navigation/text input can be approved per task. External side effects such as Send/Post/Share remain on the guarded agent path and require specific confirmation. Payment, transfer, uninstall, destructive deletion, factory reset and security changes remain blocked from autonomous execution. The same guard is retained in the fallback TUI if the primary Textual chat surface cannot start. Normal mode remains the default; Shizuku/root are opt-in and initiated from Settings rather than from conversation text.
