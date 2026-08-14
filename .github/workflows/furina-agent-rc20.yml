@@ -1,4 +1,4 @@
-name: Build Furina Agent RC23 + Bridge RC13 Compatibility
+name: Build Furina Agent RC24 + Bridge RC14
 
 on:
   pull_request:
@@ -14,23 +14,25 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: furina-agent-rc23-${{ github.ref }}
+  group: furina-agent-rc24-${{ github.ref }}
   cancel-in-progress: true
 
 env:
+  TAG: furina-agent-v1.0.0-rc14
+  APK_NAME: Furina-Agent-Bridge-v1.0.0-rc14.apk
   EXPECTED_SOURCE_SHA: 6b51c907c8a79ab6af06ef891b5013ce8ed964bdc168cf0e71751eacf4161fea
 
 jobs:
-  validate:
+  validate-and-release:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
 
-      - name: Reassemble and validate RC23
+      - name: Reassemble and validate RC24
         shell: bash
         run: |
           set -euo pipefail
@@ -39,8 +41,9 @@ jobs:
           : > "$ARCHIVE"
           for chunk in "$META"/source-*.b64; do base64 --decode "$chunk" >> "$ARCHIVE"; done
           echo "$EXPECTED_SOURCE_SHA  $ARCHIVE" | sha256sum -c -
-          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["version"])')" = "1.0.0-rc23"
-          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["bridge_version"])')" = "1.0.0-rc13"
+          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["version"])')" = "1.0.0-rc24"
+          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["bridge_version"])')" = "1.0.0-rc14"
+          test "$(python3 -c 'import json;print(json.load(open("experiments/furina-agent-final/manifest.json"))["bridge_version_code"])')" = "10014"
 
           rm -rf /tmp/furina-agent-src && mkdir -p /tmp/furina-agent-src
           tar -xzf "$ARCHIVE" -C /tmp/furina-agent-src
@@ -58,41 +61,29 @@ jobs:
               target=(dst/item['target']).resolve(); target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(data)
           PY
 
-          for f in apply-bridge-rc4.py apply-universal-agent-rc5.py apply-core-rc6.py apply-core-rc6-postfix.py apply-bridge-rc6.py apply-core-rc7.py apply-bridge-rc7.py apply-core-rc8.py apply-core-rc8-postfix.py apply-core-rc9.py apply-ui-rc10.py apply-ui-rc10-hotfix.py apply-core-rc11.py apply-ui-rc12.py apply-ui-rc12-postfix.py apply-core-rc13.py apply-bridge-rc8.py apply-core-rc14.py apply-core-rc15.py apply-core-rc16.py apply-core-rc17-hotfix.py apply-bridge-rc9.py apply-core-rc18.py apply-ui-performance-bridge-rc10.py apply-ui-performance-rc19.py apply-reactive-bridge-rc11.py apply-reactive-core-rc20.py apply-reactive-bridge-rc12.py apply-reactive-core-rc21.py apply-bridge-rc13.py apply-system-rc22.py apply-safety-rc22.py apply-semantic-core-rc23.py apply-semantic-guard-rc23.py; do
+          for f in apply-bridge-rc4.py apply-universal-agent-rc5.py apply-core-rc6.py apply-core-rc6-postfix.py apply-bridge-rc6.py apply-core-rc7.py apply-bridge-rc7.py apply-core-rc8.py apply-core-rc8-postfix.py apply-core-rc9.py apply-ui-rc10.py apply-ui-rc10-hotfix.py apply-core-rc11.py apply-ui-rc12.py apply-ui-rc12-postfix.py apply-core-rc13.py apply-bridge-rc8.py apply-core-rc14.py apply-core-rc15.py apply-core-rc16.py apply-core-rc17-hotfix.py apply-bridge-rc9.py apply-core-rc18.py apply-ui-performance-bridge-rc10.py apply-ui-performance-rc19.py apply-reactive-bridge-rc11.py apply-reactive-core-rc20.py apply-reactive-bridge-rc12.py apply-reactive-core-rc21.py apply-bridge-rc13.py apply-system-rc22.py apply-safety-rc22.py apply-semantic-core-rc23.py apply-semantic-guard-rc23.py apply-lifecycle-core-rc24.py apply-bridge-rc14.py; do
             python3 "$META/overrides/$f" "$ROOT"
           done
 
           python3 -m compileall -q "$ROOT/core/furina_agent"
-          grep -q 'VERSION = "1.0.0-rc23"' "$ROOT/core/furina_agent/version.py"
-          grep -q 'semantic intent parser Android internal' "$ROOT/core/furina_agent/companion.py"
-          grep -q '_compile_semantic_sequence' "$ROOT/core/furina_agent/agent.py"
-          grep -q 'semantic_steps=intent.steps' "$ROOT/core/furina_agent/chat_surface.py"
-          grep -q 'semantic_steps=intent.steps' "$ROOT/core/furina_agent/tui.py"
+          grep -q 'VERSION = "1.0.0-rc24"' "$ROOT/core/furina_agent/version.py"
+          grep -q 'return_to_termux_result' "$ROOT/core/furina_agent/agent.py"
+          grep -q 'agent_completed_on_user_return' "$ROOT/core/furina_agent/agent.py"
+          grep -q '__FURINA_USER_RETURN__' "$ROOT/core/furina_agent/agent.py"
+          grep -q 'cancelled_user_return' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/FurinaAccessibilityService.java"
+          grep -q 'versionCode 10014' "$ROOT/bridge/app/build.gradle"
+          grep -q "versionName '1.0.0-rc14'" "$ROOT/bridge/app/build.gradle"
 
           PYTHONPATH="$ROOT/core" python3 - <<'PY'
-          from furina_agent.direct_control import DirectDeviceControl
-          from furina_agent.companion import CompanionSession
+          import inspect
           from furina_agent.agent import AndroidAgent
-          class Cfg: device_control_mode='normal'
-          class Store:
-              def log_event(self,*a,**k): pass
-          class Bridge:
-              def __init__(self): self.calls=[]
-              def apps(self): return {'apps':[{'label':'Google','package':'com.google.android.googlequicksearchbox'},{'label':'YouTube','package':'com.google.android.youtube'}]}
-              def control(self,a): self.calls.append(a); return {'ok':True}
-              def action(self,a): self.calls.append(a); return {'ok':True}
-              def screen(self): return {'nodes':[]}
-          bridge=Bridge(); direct=DirectDeviceControl(Cfg(),Store(),bridge)
-          assert not direct.try_execute('buka google dan cari makanan sehat').handled
-          assert direct.try_execute('buka google').handled
-          apps=bridge.apps()['apps']
-          assert CompanionSession._resolve_app_hint('Gogle', apps) == 'com.google.android.googlequicksearchbox'
-          steps=CompanionSession._normalize_semantic_steps([{'type':'open_app','app':'Gogle'},{'type':'search','query':'makanan sehat'}], apps)
-          agent=AndroidAgent.__new__(AndroidAgent)
-          sequence=agent._compile_semantic_sequence(steps, apps)
-          assert [x['type'] for x in sequence] == ['open_app','tap_text','set_text_best','ime_best']
-          assert sequence[2]['text'] == 'makanan sehat'
-          print('RC23_SEMANTIC_INTENT_SMOKE_OK')
+          src=inspect.getsource(AndroidAgent.run)
+          assert '>= 0.12' in src
+          assert 'return_to_termux_result' in src
+          assert 'cancel_event.set()' in src
+          seq=inspect.getsource(AndroidAgent._try_ui_sequence)
+          assert '__FURINA_USER_RETURN__' in seq
+          print('RC24_TASK_LIFECYCLE_SMOKE_OK')
           PY
 
       - name: Validate updater contract
@@ -100,14 +91,14 @@ jobs:
         run: |
           set -euo pipefail
           META=experiments/furina-agent-final
-          python3 -m py_compile "$META/overrides/apply-semantic-core-rc23.py" "$META/overrides/apply-semantic-guard-rc23.py"
-          test "$(git hash-object "$META/overrides/apply-semantic-core-rc23.py")" = "9f339191a3b0ddab2b89f0690e019b63552fe377"
-          test "$(git hash-object "$META/overrides/apply-semantic-guard-rc23.py")" = "a1bbd134c2b2424465e1b85fbc478ad20f9ea0ea"
+          python3 -m py_compile "$META/overrides/apply-lifecycle-core-rc24.py" "$META/overrides/apply-bridge-rc14.py"
+          test "$(git hash-object "$META/overrides/apply-lifecycle-core-rc24.py")" = "09e34acce76ed6675de1aa752ee10ef067b0d2bb"
+          test "$(git hash-object "$META/overrides/apply-bridge-rc14.py")" = "a27893c57b751b27c1b979d8adc2c625288ace9d"
           bash -n "$META/install.sh"
-          grep -q 'VERSION="1.0.0-rc23"' "$META/install.sh"
-          grep -q 'RC23_GUARD_BLOB="a1bbd134c2b2424465e1b85fbc478ad20f9ea0ea"' "$META/install.sh"
+          grep -q 'VERSION="1.0.0-rc24"' "$META/install.sh"
+          grep -q 'RC24_BLOB="09e34acce76ed6675de1aa752ee10ef067b0d2bb"' "$META/install.sh"
           grep -q 'installed_code >= expected_code' "$META/install.sh"
-          grep -q 'Bridge sudah sesuai · tanpa download' "$META/install.sh"
+          grep -q 'Memeriksa Bridge RC14' "$META/install.sh"
 
       - uses: actions/setup-java@v5
         with:
@@ -122,10 +113,74 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Verify unchanged Bridge RC13 still builds
+
+      - name: Build Bridge RC14 on PR
+        if: github.event_name == 'pull_request'
         working-directory: /tmp/furina-agent-src/termux
         shell: bash
+        run: gradle --no-daemon --stacktrace :bridge:app:assembleDebug
+
+      - name: Restore Bridge signing identity
+        if: github.event_name != 'pull_request'
+        working-directory: /tmp/furina-agent-src/termux
+        env:
+          FURINA_RELEASE_KEYSTORE_B64: ${{ secrets.FURINA_RELEASE_KEYSTORE_B64 }}
+        shell: bash
         run: |
-          gradle --no-daemon --stacktrace :bridge:app:assembleDebug
-          grep -q 'versionCode 10013' bridge/app/build.gradle
-          grep -q "versionName '1.0.0-rc13'" bridge/app/build.gradle
+          test -n "$FURINA_RELEASE_KEYSTORE_B64"
+          printf '%s' "$FURINA_RELEASE_KEYSTORE_B64" | base64 --decode > bridge/app/furina-agent-release.jks
+          chmod 600 bridge/app/furina-agent-release.jks
+
+      - name: Build signed Bridge RC14
+        if: github.event_name != 'pull_request'
+        working-directory: /tmp/furina-agent-src/termux
+        env:
+          FURINA_AGENT_KEYSTORE_PATH: /tmp/furina-agent-src/termux/bridge/app/furina-agent-release.jks
+          FURINA_KEYSTORE_PASSWORD: ${{ secrets.FURINA_KEYSTORE_PASSWORD }}
+          FURINA_KEY_ALIAS: ${{ secrets.FURINA_KEY_ALIAS }}
+          FURINA_KEY_PASSWORD: ${{ secrets.FURINA_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          test -n "$FURINA_KEYSTORE_PASSWORD" && test -n "$FURINA_KEY_ALIAS" && test -n "$FURINA_KEY_PASSWORD"
+          gradle --no-daemon --stacktrace :bridge:app:assembleRelease
+
+      - name: Verify and publish RC14
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SOURCE=/tmp/furina-agent-src/termux/bridge/app/build/outputs/apk/release/app-release.apk
+          cp "$SOURCE" "$APK_NAME"
+          APKANALYZER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer | sort | tail -n1)"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          PACKAGE="$($APKANALYZER manifest application-id "$APK_NAME" | tr -d '\r')"
+          CODE="$($APKANALYZER manifest version-code "$APK_NAME" | tr -d '\r')"
+          NAME="$($APKANALYZER manifest version-name "$APK_NAME" | tr -d '\r')"
+          SHA="$(sha256sum "$APK_NAME" | awk '{print $1}')"
+          CERT="$($APKSIGNER verify --verbose --print-certs "$APK_NAME")"
+          SIGNER="$(printf '%s\n' "$CERT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
+          test "$PACKAGE" = com.wynndev.furinaagentbridge
+          test "$CODE" = 10014
+          test "$NAME" = 1.0.0-rc14
+          export PACKAGE CODE NAME SHA SIGNER
+          python3 - <<'PY'
+          import json,os
+          data={
+            'version':os.environ['NAME'],
+            'version_code':int(os.environ['CODE']),
+            'package_name':os.environ['PACKAGE'],
+            'sha256':os.environ['SHA'],
+            'signer_sha256':os.environ['SIGNER'],
+            'apk_url':'https://github.com/WynnDev-rill/furina/releases/download/furina-agent-v1.0.0-rc14/Furina-Agent-Bridge-v1.0.0-rc14.apk'
+          }
+          open('bridge.json','w',encoding='utf-8').write(json.dumps(data,indent=2)+'\n')
+          PY
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK_NAME" bridge.json --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" "$APK_NAME" bridge.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+              --title "Furina Agent Bridge 1.0.0 RC14 — By Wynn" \
+              --notes "RC14 adds a user-return circuit breaker so continuous Android actions stop when Termux returns to foreground."
+          fi
