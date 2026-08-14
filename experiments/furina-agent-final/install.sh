@@ -1,290 +1,131 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-VERSION="1.0.0-rc32"
+VERSION="1.0.0-rc33"
 ROOT="$HOME/.furina-agent"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
-MANIFEST_URL="$BASE/manifest.json"
-BASE_INSTALL_URL="https://raw.githubusercontent.com/WynnDev-rill/furina/90ffa178c678441a666cd82f87f08b1755552fb1/experiments/furina-agent-final/install.sh"
-BASE_INSTALL_BLOB="29f11a7c5d4452ca6c9e69f413118329e5958765"
-RC19_URL="$BASE/overrides/apply-ui-performance-rc19.py"; RC19_BLOB="8e2e4f7248057c1cf8888fd15a990736767ed1fa"
-RC20_URL="$BASE/overrides/apply-reactive-core-rc20.py"; RC20_BLOB="39e2a55579dd2ec90095c27a7498b6c088c7dbed"
-RC21_URL="$BASE/overrides/apply-reactive-core-rc21.py"; RC21_BLOB="33f75d16d1734831a28e4daad987d94caabd59ef"
-RC22_URL="$BASE/overrides/apply-system-rc22.py"; RC22_BLOB="828146920bfbceba759e1163ffce731e9ad65b05"
-RC22_SAFETY_URL="$BASE/overrides/apply-safety-rc22.py"; RC22_SAFETY_BLOB="38237e878d206e831677e9d83980a436e7f3bc80"
-RC23_URL="$BASE/overrides/apply-semantic-core-rc23.py"; RC23_BLOB="9f339191a3b0ddab2b89f0690e019b63552fe377"
-RC23_GUARD_URL="$BASE/overrides/apply-semantic-guard-rc23.py"; RC23_GUARD_BLOB="a1bbd134c2b2424465e1b85fbc478ad20f9ea0ea"
-RC24_URL="$BASE/overrides/apply-lifecycle-core-rc24.py"; RC24_BLOB="09e34acce76ed6675de1aa752ee10ef067b0d2bb"
-RC25_URL="$BASE/overrides/apply-stateful-core-rc25.py"; RC25_BLOB="45d763724a3385eab3f278a14f0465279357b67c"
-RC25_POSTFIX_URL="$BASE/overrides/apply-stateful-core-rc25-postfix.py"; RC25_POSTFIX_BLOB="16cb897717beb33063bcd1863b30060e1607b092"
-RC26_URL="$BASE/overrides/apply-semantic-resilience-rc26.py"; RC26_BLOB="9fd353b275a2a426fe9ab2e8d7ebb5808586b965"
-RC27_URL="$BASE/overrides/apply-runtime-recovery-rc27.py"; RC27_BLOB="0329f71edfad6f34f1892bdbc7e0388f432ce070"
-RC28_URL="$BASE/overrides/apply-runtime-core-rc28.py"; RC28_BLOB="98038cd52fa88652ca141a1af2ee3f9d10cebf5f"
-RC29_URL="$BASE/overrides/apply-universal-ui-core-rc29.py"; RC29_BLOB="eb0a507da074d280f2f263ae70e3c0e4e2afd220"
-RC30_URL="$BASE/overrides/apply-privileged-core-rc30.py"; RC30_BLOB="e2a98f867c86786de99c942c3baf832fdc330e5d"
-RC31_URL="$BASE/overrides/apply-device-control-core-rc31.py"; RC31_BLOB="8ce33b8a81feb379f6187583f350b4bf3097268c"
-RC32_URL="$BASE/overrides/apply-policy-boundary-core-rc32.py"; RC32_BLOB="3f8869288010512f764eb094e1be5e4291420c69"
+PREV_COMMIT="2f289e025b29b5525828bbe48073526a56fa17e5"
+PREV_INSTALL_URL="https://raw.githubusercontent.com/WynnDev-rill/furina/$PREV_COMMIT/experiments/furina-agent-final/install.sh"
+PREV_MANIFEST_URL="https://raw.githubusercontent.com/WynnDev-rill/furina/$PREV_COMMIT/experiments/furina-agent-final/manifest.json"
+PREV_INSTALL_BLOB="198fb6b21d739388481c18fb21e3209fa3c34425"
+
+RC33_DIR_URL="$BASE/overrides/rc33"
+APPLY_BLOB="8d3f94bcac059242f6d00a3bb6e4bc48d0983b4f"
+PSYCHE_BLOB="f94cbe1b0226a1d26d68c67e55a524a84fa999eb"
+CHAT_BLOB="284cb76fc9afcc12b8e2d8b590597eab0addf57e"
+PERSONA_BLOB="40ebd81d3a98e00747a0ec5d48230a5edada8fb5"
+RESPONSE_BLOB="e69b27483b13dc38d8fb33719e70d45d50fa265a"
+MIND_BLOB="7eeaf824add40123f1dc9a6943d34041cbf2fbed"
+ROUTING_BLOB="fca98541d9fec5d777b89427d6f398f9a8dddb4f"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
   echo "Installer ini harus dijalankan dari Termux." >&2
   exit 1
 fi
+
 mkdir -p "$ROOT"/{cache,logs,run,data,models}
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-LOG="$ROOT/logs/update-rc32.log"
+LOG="$ROOT/logs/update-rc33.log"
 : > "$LOG"
 
-DISPLAY_NAME="Furina"
-if [[ -f "$ROOT/config.json" ]] && command -v python >/dev/null 2>&1; then
-  DISPLAY_NAME="$(python - "$ROOT/config.json" <<'PY' 2>/dev/null || true
-import json,sys
-try:
-    d=json.load(open(sys.argv[1],encoding='utf-8'))
-    print(str(d.get('persona_name') or 'Furina').strip()[:48] or 'Furina')
-except Exception:
-    print('Furina')
-PY
-)"
-fi
-
-PROGRESS=0
-ui_title() {
-  printf '\033[2J\033[H'
-  printf '\033[1;36m%s\033[0m \033[1mBy Wynn\033[0m\n' "$DISPLAY_NAME"
-  printf '\033[2mUpdate Agent RC32 · Goal Lock + Action Firewall + fresh-state/privacy boundary\033[0m\n\n'
-}
-ui_progress() {
-  local pct="$1" label="$2" glyph="${3:-›}" width=16 filled empty bar="" i
-  (( pct < 0 )) && pct=0; (( pct > 100 )) && pct=100
-  filled=$(( pct * width / 100 )); empty=$(( width - filled ))
-  for ((i=0;i<filled;i++)); do bar+="█"; done
-  for ((i=0;i<empty;i++)); do bar+="░"; done
-  printf '\r\033[K\033[35m%s\033[0m \033[2m[%s]\033[0m \033[1m%3d%%\033[0m %s' "$glyph" "$bar" "$pct" "$label"
-}
-mark() { PROGRESS="$1"; ui_progress "$1" "$2" "✓"; printf '\n'; }
-run_quiet() {
-  local label="$1" target="$2"; shift 2
-  local frames='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' i=0 rc next="$PROGRESS"
-  ui_progress "$next" "$label" "${frames:0:1}"
-  "$@" >>"$LOG" 2>&1 & local pid=$!
-  while kill -0 "$pid" >/dev/null 2>&1; do
-    (( next < target - 1 )) && next=$((next+1))
-    i=$(((i+1)%10)); ui_progress "$next" "$label" "${frames:$i:1}"; sleep 0.18
-  done
-  set +e; wait "$pid"; rc=$?; set -e
-  if (( rc != 0 )); then
-    printf '\r\033[K\033[31m×\033[0m %s\n' "$label"
-    tail -n 24 "$LOG" >&2 || true
-    exit "$rc"
-  fi
-  mark "$target" "$label"
-}
 verify_git_blob() {
   python - "$1" "$2" <<'PY'
 import hashlib,pathlib,sys
-p,e=sys.argv[1:]; d=pathlib.Path(p).read_bytes()
-a=hashlib.sha1(f"blob {len(d)}\0".encode()+d).hexdigest()
-if a!=e: raise SystemExit(f"Integritas update berubah: {p} {a}")
+path, expected = sys.argv[1:]
+data = pathlib.Path(path).read_bytes()
+actual = hashlib.sha1(f"blob {len(data)}\0".encode() + data).hexdigest()
+if actual != expected:
+    raise SystemExit(f"Integritas update berubah: {path} {actual} != {expected}")
 PY
 }
-fetch_transform() {
-  curl -fsSL --retry 3 "$1" -o "$3"
-  verify_git_blob "$3" "$2"
+
+fetch_blob() {
+  local url="$1" expected="$2" out="$3"
+  curl -fsSL --retry 3 "$url" -o "$out"
+  verify_git_blob "$out" "$expected"
 }
-read_core_version() {
+
+core_version() {
   python - "$ROOT/core/furina_agent/version.py" <<'PY'
 import re,sys
-s=open(sys.argv[1],encoding='utf-8').read(); m=re.search(r'VERSION\s*=\s*["\x27]([^"\x27]+)',s)
-print(m.group(1) if m else 'unknown')
+try:
+    s=open(sys.argv[1],encoding="utf-8").read()
+except Exception:
+    print("missing"); raise SystemExit
+m=re.search(r'VERSION\s*=\s*["\x27]([^"\x27]+)',s)
+print(m.group(1) if m else "unknown")
 PY
 }
 
-ui_title
-mark 5 "Memeriksa instalasi Furina"
+printf '\033[2J\033[H'
+printf '\033[1;36mFurina\033[0m \033[1mBy Wynn\033[0m\n'
+printf '\033[2mUpdate Agent RC33 · Psyche continuity + role-aware model routing\033[0m\n\n'
 
-if [[ ! -f "$ROOT/core/furina_agent/version.py" ]]; then
-  fetch_transform "$BASE_INSTALL_URL" "$BASE_INSTALL_BLOB" "$TMP/install-base.sh"
-  run_quiet "Menyiapkan fondasi Furina" 28 bash "$TMP/install-base.sh" "$@"
+CURRENT="$(core_version 2>/dev/null || true)"
+if [[ "$CURRENT" == "1.0.0-rc33" ]]; then
+  echo "✓ Core RC33 sudah aktif."
+  exit 0
 fi
 
-CURRENT="$(read_core_version)"
-mark 33 "Core saat ini: $CURRENT"
-curl -fsSL --retry 3 "$MANIFEST_URL" -o "$TMP/manifest.json"
-EXPECTED="$(python -c 'import json;print(json.load(open("'"$TMP"'/manifest.json"))["version"])')"
-[[ "$EXPECTED" == "1.0.0-rc32" ]] || { echo "Manifest belum menunjuk RC32: $EXPECTED" >&2; exit 1; }
-mark 39 "Manifest RC32 terverifikasi"
-
-mkdir -p "$TMP/stage"
-cp -R "$ROOT/core" "$TMP/stage/core"
-mark 44 "Membuat salinan aman Core"
-
-apply_core_updates() {
-  local current="$1"
-  if [[ "$current" == "1.0.0-rc18" ]]; then fetch_transform "$RC19_URL" "$RC19_BLOB" "$TMP/rc19.py"; python "$TMP/rc19.py" "$TMP/stage"; current="1.0.0-rc19"; fi
-  if [[ "$current" == "1.0.0-rc19" ]]; then fetch_transform "$RC20_URL" "$RC20_BLOB" "$TMP/rc20.py"; python "$TMP/rc20.py" "$TMP/stage"; current="1.0.0-rc20"; fi
-  if [[ "$current" == "1.0.0-rc20" ]]; then fetch_transform "$RC21_URL" "$RC21_BLOB" "$TMP/rc21.py"; python "$TMP/rc21.py" "$TMP/stage"; current="1.0.0-rc21"; fi
-  if [[ "$current" == "1.0.0-rc21" ]]; then fetch_transform "$RC22_URL" "$RC22_BLOB" "$TMP/rc22.py"; python "$TMP/rc22.py" "$TMP/stage"; current="1.0.0-rc22"; fi
-  if [[ "$current" == "1.0.0-rc22" ]]; then
-    fetch_transform "$RC22_SAFETY_URL" "$RC22_SAFETY_BLOB" "$TMP/rc22-safety.py"; python "$TMP/rc22-safety.py" "$TMP/stage"
-    fetch_transform "$RC23_URL" "$RC23_BLOB" "$TMP/rc23.py"; python "$TMP/rc23.py" "$TMP/stage"; current="1.0.0-rc23"
-  fi
-  if [[ "$current" == "1.0.0-rc23" ]]; then
-    fetch_transform "$RC23_GUARD_URL" "$RC23_GUARD_BLOB" "$TMP/rc23-guard.py"; python "$TMP/rc23-guard.py" "$TMP/stage"
-    fetch_transform "$RC24_URL" "$RC24_BLOB" "$TMP/rc24.py"; python "$TMP/rc24.py" "$TMP/stage"; current="1.0.0-rc24"
-  fi
-  if [[ "$current" == "1.0.0-rc24" ]]; then fetch_transform "$RC25_URL" "$RC25_BLOB" "$TMP/rc25.py"; python "$TMP/rc25.py" "$TMP/stage"; current="1.0.0-rc25"; fi
-  if [[ "$current" == "1.0.0-rc25" ]]; then
-    fetch_transform "$RC25_POSTFIX_URL" "$RC25_POSTFIX_BLOB" "$TMP/rc25-postfix.py"; python "$TMP/rc25-postfix.py" "$TMP/stage"
-    fetch_transform "$RC26_URL" "$RC26_BLOB" "$TMP/rc26.py"; python "$TMP/rc26.py" "$TMP/stage"; current="1.0.0-rc26"
-  fi
-  if [[ "$current" == "1.0.0-rc26" ]]; then fetch_transform "$RC27_URL" "$RC27_BLOB" "$TMP/rc27.py"; python "$TMP/rc27.py" "$TMP/stage"; current="1.0.0-rc27"; fi
-  if [[ "$current" == "1.0.0-rc27" ]]; then fetch_transform "$RC28_URL" "$RC28_BLOB" "$TMP/rc28.py"; python "$TMP/rc28.py" "$TMP/stage"; current="1.0.0-rc28"; fi
-  if [[ "$current" == "1.0.0-rc28" ]]; then fetch_transform "$RC29_URL" "$RC29_BLOB" "$TMP/rc29.py"; python "$TMP/rc29.py" "$TMP/stage"; current="1.0.0-rc29"; fi
-  if [[ "$current" == "1.0.0-rc29" ]]; then fetch_transform "$RC30_URL" "$RC30_BLOB" "$TMP/rc30.py"; python "$TMP/rc30.py" "$TMP/stage"; current="1.0.0-rc30"; fi
-  if [[ "$current" == "1.0.0-rc30" ]]; then fetch_transform "$RC31_URL" "$RC31_BLOB" "$TMP/rc31.py"; python "$TMP/rc31.py" "$TMP/stage"; current="1.0.0-rc31"; fi
-  if [[ "$current" == "1.0.0-rc31" ]]; then fetch_transform "$RC32_URL" "$RC32_BLOB" "$TMP/rc32.py"; python "$TMP/rc32.py" "$TMP/stage"; current="1.0.0-rc32"; fi
-  [[ "$current" == "1.0.0-rc32" ]] || { echo "Versi Core tidak dapat dimigrasikan otomatis: $current" >&2; return 1; }
-}
-run_quiet "Menerapkan policy boundary RC32" 67 apply_core_updates "$CURRENT"
-
-validate_core() {
-  PYTHONPATH="$TMP/stage/core" python -m compileall -q "$TMP/stage/core/furina_agent"
-  PYTHONPATH="$TMP/stage/core" python - <<'PY'
-from furina_agent.version import VERSION
-from furina_agent.agent import AndroidAgent
-from furina_agent.policy import (
-    build_goal_lock, classify_action, redact_compact_screen,
-    validate_fresh_target, validate_sequence,
-)
-from furina_agent.tool_runtime import AgentToolRuntime
-
-if VERSION != '1.0.0-rc32': raise SystemExit(VERSION)
-for name in ('_compact_screen','_with_vision','_plan','risk','_wait_after_action','_try_fast_skill','_device_mode'):
-    if not hasattr(AndroidAgent,name): raise SystemExit('missing '+name)
-
-agent_src=open(__import__('furina_agent.agent').agent.__file__,encoding='utf-8').read()
-for marker in (
-    'STATE_UI_UNTRUSTED','nodes_ranked','agent_vision_rescue','event_then_single_snapshot',
-    'choose_fast_skill','RC32_POLICY_BOUNDARY','agent_goal_lock','agent_action_firewall',
-    'agent_privacy_vision_blocked','stale_target',
-):
-    assert marker in agent_src, marker
-
-apps=[
-    {'label':'WhatsApp','package':'com.whatsapp'},
-    {'label':'Notes','package':'com.notes'},
-]
-lock=build_goal_lock(
-    'buka WhatsApp cari Ariel',
-    apps,
-    [{'type':'open_app','package':'com.whatsapp'},{'type':'search','query':'Ariel'}],
-)
-assert lock.allowed_packages == frozenset({'com.whatsapp'})
-assert classify_action({'package':'com.whatsapp','nodes':[]},{'type':'open_app','package':'com.notes'},lock)[0]=='blocked'
-assert classify_action({'package':'com.whatsapp','nodes':[]},{'type':'ime_action','role':'search'},lock)[0]=='write'
-assert classify_action({'package':'com.whatsapp','nodes':[]},{'type':'ime_action','role':'message'},lock)[0]=='uncertain'
-assert classify_action(
-    {'package':'com.whatsapp','nodes':[{'id':7,'text':'Send'}]},
-    {'type':'tap_node','node':7},
-    lock,
-)[0]=='blocked'
-
-send_lock=build_goal_lock(
-    'buka WhatsApp lalu kirim pesan test',
-    apps,
-    [{'type':'open_app','package':'com.whatsapp'},{'type':'type','text':'test','field_role':'message'},{'type':'send'}],
-)
-assert send_lock.external_allowed is True
-assert classify_action({'package':'com.whatsapp','nodes':[]},{'type':'ime_action','role':'message'},send_lock)[0]=='external'
-
-redacted=redact_compact_screen({'nodes':[{'id':1,'text':'OTP 123456','view_id':'otp_code'}]})
-assert redacted['nodes'][0]['text']=='[REDACTED_SENSITIVE]'
-
-origin={'package':'com.whatsapp','nodes':[{'id':1,'view_id':'message','class':'EditText','bounds':'[0,0][10,10]'}]}
-fresh={'package':'com.whatsapp','nodes':[{'id':9,'view_id':'message','class':'EditText','bounds':'[0,0][10,10]'}]}
-ok,_=validate_fresh_target(origin,fresh,{'type':'set_text','node':1,'target':{'view_id':'message','class':'EditText','bounds':'[0,0][10,10]'}})
-assert ok
-bad={'package':'com.whatsapp','nodes':[{'id':9,'view_id':'other','class':'EditText','bounds':'[0,0][10,10]'}]}
-ok,_=validate_fresh_target(origin,bad,{'type':'set_text','node':1,'target':{'view_id':'message','class':'EditText','bounds':'[0,0][10,10]'}})
-assert not ok
-
-ok,_=validate_sequence([{'type':'open_app','package':'com.notes'}],lock)
-assert not ok
-ok,_=validate_sequence([{'type':'arbitrary_shell'}],lock)
-assert not ok
-
-runtime=AgentToolRuntime.__new__(AgentToolRuntime)
-runtime._handlers={}
-try:
-    runtime._handler_for('arbitrary_shell')
-except ValueError:
-    pass
-else:
-    raise AssertionError('unknown runtime capability did not fail closed')
-
-rt=open(__import__('furina_agent.tool_runtime').tool_runtime.__file__,encoding='utf-8').read()
-assert 'RC32_BRIDGE_FALLBACK' in rt
-assert '"requested_mode": requested_mode[:16]' in rt
-print('RC32_POLICY_REGRESSION_OK')
+fetch_blob "$PREV_INSTALL_URL" "$PREV_INSTALL_BLOB" "$TMP/install-rc32.sh"
+python - "$TMP/install-rc32.sh" "$PREV_MANIFEST_URL" <<'PY'
+import pathlib,sys
+path=pathlib.Path(sys.argv[1])
+manifest=sys.argv[2]
+text=path.read_text(encoding="utf-8")
+old='MANIFEST_URL="$BASE/manifest.json"'
+new=f'MANIFEST_URL="{manifest}"'
+if text.count(old) != 1:
+    raise SystemExit("RC32 installer manifest marker berubah")
+path.write_text(text.replace(old,new,1),encoding="utf-8")
 PY
+bash "$TMP/install-rc32.sh" "$@" >>"$LOG" 2>&1
+
+CURRENT="$(core_version)"
+[[ "$CURRENT" == "1.0.0-rc32" ]] || {
+  echo "Gagal menyiapkan fondasi RC32: $CURRENT" >&2
+  tail -n 30 "$LOG" >&2 || true
+  exit 1
 }
-run_quiet "Memvalidasi policy dan regression guard" 79 validate_core
+
+curl -fsSL --retry 3 "$BASE/manifest.json" -o "$TMP/manifest.json"
+EXPECTED="$(python -c 'import json;print(json.load(open("'"$TMP"'/manifest.json"))["version"])')"
+[[ "$EXPECTED" == "1.0.0-rc33" ]] || {
+  echo "Manifest eksperimen belum menunjuk RC33: $EXPECTED" >&2
+  exit 1
+}
+
+mkdir -p "$TMP/rc33" "$TMP/stage"
+fetch_blob "$RC33_DIR_URL/apply.py" "$APPLY_BLOB" "$TMP/rc33/apply.py"
+fetch_blob "$RC33_DIR_URL/psyche.py" "$PSYCHE_BLOB" "$TMP/rc33/psyche.py"
+fetch_blob "$RC33_DIR_URL/chat.py" "$CHAT_BLOB" "$TMP/rc33/chat.py"
+fetch_blob "$RC33_DIR_URL/persona.py" "$PERSONA_BLOB" "$TMP/rc33/persona.py"
+fetch_blob "$RC33_DIR_URL/response.py" "$RESPONSE_BLOB" "$TMP/rc33/response.py"
+fetch_blob "$RC33_DIR_URL/mind_v2.py" "$MIND_BLOB" "$TMP/rc33/mind_v2.py"
+fetch_blob "$RC33_DIR_URL/routing.py" "$ROUTING_BLOB" "$TMP/rc33/routing.py"
+
+cp -R "$ROOT/core" "$TMP/stage/core"
+python "$TMP/rc33/apply.py" "$TMP/stage" "$TMP/rc33" >>"$LOG" 2>&1
+
+PYTHONPATH="$TMP/stage/core" python -m compileall -q "$TMP/stage/core/furina_agent"
+PYTHONPATH="$TMP/stage/core" python - <<'PY'
+from furina_agent.version import VERSION
+from furina_agent.psyche import STATE_KEY
+from furina_agent.routing import RoutingLLM
+
+assert VERSION == "1.0.0-rc33"
+assert STATE_KEY == "furina_psyche_v1"
+assert hasattr(RoutingLLM, "_infer_role")
+src=open(__import__("furina_agent.chat").chat.__file__,encoding="utf-8").read()
+for marker in ("MIND PACKET", "Experience Integrator", 'role="conversation"', 'role="memory"'):
+    assert marker in src, marker
+PY
 
 furina stop >/dev/null 2>&1 || true
 rm -rf "$ROOT/core.prev"
 mv "$ROOT/core" "$ROOT/core.prev"
 mv "$TMP/stage/core" "$ROOT/core"
-mark 85 "Core RC32 aktif · memory/model tidak diubah"
 
-prepare_bridge() {
-  local health expected_name expected_code installed_name installed_code release meta_name meta_code meta_package apk_url
-  printf '%s' "unknown" > "$TMP/bridge-state"
-  health="$(curl -fsS --max-time 2 http://127.0.0.1:8765/health 2>/dev/null || true)"
-  expected_name="$(python -c 'import json;print(json.load(open("'"$TMP"'/manifest.json"))["bridge_version"])')"
-  expected_code="$(python -c 'import json;print(int(json.load(open("'"$TMP"'/manifest.json"))["bridge_version_code"]))')"
-  [[ -n "$health" ]] || return 0
-  printf '%s' "$health" > "$TMP/bridge-health.json"
-  installed_name="$(python - "$TMP/bridge-health.json" <<'PY' 2>/dev/null || true
-import json,sys
-try: print(str(json.load(open(sys.argv[1])).get('version') or ''))
-except Exception: print('')
-PY
-)"
-  installed_code="$(python - "$TMP/bridge-health.json" <<'PY' 2>/dev/null || true
-import json,sys
-try: print(int(json.load(open(sys.argv[1])).get('version_code') or 0))
-except Exception: print(0)
-PY
-)"
-  installed_code="${installed_code:-0}"
-  if (( installed_code >= expected_code )) || [[ "$installed_name" == "$expected_name" ]]; then
-    furina connect >/dev/null 2>&1 || true
-    printf '%s' "ready" > "$TMP/bridge-state"
-    return 0
-  fi
-  release="$(python -c 'import json;print(json.load(open("'"$TMP"'/manifest.json"))["bridge_release_base"])')"
-  curl -fsSL --retry 3 "$release/bridge.json" -o "$TMP/bridge.json"
-  meta_name="$(python -c 'import json;print(json.load(open("'"$TMP"'/bridge.json"))["version"])')"
-  meta_code="$(python -c 'import json;print(int(json.load(open("'"$TMP"'/bridge.json"))["version_code"]))')"
-  meta_package="$(python -c 'import json;print(json.load(open("'"$TMP"'/bridge.json"))["package_name"])')"
-  apk_url="$(python -c 'import json;print(json.load(open("'"$TMP"'/bridge.json"))["apk_url"])')"
-  [[ "$meta_name" == "$expected_name" && "$meta_code" == "$expected_code" ]] || { echo "Metadata Bridge tidak cocok." >&2; return 1; }
-  [[ "$meta_package" == "com.wynndev.furinaagentbridge" ]] || { echo "Package Bridge tidak dikenal." >&2; return 1; }
-  [[ "$apk_url" == https://github.com/WynnDev-rill/furina/releases/download/* ]] || { echo "URL Bridge tidak dipercaya." >&2; return 1; }
-  printf '%s' "install" > "$TMP/bridge-state"
-}
-run_quiet "Memeriksa Bridge RC18" 94 prepare_bridge
-
-BRIDGE_STATE="$(cat "$TMP/bridge-state" 2>/dev/null || true)"
-if [[ "$BRIDGE_STATE" == "install" ]]; then
-  APK_URL="$(python -c 'import json;print(json.load(open("'"$TMP"'/bridge.json"))["apk_url"])')"
-  termux-open-url "$APK_URL" >/dev/null 2>&1 || true
-  printf '\n\033[33m!\033[0m Bridge RC18 tersedia. Selesaikan tombol \033[1mPerbarui\033[0m di Android, lalu jalankan furina lagi.\n'
-elif [[ "$BRIDGE_STATE" == "unknown" ]]; then
-  printf '\n\033[33m!\033[0m Bridge tidak sedang dapat diperiksa. Buka Furina Bridge/aktifkan Accessibility, lalu jalankan \033[1mfurina update\033[0m lagi.\n'
-else
-  printf '\n\033[32m✓\033[0m Bridge RC18 sudah siap.\n'
-fi
-mark 100 "Update Agent RC32 selesai"
-printf '\n'
+printf '\n\033[32m✓\033[0m Core RC33 aktif.\n'
+printf '  Memory/model/data tetap dipertahankan. Bridge tetap RC18.\n'
