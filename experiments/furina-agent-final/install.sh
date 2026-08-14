@@ -32,7 +32,7 @@ RC26_BLOB="9fd353b275a2a426fe9ab2e8d7ebb5808586b965"
 RC27_URL="$BASE/overrides/apply-runtime-recovery-rc27.py"
 RC27_BLOB="0329f71edfad6f34f1892bdbc7e0388f432ce070"
 RC28_URL="$BASE/overrides/apply-runtime-core-rc28.py"
-RC28_BLOB="909a494d10b9cc2b33fe3d465837a263f6b2b3e1"
+RC28_BLOB="98038cd52fa88652ca141a1af2ee3f9d10cebf5f"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
   echo "Installer ini harus dijalankan dari Termux." >&2
