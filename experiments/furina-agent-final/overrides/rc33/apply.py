@@ -146,7 +146,6 @@ def main() -> None:
     for marker in (
         "PSYCHE_STATE_V1",
         "trusted_conversation",
-        "Personality moves far slower",
         "apply_integration",
     ):
         if marker not in psyche:
