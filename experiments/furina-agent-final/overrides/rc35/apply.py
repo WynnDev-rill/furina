@@ -54,9 +54,6 @@ def main() -> None:
             raise SystemExit(f"RC35 template hilang: {src}")
         shutil.copyfile(src, core / name)
 
-    # hub_web.py in the repository is intentionally authored as plain HTML so it
-    # can be reviewed as UI source. The installed Core needs a Python module,
-    # therefore package it deterministically as one string constant here.
     web_src = templates / "hub_web.py"
     if not web_src.is_file():
         raise SystemExit(f"RC35 template hilang: {web_src}")
@@ -206,6 +203,12 @@ def main() -> None:
         g = rep_once(g, "versionCode 10018", "versionCode 10019", "FurinaHub versionCode")
         g = rep_once(g, "versionName '1.0.0-rc18'", "versionName '1.0.0-rc19'", "FurinaHub versionName")
         gradle.write_text(g, encoding="utf-8")
+
+    # Patch-chain updates can preserve file size and land within the same second.
+    # Timestamp-based .pyc files may then look valid while still containing RC34.
+    # Remove bytecode caches before compiling/validating the new Core.
+    for cache in sorted(core.rglob("__pycache__"), reverse=True):
+        shutil.rmtree(cache, ignore_errors=True)
 
     for path in (
         core / "hub_settings.py",
