@@ -1,148 +1,18 @@
-name: Build FurinaHub Android RC26 + Core RC42
-# Registered release workflow for RC26.
+name: Historical FurinaHub Android RC26 + Core RC42
 
 on:
-  pull_request:
-    branches: [experiment/furina-agent-termux]
-    paths:
-      - 'experiments/furina-agent-final/**'
-      - '.github/workflows/furina-agent-rc26.yml'
-      - '.github/workflows/sync-ui-ux-pro-max.yml'
-  push:
-    branches: [experiment/furina-agent-termux]
-    paths:
-      - 'experiments/furina-agent-final/**'
-      - '.github/workflows/furina-agent-rc26.yml'
-      - '.github/workflows/sync-ui-ux-pro-max.yml'
   workflow_dispatch:
 
 permissions:
-  contents: write
-
-concurrency:
-  group: furinahub-android-rc26-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  TAG: furinahub-v1.0.0-rc26
-  APK_NAME: FurinaHub-v1.0.0-rc26.apk
+  contents: read
 
 jobs:
-  validate-build-release:
+  validate-historical-release:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Reconstruct RC42 and validate Android RC26
+      - name: Reconstruct historical RC42 and Android RC26
         shell: bash
-        run: |
-          bash experiments/furina-agent-final/overrides/android-rc26/validate.sh
-
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK components
-        shell: bash
-        run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
-
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-
-      - name: Build FurinaHub RC26 debug on PR
-        if: github.event_name == 'pull_request'
-        working-directory: /tmp/furina-agent-rc34-validate/termux
-        shell: bash
-        run: gradle --no-daemon --stacktrace :bridge:app:assembleDebug
-
-      - name: Check immutable release
-        if: github.event_name != 'pull_request'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists; immutable release will not be overwritten."
-            echo "FURINAHUB_RELEASE_EXISTS=1" >> "$GITHUB_ENV"
-          else
-            echo "FURINAHUB_RELEASE_EXISTS=0" >> "$GITHUB_ENV"
-          fi
-
-      - name: Restore FurinaHub signing identity
-        if: github.event_name != 'pull_request' && env.FURINAHUB_RELEASE_EXISTS != '1'
-        working-directory: /tmp/furina-agent-rc34-validate/termux
-        shell: bash
-        env:
-          FURINA_RELEASE_KEYSTORE_B64: ${{ secrets.FURINA_RELEASE_KEYSTORE_B64 }}
-        run: |
-          test -n "$FURINA_RELEASE_KEYSTORE_B64"
-          printf '%s' "$FURINA_RELEASE_KEYSTORE_B64" | base64 --decode > bridge/app/furina-agent-release.jks
-          chmod 600 bridge/app/furina-agent-release.jks
-
-      - name: Build signed FurinaHub RC26
-        if: github.event_name != 'pull_request' && env.FURINAHUB_RELEASE_EXISTS != '1'
-        working-directory: /tmp/furina-agent-rc34-validate/termux
-        shell: bash
-        env:
-          FURINA_AGENT_KEYSTORE_PATH: /tmp/furina-agent-rc34-validate/termux/bridge/app/furina-agent-release.jks
-          FURINA_KEYSTORE_PASSWORD: ${{ secrets.FURINA_KEYSTORE_PASSWORD }}
-          FURINA_KEY_ALIAS: ${{ secrets.FURINA_KEY_ALIAS }}
-          FURINA_KEY_PASSWORD: ${{ secrets.FURINA_KEY_PASSWORD }}
-        run: |
-          test -n "$FURINA_KEYSTORE_PASSWORD"
-          test -n "$FURINA_KEY_ALIAS"
-          test -n "$FURINA_KEY_PASSWORD"
-          gradle --no-daemon --stacktrace :bridge:app:assembleRelease
-
-      - name: Verify signed APK and publish immutable RC26
-        if: github.event_name != 'pull_request' && env.FURINAHUB_RELEASE_EXISTS != '1'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          SOURCE=/tmp/furina-agent-rc34-validate/termux/bridge/app/build/outputs/apk/release/app-release.apk
-          cp "$SOURCE" "$APK_NAME"
-
-          APKANALYZER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer | sort | tail -n1)"
-          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n1)"
-          PACKAGE="$("$APKANALYZER" manifest application-id "$APK_NAME" | tr -d '\r')"
-          CODE="$("$APKANALYZER" manifest version-code "$APK_NAME" | tr -d '\r')"
-          NAME="$("$APKANALYZER" manifest version-name "$APK_NAME" | tr -d '\r')"
-          SHA="$(sha256sum "$APK_NAME" | awk '{print $1}')"
-          CERT="$("$APKSIGNER" verify --verbose --print-certs "$APK_NAME")"
-          SIGNER="$(printf '%s\n' "$CERT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
-
-          test "$PACKAGE" = com.wynndev.furinaagentbridge
-          test "$CODE" = 10026
-          test "$NAME" = 1.0.0-rc26
-          test "${#SHA}" = 64
-          test "${#SIGNER}" = 64
-
-          export PACKAGE CODE NAME SHA SIGNER
-          python3 - <<'PY'
-          import json,os
-          data={
-            "version":os.environ["NAME"],
-            "version_code":int(os.environ["CODE"]),
-            "package_name":os.environ["PACKAGE"],
-            "sha256":os.environ["SHA"],
-            "signer_sha256":os.environ["SIGNER"],
-            "apk_url":"https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc26/FurinaHub-v1.0.0-rc26.apk",
-          }
-          open("bridge.json","w",encoding="utf-8").write(json.dumps(data,indent=2)+"\n")
-          PY
-
-          gh release create "$TAG" "$APK_NAME" bridge.json \
-            --target "$GITHUB_SHA" \
-            --title "FurinaHub v1.0.0-rc26" \
-            --notes "FurinaHub RC26 applies Android system-bar insets so the native header and composer no longer sit behind status/navigation controls. Plugin errors are replaced with clear recovery states, and Core RC42 installs, starts, monitors, and repairs a pinned local OpenConnector runtime from the dependency updater. Same package/signing identity for in-place upgrade."
+        run: bash experiments/furina-agent-final/overrides/android-rc26/validate.sh
