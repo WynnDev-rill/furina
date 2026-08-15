@@ -11,7 +11,7 @@ RC46_BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/$PINNED_RC46/ex
 RC46_BODY_URL="$RC46_BASE/overrides/rc46/install-body.sh"
 RC46_BODY_BLOB="de2b7c6acb892ce7a9049558456f418a68f4e880"
 RC47_APPLY_URL="$BASE/overrides/rc47/apply.py"
-RC47_APPLY_BLOB="f47af0bbb31e3c04c14c9710beff944d2a9e5d18"
+RC47_APPLY_BLOB="285b1911b580fffdfea1c9484151c1d5ba680559"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
