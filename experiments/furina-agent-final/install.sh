@@ -6,8 +6,8 @@ HUB_VERSION="1.0.0-rc30"
 DEPENDENCY_REVISION="2026.08.15-r11"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 BODY_URL="$BASE/overrides/rc47/install-body.sh"
-BODY_BLOB="477e47346f816c2e774bc8661840203426892e0e"
-RC47_APPLY_BLOB="b1b97aaae22d81ac5332d6bd414f91c59563383e"
+BODY_BLOB="4683f1a2ce49145773c7ea1ce9cc0bd33d94f2ec"
+RC47_APPLY_BLOB="f47af0bbb31e3c04c14c9710beff944d2a9e5d18"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
   echo "Installer FurinaHub harus dijalankan dari Termux." >&2
