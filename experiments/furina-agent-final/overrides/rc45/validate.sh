@@ -5,7 +5,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 STAGE=/tmp/furina-agent-rc34-validate/termux
 
-bash "$ROOT/overrides/rc44/validate.sh"
+bash "$ROOT/overrides/android-rc28/validate.sh"
 python3 "$HERE/apply.py" "$STAGE"
 python3 -m compileall -q "$STAGE/core/furina_agent"
 bash -n "$HERE/install-body.sh"
@@ -16,12 +16,14 @@ import sys
 root=Path(sys.argv[1])
 hub=(root/'core/furina_agent/hub.py').read_text(encoding='utf-8')
 version=(root/'core/furina_agent/version.py').read_text(encoding='utf-8')
+gradle=(root/'bridge/app/build.gradle').read_text(encoding='utf-8')
 assert 'VERSION = "1.0.0-rc45"' in version
 assert 'def _connector_runtime_error()' in hub
 assert 'state="error"' in hub
 assert 'time.monotonic() - self._connector_wake_at < 8' in hub
 assert '"bridge_target": "1.0.0-rc28"' in hub
-print('FURINAHUB_CORE_RC45_REGRESSION_OK')
+assert 'versionCode 10028' in gradle and "versionName '1.0.0-rc28'" in gradle
+print('FURINAHUB_CORE_RC45_ANDROID_RC28_REGRESSION_OK')
 PY
 
 python3 - "$ROOT/overrides/rc43/install-body.sh" <<'PY'
