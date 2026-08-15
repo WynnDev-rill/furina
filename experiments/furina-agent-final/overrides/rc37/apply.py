@@ -22,7 +22,7 @@ def main() -> None:
     if 'VERSION = "1.0.0-rc36"' not in current:
         raise SystemExit("RC37 hanya dapat diterapkan dari Core RC36")
 
-    for name in ("hub_settings.py", "hub.py"):
+    for name in ("hub.py",):
         source = templates / name
         if not source.is_file():
             raise SystemExit(f"RC37 template hilang: {source}")

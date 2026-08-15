@@ -6,11 +6,11 @@ HUB_VERSION="1.0.0-rc21"
 DEPENDENCY_REVISION="2026.08.15-r2"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 BODY_URL="$BASE/overrides/rc37/install-body.sh"
-BODY_BLOB="f5a4982ec5d3f02430371e59631e42cb2fdf6b3c"
+BODY_BLOB="17a60c2fb7bd730b242a62d92054f2d238171952"
 
 # Hashes are duplicated here intentionally so CI binds the public bootstrap to
 # the exact RC37 Core payloads used by the verified installer body.
-RC37_APPLY_BLOB="ab886d659944bb343e48fbd6b4d1fedc51238a4f"
+RC37_APPLY_BLOB="43f0d3087b083cefaece6504ea7e8653c93563b6"
 RC37_HUB_BLOB="ce0ec08ee2d6b3b4044d94c28f24ea7e3ba1b97b"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
