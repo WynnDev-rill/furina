@@ -44,7 +44,7 @@ jobs:
           bash -n experiments/furina-agent-final/overrides/rc44/install-body.sh
           test "$(git hash-object experiments/furina-agent-final/overrides/rc44/apply.py)" = 1c81b788e0581f363cc166b576feee68ec8b5798
           test "$(git hash-object experiments/furina-agent-final/overrides/rc44/audit-extra.py)" = dfc86a91950e2301745a45e58a04d94e9cfcac06
-          test "$(git hash-object experiments/furina-agent-final/overrides/android-rc28/apply.py)" = 56000e8f99d6ad563458cf80fef8a726f9e6b6f5
+          test "$(git hash-object experiments/furina-agent-final/overrides/android-rc28/apply.py)" = 4566d7c9776425f97a2fc808a404ee91489c5af4
           test "$(git hash-object experiments/furina-agent-final/overrides/rc44/install-body.sh)" = 8dce2caad8887e693406be5e613f88a2ef18f852
           python3 - <<'PY'
           import json
@@ -165,4 +165,4 @@ jobs:
           gh release create "$TAG" "$APK_NAME" bridge.json \
             --target "$GITHUB_SHA" \
             --title "FurinaHub v1.0.0-rc28" \
-            --notes "Audit bug release. RC28 restores Agent approval cards for device tasks, keeps active jobs visible after UI refresh, raises the native request envelope to match 6 MB image attachments, guards media callbacks after WebView destruction, prevents duplicate updater starts, and extends Agent polling. Core RC44 persists device-task chat history, preserves classifier semantic steps, repairs local-model launcher discovery/autostart, validates downloaded GGUF headers, fixes deletion of inactive conversations, hardens direct-control sensitive actions, robustly parses Plugin plans, searches the full selected-plugin action catalog, and makes read/write Plugin classification conservative."
+            --notes "Audit bug release. RC28 restores Agent approval cards for device tasks, keeps active jobs visible after UI refresh, restores failed chat input, raises the native request envelope to match 6 MB image attachments, guards media callbacks after WebView destruction, prevents duplicate updater starts, and extends Agent polling. Core RC44 persists device-task chat history, preserves classifier semantic steps, repairs local-model launcher discovery/autostart, validates downloaded GGUF headers, fixes deletion of inactive conversations, hardens direct-control sensitive actions, robustly parses Plugin plans, searches the full selected-plugin action catalog, and makes read/write Plugin classification conservative."
