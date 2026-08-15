@@ -24,6 +24,8 @@ assert "web = null;" in body
 assert "if (web != null) web.evaluateJavascript(js, null);" in body
 assert "if (appUpdateBusy) return;" in body
 assert "result.mode==='device'&&result.job" in html
+assert "const pendingUser=addMsg" in html
+assert "pendingUser.remove();if(forcedText===undefined)" in html
 assert "(bootData.jobs||[]).forEach(renderJob)" in html
 assert "for(let i=0;i<750;i++" in html
 assert "semantic_steps=semantic_steps" in hub
