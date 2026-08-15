@@ -23,6 +23,7 @@ assert "data.length > 2_000_000" not in body
 assert "web = null;" in body
 assert "if (web != null) web.evaluateJavascript(js, null);" in body
 assert "if (appUpdateBusy) return;" in body
+assert "REQ_SAVE_IMAGE && resultCode != RESULT_OK) pendingImageSave = null;" in body
 assert "result.mode==='device'&&result.job" in html
 assert "const pendingUser=addMsg" in html
 assert "pendingUser.remove();if(forcedText===undefined)" in html
