@@ -105,3 +105,24 @@ final result: passed
 final result: blocked
 
 Blocker: install the signed RC26 APK on the physical test device and capture the same Plugin and drawer states for post-fix visual comparison.
+
+## 2026-08-15 — FurinaHub RC27 hidden-sheet and Plugin startup repair
+
+- Source visual truth: `/workspace/scratch/1249ae3de7d5/upload/01-1000082629.jpg`, `/workspace/scratch/1249ae3de7d5/upload/02-1000082628.jpg`, `/workspace/scratch/1249ae3de7d5/upload/03-1000082627.jpg`, and `/workspace/scratch/1249ae3de7d5/upload/04-1000082626.jpg`.
+- Implementation screenshot: unavailable; the rebuilt APK cannot be rendered on the user's physical Android navigation configuration from this environment.
+- Viewport: source 692 × 1536 px, dark theme, Plugin, Settings, and empty-chat states.
+- State: the attachment sheet is logically closed but remains partially visible over every route; dependency update fails during OpenConnector cold start at 99%.
+- P0 fix: Core is now installed atomically before Plugin verification, so a Plugin startup failure can no longer discard an otherwise valid Core upgrade.
+- P0 fix: the managed launcher uses OpenConnector's official `npm start` path, verifies Node 22 and `node:sqlite`, replaces an unhealthy stale process, waits up to 45 seconds, and prints the final log lines on a real crash.
+- P1 fix: inactive sheets now combine off-screen translation with `opacity:0` and `visibility:hidden`; only `.show` makes them visible and interactive.
+- Typography: unchanged from RC26; no type regression introduced.
+- Spacing/layout rhythm: the source shows native status/navigation insets working, but the leaked sheet corrupts the bottom rhythm; RC27 removes that layer from layout/compositing while closed.
+- Colors/tokens: existing dark/light tokens retained.
+- Image/assets: existing camera, image, file, and Plugin icons retained; no replacement assets introduced.
+- Copy/content: startup progress explicitly warns that the first Plugin cold start may take up to 45 seconds; failure output now contains actionable log lines.
+- Static interaction evidence: Android RC20→RC27 reconstruction, Core RC34→RC43 reconstruction, JavaScript syntax, Python compilation, shell syntax, release bindings, and install-before-start ordering passed.
+- Browser console: not applicable to the packaged Android Activity.
+
+final result: blocked
+
+Blocker: install the signed RC27 APK on the physical Poco F6 and capture closed-sheet chat, Plugin ready/error, and Settings states at the same 692 × 1536 viewport.
