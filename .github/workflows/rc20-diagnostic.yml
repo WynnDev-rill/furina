@@ -1,56 +1,13 @@
-name: RC23 Device Intent Diagnostic
+name: Historical RC23 Device Intent Diagnostic
 
 on:
-  pull_request:
-    branches: [experiment/furina-agent-termux]
-    paths:
-      - 'experiments/furina-agent-final/**'
-      - '.github/workflows/rc20-diagnostic.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  inspect:
+  note:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v4
-      - name: Reassemble transformed RC23 source
-        shell: bash
-        run: |
-          set -euo pipefail
-          META=experiments/furina-agent-final
-          ARCHIVE=/tmp/furina-agent-final.tar.gz
-          : > "$ARCHIVE"
-          for chunk in "$META"/source-*.b64; do base64 --decode "$chunk" >> "$ARCHIVE"; done
-          rm -rf /tmp/furina-agent-src && mkdir -p /tmp/furina-agent-src
-          tar -xzf "$ARCHIVE" -C /tmp/furina-agent-src
-          ROOT=/tmp/furina-agent-src/termux
-          patch -p0 -d /tmp/furina-agent-src < "$META/patches/api30-inputstream.patch"
-          patch -p0 -d /tmp/furina-agent-src < "$META/patches/runtime-online-agent.patch"
-          python3 "$META/overrides/apply-bridge-primitives-rc5.py" "$ROOT"
-          python3 - "$META/overrides" "$ROOT" <<'PY'
-          import hashlib,json,pathlib,sys
-          src=pathlib.Path(sys.argv[1]).resolve(); dst=pathlib.Path(sys.argv[2]).resolve()
-          manifest=json.loads((src/'manifest.json').read_text(encoding='utf-8'))
-          def sha(data): return hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()
-          for item in manifest['files']:
-              data=(src/item['path']).read_bytes(); assert sha(data)==item['git_blob_sha'], item['path']
-              target=(dst/item['target']).resolve(); target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(data)
-          PY
-          for f in apply-bridge-rc4.py apply-universal-agent-rc5.py apply-core-rc6.py apply-core-rc6-postfix.py apply-bridge-rc6.py apply-core-rc7.py apply-bridge-rc7.py apply-core-rc8.py apply-core-rc8-postfix.py apply-core-rc9.py apply-ui-rc10.py apply-ui-rc10-hotfix.py apply-core-rc11.py apply-ui-rc12.py apply-ui-rc12-postfix.py apply-core-rc13.py apply-bridge-rc8.py apply-core-rc14.py apply-core-rc15.py apply-core-rc16.py apply-core-rc17-hotfix.py apply-bridge-rc9.py apply-core-rc18.py apply-ui-performance-bridge-rc10.py apply-ui-performance-rc19.py apply-reactive-bridge-rc11.py apply-reactive-core-rc20.py apply-reactive-bridge-rc12.py apply-reactive-core-rc21.py apply-bridge-rc13.py apply-system-rc22.py apply-safety-rc22.py apply-semantic-core-rc23.py apply-semantic-guard-rc23.py; do
-            python3 "$META/overrides/$f" "$ROOT"
-          done
-          python3 -m compileall -q "$ROOT/core/furina_agent"
-          mkdir -p /tmp/rc23-screened-final
-          cp -R "$ROOT/core/furina_agent" /tmp/rc23-screened-final/core
-          cp -R "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge" /tmp/rc23-screened-final/bridge
-          cp "$META/install.sh" /tmp/rc23-screened-final/install.sh
-      - name: Upload transformed source
-        uses: actions/upload-artifact@v4
-        with:
-          name: rc23-screened-final
-          path: /tmp/rc23-screened-final
-          if-no-files-found: error
+      - run: echo "Historical RC23 diagnostic archived; RC28/Core RC44 is the active validation path."
