@@ -12,6 +12,8 @@ RC43_BODY_URL="$PINNED_BASE/overrides/rc43/install-body.sh"
 RC43_BODY_BLOB="dcaeee6a1ad8588f76c37138b180b472b8720178"
 RC44_APPLY_URL="$BASE/overrides/rc44/apply.py"
 RC44_APPLY_BLOB="1c81b788e0581f363cc166b576feee68ec8b5798"
+RC44_AUDIT_URL="$BASE/overrides/rc44/audit-extra.py"
+RC44_AUDIT_BLOB="ba7e5a238dbdf5774d459e7c576a18939616d01a"
 RELEASE_BASE="https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc28"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -88,18 +90,23 @@ SH
 
   fetch "$RC44_APPLY_URL" "$TMP/apply-rc44.py"
   verify_blob "$TMP/apply-rc44.py" "$RC44_APPLY_BLOB"
+  fetch "$RC44_AUDIT_URL" "$TMP/audit-rc44.py"
+  verify_blob "$TMP/audit-rc44.py" "$RC44_AUDIT_BLOB"
   rm -rf "$TMP/stage"
   mkdir -p "$TMP/stage"
   cp -R "$ROOT/core" "$TMP/stage/core"
   python "$TMP/apply-rc44.py" "$TMP/stage"
+  python "$TMP/audit-rc44.py" "$TMP/stage"
   FURINA_HOME="$TMP/test-home" PYTHONPATH="$TMP/stage/core" python -m compileall -q "$TMP/stage/core/furina_agent"
   FURINA_HOME="$TMP/test-home" PYTHONPATH="$TMP/stage/core" python - <<'PY'
 from furina_agent.version import VERSION
 from furina_agent.hub import Runtime
+from furina_agent.direct_control import _SENSITIVE
 assert VERSION == '1.0.0-rc44'
 assert Runtime._connector_is_read_action('github.get_issue')
 assert not Runtime._connector_is_read_action('gmail.sendEmail')
 assert not Runtime._connector_is_read_action('github.search_and_delete')
+assert _SENSITIVE.search('tap Call')
 print('FURINAHUB_RC44_INSTALL_VALIDATED')
 PY
   furina stop >/dev/null 2>&1 || true
@@ -146,4 +153,4 @@ fi
 
 printf '\n\033[32m✓\033[0m FurinaHub Core RC44 aktif.\n'
 printf '  APK RC28: %s\n' "$APK_OUT"
-printf '  Perbaikan: Agent approval, gambar besar, Plugin safety, validasi GGUF, dan lifecycle WebView.\n'
+printf '  Perbaikan: Agent approval, gambar besar, local routing, Plugin safety, validasi GGUF, dan lifecycle WebView.\n'
