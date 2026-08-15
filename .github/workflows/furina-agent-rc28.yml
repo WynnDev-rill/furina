@@ -40,8 +40,8 @@ jobs:
           bash experiments/furina-agent-final/overrides/android-rc30/validate.sh
           bash -n experiments/furina-agent-final/install.sh
           bash -n experiments/furina-agent-final/overrides/rc47/install-body.sh
-          test "$(git hash-object experiments/furina-agent-final/overrides/rc47/apply.py)" = f47af0bbb31e3c04c14c9710beff944d2a9e5d18
-          test "$(git hash-object experiments/furina-agent-final/overrides/rc47/install-body.sh)" = 4683f1a2ce49145773c7ea1ce9cc0bd33d94f2ec
+          test "$(git hash-object experiments/furina-agent-final/overrides/rc47/apply.py)" = 285b1911b580fffdfea1c9484151c1d5ba680559
+          test "$(git hash-object experiments/furina-agent-final/overrides/rc47/install-body.sh)" = db7f8ec6fb4a17dbd4d7a0c0118424c3de9b9670
           test "$(git hash-object experiments/furina-agent-final/overrides/android-rc30/apply.py)" = 4263953006b1c2c42c02a6304b44df2370619a61
           python3 - <<'PY'
           import json
@@ -53,8 +53,8 @@ jobs:
           assert manifest['dependency_revision']=='2026.08.15-r11'
           install=Path('experiments/furina-agent-final/install.sh').read_text()
           body=Path('experiments/furina-agent-final/overrides/rc47/install-body.sh').read_text()
-          assert 'BODY_BLOB="4683f1a2ce49145773c7ea1ce9cc0bd33d94f2ec"' in install
-          assert 'RC47_APPLY_BLOB="f47af0bbb31e3c04c14c9710beff944d2a9e5d18"' in install
+          assert 'BODY_BLOB="db7f8ec6fb4a17dbd4d7a0c0118424c3de9b9670"' in install
+          assert 'RC47_APPLY_BLOB="285b1911b580fffdfea1c9484151c1d5ba680559"' in install
           assert 'local to="$2"' in body
           assert 'local file="$TMP/apply-$to.py"' in body
           assert 'to: unbound variable' in body
