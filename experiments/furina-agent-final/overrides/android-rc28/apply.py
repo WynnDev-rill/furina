@@ -81,6 +81,18 @@ def main() -> None:
     )
     html = replace_once(
         html,
+        "addMsg('user',plain||(attachment?.kind==='text'?'File: '+attachment.name:''),null,attachment);const typing=addMsg('assistant','…');",
+        "const pendingUser=addMsg('user',plain||(attachment?.kind==='text'?'File: '+attachment.name:''),null,attachment);const typing=addMsg('assistant','…');",
+        "pending user message",
+    )
+    html = replace_once(
+        html,
+        "catch(e){typing.remove();addMsg('assistant','Tidak bisa menghubungi Core: '+e.message)}finally",
+        "catch(e){typing.remove();pendingUser.remove();if(forcedText===undefined){input.value=plain;autoGrow(input);if(attachment){selectedAttachment=attachment;showAttachment()}}addMsg('assistant','Tidak bisa menghubungi Core: '+e.message)}finally",
+        "restore failed chat input",
+    )
+    html = replace_once(
+        html,
         "for(let i=0;i<180;i++){await new Promise(r=>setTimeout(r,800));",
         "for(let i=0;i<750;i++){await new Promise(r=>setTimeout(r,800));",
         "agent polling lifetime",
@@ -107,6 +119,8 @@ def main() -> None:
         ),
         html_path: (
             "result.mode==='device'&&result.job",
+            "const pendingUser=addMsg",
+            "pendingUser.remove();if(forcedText===undefined)",
             "for(let i=0;i<750;i++",
             "(bootData.jobs||[]).forEach(renderJob)",
         ),
