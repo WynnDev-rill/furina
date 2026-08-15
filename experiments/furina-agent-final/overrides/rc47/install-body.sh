@@ -11,7 +11,7 @@ RC46_BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/$PINNED_RC46/ex
 RC46_BODY_URL="$RC46_BASE/overrides/rc46/install-body.sh"
 RC46_BODY_BLOB="de2b7c6acb892ce7a9049558456f418a68f4e880"
 RC47_APPLY_URL="$BASE/overrides/rc47/apply.py"
-RC47_APPLY_BLOB="b1b97aaae22d81ac5332d6bd414f91c59563383e"
+RC47_APPLY_BLOB="f47af0bbb31e3c04c14c9710beff944d2a9e5d18"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -100,9 +100,6 @@ python -m compileall -q "$ROOT/core/furina_agent"
 grep -q 'VERSION = "1.0.0-rc47"' "$ROOT/core/furina_agent/version.py"
 printf '%s\n' "$DEPENDENCY_REVISION" > "$ROOT/data/dependency_revision"
 
-# Restart only local processes. When invoked from FurinaHub APK, the native
-# bridge reconnects with its existing token after this command exits. When
-# invoked in Termux, the CLI launcher is left ready for the next command.
 if command -v furina-openconnector >/dev/null 2>&1; then
   furina-openconnector start >>"$LOG" 2>&1 || true
 fi
