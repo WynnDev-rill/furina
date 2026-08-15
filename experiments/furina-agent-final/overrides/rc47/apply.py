@@ -46,12 +46,8 @@ def main() -> None:
         'from .hub_settings import effective_device_mode, load_hub_settings, skill_enabled',
         "skill_enabled import",
     )
-    direct = replace_once(
-        direct,
-        '''_SENSITIVE = re.compile(r"\\b(?:kirim|send|submit|post|publish|share|bagikan|hapus|delete|remove|uninstall|reset|bayar|pay|purchase|beli|transfer|subscribe|berlangganan|login|logout)\\b", re.I)\n''',
-        '''_SENSITIVE = re.compile(r"\\b(?:kirim|send|submit|post|publish|share|bagikan|hapus|delete|remove|uninstall|reset|bayar|pay|purchase|beli|transfer|subscribe|berlangganan|login|logout)\\b", re.I)\n_SCREEN_READ = re.compile(r"^\\s*(?:baca|lihat|jelaskan|ringkas|apa(?:\\s+saja)?\\s+yang\\s+ada\\s+di)\\s+(?:layar|screen)(?:\\s+(?:ini|sekarang))?\\s*[.!?]?\\s*$", re.I)\n_APP_FIND = re.compile(r"^\\s*(?:cari|temukan|cek)\\s+(?:aplikasi|app|apk)\\s+(.+?)\\s*[.!?]?\\s*$", re.I)\n_FORM_FILL = re.compile(r"^\\s*(?:isi|isikan|masukkan)\\s+(?:kolom|field)\\s+(.+?)\\s+(?:dengan|menjadi|:)\\s+(.+?)\\s*[.!]?\\s*$", re.I)\n''',
-        "recipe regex",
-    )
+    recipe_regex = '''\n_SCREEN_READ = re.compile(r"^\\s*(?:baca|lihat|jelaskan|ringkas|apa(?:\\s+saja)?\\s+yang\\s+ada\\s+di)\\s+(?:layar|screen)(?:\\s+(?:ini|sekarang))?\\s*[.!?]?\\s*$", re.I)\n_APP_FIND = re.compile(r"^\\s*(?:cari|temukan|cek)\\s+(?:aplikasi|app|apk)\\s+(.+?)\\s*[.!?]?\\s*$", re.I)\n_FORM_FILL = re.compile(r"^\\s*(?:isi|isikan|masukkan)\\s+(?:kolom|field)\\s+(.+?)\\s+(?:dengan|menjadi|:)\\s+(.+?)\\s*[.!]?\\s*$", re.I)\n'''
+    direct = replace_once(direct, "\n\n@dataclass\nclass DirectResult:", recipe_regex + "\n@dataclass\nclass DirectResult:", "recipe regex")
     direct = replace_once(
         direct,
         '''    def _mode(self) -> str:\n        fallback = str(getattr(self.cfg, "device_control_mode", "normal") or "normal").lower()\n''',
