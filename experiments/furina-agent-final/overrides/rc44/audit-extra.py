@@ -63,6 +63,36 @@ def main() -> None:
 ''',
         "pass semantic steps",
     )
+    hub = replace_once(
+        hub,
+        '''    @staticmethod
+    def _json_object(raw: str) -> dict:
+        text = str(raw or "").strip()
+        match = re.search(r"\\{.*\\}", text, re.S)
+        if not match:
+            raise ValueError("model tidak menghasilkan rencana plugin yang valid")
+        value = json.loads(match.group(0))
+        if not isinstance(value, dict):
+            raise ValueError("rencana plugin tidak valid")
+        return value
+''',
+        '''    @staticmethod
+    def _json_object(raw: str) -> dict:
+        text = str(raw or "")
+        decoder = json.JSONDecoder()
+        for index, char in enumerate(text):
+            if char != "{":
+                continue
+            try:
+                value, _ = decoder.raw_decode(text[index:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                return value
+        raise ValueError("model tidak menghasilkan rencana plugin yang valid")
+''',
+        "plugin JSON parser",
+    )
     hub_path.write_text(hub, encoding="utf-8")
 
     routing_path = core / "routing.py"
@@ -160,6 +190,7 @@ def main() -> None:
     combined = "\n".join(path.read_text(encoding="utf-8") for path in (hub_path, routing_path, direct_path, memory_path))
     for marker in (
         "semantic_steps=semantic_steps",
+        "decoder.raw_decode",
         'shutil.which("furina")',
         "call|dial|telepon",
         "if value != active:",
