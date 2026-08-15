@@ -1,4 +1,5 @@
 name: Build FurinaHub Android RC23 + Core RC39
+# Registered release workflow for RC23.
 
 on:
   pull_request:
