@@ -24,6 +24,7 @@ assert Runtime._connector_is_read_action("drive.lookupFile")
 assert not Runtime._connector_is_read_action("gmail.sendEmail")
 assert not Runtime._connector_is_read_action("github.search_and_delete")
 assert not Runtime._connector_is_read_action("drive.update_file")
+assert Runtime._json_object('prefix {"action_id":"x","input":{}} suffix {"noise":1}')["action_id"] == "x"
 assert _SENSITIVE.search("tekan Call")
 assert _SENSITIVE.search("klik Izinkan")
 assert _SENSITIVE.search("tap Confirm")
@@ -55,6 +56,7 @@ for marker in (
     'self.store.add_message("assistant", answer or "Selesai.")',
     '"jobs": active_jobs',
     'semantic_steps=semantic_steps',
+    'decoder.raw_decode',
 ):
     assert marker in hub, marker
 assert 'shutil.which("furina")' in routing
