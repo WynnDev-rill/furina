@@ -41,7 +41,7 @@ jobs:
           bash -n experiments/furina-agent-final/install.sh
           bash -n experiments/furina-agent-final/overrides/rc47/install-body.sh
           test "$(git hash-object experiments/furina-agent-final/overrides/rc47/apply.py)" = 285b1911b580fffdfea1c9484151c1d5ba680559
-          test "$(git hash-object experiments/furina-agent-final/overrides/rc47/install-body.sh)" = eb05c9fa0e618b5beff01fa66a8b27bb28889883
+          test "$(git hash-object experiments/furina-agent-final/overrides/rc47/install-body.sh)" = 088c75120ed0e757711257587973740c05093859
           test "$(git hash-object experiments/furina-agent-final/overrides/android-rc31/apply.py)" = 30d524b9ff2f394013aad4b85ec38efd598e2b30
           python3 - <<'PY'
           import json
@@ -51,8 +51,11 @@ jobs:
           assert manifest['bridge_version']=='1.0.0-rc31'
           assert int(manifest['bridge_version_code'])==10031
           install=Path('experiments/furina-agent-final/install.sh').read_text()
-          assert 'BODY_BLOB="eb05c9fa0e618b5beff01fa66a8b27bb28889883"' in install
-          assert 'FURINAHUB_CORE_ONLY' in Path('experiments/furina-agent-final/overrides/rc47/install-body.sh').read_text()
+          body=Path('experiments/furina-agent-final/overrides/rc47/install-body.sh').read_text()
+          assert 'BODY_BLOB="088c75120ed0e757711257587973740c05093859"' in install
+          assert 'command -v python >/dev/null 2>&1 || pkg install -y python' in install
+          assert 'FURINAHUB_CORE_ONLY' in body
+          assert 'Core dan runtime sudah terbaru' in body
           print('FURINAHUB_RC47_RC31_RELEASE_BINDINGS_OK')
           PY
 
@@ -156,4 +159,4 @@ jobs:
           gh release create "$TAG" "$APK_NAME" bridge.json \
             --target "$GITHUB_SHA" \
             --title "FurinaHub v1.0.0-rc31" \
-            --notes "RC31 simplification release. Fixes WebView flex shrink that clipped both horizontal sides, makes chat/settings full-width on phones, removes duplicate Plugin controls from Settings, moves Plugin write permission to the Plugin page, groups the ten optional Agent skills under one expandable section, and separates Core/runtime updates from APK updates. Existing Termux installations now keep `furina update` focused on Core/runtime while APK updates remain owned by FurinaHub."
+            --notes "RC31 simplification release. Fixes WebView flex shrink that clipped both horizontal sides, makes chat/settings full-width on phones, removes duplicate Plugin controls from Settings, moves Plugin write permission to the Plugin page, groups the ten optional Agent skills under one expandable section, and separates Core/runtime updates from APK updates. Existing Termux installations keep `furina update` focused on Core/runtime while APK updates remain owned by FurinaHub."
