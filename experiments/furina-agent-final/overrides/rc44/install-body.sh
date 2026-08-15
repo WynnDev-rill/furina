@@ -13,7 +13,7 @@ RC43_BODY_BLOB="dcaeee6a1ad8588f76c37138b180b472b8720178"
 RC44_APPLY_URL="$BASE/overrides/rc44/apply.py"
 RC44_APPLY_BLOB="1c81b788e0581f363cc166b576feee68ec8b5798"
 RC44_AUDIT_URL="$BASE/overrides/rc44/audit-extra.py"
-RC44_AUDIT_BLOB="ba7e5a238dbdf5774d459e7c576a18939616d01a"
+RC44_AUDIT_BLOB="dfc86a91950e2301745a45e58a04d94e9cfcac06"
 RELEASE_BASE="https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc28"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -106,6 +106,7 @@ assert VERSION == '1.0.0-rc44'
 assert Runtime._connector_is_read_action('github.get_issue')
 assert not Runtime._connector_is_read_action('gmail.sendEmail')
 assert not Runtime._connector_is_read_action('github.search_and_delete')
+assert Runtime._json_object('prefix {"action_id":"x","input":{}} suffix {"noise":1}')["action_id"] == 'x'
 assert _SENSITIVE.search('tap Call')
 print('FURINAHUB_RC44_INSTALL_VALIDATED')
 PY
