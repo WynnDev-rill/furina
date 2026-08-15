@@ -38,9 +38,9 @@ The local Core UI server can still be started manually with:
 furina-hub
 ```
 
-## Android RC20: offline-first shell
+## Android RC21: unified FurinaHub shell
 
-FurinaHub Android RC20 no longer blocks application startup while waiting for Termux. The complete application shell is bundled inside the APK and opens immediately.
+FurinaHub Android RC21 keeps the offline-first startup from RC20 and adds a shared Core state so settings changed in Termux are reflected when FurinaHub opens or resumes.
 
 Opening the APK goes directly to **Percakapan**. If Core has not been connected yet, chat shows a compact offline state and the rest of the application remains navigable.
 
@@ -66,6 +66,17 @@ The navigation drawer contains:
 - Personalisasi
 - Agent & Skill
 - Pengaturan
+
+RC21 fills the main product gaps in those screens:
+
+- the chat header no longer shows the Core status chip while a conversation is open;
+- long-pressing a message exposes copy, edit/resend, regenerate, and branch deletion actions;
+- the `+` button accepts bounded UTF-8 text attachments through Android's document picker;
+- important memories can be added or removed from the same Core database used by Termux;
+- provider keys can be configured and tested from the APK;
+- Normal, Shizuku, and Root now show requested vs effective mode and require an explicit readiness probe;
+- personalization migrates from the legacy JSON file into shared Core state and re-syncs with CLI config;
+- OpenConnector can be configured on loopback with a local runtime token and read-first action policy.
 
 The **Pengaturan** page now centralizes:
 
@@ -163,7 +174,7 @@ FurinaHub has two update paths from the app:
 - uses the same staged Core validation as CLI updates;
 - dependencies are reconciled against a versioned `dependency_revision`, not blindly upgraded.
 
-Core RC35 targets FurinaHub Android RC20. The Android package ID and signing identity remain compatible with Bridge RC18 / FurinaHub RC19, so RC20 is an in-place upgrade rather than a separate application.
+Core RC36 targets FurinaHub Android RC21. The Android package ID and signing identity remain compatible with RC20, so RC21 is an in-place upgrade rather than a separate application.
 
 ## Local architecture
 
@@ -180,18 +191,19 @@ Furina Core in Termux
   ├─ Psyche
   ├─ memory
   ├─ model router
-  └─ Android Agent
+  ├─ Android Agent
+  └─ OpenConnector adapter (optional, loopback only)
              │
              ▼
 Android / Accessibility / Shizuku / root fixed primitives
 ```
 
-The WebView does not directly navigate to localhost in RC20. The bundled shell calls a narrow native API proxy, which adds the session token to requests sent to `127.0.0.1:8787`. File/content access remains disabled in WebView.
+The WebView does not directly navigate to localhost. The bundled shell calls a narrow native API proxy, which adds the session token to requests sent to `127.0.0.1:8787`. File/content access remains disabled in WebView; RC21 text attachments are read by a size-bounded native document picker. OpenConnector credentials remain inside its runtime, while FurinaHub stores only an optional runtime token in a mode-0600 Termux file.
 
 ## Current versions
 
-- Core: `1.0.0-rc35`
-- FurinaHub Android: `1.0.0-rc20`
+- Core: `1.0.0-rc36`
+- FurinaHub Android: `1.0.0-rc21`
 - Dependency revision: `2026.08.14-r1`
 
-RC34 chat-first intent separation and RC32 execution policy remain active underneath RC35.
+RC34 chat-first intent separation and RC32 execution policy remain active underneath RC36.
