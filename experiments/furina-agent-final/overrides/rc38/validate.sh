@@ -86,6 +86,25 @@ for key, name in bindings.items():
     expected = blob((root / "overrides/rc38" / name).read_bytes())
     assert f'{key}="{expected}"' in bootstrap
     assert f'{key}="{expected}"' in body_text
+
+# Verify every migration payload against the current public branch tree. This
+# catches stale hashes in historical migration steps before users encounter
+# them on-device.
+legacy_bindings = {
+    "APPLY_BLOB": ("rc35", "apply.py"),
+    "SETTINGS_BLOB": ("rc35", "hub_settings.py"),
+    "HUB_BLOB": ("rc35", "hub.py"),
+    "WEB_BLOB": ("rc35", "hub_web.py"),
+    "MAIN_ACTIVITY_BLOB": ("rc35", "MainActivity.java"),
+    "RC36_APPLY_BLOB": ("rc36", "apply.py"),
+    "RC36_SETTINGS_BLOB": ("rc36", "hub_settings.py"),
+    "RC36_HUB_BLOB": ("rc36", "hub.py"),
+    "RC37_APPLY_BLOB": ("rc37", "apply.py"),
+    "RC37_HUB_BLOB": ("rc37", "hub.py"),
+}
+for key, (revision, name) in legacy_bindings.items():
+    expected = blob((root / "overrides" / revision / name).read_bytes())
+    assert f'{key}="{expected}"' in body_text, (key, expected)
 print("FURINAHUB_RC38_INSTALLER_BINDINGS_OK")
 PY
 

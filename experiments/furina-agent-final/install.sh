@@ -6,7 +6,7 @@ HUB_VERSION="1.0.0-rc22"
 DEPENDENCY_REVISION="2026.08.15-r3"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 BODY_URL="$BASE/overrides/rc38/install-body.sh"
-BODY_BLOB="ffbc3fc38c5046a5aa154175aee9bc01030c9f81"
+BODY_BLOB="d39a04f21da3ba8f8eabe6b06df9619400356de6"
 
 # Hashes are duplicated intentionally so the public bootstrap authenticates
 # the exact RC38 payloads before executing anything fetched from the branch.
