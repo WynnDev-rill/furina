@@ -1,0 +1,112 @@
+#!/data/data/com.termux/files/usr/bin/bash
+set -eEuo pipefail
+
+VERSION="1.0.0-rc47"
+HUB_VERSION="1.0.0-rc30"
+DEPENDENCY_REVISION="2026.08.15-r11"
+ROOT="$HOME/.furina-agent"
+BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
+PINNED_RC46="5cf4080ac5bc5ae8204c45490825715f63a89627"
+RC46_BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/$PINNED_RC46/experiments/furina-agent-final"
+RC46_BODY_URL="$RC46_BASE/overrides/rc46/install-body.sh"
+RC46_BODY_BLOB="de2b7c6acb892ce7a9049558456f418a68f4e880"
+RC47_APPLY_URL="$BASE/overrides/rc47/apply.py"
+RC47_APPLY_BLOB="b1b97aaae22d81ac5332d6bd414f91c59563383e"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+if [[ ! -d /data/data/com.termux/files/usr ]]; then
+  echo "Installer FurinaHub harus dijalankan dari Termux." >&2
+  exit 1
+fi
+mkdir -p "$ROOT"/{cache,logs,run,data,models}
+LOG="$ROOT/logs/update-rc47-furinahub.log"
+: > "$LOG"
+
+progress() {
+  local pct="$1"; shift
+  if [[ "${FURINAHUB_MACHINE_PROGRESS:-0}" == "1" ]]; then
+    printf 'PROGRESS %d %s\n' "$pct" "$*"
+  else
+    printf '[%3d%%] %s\n' "$pct" "$*"
+  fi
+}
+
+fetch() {
+  local url="$1"
+  local out="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL --retry 4 "$url" -o "$out"
+  elif command -v python >/dev/null 2>&1; then
+    python - "$url" "$out" <<'PY'
+import sys,urllib.request
+urllib.request.urlretrieve(sys.argv[1],sys.argv[2])
+PY
+  else
+    pkg install -y python >/dev/null
+    python - "$url" "$out" <<'PY'
+import sys,urllib.request
+urllib.request.urlretrieve(sys.argv[1],sys.argv[2])
+PY
+  fi
+}
+
+verify_blob() {
+  python - "$1" "$2" <<'PY'
+import hashlib,pathlib,sys
+path,expected=sys.argv[1:]
+data=pathlib.Path(path).read_bytes()
+actual=hashlib.sha1(f"blob {len(data)}\0".encode()+data).hexdigest()
+if actual != expected:
+    raise SystemExit(f"Integritas file berubah: {actual} != {expected}")
+PY
+}
+
+progress 1 "Menyiapkan updater dependency bersama"
+fetch "$RC46_BODY_URL" "$TMP/rc46-install-body.sh"
+verify_blob "$TMP/rc46-install-body.sh" "$RC46_BODY_BLOB"
+python - "$TMP/rc46-install-body.sh" "$RC46_BASE" <<'PY'
+from pathlib import Path
+import re,sys
+path=Path(sys.argv[1]); pinned=sys.argv[2]
+text=path.read_text(encoding='utf-8')
+old='local from="$1" to="$2" url="$3" blob="$4" label="$5" file="$TMP/apply-$to.py" stage="$TMP/stage-$to"'
+new='''local from="$1"
+  local to="$2"
+  local url="$3"
+  local blob="$4"
+  local label="$5"
+  local file="$TMP/apply-$to.py"
+  local stage="$TMP/stage-$to"'''
+if old not in text:
+    raise SystemExit('Marker bug apply_overlay RC46 tidak ditemukan')
+text=text.replace(old,new,1)
+text,count=re.subn(r'^BASE="[^"]+"$', f'BASE="{pinned}"', text, count=1, flags=re.M)
+if count != 1:
+    raise SystemExit('BASE RC46 tidak dapat dipin')
+path.write_text(text,encoding='utf-8')
+PY
+bash -n "$TMP/rc46-install-body.sh"
+
+# RC46 remains the deterministic foundation. The patched copy fixes the
+# `to: unbound variable` failure before any device state is modified.
+FURINAHUB_MACHINE_PROGRESS="${FURINAHUB_MACHINE_PROGRESS:-0}" bash "$TMP/rc46-install-body.sh" "$@" >>"$LOG" 2>&1
+
+progress 94 "Menerapkan Core RC47 dan skill Agent"
+fetch "$RC47_APPLY_URL" "$TMP/apply-rc47.py"
+verify_blob "$TMP/apply-rc47.py" "$RC47_APPLY_BLOB"
+python "$TMP/apply-rc47.py" "$ROOT" >>"$LOG" 2>&1
+python -m compileall -q "$ROOT/core/furina_agent"
+grep -q 'VERSION = "1.0.0-rc47"' "$ROOT/core/furina_agent/version.py"
+printf '%s\n' "$DEPENDENCY_REVISION" > "$ROOT/data/dependency_revision"
+
+# Restart only local processes. When invoked from FurinaHub APK, the native
+# bridge reconnects with its existing token after this command exits. When
+# invoked in Termux, the CLI launcher is left ready for the next command.
+if command -v furina-openconnector >/dev/null 2>&1; then
+  furina-openconnector start >>"$LOG" 2>&1 || true
+fi
+progress 100 "Core RC47 dan dependency siap"
+printf '✓ FurinaHub Core %s aktif · dependency %s\n' "$VERSION" "$DEPENDENCY_REVISION"
+printf '  Updater yang sama dipakai Termux dan tombol Core/dependency di APK.\n'
+printf '  Log: %s\n' "$LOG"
