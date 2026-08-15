@@ -69,6 +69,9 @@ def main() -> None:
 ''',
         "plugin repair hint",
     )
+    if hub.count('"bridge_target": "1.0.0-rc28"') != 2:
+        raise SystemExit("RC46 bridge target marker berubah")
+    hub = hub.replace('"bridge_target": "1.0.0-rc28"', '"bridge_target": "1.0.0-rc29"')
 
     hub_path.write_text(hub, encoding="utf-8")
     version_path.write_text(
@@ -84,7 +87,7 @@ def main() -> None:
         'time.monotonic() - self._connector_wake_at < 12',
         'repairable=True',
         '"repairable": bool(status.get("repairable")',
-        '"bridge_target": "1.0.0-rc28"',
+        '"bridge_target": "1.0.0-rc29"',
     )
     missing = [x for x in required if x not in joined]
     if missing:
