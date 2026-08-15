@@ -126,6 +126,20 @@ def main() -> None:
 ''',
         "serialize model download startup",
     )
+    hub = replace_once(
+        hub,
+        '''    def start_core_update(self) -> dict:
+        with self.update_lock:
+            if self.update_status.get("state") == "running":
+                return dict(self.update_status)
+''',
+        '''    def start_core_update(self) -> dict:
+        with self.update_lock:
+            if self.update_status.get("state") in {"starting", "running"}:
+                return dict(self.update_status)
+''',
+        "serialize core updater startup",
+    )
     hub_path.write_text(hub, encoding="utf-8")
 
     routing_path = core / "routing.py"
@@ -225,6 +239,7 @@ def main() -> None:
         "semantic_steps=semantic_steps",
         "decoder.raw_decode",
         'self.model_status.get("state") in {"starting", "running"}',
+        'self.update_status.get("state") in {"starting", "running"}',
         'shutil.which("furina")',
         "call|dial|telepon",
         "if value != active:",
