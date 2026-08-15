@@ -93,6 +93,39 @@ def main() -> None:
 ''',
         "plugin JSON parser",
     )
+    hub = replace_once(
+        hub,
+        '''        if action == "download":
+            with self.update_lock:
+                if self.model_status.get("state") == "running":
+                    raise ValueError("unduhan model lain masih berjalan")
+            catalog_id = str(payload.get("catalog_id") or "").strip()
+            item = next((entry for entry in MODEL_CATALOG if entry["id"] == catalog_id), None)
+            if not item:
+                raise ValueError("pilih model dari katalog FurinaHub")
+            url = item["url"]
+            name = self._safe_model_name(url, item["file"])
+            with self.update_lock:
+                self.model_status = {"state": "starting", "message": f"Menyiapkan {name}", "percent": 0, "name": name}
+            threading.Thread(target=self._download_model, args=(url, name), daemon=True).start()
+            return self.get_model_status()
+''',
+        '''        if action == "download":
+            catalog_id = str(payload.get("catalog_id") or "").strip()
+            item = next((entry for entry in MODEL_CATALOG if entry["id"] == catalog_id), None)
+            if not item:
+                raise ValueError("pilih model dari katalog FurinaHub")
+            url = item["url"]
+            name = self._safe_model_name(url, item["file"])
+            with self.update_lock:
+                if self.model_status.get("state") in {"starting", "running"}:
+                    raise ValueError("unduhan model lain masih berjalan")
+                self.model_status = {"state": "starting", "message": f"Menyiapkan {name}", "percent": 0, "name": name}
+            threading.Thread(target=self._download_model, args=(url, name), daemon=True).start()
+            return self.get_model_status()
+''',
+        "serialize model download startup",
+    )
     hub_path.write_text(hub, encoding="utf-8")
 
     routing_path = core / "routing.py"
@@ -191,6 +224,7 @@ def main() -> None:
     for marker in (
         "semantic_steps=semantic_steps",
         "decoder.raw_decode",
+        'self.model_status.get("state") in {"starting", "running"}',
         'shutil.which("furina")',
         "call|dial|telepon",
         "if value != active:",
