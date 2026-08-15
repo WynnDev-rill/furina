@@ -1,18 +1,18 @@
-name: Build FurinaHub Android RC23 + Core RC39
-# Registered release workflow for RC23.
+name: Build FurinaHub Android RC24 + Core RC40
+# Registered release workflow for RC24.
 
 on:
   pull_request:
     branches: [experiment/furina-agent-termux]
     paths:
       - 'experiments/furina-agent-final/**'
-      - '.github/workflows/furina-agent-rc23.yml'
+      - '.github/workflows/furina-agent-rc24.yml'
       - '.github/workflows/sync-ui-ux-pro-max.yml'
   push:
     branches: [experiment/furina-agent-termux]
     paths:
       - 'experiments/furina-agent-final/**'
-      - '.github/workflows/furina-agent-rc23.yml'
+      - '.github/workflows/furina-agent-rc24.yml'
       - '.github/workflows/sync-ui-ux-pro-max.yml'
   workflow_dispatch:
 
@@ -20,12 +20,12 @@ permissions:
   contents: write
 
 concurrency:
-  group: furinahub-android-rc23-${{ github.ref }}
+  group: furinahub-android-rc24-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  TAG: furinahub-v1.0.0-rc23
-  APK_NAME: FurinaHub-v1.0.0-rc23.apk
+  TAG: furinahub-v1.0.0-rc24
+  APK_NAME: FurinaHub-v1.0.0-rc24.apk
 
 jobs:
   validate-build-release:
@@ -36,10 +36,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Reconstruct RC39 and validate Android RC23
+      - name: Reconstruct RC40 and validate Android RC24
         shell: bash
         run: |
-          bash experiments/furina-agent-final/overrides/android-rc23/validate.sh
+          bash experiments/furina-agent-final/overrides/android-rc24/validate.sh
 
       - uses: actions/setup-java@v5
         with:
@@ -58,7 +58,7 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build FurinaHub RC23 debug on PR
+      - name: Build FurinaHub RC24 debug on PR
         if: github.event_name == 'pull_request'
         working-directory: /tmp/furina-agent-rc34-validate/termux
         shell: bash
@@ -88,7 +88,7 @@ jobs:
           printf '%s' "$FURINA_RELEASE_KEYSTORE_B64" | base64 --decode > bridge/app/furina-agent-release.jks
           chmod 600 bridge/app/furina-agent-release.jks
 
-      - name: Build signed FurinaHub RC23
+      - name: Build signed FurinaHub RC24
         if: github.event_name != 'pull_request' && env.FURINAHUB_RELEASE_EXISTS != '1'
         working-directory: /tmp/furina-agent-rc34-validate/termux
         shell: bash
@@ -103,7 +103,7 @@ jobs:
           test -n "$FURINA_KEY_PASSWORD"
           gradle --no-daemon --stacktrace :bridge:app:assembleRelease
 
-      - name: Verify signed APK and publish immutable RC23
+      - name: Verify signed APK and publish immutable RC24
         if: github.event_name != 'pull_request' && env.FURINAHUB_RELEASE_EXISTS != '1'
         shell: bash
         env:
@@ -123,8 +123,8 @@ jobs:
           SIGNER="$(printf '%s\n' "$CERT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
 
           test "$PACKAGE" = com.wynndev.furinaagentbridge
-          test "$CODE" = 10023
-          test "$NAME" = 1.0.0-rc23
+          test "$CODE" = 10024
+          test "$NAME" = 1.0.0-rc24
           test "${#SHA}" = 64
           test "${#SIGNER}" = 64
 
@@ -137,12 +137,12 @@ jobs:
             "package_name":os.environ["PACKAGE"],
             "sha256":os.environ["SHA"],
             "signer_sha256":os.environ["SIGNER"],
-            "apk_url":"https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc23/FurinaHub-v1.0.0-rc23.apk",
+            "apk_url":"https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc24/FurinaHub-v1.0.0-rc24.apk",
           }
           open("bridge.json","w",encoding="utf-8").write(json.dumps(data,indent=2)+"\n")
           PY
 
           gh release create "$TAG" "$APK_NAME" bridge.json \
             --target "$GITHUB_SHA" \
-            --title "FurinaHub v1.0.0-rc23" \
-            --notes "FurinaHub RC23 fixes blocked Model & Provider controls, adds in-app dialogs, camera/gallery vision attachments, working new conversations and chat history, closes stale sheets on navigation, and routes explicit device commands to the approval-controlled agent. Core RC39 keeps all chat, personalization, mode, and provider changes synchronized with Termux. Same package/signing identity for in-place upgrade."
+            --title "FurinaHub v1.0.0-rc24" \
+            --notes "FurinaHub RC24 renders clickable image messages with reuse and save actions, exposes live dependency progress, separates Qwen chat models from vision and memory support files, adds model download and delete controls, clarifies provider test results, simplifies anime-style personalization, and explains unfinished memory items. Core RC40 keeps media and model files in Termux as the single source of truth. Same package/signing identity for in-place upgrade."
