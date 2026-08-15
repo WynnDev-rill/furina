@@ -1,4 +1,4 @@
-name: Build FurinaHub Android RC21 + Core RC36
+name: Build FurinaHub Android RC21 + Core RC37
 
 on:
   pull_request:
@@ -35,9 +35,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Reconstruct RC36 and validate Android RC21
+      - name: Reconstruct RC37 and validate Android RC21
         shell: bash
-        run: bash experiments/furina-agent-final/overrides/android-rc21/validate.sh
+        run: |
+          bash experiments/furina-agent-final/overrides/android-rc21/validate.sh
+          bash experiments/furina-agent-final/overrides/rc37/validate.sh
 
       - uses: actions/setup-java@v5
         with:
