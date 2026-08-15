@@ -1,17 +1,17 @@
-name: Build FurinaHub Android RC21 + Core RC37
+name: Build FurinaHub Android RC22 + Core RC38
 
 on:
   pull_request:
     branches: [experiment/furina-agent-termux]
     paths:
       - 'experiments/furina-agent-final/**'
-      - '.github/workflows/furina-agent-rc21.yml'
+      - '.github/workflows/furina-agent-rc22.yml'
       - '.github/workflows/sync-ui-ux-pro-max.yml'
   push:
     branches: [experiment/furina-agent-termux]
     paths:
       - 'experiments/furina-agent-final/**'
-      - '.github/workflows/furina-agent-rc21.yml'
+      - '.github/workflows/furina-agent-rc22.yml'
       - '.github/workflows/sync-ui-ux-pro-max.yml'
   workflow_dispatch:
 
@@ -19,12 +19,12 @@ permissions:
   contents: write
 
 concurrency:
-  group: furinahub-android-rc21-${{ github.ref }}
+  group: furinahub-android-rc22-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  TAG: furinahub-v1.0.0-rc21
-  APK_NAME: FurinaHub-v1.0.0-rc21.apk
+  TAG: furinahub-v1.0.0-rc22
+  APK_NAME: FurinaHub-v1.0.0-rc22.apk
 
 jobs:
   validate-build-release:
@@ -35,11 +35,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Reconstruct RC37 and validate Android RC21
+      - name: Reconstruct RC38 and validate Android RC22
         shell: bash
         run: |
-          bash experiments/furina-agent-final/overrides/android-rc21/validate.sh
-          bash experiments/furina-agent-final/overrides/rc37/validate.sh
+          bash experiments/furina-agent-final/overrides/android-rc22/validate.sh
 
       - uses: actions/setup-java@v5
         with:
@@ -58,7 +57,7 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build FurinaHub RC21 debug on PR
+      - name: Build FurinaHub RC22 debug on PR
         if: github.event_name == 'pull_request'
         working-directory: /tmp/furina-agent-rc34-validate/termux
         shell: bash
@@ -88,7 +87,7 @@ jobs:
           printf '%s' "$FURINA_RELEASE_KEYSTORE_B64" | base64 --decode > bridge/app/furina-agent-release.jks
           chmod 600 bridge/app/furina-agent-release.jks
 
-      - name: Build signed FurinaHub RC21
+      - name: Build signed FurinaHub RC22
         if: github.event_name != 'pull_request' && env.FURINAHUB_RELEASE_EXISTS != '1'
         working-directory: /tmp/furina-agent-rc34-validate/termux
         shell: bash
@@ -103,7 +102,7 @@ jobs:
           test -n "$FURINA_KEY_PASSWORD"
           gradle --no-daemon --stacktrace :bridge:app:assembleRelease
 
-      - name: Verify signed APK and publish immutable RC21
+      - name: Verify signed APK and publish immutable RC22
         if: github.event_name != 'pull_request' && env.FURINAHUB_RELEASE_EXISTS != '1'
         shell: bash
         env:
@@ -123,8 +122,8 @@ jobs:
           SIGNER="$(printf '%s\n' "$CERT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
 
           test "$PACKAGE" = com.wynndev.furinaagentbridge
-          test "$CODE" = 10021
-          test "$NAME" = 1.0.0-rc21
+          test "$CODE" = 10022
+          test "$NAME" = 1.0.0-rc22
           test "${#SHA}" = 64
           test "${#SIGNER}" = 64
 
@@ -137,12 +136,12 @@ jobs:
             "package_name":os.environ["PACKAGE"],
             "sha256":os.environ["SHA"],
             "signer_sha256":os.environ["SIGNER"],
-            "apk_url":"https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc21/FurinaHub-v1.0.0-rc21.apk",
+            "apk_url":"https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc22/FurinaHub-v1.0.0-rc22.apk",
           }
           open("bridge.json","w",encoding="utf-8").write(json.dumps(data,indent=2)+"\n")
           PY
 
           gh release create "$TAG" "$APK_NAME" bridge.json \
             --target "$GITHUB_SHA" \
-            --title "FurinaHub v1.0.0-rc21" \
-            --notes "Unified FurinaHub release: shared Core personalization with automatic Termux migration, verified Normal/Shizuku/Root readiness, message actions and text attachments, memory/provider controls, diagnostics, and a policy-gated local OpenConnector integration. Same package/signing identity for in-place upgrade from RC20."
+            --title "FurinaHub v1.0.0-rc22" \
+            --notes "FurinaHub RC22 adds a native Termux recovery updater with actionable logs, correct Shizuku API verification, two-way APK/Termux mode synchronization, verified effective-mode gating, and a compact ChatGPT-style attachment/plugin menu with real icon assets. Same package/signing identity for in-place upgrade."
