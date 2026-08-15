@@ -40,8 +40,23 @@ assert 'EXISTING_INSTALL=0' in text
 assert 'FURINAHUB_CORE_ONLY="$EXISTING_INSTALL"' in text
 assert 'if [[ "${FURINAHUB_CORE_ONLY:-0}" != "1" ]]; then ensure_rc29_apk_file; fi' in text
 assert 'APK tidak diubah; update APK dilakukan dari menu Update FurinaHub.' in text
+fast=text.index('if [[ "$CURRENT" == "$VERSION" && "$CURRENT_REVISION" == "$DEPENDENCY_REVISION" ]]')
+legacy=text.index('fetch "$RC46_BODY_URL"')
+assert fast < legacy
+assert 'Core dan runtime sudah terbaru' in text
 print('FURINAHUB_RC47_UPDATE_OWNERSHIP_OK')
 PY
+
+# Simulate an already-current installation. The body must exit before any
+# network fetch or legacy RC reconstruction.
+FAST_HOME="$(mktemp -d)"
+mkdir -p "$FAST_HOME/.furina-agent/core/furina_agent" "$FAST_HOME/.furina-agent/data" "$FAST_HOME/.furina-agent/logs" "$FAST_HOME/.furina-agent/run"
+printf 'VERSION = "1.0.0-rc47"\n' > "$FAST_HOME/.furina-agent/core/furina_agent/version.py"
+printf '2026.08.15-r11\n' > "$FAST_HOME/.furina-agent/data/dependency_revision"
+HOME="$FAST_HOME" FURINAHUB_MACHINE_PROGRESS=1 bash "$HERE/install-body.sh" > "$FAST_HOME/out"
+grep -q 'PROGRESS 100 Core dan runtime sudah terbaru' "$FAST_HOME/out"
+! grep -q 'Menyiapkan updater Core' "$FAST_HOME/out"
+rm -rf "$FAST_HOME"
 
 grep -q 'VERSION = "1.0.0-rc47"' "$STAGE/core/furina_agent/version.py"
 grep -q '"bridge_target": "1.0.0-rc30"' "$STAGE/core/furina_agent/hub.py"
