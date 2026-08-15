@@ -2,7 +2,6 @@
 set -eEuo pipefail
 
 VERSION="1.0.0-rc47"
-HUB_VERSION="1.0.0-rc30"
 DEPENDENCY_REVISION="2026.08.15-r11"
 ROOT="$HOME/.furina-agent"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
@@ -34,18 +33,35 @@ progress() {
   fi
 }
 
+installed_version() {
+  python - "$ROOT/core/furina_agent/version.py" <<'PY'
+import re,sys
+try: text=open(sys.argv[1],encoding='utf-8').read()
+except OSError: print('missing'); raise SystemExit
+m=re.search(r'VERSION\s*=\s*["\x27]([^"\x27]+)',text)
+print(m.group(1) if m else 'unknown')
+PY
+}
+
+# Normal `furina update` must be cheap and idempotent. Do not reconstruct
+# historical RC layers when the installed Core/runtime already matches.
+CURRENT="$(installed_version 2>/dev/null || true)"
+CURRENT_REVISION="$(cat "$ROOT/data/dependency_revision" 2>/dev/null || true)"
+if [[ "$CURRENT" == "$VERSION" && "$CURRENT_REVISION" == "$DEPENDENCY_REVISION" ]]; then
+  if command -v furina-openconnector >/dev/null 2>&1; then
+    furina-openconnector start >>"$LOG" 2>&1 || true
+  fi
+  progress 100 "Core dan runtime sudah terbaru"
+  printf '✓ FurinaHub Core %s sudah terbaru · runtime %s\n' "$VERSION" "$DEPENDENCY_REVISION"
+  exit 0
+fi
+
 fetch() {
   local url="$1"
   local out="$2"
   if command -v curl >/dev/null 2>&1; then
     curl -fsSL --retry 4 "$url" -o "$out"
-  elif command -v python >/dev/null 2>&1; then
-    python - "$url" "$out" <<'PY'
-import sys,urllib.request
-urllib.request.urlretrieve(sys.argv[1],sys.argv[2])
-PY
   else
-    pkg install -y python >/dev/null
     python - "$url" "$out" <<'PY'
 import sys,urllib.request
 urllib.request.urlretrieve(sys.argv[1],sys.argv[2])

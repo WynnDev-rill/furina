@@ -40,6 +40,12 @@ assert 'EXISTING_INSTALL=0' in text
 assert 'FURINAHUB_CORE_ONLY="$EXISTING_INSTALL"' in text
 assert 'if [[ "${FURINAHUB_CORE_ONLY:-0}" != "1" ]]; then ensure_rc29_apk_file; fi' in text
 assert 'APK tidak diubah; update APK dilakukan dari menu Update FurinaHub.' in text
+fast=text.index('if [[ "$CURRENT" == "$VERSION" && "$CURRENT_REVISION" == "$DEPENDENCY_REVISION" ]]')
+legacy=text.index('fetch "$RC46_BODY_URL"')
+assert fast < legacy
+assert 'Core dan runtime sudah terbaru' in text
+assert 'CURRENT="$(installed_version 2>/dev/null || true)"' in text
+assert 'CURRENT_REVISION="$(cat "$ROOT/data/dependency_revision" 2>/dev/null || true)"' in text
 print('FURINAHUB_RC47_UPDATE_OWNERSHIP_OK')
 PY
 
