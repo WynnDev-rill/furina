@@ -81,3 +81,27 @@ Compared the source's top Settings region against the focused production capture
 - P3: confirm exact status/navigation icon contrast on a physical Poco F6 using three-button navigation.
 
 final result: passed
+
+## 2026-08-15 — FurinaHub RC26 Plugin and system-bar repair
+
+- Source visual truth: `/workspace/scratch/1249ae3de7d5/upload/01-1000082624.jpg` and `/workspace/scratch/1249ae3de7d5/upload/02-1000082625.jpg`.
+- Implementation screenshot: unavailable; this environment has no Android device/emulator capture for the rebuilt APK.
+- Viewport: source 692 × 1536 px, dark theme, Plugin page and open drawer states.
+- Density normalization: unavailable until a physical-device implementation capture exists.
+- P0 evidence: Plugin showed a raw `urlopen error [Errno 111] Connection refused` and no catalog.
+- P0 fix: Core RC42 installs a pinned OpenConnector runtime, starts it through a managed launcher, retries wake-up from the Plugin page, and returns structured recovery states instead of transport errors.
+- P1 evidence: the status clock overlapped the menu/title and three-button navigation covered the lower app surface.
+- P1 fix: Android RC26 applies status/navigation `WindowInsets`, expands the native toolbar by the top inset, reserves the bottom inset outside the WebView, and disables forced system-bar contrast scrims.
+- P2 evidence: Plugin recovery exposed loopback/runtime infrastructure details.
+- P2 fix: settings now show one managed Plugin service status, write-action permission, and a health/retry action; raw transport errors and loopback configuration are removed from the normal flow.
+- Typography: existing FurinaHub hierarchy retained; physical capture is required to verify the adjusted title baseline.
+- Spacing/layout rhythm: inset logic addresses the observed overlap; device evidence is still required.
+- Colors/tokens: existing theme tokens are retained and native system-bar surfaces follow the selected theme.
+- Image/assets: no new visual assets were introduced.
+- Copy/content: transport errors were replaced with short Indonesian recovery copy.
+- Interaction evidence: mocked `missing → starting → ready` runtime states and connected-provider/action-count parsing passed; Core RC42 and Android RC26 reconstruction passed.
+- Browser console: not applicable because the target is a packaged Android Activity, not a browser prototype.
+
+final result: blocked
+
+Blocker: install the signed RC26 APK on the physical test device and capture the same Plugin and drawer states for post-fix visual comparison.
