@@ -1,8 +1,8 @@
 # Memasang Furina Agent di Termux
 
-Furina Agent adalah eksperimen terpisah dari aplikasi Furina utama. Core berjalan di Termux dan dapat memakai Furina Bridge untuk kontrol Android. Instalasi ini tidak memasukkan Furina Agent ke APK Furina utama.
+Furina Agent adalah eksperimen terpisah dari aplikasi Furina utama. Core berjalan di Termux dan dapat memakai FurinaHub/Furina Bridge untuk kontrol Android. Instalasi ini tidak memasukkan Furina Agent ke APK Furina utama.
 
-> Furina Agent masih eksperimental. Installer dan Bridge dapat berubah selama pengembangan.
+> Furina Agent masih eksperimental. Core Termux dan APK FurinaHub memiliki lifecycle update terpisah agar kegagalan salah satu tidak merusak yang lain.
 
 ## 1. Siapkan Termux
 
@@ -20,7 +20,7 @@ Jalankan installer resmi dari branch eksperimen:
 curl -fsSL https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final/install.sh | bash
 ```
 
-Installer akan menyiapkan dependency yang diperlukan, memasang Core ke `~/.furina-agent`, melakukan validasi sebelum aktivasi, dan mempertahankan model/data secara terpisah dari Core.
+Installer akan menyiapkan Core dan runtime yang diperlukan ke `~/.furina-agent`, melakukan validasi sebelum aktivasi, dan mempertahankan model/data secara terpisah dari Core.
 
 ## 3. Jalankan Furina
 
@@ -30,7 +30,7 @@ Setelah instalasi selesai:
 furina
 ```
 
-Jika Furina Bridge perlu dipasang atau diperbarui, installer akan mengarahkan ke APK resmi eksperimen. Buka Bridge dan aktifkan izin Android yang diperlukan untuk fitur kontrol perangkat.
+FurinaHub adalah client Android untuk Core tersebut. Izin Android seperti Accessibility tetap dikelola dari FurinaHub/Bridge, bukan dari updater Core.
 
 ## Mode kontrol Android
 
@@ -42,13 +42,17 @@ Termux:API bukan syarat utama untuk kontrol Android melalui Furina Bridge.
 
 ## Memperbarui
 
-Untuk memperbarui Furina Agent:
+Untuk memperbarui Core dan runtime Furina Agent:
 
 ```bash
 furina update
 ```
 
-Updater menggunakan staging/validation sebelum mengganti Core aktif dan mempertahankan model serta memory pada jalur update normal.
+`furina update` adalah jalur canonical untuk **Core + dependency/runtime**. Pada instalasi yang sudah ada, perintah ini tidak memasang ulang atau menurunkan versi APK FurinaHub.
+
+Update APK dilakukan dari **FurinaHub → Pengaturan → Update FurinaHub**. Pemisahan ini disengaja: Core Termux dan APK Android dapat diperbaiki atau di-rollback secara independen.
+
+Tombol **Update Core** di FurinaHub memanggil updater Core yang sama saat Core terhubung. Jalur native Termux hanya dipakai sebagai recovery jika Core tidak dapat merespons.
 
 ## Pemeriksaan dan perbaikan
 

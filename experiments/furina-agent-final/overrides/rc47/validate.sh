@@ -32,6 +32,17 @@ assert obj._macro_action("ketik halo")[1] == {"type": "set_text_best", "text": "
 print("FURINAHUB_RC47_SKILLS_REGRESSION_OK")
 PY
 
+python3 - "$HERE/install-body.sh" <<'PY'
+from pathlib import Path
+import sys
+text=Path(sys.argv[1]).read_text(encoding='utf-8')
+assert 'EXISTING_INSTALL=0' in text
+assert 'FURINAHUB_CORE_ONLY="$EXISTING_INSTALL"' in text
+assert 'if [[ "${FURINAHUB_CORE_ONLY:-0}" != "1" ]]; then ensure_rc29_apk_file; fi' in text
+assert 'APK tidak diubah; update APK dilakukan dari menu Update FurinaHub.' in text
+print('FURINAHUB_RC47_UPDATE_OWNERSHIP_OK')
+PY
+
 grep -q 'VERSION = "1.0.0-rc47"' "$STAGE/core/furina_agent/version.py"
 grep -q '"bridge_target": "1.0.0-rc30"' "$STAGE/core/furina_agent/hub.py"
 echo FURINAHUB_CORE_RC47_VALIDATE_OK

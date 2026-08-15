@@ -20,6 +20,8 @@ if [[ ! -d /data/data/com.termux/files/usr ]]; then
   exit 1
 fi
 mkdir -p "$ROOT"/{cache,logs,run,data,models}
+EXISTING_INSTALL=0
+[[ -f "$ROOT/core/furina_agent/version.py" ]] && EXISTING_INSTALL=1
 LOG="$ROOT/logs/update-rc47-furinahub.log"
 : > "$LOG"
 
@@ -62,7 +64,7 @@ if actual != expected:
 PY
 }
 
-progress 1 "Menyiapkan updater dependency bersama"
+progress 1 "Menyiapkan updater Core"
 fetch "$RC46_BODY_URL" "$TMP/rc46-install-body.sh"
 verify_blob "$TMP/rc46-install-body.sh" "$RC46_BODY_BLOB"
 python - "$TMP/rc46-install-body.sh" "$RC46_BASE" <<'PY'
@@ -84,15 +86,23 @@ text=text.replace(old,new,1)
 text,count=re.subn(r'^BASE="[^"]+"$', f'BASE="{pinned}"', text, count=1, flags=re.M)
 if count != 1:
     raise SystemExit('BASE RC46 tidak dapat dipin')
+old_apk='\nensure_rc29_apk_file\n'
+new_apk='\nif [[ "${FURINAHUB_CORE_ONLY:-0}" != "1" ]]; then ensure_rc29_apk_file; fi\n'
+if old_apk not in text:
+    raise SystemExit('Marker APK RC46 tidak ditemukan')
+text=text.replace(old_apk,new_apk,1)
+text=text.replace('Core, Plugin, dan APK siap','Core dan Plugin siap')
+text=text.replace('Core & APK siap; Plugin perlu perhatian','Core siap; Plugin perlu perhatian')
+text=text.replace('  APK: FurinaHub RC29.\\n','')
 path.write_text(text,encoding='utf-8')
 PY
 bash -n "$TMP/rc46-install-body.sh"
 
-# RC46 remains the deterministic foundation. The patched copy fixes the
-# `to: unbound variable` failure before any device state is modified.
-FURINAHUB_MACHINE_PROGRESS="${FURINAHUB_MACHINE_PROGRESS:-0}" bash "$TMP/rc46-install-body.sh" "$@" >>"$LOG" 2>&1
+# Existing installations update only Core/runtime. APK lifecycle belongs to
+# FurinaHub's Android updater, so `furina update` cannot downgrade/reinstall APK.
+FURINAHUB_CORE_ONLY="$EXISTING_INSTALL" FURINAHUB_MACHINE_PROGRESS="${FURINAHUB_MACHINE_PROGRESS:-0}" bash "$TMP/rc46-install-body.sh" "$@" >>"$LOG" 2>&1
 
-progress 94 "Menerapkan Core RC47 dan skill Agent"
+progress 94 "Memastikan Core RC47 dan skill Agent"
 fetch "$RC47_APPLY_URL" "$TMP/apply-rc47.py"
 verify_blob "$TMP/apply-rc47.py" "$RC47_APPLY_BLOB"
 python "$TMP/apply-rc47.py" "$ROOT" >>"$LOG" 2>&1
@@ -103,7 +113,9 @@ printf '%s\n' "$DEPENDENCY_REVISION" > "$ROOT/data/dependency_revision"
 if command -v furina-openconnector >/dev/null 2>&1; then
   furina-openconnector start >>"$LOG" 2>&1 || true
 fi
-progress 100 "Core RC47 dan dependency siap"
-printf '✓ FurinaHub Core %s aktif · dependency %s\n' "$VERSION" "$DEPENDENCY_REVISION"
-printf '  Updater yang sama dipakai Termux dan tombol Core/dependency di APK.\n'
+progress 100 "Core RC47 dan runtime siap"
+printf '✓ FurinaHub Core %s aktif · runtime %s\n' "$VERSION" "$DEPENDENCY_REVISION"
+if (( EXISTING_INSTALL == 1 )); then
+  printf '  APK tidak diubah; update APK dilakukan dari menu Update FurinaHub.\n'
+fi
 printf '  Log: %s\n' "$LOG"
