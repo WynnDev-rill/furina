@@ -58,6 +58,7 @@ for marker in (
     'semantic_steps=semantic_steps',
     'decoder.raw_decode',
     'self.model_status.get("state") in {"starting", "running"}',
+    'self.update_status.get("state") in {"starting", "running"}',
 ):
     assert marker in hub, marker
 assert 'shutil.which("furina")' in routing
