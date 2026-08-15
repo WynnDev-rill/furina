@@ -13,7 +13,7 @@ RC43_BODY_BLOB="dcaeee6a1ad8588f76c37138b180b472b8720178"
 RC44_APPLY_URL="$BASE/overrides/rc44/apply.py"
 RC44_APPLY_BLOB="1c81b788e0581f363cc166b576feee68ec8b5798"
 RC44_AUDIT_URL="$BASE/overrides/rc44/audit-extra.py"
-RC44_AUDIT_BLOB="b511a228e41c606961778f47b11bbf4077272874"
+RC44_AUDIT_BLOB="cec2f8d52454ebc8671ce7596f4140a1dff0d4cd"
 RELEASE_BASE="https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc28"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
