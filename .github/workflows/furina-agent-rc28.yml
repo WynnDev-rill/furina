@@ -43,8 +43,9 @@ jobs:
           bash -n experiments/furina-agent-final/install.sh
           bash -n experiments/furina-agent-final/overrides/rc44/install-body.sh
           test "$(git hash-object experiments/furina-agent-final/overrides/rc44/apply.py)" = 1c81b788e0581f363cc166b576feee68ec8b5798
+          test "$(git hash-object experiments/furina-agent-final/overrides/rc44/audit-extra.py)" = ba7e5a238dbdf5774d459e7c576a18939616d01a
           test "$(git hash-object experiments/furina-agent-final/overrides/android-rc28/apply.py)" = 56000e8f99d6ad563458cf80fef8a726f9e6b6f5
-          test "$(git hash-object experiments/furina-agent-final/overrides/rc44/install-body.sh)" = 4505e33b8392b115f5044e40c12a1291b1758840
+          test "$(git hash-object experiments/furina-agent-final/overrides/rc44/install-body.sh)" = 6812d899fdc2d348a7dd671d4719c304d8190be7
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -54,8 +55,9 @@ jobs:
           assert int(manifest['bridge_version_code'])==10028
           assert manifest['dependency_revision']=='2026.08.15-r8'
           install=Path('experiments/furina-agent-final/install.sh').read_text()
-          assert 'BODY_BLOB="4505e33b8392b115f5044e40c12a1291b1758840"' in install
+          assert 'BODY_BLOB="6812d899fdc2d348a7dd671d4719c304d8190be7"' in install
           assert 'RC44_APPLY_BLOB="1c81b788e0581f363cc166b576feee68ec8b5798"' in install
+          assert 'RC44_AUDIT_BLOB="ba7e5a238dbdf5774d459e7c576a18939616d01a"' in install
           print('FURINAHUB_RC28_RELEASE_BINDINGS_OK')
           PY
 
@@ -163,4 +165,4 @@ jobs:
           gh release create "$TAG" "$APK_NAME" bridge.json \
             --target "$GITHUB_SHA" \
             --title "FurinaHub v1.0.0-rc28" \
-            --notes "Audit bug release. RC28 restores Agent approval cards for device tasks, keeps active jobs visible after UI refresh, raises the native request envelope to match 6 MB image attachments, guards media callbacks after WebView destruction, prevents duplicate updater starts, and extends Agent polling. Core RC44 persists device-task chat history, validates downloaded GGUF headers, searches the full selected-plugin action catalog, and makes read/write Plugin classification conservative."
+            --notes "Audit bug release. RC28 restores Agent approval cards for device tasks, keeps active jobs visible after UI refresh, raises the native request envelope to match 6 MB image attachments, guards media callbacks after WebView destruction, prevents duplicate updater starts, and extends Agent polling. Core RC44 persists device-task chat history, preserves classifier semantic steps, repairs local-model launcher discovery/autostart, validates downloaded GGUF headers, fixes deletion of inactive conversations, hardens direct-control sensitive actions, searches the full selected-plugin action catalog, and makes read/write Plugin classification conservative."
