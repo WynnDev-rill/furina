@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0-rc43",
+  "version": "1.0.0-rc44",
   "channel": "final-candidate",
   "source_sha256": "6b51c907c8a79ab6af06ef891b5013ce8ed964bdc168cf0e71751eacf4161fea",
   "source_bytes": 48149,
@@ -15,7 +15,7 @@
   "hub_host": "127.0.0.1",
   "hub_port": 8787,
   "dependency_revision": "2026.08.15-r8",
-  "bridge_version": "1.0.0-rc27",
-  "bridge_version_code": 10027,
-  "bridge_release_base": "https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc27"
+  "bridge_version": "1.0.0-rc28",
+  "bridge_version_code": 10028,
+  "bridge_release_base": "https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc28"
 }
