@@ -70,6 +70,15 @@ def main() -> None:
 ''',
         "duplicate app update",
     )
+    body = replace_once(
+        body,
+        '''        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_PICK_ATTACHMENT''',
+        '''        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_SAVE_IMAGE && resultCode != RESULT_OK) pendingImageSave = null;
+        if (requestCode == REQ_PICK_ATTACHMENT''',
+        "cancelled image save cleanup",
+    )
     main_activity.write_text(body, encoding="utf-8")
 
     html = html_path.read_text(encoding="utf-8")
@@ -116,6 +125,7 @@ def main() -> None:
             "web = null;",
             "if (web != null) web.evaluateJavascript(js, null);",
             "if (appUpdateBusy) return;",
+            "REQ_SAVE_IMAGE && resultCode != RESULT_OK) pendingImageSave = null;",
         ),
         html_path: (
             "result.mode==='device'&&result.job",
