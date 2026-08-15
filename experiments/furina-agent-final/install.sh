@@ -6,8 +6,9 @@ HUB_VERSION="1.0.0-rc28"
 DEPENDENCY_REVISION="2026.08.15-r8"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 BODY_URL="$BASE/overrides/rc44/install-body.sh"
-BODY_BLOB="4505e33b8392b115f5044e40c12a1291b1758840"
+BODY_BLOB="6812d899fdc2d348a7dd671d4719c304d8190be7"
 RC44_APPLY_BLOB="1c81b788e0581f363cc166b576feee68ec8b5798"
+RC44_AUDIT_BLOB="ba7e5a238dbdf5774d459e7c576a18939616d01a"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
   echo "Installer FurinaHub harus dijalankan dari Termux." >&2
@@ -28,9 +29,9 @@ import sys,urllib.request
 urllib.request.urlretrieve(sys.argv[1],sys.argv[2])
 PY
 fi
-python - "$TMP" "$BODY_BLOB" "$RC44_APPLY_BLOB" <<'PY'
+python - "$TMP" "$BODY_BLOB" "$RC44_APPLY_BLOB" "$RC44_AUDIT_BLOB" <<'PY'
 import hashlib,pathlib,sys
-path,expected,apply_blob=sys.argv[1:]
+path,expected,apply_blob,audit_blob=sys.argv[1:]
 data=pathlib.Path(path).read_bytes()
 actual=hashlib.sha1(f"blob {len(data)}\0".encode()+data).hexdigest()
 if actual != expected:
@@ -38,6 +39,8 @@ if actual != expected:
 text=data.decode('utf-8')
 if f'RC44_APPLY_BLOB="{apply_blob}"' not in text:
     raise SystemExit('Binding RC44 apply tidak cocok')
+if f'RC44_AUDIT_BLOB="{audit_blob}"' not in text:
+    raise SystemExit('Binding RC44 audit tidak cocok')
 if 'PINNED_RC43="44d215a38b336c903d06f04be01f30e60143ba35"' not in text:
     raise SystemExit('Fondasi RC43 tidak dipin')
 PY
