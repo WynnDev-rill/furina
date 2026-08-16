@@ -10,6 +10,8 @@ RC48_R14_URL="$BASE/overrides/rc48-r14/install-body.sh"
 RC48_R14_BLOB="b51620af1dc2b90bfebd7d0c8fcbb470563a1a61"
 RC49_APPLY_URL="$BASE/overrides/rc49/apply.py"
 RC49_APPLY_BLOB="c16461e87230f8560f7e6093b90a7cc4e8aab909"
+RC49_HARDEN_URL="$BASE/overrides/rc49/harden.py"
+RC49_HARDEN_BLOB="5b8d67a938774652f4169a1733b8cd3fbab32b5f"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -68,6 +70,8 @@ ensure_rc48_r14() {
   local current revision
   current="$(core_version 2>/dev/null || true)"
   revision="$(cat "$ROOT/data/dependency_revision" 2>/dev/null || true)"
+  # A partially completed RC49 update must never be downgraded through the legacy chain.
+  if [[ "$current" == "$VERSION" ]]; then return 0; fi
   if [[ "$current" == "1.0.0-rc48" && "$revision" == "2026.08.16-r14" ]] \
       && command -v furina-openconnector >/dev/null 2>&1 \
       && furina-openconnector status >/dev/null 2>&1; then
@@ -81,11 +85,15 @@ ensure_rc48_r14() {
 }
 
 apply_rc49() {
-  if [[ "$(core_version 2>/dev/null || true)" == "$VERSION" ]]; then return 0; fi
   progress 36 "Menyederhanakan sistem Plugin"
   fetch "$RC49_APPLY_URL" "$TMP/apply-rc49.py"
   verify_blob "$TMP/apply-rc49.py" "$RC49_APPLY_BLOB"
-  python "$TMP/apply-rc49.py" "$ROOT" >>"$LOG" 2>&1
+  fetch "$RC49_HARDEN_URL" "$TMP/harden-rc49.py"
+  verify_blob "$TMP/harden-rc49.py" "$RC49_HARDEN_BLOB"
+  if [[ "$(core_version 2>/dev/null || true)" != "$VERSION" ]]; then
+    python "$TMP/apply-rc49.py" "$ROOT" >>"$LOG" 2>&1
+  fi
+  python "$TMP/harden-rc49.py" "$ROOT" >>"$LOG" 2>&1
   python -m compileall -q "$ROOT/core/furina_agent"
   test "$(core_version)" = "$VERSION"
 }
