@@ -15,8 +15,13 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 
 
 def replace_js_function(text: str, name: str, next_name: str, replacement: str) -> str:
-    start = text.find(f"function {name}(")
-    end = text.find(f"function {next_name}(", start + 1)
+    marker = f"function {name}("
+    start = text.find(marker)
+    if start >= 6 and text[start - 6:start] == "async ":
+        start -= 6
+    end = text.find(f"function {next_name}(", max(start, 0) + 1)
+    if end >= 6 and text[end - 6:end] == "async ":
+        end -= 6
     if start < 0 or end < 0 or end <= start:
         raise SystemExit(f"RC32 JS boundary mismatch: {name} -> {next_name}")
     return text[:start] + replacement.rstrip() + "\n" + text[end:]
@@ -135,6 +140,8 @@ async function submitPluginSetup(){
             raise SystemExit(f"RC32 marker hilang di {path.name}: {missing}")
     if "p.connected?'Terhubung':'Hubungkan'" in html:
         raise SystemExit("RC32 legacy Plugin status masih tersisa")
+    if "async async function" in html:
+        raise SystemExit("RC32 duplicate async marker tersisa")
     print("FURINAHUB_ANDROID_RC32_PLUGIN_UX_OK")
 
 
