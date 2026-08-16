@@ -50,10 +50,12 @@ def main() -> None:
 
     old_secret = 'cls._connector_field({}, "clientSecret", "Client secret", secret=True)'
     new_secret = 'cls._connector_field({}, "clientSecret", "Client secret", secret=True, required=False)'
-    count = hub.count(old_secret)
-    if count != 2:
-        raise SystemExit(f"RC49 OAuth clientSecret marker mismatch: {count}")
-    hub = hub.replace(old_secret, new_secret)
+    old_count = hub.count(old_secret)
+    new_count = hub.count(new_secret)
+    if old_count == 2 and new_count == 0:
+        hub = hub.replace(old_secret, new_secret)
+    elif not (old_count == 0 and new_count == 2):
+        raise SystemExit(f"RC49 OAuth clientSecret marker mismatch: old={old_count} new={new_count}")
 
     hub_path.write_text(hub, encoding="utf-8")
     compile(hub, str(hub_path), "exec")
