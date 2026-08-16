@@ -20,11 +20,9 @@ Jalankan installer resmi dari branch eksperimen:
 curl -fsSL https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final/install.sh | bash
 ```
 
-Installer akan menyiapkan Core dan runtime yang diperlukan ke `~/.furina-agent`, melakukan validasi sebelum aktivasi, dan mempertahankan model/data secara terpisah dari Core.
+Installer menyiapkan Core dan runtime yang diperlukan ke `~/.furina-agent`, melakukan validasi sebelum aktivasi, dan mempertahankan model/data secara terpisah dari Core.
 
 ## 3. Jalankan Furina
-
-Setelah instalasi selesai:
 
 ```bash
 furina
@@ -50,9 +48,21 @@ furina update
 
 `furina update` adalah jalur canonical untuk **Core + dependency/runtime**. Pada instalasi yang sudah ada, perintah ini tidak memasang ulang atau menurunkan versi APK FurinaHub.
 
-Update APK dilakukan dari **FurinaHub → Pengaturan → Update FurinaHub**. Pemisahan ini disengaja: Core Termux dan APK Android dapat diperbaiki atau di-rollback secara independen.
+Update APK dilakukan dari **FurinaHub → Pengaturan → Update FurinaHub**. Core Termux dan APK Android dapat diperbaiki atau di-rollback secara independen.
 
-Tombol **Update Core** di FurinaHub memanggil updater Core yang sama saat Core terhubung. Jalur native Termux hanya dipakai sebagai recovery jika Core tidak dapat merespons.
+## Plugin
+
+Plugin memakai OpenConnector lokal di Termux. RC48 memeriksa endpoint kesehatan resmi `/v1/health`; launcher akan mencoba memperbaiki dependency sekali secara otomatis bila runtime gagal start.
+
+Pemeriksaan manual jika diperlukan:
+
+```bash
+furina-openconnector status
+furina-openconnector repair
+furina-openconnector logs
+```
+
+Provider `no_auth` langsung dapat digunakan. Provider dengan API key, seperti GitHub, dapat dihubungkan dengan key dari FurinaHub. Untuk provider OAuth seperti Gmail, OpenConnector self-hosted membutuhkan OAuth Client ID/Secret milik pengguna; ini batasan OpenConnector self-hosted, bukan error FurinaHub. Hosted connector dapat menyediakan managed OAuth, tetapi sengaja tidak dijadikan dependency wajib Furina Agent.
 
 ## Pemeriksaan dan perbaikan
 
