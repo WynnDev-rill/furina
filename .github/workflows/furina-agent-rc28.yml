@@ -42,35 +42,36 @@ jobs:
           python3 experiments/furina-agent-final/overrides/rc48/apply.py /tmp/furina-agent-rc34-validate/termux
           bash -n experiments/furina-agent-final/install.sh
           bash -n experiments/furina-agent-final/overrides/rc48/install-body.sh
-          bash -n experiments/furina-agent-final/overrides/rc48-r13/install-body.sh
+          bash -n experiments/furina-agent-final/overrides/rc48-r14/install-body.sh
           test "$(git hash-object experiments/furina-agent-final/overrides/rc48/apply.py)" = 9d2a1c6bf1df6bcd464691b8bb1418b80cdf9443
           test "$(git hash-object experiments/furina-agent-final/overrides/rc48/install-body.sh)" = 13cc5b168052ed07fe09e78d6ecc2f5a758318be
-          test "$(git hash-object experiments/furina-agent-final/overrides/rc48-r13/install-body.sh)" = 628cf0186f79f9d66fcbe2026d96cb65246417fd
+          test "$(git hash-object experiments/furina-agent-final/overrides/rc48-r14/install-body.sh)" = b51620af1dc2b90bfebd7d0c8fcbb470563a1a61
           test "$(git hash-object experiments/furina-agent-final/overrides/android-rc31/apply.py)" = 30d524b9ff2f394013aad4b85ec38efd598e2b30
+          FURINAHUB_VALIDATE_ONLY=1 bash experiments/furina-agent-final/overrides/rc48-r14/install-body.sh | grep -F 'FURINAHUB_OPENCONNECTOR_R14_TRANSFORM_OK'
           python3 - <<'PY'
           import json
           from pathlib import Path
           stage=Path('/tmp/furina-agent-rc34-validate/termux')
           manifest=json.loads(Path('experiments/furina-agent-final/manifest.json').read_text())
           assert manifest['version']=='1.0.0-rc48'
-          assert manifest['dependency_revision']=='2026.08.16-r13'
+          assert manifest['dependency_revision']=='2026.08.16-r14'
           assert manifest['bridge_version']=='1.0.0-rc31'
           assert int(manifest['bridge_version_code'])==10031
           assert 'VERSION = "1.0.0-rc48"' in (stage/'core/furina_agent/version.py').read_text()
           assert "versionName '1.0.0-rc31'" in (stage/'bridge/app/build.gradle').read_text()
           install=Path('experiments/furina-agent-final/install.sh').read_text()
-          hotfix=Path('experiments/furina-agent-final/overrides/rc48-r13/install-body.sh').read_text()
+          hotfix=Path('experiments/furina-agent-final/overrides/rc48-r14/install-body.sh').read_text()
           body=Path('experiments/furina-agent-final/overrides/rc48/install-body.sh').read_text()
-          assert 'BODY_URL="$BASE/overrides/rc48-r13/install-body.sh"' in install
-          assert 'BODY_BLOB="628cf0186f79f9d66fcbe2026d96cb65246417fd"' in install
+          assert 'BODY_URL="$BASE/overrides/rc48-r14/install-body.sh"' in install
+          assert 'BODY_BLOB="b51620af1dc2b90bfebd7d0c8fcbb470563a1a61"' in install
           assert 'RC48_BODY_BLOB="13cc5b168052ed07fe09e78d6ecc2f5a758318be"' in hotfix
-          assert 'NODE_ENV=production NODE_NO_WARNINGS=1' in hotfix
-          assert 'npm install --omit=dev --workspaces=false --no-audit --no-fund' in hotfix
+          assert 'NODE_ENV=production NODE_NO_WARNINGS=1 HOST=127.0.0.1 PORT=3000' in hotfix
+          assert 'FURINAHUB_VALIDATE_ONLY' in hotfix
           assert 'OPENCONNECTOR_COMMIT="d478400141c33bb5ddf823e09b293e9d7154da97"' in body
           assert 'URL="http://127.0.0.1:3000/v1/health"' in body
           assert 'start_with_repair' in body
           assert 'Do not stamp the revision on failure' in body
-          print('FURINAHUB_RC48_R13_RC31_RELEASE_BINDINGS_OK')
+          print('FURINAHUB_RC48_R14_RC31_RELEASE_BINDINGS_OK')
           PY
 
       - uses: actions/setup-java@v5
