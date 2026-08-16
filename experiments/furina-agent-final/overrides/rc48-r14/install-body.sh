@@ -41,49 +41,30 @@ PY
 fetch "$RC48_BODY_URL" "$TMP/rc48-install-body.sh"
 verify_blob "$TMP/rc48-install-body.sh" "$RC48_BODY_BLOB"
 
-python - "$TMP/rc48-install-body.sh" <<'PY'
-from pathlib import Path
-import sys
+# Keep the hotfix transform intentionally simple. r13 used an embedded Python
+# string containing a shell line-continuation backslash and failed on-device
+# before the updater could run. Fixed-string checks + sed avoid that class of bug.
+if [[ "$(grep -Fc 'DEPENDENCY_REVISION="2026.08.16-r12"' "$TMP/rc48-install-body.sh")" != "1" ]]; then
+  echo "Marker dependency RC48/r12 tidak ditemukan atau ambigu." >&2
+  exit 3
+fi
+if [[ "$(grep -Fc 'exec env NODE_NO_WARNINGS=1 HOST=127.0.0.1 PORT=3000' "$TMP/rc48-install-body.sh")" != "1" ]]; then
+  echo "Marker launcher OpenConnector RC48 tidak ditemukan atau ambigu." >&2
+  exit 3
+fi
 
-path=Path(sys.argv[1])
-text=path.read_text(encoding='utf-8')
+sed -i 's/^DEPENDENCY_REVISION="2026\.08\.16-r12"$/DEPENDENCY_REVISION="2026.08.16-r14"/' "$TMP/rc48-install-body.sh"
+sed -i 's/exec env NODE_NO_WARNINGS=1 HOST=127\.0\.0\.1 PORT=3000/exec env NODE_ENV=production NODE_NO_WARNINGS=1 HOST=127.0.0.1 PORT=3000/' "$TMP/rc48-install-body.sh"
 
-old_revision='DEPENDENCY_REVISION="2026.08.16-r12"'
-new_revision='DEPENDENCY_REVISION="2026.08.16-r14"'
-if text.count(old_revision) != 1:
-    raise SystemExit('Marker dependency RC48/r12 tidak ditemukan')
-text=text.replace(old_revision,new_revision,1)
-
-# Match only the stable prefix. Do not place the shell line-continuation backslash
-# inside a Python single-quoted string; that was the r13 SyntaxError on-device.
-old_launcher='exec env NODE_NO_WARNINGS=1 HOST=127.0.0.1 PORT=3000 '
-new_launcher='exec env NODE_ENV=production NODE_NO_WARNINGS=1 HOST=127.0.0.1 PORT=3000 '
-if text.count(old_launcher) != 1:
-    raise SystemExit('Marker launcher OpenConnector RC48 tidak ditemukan')
-text=text.replace(old_launcher,new_launcher,1)
-
-required=(
-    'DEPENDENCY_REVISION="2026.08.16-r14"',
-    'NODE_ENV=production NODE_NO_WARNINGS=1 HOST=127.0.0.1 PORT=3000',
-    'npm install --omit=dev --workspaces=false --no-audit --no-fund',
-    'URL="http://127.0.0.1:3000/v1/health"',
-)
-missing=[item for item in required if item not in text]
-if missing:
-    raise SystemExit(f'Binding runtime r14 tidak lengkap: {missing}')
-path.write_text(text,encoding='utf-8')
-PY
-
-# Validate the transformed installer itself. This is intentionally executed in CI
-# as well so Python-transform syntax errors cannot pass with only `bash -n`.
+grep -Fq 'DEPENDENCY_REVISION="2026.08.16-r14"' "$TMP/rc48-install-body.sh"
+grep -Fq 'NODE_ENV=production NODE_NO_WARNINGS=1 HOST=127.0.0.1 PORT=3000' "$TMP/rc48-install-body.sh"
+grep -Fq 'npm install --omit=dev --workspaces=false --no-audit --no-fund' "$TMP/rc48-install-body.sh"
+grep -Fq 'URL="http://127.0.0.1:3000/v1/health"' "$TMP/rc48-install-body.sh"
 bash -n "$TMP/rc48-install-body.sh"
-python - "$TMP/rc48-install-body.sh" <<'PY'
-from pathlib import Path
-import sys
-text=Path(sys.argv[1]).read_text(encoding='utf-8')
-assert 'DEPENDENCY_REVISION="2026.08.16-r14"' in text
-assert 'NODE_ENV=production NODE_NO_WARNINGS=1 HOST=127.0.0.1 PORT=3000' in text
-print('FURINAHUB_OPENCONNECTOR_R14_TRANSFORM_OK')
-PY
+
+if [[ "${FURINAHUB_VALIDATE_ONLY:-0}" == "1" ]]; then
+  echo "FURINAHUB_OPENCONNECTOR_R14_TRANSFORM_OK"
+  exit 0
+fi
 
 bash "$TMP/rc48-install-body.sh" "$@"
