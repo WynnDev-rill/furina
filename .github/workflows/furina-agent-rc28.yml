@@ -42,8 +42,8 @@ jobs:
           bash -n experiments/furina-agent-final/install.sh
           bash -n experiments/furina-agent-final/overrides/rc49/install-body.sh
           test "$(git hash-object experiments/furina-agent-final/overrides/rc49/apply.py)" = c16461e87230f8560f7e6093b90a7cc4e8aab909
-          test "$(git hash-object experiments/furina-agent-final/overrides/rc49/harden.py)" = 5b8d67a938774652f4169a1733b8cd3fbab32b5f
-          test "$(git hash-object experiments/furina-agent-final/overrides/rc49/install-body.sh)" = f5a852aae4d0aa57c19c724aef8d3a9752f1a098
+          test "$(git hash-object experiments/furina-agent-final/overrides/rc49/harden.py)" = b8667a60727f0285521981c2543e704d9d41b276
+          test "$(git hash-object experiments/furina-agent-final/overrides/rc49/install-body.sh)" = 44d4d038b6159f28dd95064eca67239b071b1201
           test "$(git hash-object experiments/furina-agent-final/overrides/android-rc32/apply.py)" = 76c78df95c758560b656ff9353fd49cf8a43ff42
           python3 - <<'PY'
           import json
@@ -59,7 +59,8 @@ jobs:
           install=Path('experiments/furina-agent-final/install.sh').read_text()
           body=Path('experiments/furina-agent-final/overrides/rc49/install-body.sh').read_text()
           assert 'BODY_URL="$BASE/overrides/rc49/install-body.sh"' in install
-          assert 'BODY_BLOB="f5a852aae4d0aa57c19c724aef8d3a9752f1a098"' in install
+          assert 'BODY_BLOB="44d4d038b6159f28dd95064eca67239b071b1201"' in install
+          assert 'RC49_HARDEN_BLOB="b8667a60727f0285521981c2543e704d9d41b276"' in install
           for marker in (
               'OOMOL_CONNECT_ENCRYPTION_KEY="$key"',
               'OOMOL_CONNECT_ADMIN_TOKEN="$token"',
