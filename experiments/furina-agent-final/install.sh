@@ -5,8 +5,8 @@ VERSION="1.0.0-rc48"
 DEPENDENCY_REVISION="2026.08.16-r12"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 BODY_URL="$BASE/overrides/rc48/install-body.sh"
-BODY_BLOB="33cef09f86125f99243c5f695842a2baab7c7df2"
-RC48_APPLY_BLOB="5de2d2a707c55e9155ee0b97e94071a9a23ffe05"
+BODY_BLOB="13cc5b168052ed07fe09e78d6ecc2f5a758318be"
+RC48_APPLY_BLOB="9d2a1c6bf1df6bcd464691b8bb1418b80cdf9443"
 OPENCONNECTOR_COMMIT="d478400141c33bb5ddf823e09b293e9d7154da97"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
