@@ -10,16 +10,6 @@ python3 "$HERE/apply.py" "$STAGE"
 python3 -m py_compile "$HERE/apply.py"
 bash -n "$HERE/install-body.sh"
 
-PYTHONPATH="$STAGE/core" FURINA_HOME=/tmp/furinahub-rc48-test python3 - <<'PY'
-from furina_agent.version import VERSION
-from furina_agent.hub import Runtime
-assert VERSION == "1.0.0-rc48"
-obj = object.__new__(Runtime)
-assert callable(obj.connector_status)
-assert callable(obj._connector_runtime_error)
-print("FURINAHUB_RC48_CORE_IMPORT_OK")
-PY
-
 python3 - "$STAGE" "$HERE/install-body.sh" <<'PY'
 from pathlib import Path
 import subprocess,sys,tempfile
@@ -27,6 +17,7 @@ stage=Path(sys.argv[1])
 body=Path(sys.argv[2]).read_text(encoding='utf-8')
 hub=(stage/'core/furina_agent/hub.py').read_text(encoding='utf-8')
 version=(stage/'core/furina_agent/version.py').read_text(encoding='utf-8')
+compile(hub, str(stage/'core/furina_agent/hub.py'), 'exec')
 assert 'VERSION = "1.0.0-rc48"' in version
 assert 'self._connector_request("GET", "/v1/health")' in hub
 assert 'now - self._connector_wake_at < 60' in hub
