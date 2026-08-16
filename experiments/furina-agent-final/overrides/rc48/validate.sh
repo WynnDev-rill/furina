@@ -12,26 +12,28 @@ bash -n "$HERE/install-body.sh"
 
 PYTHONPATH="$STAGE/core" FURINA_HOME=/tmp/furinahub-rc48-test python3 - <<'PY'
 from furina_agent.version import VERSION
-from furina_agent.hub import CONNECTOR_LOG_PATH, Runtime
+from furina_agent.hub import Runtime
 assert VERSION == "1.0.0-rc48"
-assert CONNECTOR_LOG_PATH.name == "openconnector.log"
 obj = object.__new__(Runtime)
-assert callable(obj._connector_log_detail)
+assert callable(obj.connector_status)
+assert callable(obj._connector_runtime_error)
 print("FURINAHUB_RC48_CORE_IMPORT_OK")
 PY
 
 python3 - "$STAGE" "$HERE/install-body.sh" <<'PY'
 from pathlib import Path
-import re,subprocess,sys,tempfile
+import subprocess,sys,tempfile
 stage=Path(sys.argv[1])
 body=Path(sys.argv[2]).read_text(encoding='utf-8')
 hub=(stage/'core/furina_agent/hub.py').read_text(encoding='utf-8')
 version=(stage/'core/furina_agent/version.py').read_text(encoding='utf-8')
 assert 'VERSION = "1.0.0-rc48"' in version
 assert 'self._connector_request("GET", "/v1/health")' in hub
+assert 'now - self._connector_wake_at < 60' in hub
+assert 'elapsed < 8' in hub
 assert 'provider.get("authTypes")' in hub
 assert '"connected": service in connected or "no_auth" in auth_types' in hub
-assert 'Plugin gagal start:' in hub
+assert 'Plugin gagal start.' in hub
 assert 'DEPENDENCY_REVISION="2026.08.16-r12"' in body
 assert 'URL="http://127.0.0.1:3000/v1/health"' in body
 assert 'node "$APP/src/server/index.ts"' in body
