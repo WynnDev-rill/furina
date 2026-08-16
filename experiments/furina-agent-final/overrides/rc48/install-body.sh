@@ -10,7 +10,7 @@ BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-ag
 RC47_BODY_URL="$BASE/overrides/rc47/install-body.sh"
 RC47_BODY_BLOB="088c75120ed0e757711257587973740c05093859"
 RC48_APPLY_URL="$BASE/overrides/rc48/apply.py"
-RC48_APPLY_BLOB="5de2d2a707c55e9155ee0b97e94071a9a23ffe05"
+RC48_APPLY_BLOB="9d2a1c6bf1df6bcd464691b8bb1418b80cdf9443"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
