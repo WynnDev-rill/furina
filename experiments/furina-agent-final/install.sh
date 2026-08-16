@@ -5,7 +5,7 @@ VERSION="1.0.0-rc48"
 DEPENDENCY_REVISION="2026.08.16-r14"
 BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 BODY_URL="$BASE/overrides/rc48-r14/install-body.sh"
-BODY_BLOB="6e0f5b37430610c46ec0b81aaeaf47871853e17f"
+BODY_BLOB="df1aedf7857f4c8e408a974bc0f50d847f640a21"
 RC48_BODY_BLOB="13cc5b168052ed07fe09e78d6ecc2f5a758318be"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
@@ -36,9 +36,10 @@ text=data.decode('utf-8')
 checks=(
     'DEPENDENCY_REVISION="2026.08.16-r14"',
     f'RC48_BODY_BLOB="{foundation_blob}"',
-    "old_launcher='exec env NODE_NO_WARNINGS=1 HOST=127.0.0.1 PORT=3000 '",
-    "new_launcher='exec env NODE_ENV=production NODE_NO_WARNINGS=1 HOST=127.0.0.1 PORT=3000 '",
-    'FURINAHUB_OPENCONNECTOR_R14_TRANSFORM_OK',
+    "grep -Fc 'exec env NODE_NO_WARNINGS=1 HOST=127.0.0.1 PORT=3000'",
+    "sed -i 's/exec env NODE_NO_WARNINGS=1",
+    'NODE_ENV=production NODE_NO_WARNINGS=1 HOST=127.0.0.1 PORT=3000',
+    'FURINAHUB_VALIDATE_ONLY',
 )
 missing=[item for item in checks if item not in text]
 if missing:
