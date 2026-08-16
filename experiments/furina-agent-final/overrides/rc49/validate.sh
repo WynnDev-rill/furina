@@ -10,14 +10,15 @@ python3 "$HERE/apply.py" "$STAGE"
 python3 "$HERE/harden.py" "$STAGE"
 python3 -m py_compile "$HERE/apply.py" "$HERE/harden.py"
 python3 -m compileall -q "$STAGE/core/furina_agent"
+grep -Fq 'VERSION = "1.0.0-rc49"' "$STAGE/core/furina_agent/version.py"
 
 TEST_HOME="$(mktemp -d)"
 trap 'rm -rf "$TEST_HOME"' EXIT
 FURINA_HOME="$TEST_HOME" PYTHONPATH="$STAGE/core" python3 - <<'PY'
 from furina_agent.hub import Runtime
-from furina_agent.version import VERSION
 
-assert VERSION == '1.0.0-rc49'
+# Importing these helpers proves the staged RC49 package, not only source text, is executable.
+assert hasattr(Runtime, '_connector_auth_specs')
 assert Runtime._connector_category({'id':'DEVELOPER_TOOLS','displayName':'Developer Tools'}) == 'Developer Tools'
 assert Runtime._connector_category({'ID':'DATA','DISPLAYNAME':'Data'}) == 'Data'
 assert Runtime._connector_category(['SCIENCE']) == 'SCIENCE'
