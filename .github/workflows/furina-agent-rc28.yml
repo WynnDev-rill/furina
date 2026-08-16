@@ -1,4 +1,4 @@
-name: Build FurinaHub Android RC31 + Core RC47
+name: Build FurinaHub Android RC31 + Core RC48
 
 on:
   pull_request:
@@ -33,30 +33,38 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Reconstruct Core RC47 and Android RC31
+      - name: Reconstruct Android RC31 and validate Core RC48
         shell: bash
         run: |
           set -euo pipefail
+          bash experiments/furina-agent-final/overrides/rc48/validate.sh
           bash experiments/furina-agent-final/overrides/android-rc31/validate.sh
+          python3 experiments/furina-agent-final/overrides/rc48/apply.py /tmp/furina-agent-rc34-validate/termux
           bash -n experiments/furina-agent-final/install.sh
-          bash -n experiments/furina-agent-final/overrides/rc47/install-body.sh
-          test "$(git hash-object experiments/furina-agent-final/overrides/rc47/apply.py)" = 285b1911b580fffdfea1c9484151c1d5ba680559
-          test "$(git hash-object experiments/furina-agent-final/overrides/rc47/install-body.sh)" = 088c75120ed0e757711257587973740c05093859
+          bash -n experiments/furina-agent-final/overrides/rc48/install-body.sh
+          test "$(git hash-object experiments/furina-agent-final/overrides/rc48/apply.py)" = 9d2a1c6bf1df6bcd464691b8bb1418b80cdf9443
+          test "$(git hash-object experiments/furina-agent-final/overrides/rc48/install-body.sh)" = 13cc5b168052ed07fe09e78d6ecc2f5a758318be
           test "$(git hash-object experiments/furina-agent-final/overrides/android-rc31/apply.py)" = 30d524b9ff2f394013aad4b85ec38efd598e2b30
           python3 - <<'PY'
           import json
           from pathlib import Path
+          stage=Path('/tmp/furina-agent-rc34-validate/termux')
           manifest=json.loads(Path('experiments/furina-agent-final/manifest.json').read_text())
-          assert manifest['version']=='1.0.0-rc47'
+          assert manifest['version']=='1.0.0-rc48'
+          assert manifest['dependency_revision']=='2026.08.16-r12'
           assert manifest['bridge_version']=='1.0.0-rc31'
           assert int(manifest['bridge_version_code'])==10031
+          assert 'VERSION = "1.0.0-rc48"' in (stage/'core/furina_agent/version.py').read_text()
+          assert "versionName '1.0.0-rc31'" in (stage/'bridge/app/build.gradle').read_text()
           install=Path('experiments/furina-agent-final/install.sh').read_text()
-          body=Path('experiments/furina-agent-final/overrides/rc47/install-body.sh').read_text()
-          assert 'BODY_BLOB="088c75120ed0e757711257587973740c05093859"' in install
-          assert 'command -v python >/dev/null 2>&1 || pkg install -y python' in install
-          assert 'FURINAHUB_CORE_ONLY' in body
-          assert 'Core dan runtime sudah terbaru' in body
-          print('FURINAHUB_RC47_RC31_RELEASE_BINDINGS_OK')
+          body=Path('experiments/furina-agent-final/overrides/rc48/install-body.sh').read_text()
+          assert 'BODY_BLOB="13cc5b168052ed07fe09e78d6ecc2f5a758318be"' in install
+          assert 'RC48_APPLY_BLOB="9d2a1c6bf1df6bcd464691b8bb1418b80cdf9443"' in install
+          assert 'OPENCONNECTOR_COMMIT="d478400141c33bb5ddf823e09b293e9d7154da97"' in body
+          assert 'URL="http://127.0.0.1:3000/v1/health"' in body
+          assert 'start_with_repair' in body
+          assert 'Do not stamp the revision on failure' in body
+          print('FURINAHUB_RC48_RC31_RELEASE_BINDINGS_OK')
           PY
 
       - uses: actions/setup-java@v5
@@ -159,4 +167,4 @@ jobs:
           gh release create "$TAG" "$APK_NAME" bridge.json \
             --target "$GITHUB_SHA" \
             --title "FurinaHub v1.0.0-rc31" \
-            --notes "RC31 simplification release. Fixes WebView flex shrink that clipped both horizontal sides, makes chat/settings full-width on phones, removes duplicate Plugin controls from Settings, moves Plugin write permission to the Plugin page, groups the ten optional Agent skills under one expandable section, and separates Core/runtime updates from APK updates. Existing Termux installations keep `furina update` focused on Core/runtime while APK updates remain owned by FurinaHub."
+            --notes "RC31 Android shell; Core is updated independently through furina update."
