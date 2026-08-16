@@ -8,6 +8,7 @@ STAGE=/tmp/furina-agent-rc34-validate/termux
 bash "$ROOT/overrides/android-rc31/validate.sh"
 python3 "$ROOT/overrides/rc48/apply.py" "$STAGE"
 python3 "$ROOT/overrides/rc49/apply.py" "$STAGE"
+python3 "$ROOT/overrides/rc49/harden.py" "$STAGE"
 python3 "$HERE/apply.py" "$STAGE"
 python3 -m py_compile "$HERE/apply.py"
 
@@ -18,8 +19,10 @@ root=Path(sys.argv[1])
 app=root/'bridge/app'
 html=(app/'src/main/assets/furinahub/index.html').read_text(encoding='utf-8')
 gradle=(app/'build.gradle').read_text(encoding='utf-8')
+hub=(root/'core/furina_agent/hub.py').read_text(encoding='utf-8')
 version=(root/'core/furina_agent/version.py').read_text(encoding='utf-8')
 assert 'VERSION = "1.0.0-rc49"' in version
+assert 'lowered.get("displayname")' in hub
 assert 'RC32: simple, contract-driven Plugin UI' in html
 assert 'id="pluginConnectLayer"' in html
 assert "p.no_auth)return'Tanpa login'" in html
