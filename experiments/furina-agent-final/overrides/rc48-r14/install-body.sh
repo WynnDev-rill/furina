@@ -10,7 +10,7 @@ RC48_BODY_BLOB="13cc5b168052ed07fe09e78d6ecc2f5a758318be"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-if [[ ! -d /data/data/com.termux/files/usr ]]; then
+if [[ ! -d /data/data/com.termux/files/usr && "${FURINAHUB_VALIDATE_ONLY:-0}" != "1" ]]; then
   echo "Installer FurinaHub harus dijalankan dari Termux." >&2
   exit 1
 fi
