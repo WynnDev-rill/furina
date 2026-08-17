@@ -25,6 +25,22 @@ p.write_text(s,encoding='utf-8')
 PY
 
 python3 "$HERE/apply.py" "$STAGE"
+
+# editorCrop already exists in the RC35 editor state declaration. RC39 extends
+# that state rather than declaring the same identifier twice.
+python3 - "$STAGE/bridge/app/src/main/assets/furinahub/index.html" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+s=p.read_text(encoding='utf-8')
+old="let editorCrop=null,drawStrokes=[],drawStroke=null,drawColor='#8d7cff',drawWidth=.012;"
+new="let drawStrokes=[],drawStroke=null,drawColor='#8d7cff',drawWidth=.012;"
+if s.count(old)!=1:
+    raise SystemExit(f'RC39 editor state marker mismatch: {s.count(old)}')
+s=s.replace(old,new,1)
+p.write_text(s,encoding='utf-8')
+PY
+
 python3 -m py_compile "$HERE/apply.py"
 python3 -m compileall -q "$STAGE/core/furina_agent"
 
@@ -62,6 +78,7 @@ for marker in (
 assert 'Rasio diterapkan saat selesai' not in html
 assert '>Putar<' not in html
 assert '>Balik<' not in html
+assert "let editorCrop=null,drawStrokes=" not in html
 
 assert 'android:icon="@mipmap/ic_launcher"' in manifest
 assert 'android:roundIcon="@mipmap/ic_launcher_round"' in manifest
