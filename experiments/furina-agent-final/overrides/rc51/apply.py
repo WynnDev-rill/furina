@@ -14,6 +14,14 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
+def replace_all_required(text: str, old: str, new: str, label: str) -> str:
+    if old not in text:
+        if new in text:
+            return text
+        raise SystemExit(f"RC51 marker mismatch: {label} (0)")
+    return text.replace(old, new)
+
+
 def main() -> None:
     if len(sys.argv) < 2:
         raise SystemExit("usage: apply.py <termux-root>")
@@ -66,7 +74,7 @@ def main() -> None:
                 )
 '''
     hub = replace_once(hub, old_companion, new_companion, "single natural image answer")
-    hub = replace_once(
+    hub = replace_all_required(
         hub,
         '"bridge_target": "1.0.0-rc34"',
         '"bridge_target": "1.0.0-rc35"',
@@ -78,7 +86,7 @@ def main() -> None:
     version = replace_once(version, 'VERSION = "1.0.0-rc50"', 'VERSION = "1.0.0-rc51"', "Core version")
     version_path.write_text(version, encoding="utf-8")
 
-    combined = hub + "\\n" + version
+    combined = hub + "\n" + version
     checks = (
         'VERSION = "1.0.0-rc51"',
         '"bridge_target": "1.0.0-rc35"',
