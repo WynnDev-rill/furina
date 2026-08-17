@@ -10,7 +10,7 @@ RAW_BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furin
 CDN_BASE="https://cdn.jsdelivr.net/gh/WynnDev-rill/furina@experiment/furina-agent-termux/experiments/furina-agent-final"
 WEB_BASE="https://github.com/WynnDev-rill/furina/raw/refs/heads/experiment/furina-agent-termux/experiments/furina-agent-final"
 BODY_PATH="overrides/rc51/install-body.sh"
-BODY_BLOB="9addbfb4d350a99998a47e4d7fa0f158d9feeddd"
+BODY_BLOB="72d32cd80c95f0fcd9225ccb18b483bd8ff20b30"
 RC51_APPLY_BLOB="736555772589d692a165ad60fac8c8c4d458e23b"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
