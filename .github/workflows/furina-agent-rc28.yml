@@ -67,8 +67,9 @@ jobs:
           assert 'BODY_BLOB="5e5396a488a0c7a69038a38eaa85d826a31c0045"' in install
           assert 'FURINA_RESILIENT_UPDATE_WRAPPER_V4' in body
           assert 'releases/download/furina-update-stable' in install
-          assert 'releases/latest/download' not in install
-          assert 'releases/latest/download' not in body
+          forbidden='https://github.com/WynnDev-rill/furina/releases/latest/download'
+          assert forbidden not in install
+          assert forbidden not in body
           assert "versionName '1.0.0-rc39'" in (stage/'bridge/app/build.gradle').read_text()
           assert '"bridge_target": "1.0.0-rc39"' in (stage/'core/furina_agent/hub.py').read_text()
           print('FURINAHUB_RC51_R20_RC39_BINDINGS_OK')
