@@ -1,4 +1,4 @@
-name: Build FurinaHub Android RC38 + Core RC51
+name: Build FurinaHub Android RC39 + Core RC51
 
 on:
   pull_request:
@@ -19,15 +19,13 @@ permissions:
   contents: write
 
 concurrency:
-  group: furinahub-android-rc38-${{ github.ref }}
+  group: furinahub-android-rc39-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  TAG: furinahub-v1.0.0-rc38
-  APK_NAME: FurinaHub-v1.0.0-rc38.apk
+  TAG: furinahub-v1.0.0-rc39
+  APK_NAME: FurinaHub-v1.0.0-rc39.apk
   UPDATE_CHANNEL_TAG: furina-update-stable
-  BOOTSTRAP_TAG: furina-bootstrap-v1.0.0
-  LEGACY_JSDELIVR_TAG: experiment
 
 jobs:
   validate-build-release:
@@ -38,44 +36,42 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Validate Core RC51 r19 and Android RC38
+      - name: Validate Core RC51 r20 and Android RC39
         shell: bash
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/android-rc38/validate.sh
+          bash experiments/furina-agent-final/overrides/android-rc39/validate.sh
           bash -n experiments/furina-agent-final/install.sh
           bash -n experiments/furina-agent-final/overrides/rc51/install-body.sh
           bash -n furina-agent-termux/experiments/furina-agent-final/install.sh
-          test "$(git hash-object experiments/furina-agent-final/install.sh)" = 46c495758ac7779cfb4658c6a2b4bfca0fc33a91
-          test "$(git hash-object furina-agent-termux/experiments/furina-agent-final/install.sh)" = 46c495758ac7779cfb4658c6a2b4bfca0fc33a91
+          test "$(git hash-object experiments/furina-agent-final/install.sh)" = 289d182df73b301c04e196368d4815bfdaaeb890
+          test "$(git hash-object furina-agent-termux/experiments/furina-agent-final/install.sh)" = 289d182df73b301c04e196368d4815bfdaaeb890
           test "$(git hash-object experiments/furina-agent-final/overrides/rc51/apply.py)" = 736555772589d692a165ad60fac8c8c4d458e23b
-          test "$(git hash-object experiments/furina-agent-final/overrides/rc51/install-body.sh)" = 373d016876d3def4aaee0469009d956c7a3ff853
-          test "$(git hash-object experiments/furina-agent-final/overrides/android-rc38/apply.py)" = 7ca82eadad6921fbc917c17c4ec6e648a362be6b
+          test "$(git hash-object experiments/furina-agent-final/overrides/rc51/install-body.sh)" = 5e5396a488a0c7a69038a38eaa85d826a31c0045
+          test "$(git hash-object experiments/furina-agent-final/overrides/android-rc39/apply.py)" = 1145b40fc6ca79284e002936ed74ea7af8393025
           python3 - <<'PY'
           import json
           from pathlib import Path
-          stage=Path('/tmp/furina-agent-rc38-validate/termux')
+          stage=Path('/tmp/furina-agent-rc39-validate/termux')
           manifest=json.loads(Path('experiments/furina-agent-final/manifest.json').read_text())
           assert manifest['version']=='1.0.0-rc51'
-          assert manifest['dependency_revision']=='2026.08.17-r19'
-          assert manifest['bridge_version']=='1.0.0-rc38'
-          assert int(manifest['bridge_version_code'])==10038
-          assert 'VERSION = "1.0.0-rc51"' in (stage/'core/furina_agent/version.py').read_text()
-          assert '"bridge_target": "1.0.0-rc38"' in (stage/'core/furina_agent/hub.py').read_text()
-          assert "versionName '1.0.0-rc38'" in (stage/'bridge/app/build.gradle').read_text()
+          assert manifest['dependency_revision']=='2026.08.17-r20'
+          assert manifest['bridge_version']=='1.0.0-rc39'
+          assert int(manifest['bridge_version_code'])==10039
           install=Path('experiments/furina-agent-final/install.sh').read_text()
           compat=Path('furina-agent-termux/experiments/furina-agent-final/install.sh').read_text()
           body=Path('experiments/furina-agent-final/overrides/rc51/install-body.sh').read_text()
           assert install == compat
-          assert 'FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"' in install
-          assert 'FURINA_UPDATER_GENERATION="3"' in install
-          assert 'BODY_BLOB="373d016876d3def4aaee0469009d956c7a3ff853"' in install
-          assert 'releases/latest/download' in install
-          assert 'furina-bootstrap-v1.0.0' in install
-          assert 'FURINA_RESILIENT_UPDATE_WRAPPER_V3' in body
-          assert 'DEPENDENCY_REVISION="2026.08.17-r19"' in body
-          assert '@experiment/furina-agent-termux' not in body
-          print('FURINAHUB_RC51_R19_RC38_UPDATER_V3_BINDINGS_OK')
+          assert 'FURINA_UPDATER_GENERATION="4"' in install
+          assert 'DEPENDENCY_REVISION="2026.08.17-r20"' in install
+          assert 'BODY_BLOB="5e5396a488a0c7a69038a38eaa85d826a31c0045"' in install
+          assert 'FURINA_RESILIENT_UPDATE_WRAPPER_V4' in body
+          assert 'releases/download/furina-update-stable' in install
+          assert 'releases/latest/download' not in install
+          assert 'releases/latest/download' not in body
+          assert "versionName '1.0.0-rc39'" in (stage/'bridge/app/build.gradle').read_text()
+          assert '"bridge_target": "1.0.0-rc39"' in (stage/'core/furina_agent/hub.py').read_text()
+          print('FURINAHUB_RC51_R20_RC39_BINDINGS_OK')
           PY
 
       - name: Configure preinstalled Android + pinned Gradle
@@ -89,8 +85,7 @@ jobs:
           echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
           GRADLE_DIR=/tmp/gradle-8.9
           if [[ ! -x "$GRADLE_DIR/bin/gradle" ]]; then
-            curl -fL --silent --show-error \
-              --connect-timeout 15 --max-time 180 \
+            curl -fL --silent --show-error --connect-timeout 15 --max-time 180 \
               --retry 4 --retry-delay 2 --retry-all-errors \
               https://downloads.gradle.org/distributions/gradle-8.9-bin.zip \
               -o /tmp/gradle-8.9-bin.zip
@@ -102,30 +97,15 @@ jobs:
           "$JAVA_HOME_17_X64/bin/java" -version
           "$GRADLE_DIR/bin/gradle" --version
 
-      - name: Build FurinaHub RC38 debug on PR
+      - name: Build FurinaHub RC39 debug on PR
         if: github.event_name == 'pull_request'
-        working-directory: /tmp/furina-agent-rc38-validate/termux
+        working-directory: /tmp/furina-agent-rc39-validate/termux
         shell: bash
         run: gradle --no-daemon --stacktrace :bridge:app:assembleDebug
 
-      - name: Check release completeness
-        if: github.event_name != 'pull_request'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          COMPLETE=0
-          if gh release view "$TAG" --json assets --jq '.assets[].name' > /tmp/furinahub-assets 2>/dev/null; then
-            if grep -Fxq "$APK_NAME" /tmp/furinahub-assets && grep -Fxq bridge.json /tmp/furinahub-assets; then
-              COMPLETE=1
-            fi
-          fi
-          echo "FURINAHUB_RELEASE_COMPLETE=$COMPLETE" >> "$GITHUB_ENV"
-
       - name: Restore FurinaHub signing identity
-        if: github.event_name != 'pull_request' && env.FURINAHUB_RELEASE_COMPLETE != '1'
-        working-directory: /tmp/furina-agent-rc38-validate/termux
+        if: github.event_name != 'pull_request'
+        working-directory: /tmp/furina-agent-rc39-validate/termux
         shell: bash
         env:
           FURINA_RELEASE_KEYSTORE_B64: ${{ secrets.FURINA_RELEASE_KEYSTORE_B64 }}
@@ -134,12 +114,12 @@ jobs:
           printf '%s' "$FURINA_RELEASE_KEYSTORE_B64" | base64 --decode > bridge/app/furina-agent-release.jks
           chmod 600 bridge/app/furina-agent-release.jks
 
-      - name: Build signed FurinaHub RC38
-        if: github.event_name != 'pull_request' && env.FURINAHUB_RELEASE_COMPLETE != '1'
-        working-directory: /tmp/furina-agent-rc38-validate/termux
+      - name: Build signed FurinaHub RC39
+        if: github.event_name != 'pull_request'
+        working-directory: /tmp/furina-agent-rc39-validate/termux
         shell: bash
         env:
-          FURINA_AGENT_KEYSTORE_PATH: /tmp/furina-agent-rc38-validate/termux/bridge/app/furina-agent-release.jks
+          FURINA_AGENT_KEYSTORE_PATH: /tmp/furina-agent-rc39-validate/termux/bridge/app/furina-agent-release.jks
           FURINA_KEYSTORE_PASSWORD: ${{ secrets.FURINA_KEYSTORE_PASSWORD }}
           FURINA_KEY_ALIAS: ${{ secrets.FURINA_KEY_ALIAS }}
           FURINA_KEY_PASSWORD: ${{ secrets.FURINA_KEY_PASSWORD }}
@@ -149,14 +129,13 @@ jobs:
           test -n "$FURINA_KEY_PASSWORD"
           gradle --no-daemon --stacktrace :bridge:app:assembleRelease
 
-      - name: Publish RC38 and bootstrap-safe update channels
+      - name: Publish RC39 and authoritative update channel
         if: github.event_name != 'pull_request'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-
           retry_cmd() {
             local attempt
             for attempt in 1 2 3 4; do
@@ -165,18 +144,10 @@ jobs:
             done
             return 1
           }
-
           ensure_prerelease() {
-            local tag="$1" title="$2" notes="$3" attempt
-            if gh release view "$tag" >/dev/null 2>&1; then return 0; fi
-            for attempt in 1 2 3 4; do
-              if gh release create "$tag" --target "$GITHUB_SHA" --title "$title" --notes "$notes" --prerelease; then
-                return 0
-              fi
-              if gh release view "$tag" >/dev/null 2>&1; then return 0; fi
-              sleep $((attempt * 5))
-            done
-            return 1
+            local tag="$1" title="$2" notes="$3"
+            gh release view "$tag" >/dev/null 2>&1 && return 0
+            retry_cmd gh release create "$tag" --target "$GITHUB_SHA" --title "$title" --notes "$notes" --prerelease
           }
 
           cp experiments/furina-agent-final/install.sh furina-install.sh
@@ -185,24 +156,23 @@ jobs:
           cp experiments/furina-agent-final/overrides/rc51/apply.py core-rc51-apply.py
           cp experiments/furina-agent-final/manifest.json manifest.json
 
-          SOURCE=/tmp/furina-agent-rc38-validate/termux/bridge/app/build/outputs/apk/release/app-release.apk
-          if [[ -f "$SOURCE" ]]; then
-            cp "$SOURCE" "$APK_NAME"
-            APKANALYZER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer | sort | tail -n1)"
-            APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n1)"
-            PACKAGE="$("$APKANALYZER" manifest application-id "$APK_NAME" | tr -d '\r')"
-            CODE="$("$APKANALYZER" manifest version-code "$APK_NAME" | tr -d '\r')"
-            NAME="$("$APKANALYZER" manifest version-name "$APK_NAME" | tr -d '\r')"
-            SHA="$(sha256sum "$APK_NAME" | awk '{print $1}')"
-            CERT="$("$APKSIGNER" verify --verbose --print-certs "$APK_NAME")"
-            SIGNER="$(printf '%s\n' "$CERT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
-            test "$PACKAGE" = com.wynndev.furinaagentbridge
-            test "$CODE" = 10038
-            test "$NAME" = 1.0.0-rc38
-            test "${#SHA}" = 64
-            test "${#SIGNER}" = 64
-            export PACKAGE CODE NAME SHA SIGNER
-            python3 - <<'PY'
+          SOURCE=/tmp/furina-agent-rc39-validate/termux/bridge/app/build/outputs/apk/release/app-release.apk
+          cp "$SOURCE" "$APK_NAME"
+          APKANALYZER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer | sort | tail -n1)"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          PACKAGE="$("$APKANALYZER" manifest application-id "$APK_NAME" | tr -d '\r')"
+          CODE="$("$APKANALYZER" manifest version-code "$APK_NAME" | tr -d '\r')"
+          NAME="$("$APKANALYZER" manifest version-name "$APK_NAME" | tr -d '\r')"
+          SHA="$(sha256sum "$APK_NAME" | awk '{print $1}')"
+          CERT="$("$APKSIGNER" verify --verbose --print-certs "$APK_NAME")"
+          SIGNER="$(printf '%s\n' "$CERT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
+          test "$PACKAGE" = com.wynndev.furinaagentbridge
+          test "$CODE" = 10039
+          test "$NAME" = 1.0.0-rc39
+          test "${#SHA}" = 64
+          test "${#SIGNER}" = 64
+          export PACKAGE CODE NAME SHA SIGNER
+          python3 - <<'PY'
           import json,os
           data={
             "version":os.environ["NAME"],
@@ -210,75 +180,44 @@ jobs:
             "package_name":os.environ["PACKAGE"],
             "sha256":os.environ["SHA"],
             "signer_sha256":os.environ["SIGNER"],
-            "apk_url":"https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc38/FurinaHub-v1.0.0-rc38.apk",
+            "apk_url":"https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc39/FurinaHub-v1.0.0-rc39.apk",
           }
-          open("bridge.json","w",encoding="utf-8").write(json.dumps(data,indent=2)+"\n")
+          open('bridge.json','w',encoding='utf-8').write(json.dumps(data,indent=2)+'\n')
           PY
-          else
-            rm -f "$APK_NAME" bridge.json
-            retry_cmd gh release download "$TAG" --pattern "$APK_NAME" --pattern bridge.json
-          fi
 
           if gh release view "$TAG" >/dev/null 2>&1; then
-            retry_cmd gh release upload "$TAG" \
-              "$APK_NAME" bridge.json furina-install.sh furina-install-body.sh \
-              core-rc50-install-body.sh core-rc51-apply.py manifest.json --clobber
+            retry_cmd gh release upload "$TAG" "$APK_NAME" bridge.json \
+              furina-install.sh furina-install-body.sh core-rc50-install-body.sh \
+              core-rc51-apply.py manifest.json --clobber
           else
-            CREATED=0
-            for attempt in 1 2 3 4; do
-              if gh release create "$TAG" \
-                "$APK_NAME" bridge.json furina-install.sh furina-install-body.sh \
-                core-rc50-install-body.sh core-rc51-apply.py manifest.json \
-                --target "$GITHUB_SHA" \
-                --title "FurinaHub v1.0.0-rc38" \
-                --notes "RC38 replaces mutable/raw-first update transport with release-first assets and an immutable jsDelivr bootstrap. Normal use stays: 'furina update' in Termux and the built-in update check in FurinaHub."; then
-                CREATED=1
-                break
-              fi
-              if gh release view "$TAG" >/dev/null 2>&1; then
-                CREATED=1
-                break
-              fi
-              sleep $((attempt * 5))
-            done
-            test "$CREATED" = 1
+            retry_cmd gh release create "$TAG" "$APK_NAME" bridge.json \
+              furina-install.sh furina-install-body.sh core-rc50-install-body.sh \
+              core-rc51-apply.py manifest.json --target "$GITHUB_SHA" \
+              --title "FurinaHub v1.0.0-rc39" \
+              --notes "RC39 fixes update-channel ambiguity by making furina-update-stable authoritative for both Termux and FurinaHub, adds a WhatsApp-inspired crop/draw editor, and installs the supplied Furina artwork as a native adaptive Android launcher icon without black edge gaps."
           fi
 
-          sleep 2
-          ensure_prerelease "$UPDATE_CHANNEL_TAG" "Furina Update Channel" "Backward-compatible machine-readable update transport for existing Furina Core and FurinaHub installations."
-          sleep 2
+          ensure_prerelease "$UPDATE_CHANNEL_TAG" "Furina Update Channel" \
+            "Authoritative machine-readable update transport for Furina Core and FurinaHub."
           retry_cmd gh release upload "$UPDATE_CHANNEL_TAG" \
             furina-install.sh furina-install-body.sh core-rc50-install-body.sh \
             core-rc51-apply.py manifest.json bridge.json --clobber
 
-          sleep 2
-          ensure_prerelease "$BOOTSTRAP_TAG" "Furina Immutable Bootstrap" "Immutable bootstrap snapshot used by updater V3 as a CDN fallback."
-          sleep 2
-          ensure_prerelease "$LEGACY_JSDELIVR_TAG" "Furina Legacy jsDelivr Bootstrap" "Compatibility tag for updater V1's historical jsDelivr URL parsing."
-
-          prime_jsdelivr() {
-            local version="$1" path="$2" name="$3" url purge code attempt
-            url="https://cdn.jsdelivr.net/gh/WynnDev-rill/furina@${version}/${path}"
-            purge="https://purge.jsdelivr.net/gh/WynnDev-rill/furina@${version}/${path}"
-            curl -fsSL --connect-timeout 10 --max-time 30 "$purge" >/dev/null 2>&1 || true
-            for attempt in 1 2 3 4 5; do
-              rm -f /tmp/furina-jsdelivr-bootstrap
-              code="$(curl -L --silent --show-error --connect-timeout 10 --max-time 60 \
-                -o /tmp/furina-jsdelivr-bootstrap -w '%{http_code}' "$url" 2>/dev/null || true)"
-              if [[ "$code" == "200" ]] &&
-                 grep -Fq 'FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"' /tmp/furina-jsdelivr-bootstrap; then
-                echo "$name jsDelivr bootstrap: OK"
-                return 0
-              fi
-              sleep $((attempt * 5))
-            done
-            echo "$name jsDelivr bootstrap gagal diprime: $url" >&2
-            return 1
-          }
-
-          prime_jsdelivr "$BOOTSTRAP_TAG" \
-            "experiments/furina-agent-final/install.sh" \
-            "Updater V3 immutable"
-          prime_jsdelivr "$LEGACY_JSDELIVR_TAG" \
-            "furina-agent-termux/experiments/furina-agent-final/install.sh" \
-            "Updater V1 compatibility"
+          # Test exactly the URLs used by `furina update`; do not accept a
+          # successful build if the machine channel cannot actually serve r20.
+          sleep 3
+          retry_cmd curl -fL --silent --show-error --connect-timeout 10 --max-time 90 \
+            "https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable/furina-install.sh" \
+            -o /tmp/furina-install-live.sh
+          retry_cmd curl -fL --silent --show-error --connect-timeout 10 --max-time 90 \
+            "https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable/manifest.json" \
+            -o /tmp/furina-manifest-live.json
+          grep -Fq 'FURINA_UPDATER_GENERATION="4"' /tmp/furina-install-live.sh
+          grep -Fq 'DEPENDENCY_REVISION="2026.08.17-r20"' /tmp/furina-install-live.sh
+          python3 - <<'PY'
+          import json
+          m=json.load(open('/tmp/furina-manifest-live.json'))
+          assert m['dependency_revision']=='2026.08.17-r20'
+          assert m['bridge_version']=='1.0.0-rc39'
+          print('FURINA_UPDATE_CHANNEL_LIVE_OK')
+          PY
