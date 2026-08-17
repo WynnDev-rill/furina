@@ -73,12 +73,16 @@ def main() -> None:
     gradle_path.write_text(gradle, encoding="utf-8")
 
     hub = hub_path.read_text(encoding="utf-8")
-    hub = replace_once(
-        hub,
-        '"bridge_target": "1.0.0-rc35"',
-        '"bridge_target": "1.0.0-rc36"',
-        "Core bridge target",
-    )
+    old_target = '"bridge_target": "1.0.0-rc35"'
+    new_target = '"bridge_target": "1.0.0-rc36"'
+    target_count = hub.count(old_target)
+    if target_count == 0:
+        if new_target not in hub:
+            raise SystemExit("RC36 marker mismatch: Core bridge target (0)")
+    elif target_count in (1, 2):
+        hub = hub.replace(old_target, new_target)
+    else:
+        raise SystemExit(f"RC36 marker mismatch: Core bridge target ({target_count})")
     hub_path.write_text(hub, encoding="utf-8")
 
     combined = updater + "\n" + gradle + "\n" + hub
@@ -94,6 +98,8 @@ def main() -> None:
     missing = [item for item in checks if item not in combined]
     if missing:
         raise SystemExit(f"RC36 marker hilang: {missing}")
+    if old_target in hub:
+        raise SystemExit("RC36 bridge target lama masih tersisa")
     print("FURINAHUB_ANDROID_RC36_UPDATE_TRANSPORT_OK")
 
 
