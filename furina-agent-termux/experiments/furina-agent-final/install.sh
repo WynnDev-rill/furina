@@ -42,13 +42,18 @@ fetch_url() {
 
 fetch_body() {
   local out="$1" github_blocked=0
+
+  # This repository contains releases for Furina and FurinaHub. The dedicated
+  # machine tag is therefore the only authoritative primary update channel.
   if fetch_url "$STABLE_RELEASE/furina-install-body.sh" "$out"; then return 0; fi
   [[ "$FETCH_CODE" == "429" || "$FETCH_CODE" == "403" ]] && github_blocked=1
+
   if fetch_url "$BOOTSTRAP_CDN/$BODY_PATH" "$out"; then return 0; fi
   if [[ "$github_blocked" == "0" ]] && fetch_url "$API_BASE/$BODY_PATH?ref=experiment/furina-agent-termux" "$out" 1; then return 0; fi
   [[ "$FETCH_CODE" == "429" || "$FETCH_CODE" == "403" ]] && github_blocked=1
   if [[ "$github_blocked" == "0" ]] && fetch_url "$RAW_BASE/$BODY_PATH" "$out"; then return 0; fi
   if [[ "$github_blocked" == "0" ]] && fetch_url "$WEB_BASE/$BODY_PATH" "$out"; then return 0; fi
+
   echo "Tidak dapat mengambil updater dari jalur stabil maupun mirror." >&2
   return 1
 }
