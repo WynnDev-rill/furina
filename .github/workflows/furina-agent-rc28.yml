@@ -67,22 +67,29 @@ jobs:
           print('FURINAHUB_RC51_R17_RC36_RELEASE_BINDINGS_OK')
           PY
 
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK components
+      - name: Configure preinstalled Android + pinned Gradle
         shell: bash
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
-
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
+          set -euo pipefail
+          test -n "${JAVA_HOME_17_X64:-}"
+          test -d "$ANDROID_HOME/platforms/android-35"
+          test -d "$ANDROID_HOME/build-tools/35.0.0"
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+          GRADLE_DIR=/tmp/gradle-8.9
+          if [[ ! -x "$GRADLE_DIR/bin/gradle" ]]; then
+            curl -fL --silent --show-error \
+              --connect-timeout 15 --max-time 180 \
+              --retry 4 --retry-delay 2 --retry-all-errors \
+              https://downloads.gradle.org/distributions/gradle-8.9-bin.zip \
+              -o /tmp/gradle-8.9-bin.zip
+            rm -rf "$GRADLE_DIR"
+            unzip -q /tmp/gradle-8.9-bin.zip -d /tmp
+          fi
+          test -x "$GRADLE_DIR/bin/gradle"
+          echo "$GRADLE_DIR/bin" >> "$GITHUB_PATH"
+          "$JAVA_HOME_17_X64/bin/java" -version
+          "$GRADLE_DIR/bin/gradle" --version
 
       - name: Build FurinaHub RC36 debug on PR
         if: github.event_name == 'pull_request'
