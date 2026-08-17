@@ -10,10 +10,9 @@ STABLE_RELEASE="https://github.com/WynnDev-rill/furina/releases/download/furina-
 BOOTSTRAP_CDN="https://cdn.jsdelivr.net/gh/WynnDev-rill/furina@furina-bootstrap-v1.0.0/experiments/furina-agent-final"
 API_BASE="https://api.github.com/repos/WynnDev-rill/furina/contents/experiments/furina-agent-final"
 RAW_BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
-BRANCH_CDN="https://cdn.jsdelivr.net/gh/WynnDev-rill/furina@experiment/furina-agent-termux/experiments/furina-agent-final"
 WEB_BASE="https://github.com/WynnDev-rill/furina/raw/refs/heads/experiment/furina-agent-termux/experiments/furina-agent-final"
 BODY_PATH="overrides/rc51/install-body.sh"
-BODY_BLOB="4a1ca49d1db683e0732256b0f6a54da93c8348fe"
+BODY_BLOB="373d016876d3def4aaee0469009d956c7a3ff853"
 RC51_APPLY_BLOB="736555772589d692a165ad60fac8c8c4d458e23b"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
@@ -58,7 +57,6 @@ fetch_body() {
   fi
   [[ "$FETCH_CODE" == "429" || "$FETCH_CODE" == "403" ]] && github_blocked=1
   if [[ "$github_blocked" == "0" ]] && fetch_url "$RAW_BASE/$BODY_PATH" "$out"; then return 0; fi
-  if fetch_url "$BRANCH_CDN/$BODY_PATH" "$out"; then return 0; fi
   if [[ "$github_blocked" == "0" ]] && fetch_url "$WEB_BASE/$BODY_PATH" "$out"; then return 0; fi
 
   echo "Tidak dapat mengambil updater dari jalur stabil maupun mirror." >&2
