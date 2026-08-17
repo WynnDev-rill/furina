@@ -43,7 +43,7 @@ def main() -> None:
     updater = replace_once(
         updater,
         'conn.setRequestProperty("User-Agent", "FurinaHub-Updater/2");',
-        'conn.setRequestProperty("User-Agent", "FurinaHub-Updater/3");\n        if (url.startsWith("https://api.github.com/")) conn.setRequestProperty("Accept", "application/vnd.github.raw+json");',
+        'conn.setRequestProperty("User-Agent", "FurinaHub-Updater/3");\n        if (url.toString().startsWith("https://api.github.com/")) conn.setRequestProperty("Accept", "application/vnd.github.raw+json");',
         "API raw header",
     )
     updater_path.write_text(updater, encoding="utf-8")
