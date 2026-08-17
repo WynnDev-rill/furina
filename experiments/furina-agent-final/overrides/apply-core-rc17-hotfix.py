@@ -46,14 +46,28 @@ def normalize_background(chat: pathlib.Path) -> None:
     chat.write_text(text[:start] + block + text[end:], encoding="utf-8")
 
 
-def run_original(root: pathlib.Path) -> None:
+def load_original() -> tuple[bytes, pathlib.Path | None]:
+    local = pathlib.Path(__file__).resolve().with_name("apply-core-rc17.py")
+    if local.is_file():
+        return local.read_bytes(), local
     data = urllib.request.urlopen(ORIGINAL_URL, timeout=30).read()
+    return data, None
+
+
+def run_original(root: pathlib.Path) -> None:
+    data, local = load_original()
     actual = git_blob_sha(data)
     if actual != ORIGINAL_BLOB:
         raise SystemExit(f"RC17 hotfix: original transform integrity mismatch: {actual}")
-    with tempfile.NamedTemporaryFile("wb", suffix="-rc17.py", delete=False) as fh:
-        fh.write(data)
-        path = pathlib.Path(fh.name)
+
+    temp_path: pathlib.Path | None = None
+    path = local
+    if path is None:
+        with tempfile.NamedTemporaryFile("wb", suffix="-rc17.py", delete=False) as fh:
+            fh.write(data)
+            temp_path = pathlib.Path(fh.name)
+        path = temp_path
+
     old_argv = sys.argv[:]
     try:
         sys.argv = [str(path), str(root)]
@@ -61,10 +75,11 @@ def run_original(root: pathlib.Path) -> None:
         exec(compile(data, str(path), "exec"), namespace, namespace)
     finally:
         sys.argv = old_argv
-        try:
-            path.unlink()
-        except OSError:
-            pass
+        if temp_path is not None:
+            try:
+                temp_path.unlink()
+            except OSError:
+                pass
 
 
 def main() -> None:
