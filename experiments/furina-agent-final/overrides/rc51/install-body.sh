@@ -10,7 +10,6 @@ STABLE_RELEASE="https://github.com/WynnDev-rill/furina/releases/download/furina-
 BOOTSTRAP_CDN="https://cdn.jsdelivr.net/gh/WynnDev-rill/furina@furina-bootstrap-v1.0.0/experiments/furina-agent-final"
 API_BASE="https://api.github.com/repos/WynnDev-rill/furina/contents/experiments/furina-agent-final"
 RAW_BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
-BRANCH_CDN="https://cdn.jsdelivr.net/gh/WynnDev-rill/furina@experiment/furina-agent-termux/experiments/furina-agent-final"
 WEB_BASE="https://github.com/WynnDev-rill/furina/raw/refs/heads/experiment/furina-agent-termux/experiments/furina-agent-final"
 RC50_BODY_PATH="overrides/rc50/install-body.sh"
 RC50_BODY_BLOB="37fe2fef1debe5cd04404fd37e16bd710466b2db"
@@ -80,7 +79,6 @@ fetch_rel() {
     [[ "$FETCH_CODE" == "429" || "$FETCH_CODE" == "403" ]] && github_blocked=1
   fi
   if [[ "$github_blocked" == "0" ]] && fetch_url "$RAW_BASE/$rel" "$out"; then return 0; fi
-  if fetch_url "$BRANCH_CDN/$rel" "$out"; then return 0; fi
   if [[ "$github_blocked" == "0" ]] && fetch_url "$WEB_BASE/$rel" "$out"; then return 0; fi
 
   echo "Tidak dapat mengambil $rel dari jalur update stabil maupun mirror." >&2
@@ -118,7 +116,6 @@ STABLE="https://github.com/WynnDev-rill/furina/releases/download/furina-update-s
 BOOTSTRAP="https://cdn.jsdelivr.net/gh/WynnDev-rill/furina@furina-bootstrap-v1.0.0/experiments/furina-agent-final/install.sh"
 API="https://api.github.com/repos/WynnDev-rill/furina/contents/experiments/furina-agent-final/install.sh?ref=experiment/furina-agent-termux"
 RAW="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final/install.sh"
-CDN="https://cdn.jsdelivr.net/gh/WynnDev-rill/furina@experiment/furina-agent-termux/experiments/furina-agent-final/install.sh"
 WEB="https://github.com/WynnDev-rill/furina/raw/refs/heads/experiment/furina-agent-termux/experiments/furina-agent-final/install.sh"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -151,7 +148,6 @@ if fetch_script "$BOOTSTRAP"; then exec bash "$TMP/installer.sh" "$@"; fi
 if [[ "$github_blocked" == "0" ]] && fetch_script "$API" 1; then exec bash "$TMP/installer.sh" "$@"; fi
 [[ "$FETCH_CODE" == "429" || "$FETCH_CODE" == "403" ]] && github_blocked=1
 if [[ "$github_blocked" == "0" ]] && fetch_script "$RAW"; then exec bash "$TMP/installer.sh" "$@"; fi
-if fetch_script "$CDN"; then exec bash "$TMP/installer.sh" "$@"; fi
 if [[ "$github_blocked" == "0" ]] && fetch_script "$WEB"; then exec bash "$TMP/installer.sh" "$@"; fi
 
 echo "Update belum dapat dijangkau. Cukup jalankan ulang perintah yang sama: furina update" >&2
