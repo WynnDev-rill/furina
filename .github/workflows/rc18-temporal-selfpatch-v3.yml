@@ -1,0 +1,10 @@
+name: Retire legacy workflow
+
+on:
+  workflow_dispatch:
+
+jobs:
+  retire:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Legacy workflow retired"
