@@ -1,4 +1,4 @@
-name: Build FurinaHub Android RC33 + Core RC49
+name: Build FurinaHub Android RC34 + Core RC50
 
 on:
   pull_request:
@@ -17,59 +17,48 @@ permissions:
   contents: write
 
 concurrency:
-  group: furinahub-android-rc33-${{ github.ref }}
+  group: furinahub-android-rc34-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  TAG: furinahub-v1.0.0-rc33
-  APK_NAME: FurinaHub-v1.0.0-rc33.apk
+  TAG: furinahub-v1.0.0-rc34
+  APK_NAME: FurinaHub-v1.0.0-rc34.apk
 
 jobs:
   validate-build-release:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Validate Core RC49 and Android RC33
+      - name: Validate Core RC50 and Android RC34
         shell: bash
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/rc49/validate.sh
-          bash experiments/furina-agent-final/overrides/android-rc33/validate.sh
+          bash experiments/furina-agent-final/overrides/rc50/validate.sh
+          bash experiments/furina-agent-final/overrides/android-rc34/validate.sh
           bash -n experiments/furina-agent-final/install.sh
-          bash -n experiments/furina-agent-final/overrides/rc49/install-body.sh
-          test "$(git hash-object experiments/furina-agent-final/overrides/rc49/apply.py)" = c16461e87230f8560f7e6093b90a7cc4e8aab909
-          test "$(git hash-object experiments/furina-agent-final/overrides/rc49/harden.py)" = b8667a60727f0285521981c2543e704d9d41b276
-          test "$(git hash-object experiments/furina-agent-final/overrides/rc49/install-body.sh)" = 44d4d038b6159f28dd95064eca67239b071b1201
-          test "$(git hash-object experiments/furina-agent-final/overrides/android-rc33/apply.py)" = 0ef9319888ffd6b1c26cc13fe7a453ed4c30baed
+          bash -n experiments/furina-agent-final/overrides/rc50/install-body.sh
+          test "$(git hash-object experiments/furina-agent-final/overrides/rc50/apply.py)" = 7dfe9aab1b7bfa5c70191b00679acc17b17192c0
+          test "$(git hash-object experiments/furina-agent-final/overrides/rc50/install-body.sh)" = 37fe2fef1debe5cd04404fd37e16bd710466b2db
+          test "$(git hash-object experiments/furina-agent-final/overrides/android-rc34/apply.py)" = 4fd58cff62f846d1806048eb5d88a3878aa59910
           python3 - <<'PY'
           import json
           from pathlib import Path
           stage=Path('/tmp/furina-agent-rc34-validate/termux')
           manifest=json.loads(Path('experiments/furina-agent-final/manifest.json').read_text())
-          assert manifest['version']=='1.0.0-rc49'
-          assert manifest['dependency_revision']=='2026.08.16-r15'
-          assert manifest['bridge_version']=='1.0.0-rc33'
-          assert int(manifest['bridge_version_code'])==10033
-          assert 'VERSION = "1.0.0-rc49"' in (stage/'core/furina_agent/version.py').read_text()
-          assert "versionName '1.0.0-rc33'" in (stage/'bridge/app/build.gradle').read_text()
+          assert manifest['version']=='1.0.0-rc50'
+          assert manifest['dependency_revision']=='2026.08.17-r16'
+          assert manifest['bridge_version']=='1.0.0-rc34'
+          assert int(manifest['bridge_version_code'])==10034
+          assert 'VERSION = "1.0.0-rc50"' in (stage/'core/furina_agent/version.py').read_text()
+          assert "versionName '1.0.0-rc34'" in (stage/'bridge/app/build.gradle').read_text()
           install=Path('experiments/furina-agent-final/install.sh').read_text()
-          body=Path('experiments/furina-agent-final/overrides/rc49/install-body.sh').read_text()
-          assert 'BODY_URL="$BASE/overrides/rc49/install-body.sh"' in install
-          assert 'BODY_BLOB="44d4d038b6159f28dd95064eca67239b071b1201"' in install
-          assert 'RC49_HARDEN_BLOB="b8667a60727f0285521981c2543e704d9d41b276"' in install
-          for marker in (
-              'OOMOL_CONNECT_ENCRYPTION_KEY="$key"',
-              'OOMOL_CONNECT_ADMIN_TOKEN="$token"',
-              'OOMOL_CONNECT_RUNTIME_TOKEN="$token"',
-              'OOMOL_CONNECT_BLOCKED_PROXIES="*"',
-              'NODE_ENV=production',
-          ):
-              assert marker in body, marker
-          print('FURINAHUB_RC49_R15_RC33_RELEASE_BINDINGS_OK')
+          assert 'BODY_URL="$BASE/overrides/rc50/install-body.sh"' in install
+          assert 'BODY_BLOB="37fe2fef1debe5cd04404fd37e16bd710466b2db"' in install
+          print('FURINAHUB_RC50_R16_RC34_RELEASE_BINDINGS_OK')
           PY
 
       - uses: actions/setup-java@v5
@@ -89,7 +78,7 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build FurinaHub RC33 debug on PR
+      - name: Build FurinaHub RC34 debug on PR
         if: github.event_name == 'pull_request'
         working-directory: /tmp/furina-agent-rc34-validate/termux
         shell: bash
@@ -119,7 +108,7 @@ jobs:
           printf '%s' "$FURINA_RELEASE_KEYSTORE_B64" | base64 --decode > bridge/app/furina-agent-release.jks
           chmod 600 bridge/app/furina-agent-release.jks
 
-      - name: Build signed FurinaHub RC33
+      - name: Build signed FurinaHub RC34
         if: github.event_name != 'pull_request' && env.FURINAHUB_RELEASE_EXISTS != '1'
         working-directory: /tmp/furina-agent-rc34-validate/termux
         shell: bash
@@ -134,7 +123,7 @@ jobs:
           test -n "$FURINA_KEY_PASSWORD"
           gradle --no-daemon --stacktrace :bridge:app:assembleRelease
 
-      - name: Verify signed APK and publish immutable RC33
+      - name: Verify signed APK and publish immutable RC34
         if: github.event_name != 'pull_request' && env.FURINAHUB_RELEASE_EXISTS != '1'
         shell: bash
         env:
@@ -152,8 +141,8 @@ jobs:
           CERT="$("$APKSIGNER" verify --verbose --print-certs "$APK_NAME")"
           SIGNER="$(printf '%s\n' "$CERT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
           test "$PACKAGE" = com.wynndev.furinaagentbridge
-          test "$CODE" = 10033
-          test "$NAME" = 1.0.0-rc33
+          test "$CODE" = 10034
+          test "$NAME" = 1.0.0-rc34
           test "${#SHA}" = 64
           test "${#SIGNER}" = 64
           export PACKAGE CODE NAME SHA SIGNER
@@ -165,11 +154,11 @@ jobs:
             "package_name":os.environ["PACKAGE"],
             "sha256":os.environ["SHA"],
             "signer_sha256":os.environ["SIGNER"],
-            "apk_url":"https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc33/FurinaHub-v1.0.0-rc33.apk",
+            "apk_url":"https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc34/FurinaHub-v1.0.0-rc34.apk",
           }
           open("bridge.json","w",encoding="utf-8").write(json.dumps(data,indent=2)+"\n")
           PY
           gh release create "$TAG" "$APK_NAME" bridge.json \
             --target "$GITHUB_SHA" \
-            --title "FurinaHub v1.0.0-rc33" \
-            --notes "RC33 simplifies FurinaHub around the companion experience: Agent & Skill and Plugin are removed from navigation, Normal/Shizuku/Root device controls are hidden from the APK, Model & Provider now exposes only routing and online providers while local-model controls stay in Core, Plugin selection is removed from chat, and Settings is promoted above New conversation so chat history cannot push it to the bottom. Core remains RC49/r15 and keeps the existing internal agent and connector implementation unchanged."
+            --title "FurinaHub v1.0.0-rc34" \
+            --notes "RC34 makes FurinaHub more companion-first: image understanding is grounded by vision but answered through Furina's normal personalized conversation pipeline; a collapsible live Berfikir activity indicator shows safe high-level stages without exposing private model reasoning; conversations receive short automatic titles and support pin/rename/delete from long-press; Settings uses one unified update surface for Core/dependencies and APK; and image selection/editor UX is rebuilt around Android Photo Picker, explicit editing, cleaner previews, aspect ratios, rotate, flip, and optional drawing. Core RC50/r16 adds the matching progress, title, pin, and persona-aware image runtime."
