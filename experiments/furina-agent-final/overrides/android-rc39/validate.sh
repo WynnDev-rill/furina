@@ -9,6 +9,21 @@ bash "$ROOT/overrides/android-rc38/validate.sh"
 rm -rf "$STAGE"
 mkdir -p "$(dirname "$STAGE")"
 cp -a "$BASE_STAGE" "$STAGE"
+
+# RC38 carries the bridge target in two generated Core locations. Normalize one
+# before the strict RC39 transform so both locations finish on the same target.
+python3 - "$STAGE/core/furina_agent/hub.py" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+s=p.read_text(encoding='utf-8')
+old='"bridge_target": "1.0.0-rc38"'
+new='"bridge_target": "1.0.0-rc39"'
+if s.count(old)==2:
+    s=s.replace(old,new,1)
+p.write_text(s,encoding='utf-8')
+PY
+
 python3 "$HERE/apply.py" "$STAGE"
 python3 -m py_compile "$HERE/apply.py"
 python3 -m compileall -q "$STAGE/core/furina_agent"
@@ -30,7 +45,8 @@ assert updater.index('releases/download/furina-update-stable/manifest.json') < u
 assert 'FurinaHub-Updater/5' in updater
 assert 'versionCode 10039' in gradle
 assert "versionName '1.0.0-rc39'" in gradle
-assert '"bridge_target": "1.0.0-rc39"' in hub
+assert hub.count('"bridge_target": "1.0.0-rc39"') >= 1
+assert '"bridge_target": "1.0.0-rc38"' not in hub
 
 for marker in (
     'RC39: WhatsApp-inspired crop/draw editor',
