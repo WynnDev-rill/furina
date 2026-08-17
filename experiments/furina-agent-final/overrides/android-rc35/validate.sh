@@ -8,6 +8,7 @@ STAGE=/tmp/furina-agent-rc35-validate/termux
 # First reconstruct and validate the exact currently released RC34 + Core RC50 tree.
 bash "$ROOT/overrides/android-rc34/validate.sh"
 rm -rf "$STAGE"
+mkdir -p "$(dirname "$STAGE")"
 cp -a "$BASE_STAGE" "$STAGE"
 
 # Then advance that known-good staged tree to Core RC51 + Android RC35.
