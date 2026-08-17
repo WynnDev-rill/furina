@@ -10,6 +10,13 @@ rm -rf "$BASE_WORK"
 git worktree add --detach "$BASE_WORK" "$BASE_COMMIT" >/dev/null
 cleanup() { git worktree remove --force "$BASE_WORK" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
+
+# The historical base commit predates the offline RC17 hotfix. Copy the
+# verified current transform pair into the detached fixture so validation
+# never depends on raw.githubusercontent.com being reachable.
+cp "$META/overrides/apply-core-rc17.py" "$BASE_WORK/experiments/furina-agent-final/overrides/apply-core-rc17.py"
+cp "$META/overrides/apply-core-rc17-hotfix.py" "$BASE_WORK/experiments/furina-agent-final/overrides/apply-core-rc17-hotfix.py"
+
 ( cd "$BASE_WORK" && FURINA_HOME=/tmp/furinahub-rc34-base-home bash experiments/furina-agent-final/overrides/rc34/validate.sh )
 for rc in rc35 rc36 rc37 rc38 rc39 rc40 rc41 rc42 rc43; do
   python3 "$META/overrides/$rc/apply.py" "$ROOT" "$META/overrides/$rc"
