@@ -36,8 +36,6 @@ fetch_rel() {
   command -v curl >/dev/null 2>&1 || pkg install -y curl >/dev/null
   rm -f "$out"
 
-  # Stable release assets are the primary update transport. They are served via
-  # GitHub's release/object CDN instead of raw.githubusercontent.com.
   case "$rel" in
     overrides/rc50/install-body.sh) url="$STABLE_RELEASE/core-rc50-install-body.sh" ;;
     overrides/rc51/apply.py) url="$STABLE_RELEASE/core-rc51-apply.py" ;;
@@ -51,7 +49,6 @@ fetch_rel() {
   fi
   rm -f "$out"
 
-  # GitHub Contents API uses a separate transport/rate bucket from raw hosting.
   url="$API_BASE/$rel?ref=experiment/furina-agent-termux"
   if curl -fL --silent --show-error \
       --connect-timeout 10 --max-time 90 \
@@ -113,6 +110,7 @@ command -v curl >/dev/null 2>&1 || pkg install -y curl >/dev/null
 
 try_script() {
   local url="$1" api="${2:-0}"
+  shift 2
   rm -f "$TMP"
   local args=(-fL --silent --show-error --connect-timeout 10 --max-time 90 --retry 2 --retry-delay 1 --retry-all-errors -H 'Cache-Control: no-cache')
   if [[ "$api" == "1" ]]; then
