@@ -1,4 +1,4 @@
-name: Build FurinaHub Android RC32 + Core RC49
+name: Build FurinaHub Android RC33 + Core RC49
 
 on:
   pull_request:
@@ -17,12 +17,12 @@ permissions:
   contents: write
 
 concurrency:
-  group: furinahub-android-rc32-${{ github.ref }}
+  group: furinahub-android-rc33-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  TAG: furinahub-v1.0.0-rc32
-  APK_NAME: FurinaHub-v1.0.0-rc32.apk
+  TAG: furinahub-v1.0.0-rc33
+  APK_NAME: FurinaHub-v1.0.0-rc33.apk
 
 jobs:
   validate-build-release:
@@ -33,18 +33,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Validate Core RC49 and Android RC32
+      - name: Validate Core RC49 and Android RC33
         shell: bash
         run: |
           set -euo pipefail
           bash experiments/furina-agent-final/overrides/rc49/validate.sh
-          bash experiments/furina-agent-final/overrides/android-rc32/validate.sh
+          bash experiments/furina-agent-final/overrides/android-rc33/validate.sh
           bash -n experiments/furina-agent-final/install.sh
           bash -n experiments/furina-agent-final/overrides/rc49/install-body.sh
           test "$(git hash-object experiments/furina-agent-final/overrides/rc49/apply.py)" = c16461e87230f8560f7e6093b90a7cc4e8aab909
           test "$(git hash-object experiments/furina-agent-final/overrides/rc49/harden.py)" = b8667a60727f0285521981c2543e704d9d41b276
           test "$(git hash-object experiments/furina-agent-final/overrides/rc49/install-body.sh)" = 44d4d038b6159f28dd95064eca67239b071b1201
-          test "$(git hash-object experiments/furina-agent-final/overrides/android-rc32/apply.py)" = 76c78df95c758560b656ff9353fd49cf8a43ff42
+          test "$(git hash-object experiments/furina-agent-final/overrides/android-rc33/apply.py)" = 0ef9319888ffd6b1c26cc13fe7a453ed4c30baed
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -52,10 +52,10 @@ jobs:
           manifest=json.loads(Path('experiments/furina-agent-final/manifest.json').read_text())
           assert manifest['version']=='1.0.0-rc49'
           assert manifest['dependency_revision']=='2026.08.16-r15'
-          assert manifest['bridge_version']=='1.0.0-rc32'
-          assert int(manifest['bridge_version_code'])==10032
+          assert manifest['bridge_version']=='1.0.0-rc33'
+          assert int(manifest['bridge_version_code'])==10033
           assert 'VERSION = "1.0.0-rc49"' in (stage/'core/furina_agent/version.py').read_text()
-          assert "versionName '1.0.0-rc32'" in (stage/'bridge/app/build.gradle').read_text()
+          assert "versionName '1.0.0-rc33'" in (stage/'bridge/app/build.gradle').read_text()
           install=Path('experiments/furina-agent-final/install.sh').read_text()
           body=Path('experiments/furina-agent-final/overrides/rc49/install-body.sh').read_text()
           assert 'BODY_URL="$BASE/overrides/rc49/install-body.sh"' in install
@@ -69,7 +69,7 @@ jobs:
               'NODE_ENV=production',
           ):
               assert marker in body, marker
-          print('FURINAHUB_RC49_R15_RC32_RELEASE_BINDINGS_OK')
+          print('FURINAHUB_RC49_R15_RC33_RELEASE_BINDINGS_OK')
           PY
 
       - uses: actions/setup-java@v5
@@ -89,7 +89,7 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build FurinaHub RC32 debug on PR
+      - name: Build FurinaHub RC33 debug on PR
         if: github.event_name == 'pull_request'
         working-directory: /tmp/furina-agent-rc34-validate/termux
         shell: bash
@@ -119,7 +119,7 @@ jobs:
           printf '%s' "$FURINA_RELEASE_KEYSTORE_B64" | base64 --decode > bridge/app/furina-agent-release.jks
           chmod 600 bridge/app/furina-agent-release.jks
 
-      - name: Build signed FurinaHub RC32
+      - name: Build signed FurinaHub RC33
         if: github.event_name != 'pull_request' && env.FURINAHUB_RELEASE_EXISTS != '1'
         working-directory: /tmp/furina-agent-rc34-validate/termux
         shell: bash
@@ -134,7 +134,7 @@ jobs:
           test -n "$FURINA_KEY_PASSWORD"
           gradle --no-daemon --stacktrace :bridge:app:assembleRelease
 
-      - name: Verify signed APK and publish immutable RC32
+      - name: Verify signed APK and publish immutable RC33
         if: github.event_name != 'pull_request' && env.FURINAHUB_RELEASE_EXISTS != '1'
         shell: bash
         env:
@@ -152,8 +152,8 @@ jobs:
           CERT="$("$APKSIGNER" verify --verbose --print-certs "$APK_NAME")"
           SIGNER="$(printf '%s\n' "$CERT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
           test "$PACKAGE" = com.wynndev.furinaagentbridge
-          test "$CODE" = 10032
-          test "$NAME" = 1.0.0-rc32
+          test "$CODE" = 10033
+          test "$NAME" = 1.0.0-rc33
           test "${#SHA}" = 64
           test "${#SIGNER}" = 64
           export PACKAGE CODE NAME SHA SIGNER
@@ -165,11 +165,11 @@ jobs:
             "package_name":os.environ["PACKAGE"],
             "sha256":os.environ["SHA"],
             "signer_sha256":os.environ["SIGNER"],
-            "apk_url":"https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc32/FurinaHub-v1.0.0-rc32.apk",
+            "apk_url":"https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc33/FurinaHub-v1.0.0-rc33.apk",
           }
           open("bridge.json","w",encoding="utf-8").write(json.dumps(data,indent=2)+"\n")
           PY
           gh release create "$TAG" "$APK_NAME" bridge.json \
             --target "$GITHUB_SHA" \
-            --title "FurinaHub v1.0.0-rc32" \
-            --notes "RC32 simplifies Plugin setup by auth contract: no-auth is labeled Ready instead of Connected, API/custom credentials use provider-declared fields, OAuth opens the system browser once a local OAuth app is configured, unsupported future auth types fail closed instead of breaking the catalog, and the initial list is reduced to useful providers while search still covers the full catalog. Core RC49/r15 protects the local OpenConnector admin and runtime APIs with a persistent random token, keeps credential encryption enabled, and disables raw provider proxy access."
+            --title "FurinaHub v1.0.0-rc33" \
+            --notes "RC33 simplifies FurinaHub around the companion experience: Agent & Skill and Plugin are removed from navigation, Normal/Shizuku/Root device controls are hidden from the APK, Model & Provider now exposes only routing and online providers while local-model controls stay in Core, Plugin selection is removed from chat, and Settings is promoted above New conversation so chat history cannot push it to the bottom. Core remains RC49/r15 and keeps the existing internal agent and connector implementation unchanged."
