@@ -42,7 +42,7 @@ jobs:
           bash -n experiments/furina-agent-final/overrides/rc51/install-body.sh
           test "$(git hash-object experiments/furina-agent-final/overrides/rc51/apply.py)" = 736555772589d692a165ad60fac8c8c4d458e23b
           test "$(git hash-object experiments/furina-agent-final/overrides/rc51/install-body.sh)" = 5b877ca8c0688ee5d03f7b7d52a70b78b0608221
-          test "$(git hash-object experiments/furina-agent-final/overrides/android-rc35/apply.py)" = 9094d742f7e23e327bd0612fa6d3b65a985861b5
+          test "$(git hash-object experiments/furina-agent-final/overrides/android-rc35/apply.py)" = e8b04a21e00a6a52c86d7fae8cf7f9a2694e7d7e
           python3 - <<'PY'
           import json
           from pathlib import Path
