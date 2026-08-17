@@ -40,7 +40,6 @@ def main() -> None:
             "https://cdn.jsdelivr.net/gh/WynnDev-rill/furina@furina-bootstrap-v1.0.0/experiments/furina-agent-final/manifest.json",
             "https://api.github.com/repos/WynnDev-rill/furina/contents/experiments/furina-agent-final/manifest.json?ref=experiment/furina-agent-termux",
             "https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final/manifest.json",
-            "https://cdn.jsdelivr.net/gh/WynnDev-rill/furina@experiment/furina-agent-termux/experiments/furina-agent-final/manifest.json",
             "https://github.com/WynnDev-rill/furina/raw/refs/heads/experiment/furina-agent-termux/experiments/furina-agent-final/manifest.json"
     };'''
     updater = replace_once(updater, old_urls, new_urls, "release-first manifest channel")
@@ -84,6 +83,8 @@ def main() -> None:
     missing = [item for item in checks if item not in combined]
     if missing:
         raise SystemExit(f"RC38 marker hilang: {missing}")
+    if "cdn.jsdelivr.net/gh/WynnDev-rill/furina@experiment/furina-agent-termux" in updater:
+        raise SystemExit("RC38 masih memakai CDN branch mutable")
     print("FURINAHUB_ANDROID_RC38_RELEASE_FIRST_UPDATER_OK")
 
 
