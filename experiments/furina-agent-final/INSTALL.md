@@ -14,13 +14,15 @@ pkg update -y && pkg install -y curl
 
 ## 2. Pasang Furina Agent
 
-Jalankan installer resmi dari branch eksperimen:
+Gunakan bootstrap CDN berikut. Bootstrap ini sengaja tidak bergantung pada `raw.githubusercontent.com`, sehingga tetap dapat dipakai jika endpoint raw GitHub sedang terkena HTTP 429 atau timeout:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final/install.sh | bash
+curl -fsSL https://cdn.jsdelivr.net/gh/WynnDev-rill/furina@experiment/furina-agent-termux/experiments/furina-agent-final/install.sh | bash
 ```
 
-Installer menyiapkan Core dan runtime yang diperlukan ke `~/.furina-agent`, melakukan validasi sebelum aktivasi, dan mempertahankan model/data secara terpisah dari Core.
+Installer kemudian memiliki fallback otomatis melalui beberapa jalur update dan tetap melakukan verifikasi integritas sebelum menerapkan file. Installer menyiapkan Core dan runtime yang diperlukan ke `~/.furina-agent`, serta mempertahankan model/data secara terpisah dari Core.
+
+Jika instalasi lama gagal melakukan `furina update` dengan pesan `HTTP 429`, `Too Many Requests`, atau timeout, jalankan perintah bootstrap CDN di atas **sekali**. Runtime `r17` akan memasang updater resilien; setelah itu `furina update` kembali menjadi jalur normal.
 
 ## 3. Jalankan Furina
 
@@ -46,13 +48,17 @@ Untuk memperbarui Core dan runtime Furina Agent:
 furina update
 ```
 
+Mulai runtime `2026.08.17-r17`, `furina update` memakai transport multi-jalur. Ia mencoba endpoint raw GitHub, CDN jsDelivr, lalu jalur raw GitHub web sebagai fallback, dengan timeout dan retry terbatas. File yang diperoleh tetap divalidasi sebelum dijalankan.
+
 `furina update` adalah jalur canonical untuk **Core + dependency/runtime**. Pada instalasi yang sudah ada, perintah ini tidak memasang ulang atau menurunkan versi APK FurinaHub.
 
-Update APK dilakukan dari **FurinaHub → Pengaturan → Update FurinaHub**. Core Termux dan APK Android dapat diperbaiki atau di-rollback secara independen.
+Update APK dilakukan dari **FurinaHub → Pengaturan → Pembaruan**. FurinaHub Android RC36 juga memakai fallback beberapa jalur untuk metadata update, sehingga HTTP 429 pada satu endpoint tidak langsung menggagalkan pemeriksaan versi.
+
+> Jika APK yang terpasang masih RC35 atau lebih lama dan updater di dalam APK itu sedang terkena HTTP 429, pasang RC36 satu kali dari release GitHub. Setelah RC36 aktif, pemeriksaan update berikutnya sudah memakai transport fallback baru.
 
 ## Plugin
 
-Plugin memakai OpenConnector lokal di Termux. RC48 memeriksa endpoint kesehatan resmi `/v1/health`; launcher akan mencoba memperbaiki dependency sekali secara otomatis bila runtime gagal start.
+Plugin memakai OpenConnector lokal di Termux. Runtime memeriksa endpoint kesehatan resmi `/v1/health`; launcher akan mencoba memperbaiki dependency sekali secara otomatis bila runtime gagal start.
 
 Pemeriksaan manual jika diperlukan:
 
