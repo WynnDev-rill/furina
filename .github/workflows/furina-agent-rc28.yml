@@ -40,7 +40,7 @@ jobs:
           bash experiments/furina-agent-final/overrides/android-rc36/validate.sh
           bash -n experiments/furina-agent-final/install.sh
           bash -n experiments/furina-agent-final/overrides/rc51/install-body.sh
-          test "$(git hash-object experiments/furina-agent-final/install.sh)" = 97a7f5aaa01c2583e3d54584d1f2a8dbe67037e8
+          test "$(git hash-object experiments/furina-agent-final/install.sh)" = 4eeb38d3943c1da31fd64b3ca162cf08c2514bbd
           test "$(git hash-object experiments/furina-agent-final/overrides/rc51/apply.py)" = 736555772589d692a165ad60fac8c8c4d458e23b
           test "$(git hash-object experiments/furina-agent-final/overrides/rc51/install-body.sh)" = 2809d9968087dd9d2cd0507102eacd31c77b52d0
           test "$(git hash-object experiments/furina-agent-final/overrides/android-rc36/apply.py)" = 47fd73fc4344ff40110f567641c0ca98145e07f3
@@ -61,7 +61,7 @@ jobs:
           assert 'FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"' in install
           assert 'BODY_PATH="overrides/rc51/install-body.sh"' in install
           assert 'BODY_BLOB="2809d9968087dd9d2cd0507102eacd31c77b52d0"' in install
-          assert 'cdn.jsdelivr.net/gh/WynnDev-rill/furina@experiment/furina-agent-termux' in install
+          assert 'cdn.jsdelivr.net/gh/WynnDev-rill/furina@8399894479812adba8a17f9e2be298f5a8108823' in install
           assert 'FURINA_RESILIENT_UPDATE_WRAPPER_V1' in body
           assert 'DEPENDENCY_REVISION="2026.08.17-r17"' in body
           print('FURINAHUB_RC51_R17_RC36_RELEASE_BINDINGS_OK')
