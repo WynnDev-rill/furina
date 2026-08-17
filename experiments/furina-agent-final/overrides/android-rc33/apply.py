@@ -82,12 +82,14 @@ def main() -> None:
         '<div class="sep"></div>' + settings_nav + '<div class="sep"></div><button class="nav" onclick="newConversation()"',
         "promote Settings",
     )
-    html = replace_once(
-        html,
-        '<div id="conversationRows"></div><div class="sep"></div></aside>',
+    html, trailing_sep_count = re.subn(
+        r'<div id="conversationRows"></div><div class="sep"></div>\s*</aside>',
         '<div id="conversationRows"></div></aside>',
-        "remove trailing drawer separator",
+        html,
+        count=1,
     )
+    if trailing_sep_count != 1:
+        raise SystemExit(f"RC33 trailing drawer separator marker mismatch ({trailing_sep_count})")
 
     plugin_button_pattern = re.compile(
         r'<button onclick="openPluginPicker\(\)">.*?</button>',
