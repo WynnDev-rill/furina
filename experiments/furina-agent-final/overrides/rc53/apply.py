@@ -106,6 +106,26 @@ def main() -> None:
             1,
         )
 
+    if 'source="reflection_behavior"' not in chat:
+        notes_anchor = (
+            '            notes = [str(x).strip()[:240] for x in (obj.get("behavior_notes") or []) if str(x).strip()][:3]\n'
+            '            if notes:\n'
+        )
+        if notes_anchor not in chat:
+            raise SystemExit("RC53 reflection learned-self anchor missing")
+        notes_replacement = (
+            '            notes = [str(x).strip()[:240] for x in (obj.get("behavior_notes") or []) if str(x).strip()][:3]\n'
+            '            if notes:\n'
+            '                try:\n'
+            '                    self.mind.record(\n'
+            '                        [{"kind": "behavior", "text": note, "confidence": 0.68} for note in notes],\n'
+            '                        source="reflection_behavior",\n'
+            '                    )\n'
+            '                except Exception:\n'
+            '                    pass\n'
+        )
+        chat = chat.replace(notes_anchor, notes_replacement, 1)
+
     chat_path.write_text(chat, encoding="utf-8")
     version = version_path.read_text(encoding="utf-8")
     version = replace_once(version, 'VERSION = "1.0.0-rc52"', 'VERSION = "1.0.0-rc53"', "Core version")
@@ -121,6 +141,7 @@ def main() -> None:
         "self.mind.observe_user_feedback(user_text)",
         "self.companion_state.after_turn(user_text, answer)",
         "self.companion_state.maintenance()",
+        'source="reflection_behavior"',
     )
     missing = [item for item in required if item not in final]
     if missing:
