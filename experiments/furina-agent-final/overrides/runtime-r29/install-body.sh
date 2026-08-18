@@ -52,7 +52,7 @@ progress(){
       printf '\n'
     fi
   else
-    printf '[%3d%%] %s\n' "$p" "$*"
+    printf '[%3d%%] Sedang berjalan… %s\n' "$p" "$*"
   fi
   return 0
 }
