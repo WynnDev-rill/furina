@@ -11,7 +11,7 @@ API_BASE="https://api.github.com/repos/WynnDev-rill/furina/contents/experiments/
 RAW_BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 WEB_BASE="https://github.com/WynnDev-rill/furina/raw/refs/heads/experiment/furina-agent-termux/experiments/furina-agent-final"
 BODY_PATH="overrides/runtime-r29/install-body.sh"
-BODY_BLOB="13ed34620849ef1efd9a0bf9bc8f41d27cc79947"
+BODY_BLOB="37852141f012b66d7350e25ea3b5fa4389444745"
 APPLY_BLOB="2be10d3d060ba7d09e12dddde172a337d943d996"
 BRIDGE_BLOB="3cf0f0e516231e729bb789a0d13481426030de6f"
 
@@ -36,7 +36,7 @@ fetch_url(){
   local args=(-L --silent --show-error --connect-timeout 10 --max-time 150
               --retry 3 --retry-delay 2 --retry-all-errors
               -o "$out" -w '%{http_code}'
-              -H 'User-Agent: Furina-Core-Bootstrap/12'
+              -H 'User-Agent: Furina-Core-Bootstrap/13'
               -H 'Cache-Control: no-cache' -H 'Pragma: no-cache')
   [[ "$api" == "1" ]] && args+=(-H 'Accept: application/vnd.github.raw+json')
   code="$(curl "${args[@]}" "$url" 2>/dev/null || true)"
@@ -70,8 +70,9 @@ checks=(
     'TYPESCRIPT_VERSION="5.9.3"',
     f'APPLY_BLOB="{apply_blob}"',
     f'BRIDGE_BLOB="{bridge_blob}"',
-    'return 0',
-    'tail -n 24 "$LOG"',
+    'run_foundation_visible',
+    'FURINAHUB_MACHINE_PROGRESS=1',
+    'tail -n 30 "$LOG"',
     'FURINA_RC59_RUNTIME_REGRESSION_OK',
 )
 missing=[x for x in checks if x not in t]

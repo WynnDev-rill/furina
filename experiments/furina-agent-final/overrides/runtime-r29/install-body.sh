@@ -19,9 +19,29 @@ BRIDGE_BLOB="3cf0f0e516231e729bb789a0d13481426030de6f"
 TMP="$(mktemp -d)"
 LOG="$ROOT/logs/update-r29-furinahub.log"
 TSROOT="$ROOT/upstream-node"
+LOCKDIR="$ROOT/run/update-r29.lock"
 UI_STARTED=0
+FOUNDATION_PID=""
+LOCK_OWNED=0
 
-cleanup(){ rm -rf "$TMP"; }
+# FurinaHub launches the updater through a pipe, not a terminal. Default that
+# case to the machine protocol even if an older bridge forgot to set the env.
+if [[ ! -t 1 && -z "${FURINAHUB_MACHINE_PROGRESS+x}" ]]; then
+  export FURINAHUB_MACHINE_PROGRESS=1
+fi
+
+cleanup(){
+  if [[ -n "$FOUNDATION_PID" ]] && kill -0 "$FOUNDATION_PID" 2>/dev/null; then
+    kill "$FOUNDATION_PID" 2>/dev/null || true
+    wait "$FOUNDATION_PID" 2>/dev/null || true
+  fi
+  if [[ "$LOCK_OWNED" == "1" && -d "$LOCKDIR" ]]; then
+    local owner=""
+    owner="$(cat "$LOCKDIR/pid" 2>/dev/null || true)"
+    [[ "$owner" == "$$" ]] && rm -rf "$LOCKDIR"
+  fi
+  rm -rf "$TMP"
+}
 trap cleanup EXIT
 
 is_tty(){ [[ "${FURINAHUB_MACHINE_PROGRESS:-0}" != "1" && -t 1 && "${TERM:-dumb}" != "dumb" ]]; }
@@ -48,9 +68,7 @@ progress(){
   elif is_tty; then
     ui_header
     printf '\r\033[2K\033[38;5;45m%s\033[0m \033[38;5;250m%3d%%\033[0m  %s' "$(bar "$p")" "$p" "$*"
-    if [[ "$p" -ge 100 ]]; then
-      printf '\n'
-    fi
+    if [[ "$p" -ge 100 ]]; then printf '\n'; fi
   else
     printf '[%3d%%] Sedang berjalan… %s\n' "$p" "$*"
   fi
@@ -63,10 +81,10 @@ fail(){
   printf '✗ Update Furina gagal (kode %d).\n' "$code" >&2
   if [[ -r "$LOG" && -s "$LOG" ]]; then
     printf '%s\n' '── detail terakhir ──' >&2
-    tail -n 24 "$LOG" >&2 || true
+    tail -n 30 "$LOG" >&2 || true
     printf '%s\n' '────────────────────' >&2
   fi
-  printf 'Log lengkap: tail -n 60 %q\n' "$LOG" >&2
+  printf 'Log lengkap: tail -n 80 %q\n' "$LOG" >&2
   exit "$code"
 }
 trap fail ERR
@@ -77,7 +95,7 @@ fetch_url(){
   local a=(-L --silent --show-error --connect-timeout 12 --max-time 150
            --retry 3 --retry-delay 2 --retry-all-errors
            -o "$o" -w '%{http_code}'
-           -H 'User-Agent: Furina-Core-Updater/13'
+           -H 'User-Agent: Furina-Core-Updater/14'
            -H 'Cache-Control: no-cache')
   [[ "$api" == "1" ]] && a+=(-H 'Accept: application/vnd.github.raw+json')
   code="$(curl "${a[@]}" "$u" 2>/dev/null || true)"
@@ -114,8 +132,131 @@ print(m.group(1) if m else 'unknown')
 PY
 }
 
+acquire_update_lock(){
+  mkdir -p "$ROOT/run"
+  local waited=0 owner=""
+  while ! mkdir "$LOCKDIR" 2>/dev/null; do
+    owner="$(cat "$LOCKDIR/pid" 2>/dev/null || true)"
+    if [[ -z "$owner" || ! "$owner" =~ ^[0-9]+$ || ! -d "/proc/$owner" ]]; then
+      rm -rf "$LOCKDIR" 2>/dev/null || true
+      continue
+    fi
+    progress 2 "Update lain sedang berjalan · menunggu"
+    sleep 2
+    waited=$((waited+2))
+    if (( waited >= 600 )); then
+      echo "Updater lain masih aktif setelah 10 menit (pid $owner)." >>"$LOG"
+      return 75
+    fi
+  done
+  printf '%s\n' "$$" > "$LOCKDIR/pid"
+  LOCK_OWNED=1
+}
+
+last_child_progress(){
+  local file="$1" line=""
+  line="$(grep -E '^PROGRESS [0-9]+ ' "$file" 2>/dev/null | tail -n 1 || true)"
+  printf '%s' "$line"
+}
+
+upstream_pin_count(){
+  python - "$ROOT/upstreams/.locks" <<'PY' 2>/dev/null || printf '0'
+import json,pathlib,sys
+p=pathlib.Path(sys.argv[1]); n=0
+if p.is_dir():
+    for f in p.glob('*.json'):
+        try:
+            if json.loads(f.read_text()).get('complete'): n+=1
+        except Exception: pass
+print(n)
+PY
+}
+
+foundation_status_label(){
+  local pins="$1" child_msg="$2" r27="$ROOT/logs/update-r27-furinahub.log" line=""
+  line="$(grep -E '^UPSTREAM .* (downloading full source|installed|already pinned)' "$r27" 2>/dev/null | tail -n 1 || true)"
+  if [[ "$line" =~ ^UPSTREAM[[:space:]]+([^[:space:]]+)[[:space:]]+downloading ]]; then
+    printf 'Mengambil source %s · %s/4 siap' "${BASH_REMATCH[1]}" "$pins"
+  elif [[ "$line" =~ ^UPSTREAM[[:space:]]+([^[:space:]]+)[[:space:]]+(installed|already) ]]; then
+    printf 'Memverifikasi source upstream · %s/4 siap' "$pins"
+  elif [[ -n "$child_msg" ]]; then
+    printf '%s' "$child_msg"
+  else
+    printf 'Menyiapkan fondasi companion'
+  fi
+}
+
+run_foundation_visible(){
+  local child_out="$TMP/r28-progress.out" started now elapsed line child_p child_msg mapped pins label status
+  : > "$child_out"
+  started="$(date +%s)"
+  FURINAHUB_MACHINE_PROGRESS=1 bash "$TMP/r28.sh" >"$child_out" 2>>"$LOG" &
+  FOUNDATION_PID=$!
+
+  while kill -0 "$FOUNDATION_PID" 2>/dev/null; do
+    line="$(last_child_progress "$child_out")"
+    child_p=0; child_msg=""
+    if [[ "$line" =~ ^PROGRESS[[:space:]]+([0-9]+)[[:space:]]+(.*)$ ]]; then
+      child_p="${BASH_REMATCH[1]}"
+      child_msg="${BASH_REMATCH[2]}"
+    fi
+    mapped=$((12 + child_p * 17 / 100))
+    (( mapped < 12 )) && mapped=12
+    (( mapped > 29 )) && mapped=29
+
+    pins="$(upstream_pin_count)"
+    [[ "$pins" =~ ^[0-9]+$ ]] || pins=0
+    if (( child_p <= 10 && pins > 0 )); then
+      # These increments reflect completed pinned upstream archives, not elapsed time.
+      mapped=$((13 + pins))
+      (( mapped > 17 )) && mapped=17
+    fi
+    if [[ "$(core_version 2>/dev/null || true)" == "1.0.0-rc57" && "$mapped" -lt 17 ]]; then
+      mapped=17
+    fi
+
+    label="$(foundation_status_label "$pins" "$child_msg")"
+    now="$(date +%s)"; elapsed=$((now-started))
+    progress "$mapped" "$label · ${elapsed}s"
+
+    if (( elapsed >= 1200 )); then
+      echo "Foundation RC58 melewati deadline 20 menit; child pid=$FOUNDATION_PID" >>"$LOG"
+      kill "$FOUNDATION_PID" 2>/dev/null || true
+      sleep 1
+      kill -9 "$FOUNDATION_PID" 2>/dev/null || true
+      wait "$FOUNDATION_PID" 2>/dev/null || true
+      FOUNDATION_PID=""
+      return 124
+    fi
+    sleep 2
+  done
+
+  if wait "$FOUNDATION_PID"; then
+    status=0
+  else
+    status=$?
+  fi
+  FOUNDATION_PID=""
+  {
+    printf '\n--- runtime-r28 progress ---\n'
+    cat "$child_out" 2>/dev/null || true
+  } >>"$LOG"
+  if (( status != 0 )); then
+    {
+      printf '\n--- runtime-r28 tail ---\n'
+      tail -n 35 "$ROOT/logs/update-r28-furinahub.log" 2>/dev/null || true
+      printf '\n--- runtime-r27 tail ---\n'
+      tail -n 35 "$ROOT/logs/update-r27-furinahub.log" 2>/dev/null || true
+    } >>"$LOG"
+    return "$status"
+  fi
+  progress 29 "Fondasi RC58 siap"
+  return 0
+}
+
 mkdir -p "$ROOT/logs" "$ROOT/data"
 : >> "$LOG"
+acquire_update_lock
 progress 3 "Memeriksa instalasi"
 
 CURRENT="$(core_version 2>/dev/null || true)"
@@ -129,7 +270,7 @@ fi
 if [[ "$CURRENT" != "1.0.0-rc58" && "$CURRENT" != "$VERSION" ]]; then
   progress 12 "Menyiapkan fondasi RC58"
   fetch_rel "$R28_PATH" "$TMP/r28.sh"; verify "$TMP/r28.sh" "$R28_BLOB"
-  FURINAHUB_MACHINE_PROGRESS=0 bash "$TMP/r28.sh" >>"$LOG" 2>&1
+  run_foundation_visible
 fi
 test "$(core_version)" = "1.0.0-rc58" || [[ "$(core_version)" == "$VERSION" ]]
 
