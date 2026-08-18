@@ -1,4 +1,4 @@
-name: Build FurinaHub Android RC43 + Core RC52
+name: Build FurinaHub Android RC43 + Core RC53
 
 on:
   pull_request:
@@ -21,7 +21,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: furinahub-android-rc43-${{ github.ref }}
+  group: furinahub-android-rc43-core-rc53-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -38,37 +38,62 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Validate Core RC52 r22 and Android RC43
+      - name: Validate Core RC53 r23 and Android RC43
         shell: bash
         run: |
           set -euo pipefail
           bash experiments/furina-agent-final/overrides/android-rc43/validate.sh
           bash -n experiments/furina-agent-final/install.sh
           bash -n experiments/furina-agent-final/stable-bootstrap.sh
-          bash -n experiments/furina-agent-final/overrides/runtime-r22/install-body.sh
+          bash -n experiments/furina-agent-final/overrides/runtime-r23/install-body.sh
           bash -n furina-agent-termux/experiments/furina-agent-final/install.sh
+          python3 -m py_compile \
+            experiments/furina-agent-final/overrides/rc53/apply.py \
+            experiments/furina-agent-final/overrides/rc53/companion_state_v2.py
           python3 - <<'PY'
-          import json
+          import hashlib,json,importlib.util
           from pathlib import Path
+
+          def blob(path):
+              data=Path(path).read_bytes()
+              return hashlib.sha1(f"blob {len(data)}\0".encode()+data).hexdigest()
+
           stage=Path('/tmp/furina-agent-rc43-validate/termux')
           m=json.loads(Path('experiments/furina-agent-final/manifest.json').read_text())
-          assert m['version']=='1.0.0-rc52'
-          assert m['dependency_revision']=='2026.08.18-r22'
+          assert m['version']=='1.0.0-rc53'
+          assert m['dependency_revision']=='2026.08.18-r23'
           assert m['bridge_version']=='1.0.0-rc43'
           assert int(m['bridge_version_code'])==10043
           assert "versionName '1.0.0-rc43'" in (stage/'bridge/app/build.gradle').read_text()
           assert '"bridge_target": "1.0.0-rc43"' in (stage/'core/furina_agent/hub.py').read_text()
+
           install=Path('experiments/furina-agent-final/install.sh').read_text()
           compat=Path('furina-agent-termux/experiments/furina-agent-final/install.sh').read_text()
-          body=Path('experiments/furina-agent-final/overrides/runtime-r22/install-body.sh').read_text()
-          stable=Path('experiments/furina-agent-final/stable-bootstrap.sh').read_text()
+          body=Path('experiments/furina-agent-final/overrides/runtime-r23/install-body.sh').read_text()
           assert install == compat
-          assert 'FURINA_UPDATER_GENERATION="5"' in install
-          assert 'FURINA_RESILIENT_UPDATE_WRAPPER_V5' in body
-          assert 'FURINA_STABLE_BOOTSTRAP="1"' in stable
+          assert 'FURINA_UPDATER_GENERATION="6"' in install
+          assert 'VERSION="1.0.0-rc53"' in body
+          assert 'DEPENDENCY_REVISION="2026.08.18-r23"' in body
+          assert blob('experiments/furina-agent-final/overrides/rc53/apply.py') == '9e1c28ad65dd004982ee9ed472b1d20b09cf5782'
+          assert blob('experiments/furina-agent-final/overrides/rc53/companion_state_v2.py') == '27fdb2a785bfdf28d7514ca35db1d5e73cfd5584'
+          assert blob('experiments/furina-agent-final/overrides/runtime-r23/install-body.sh') == 'c88187f6635407c02aa4304380e7cfc2369ce36b'
           forbidden='https://github.com/WynnDev-rill/furina/releases/latest/download'
-          assert forbidden not in install and forbidden not in body and forbidden not in stable
-          print('FURINAHUB_RC52_R22_RC43_BINDINGS_OK')
+          assert forbidden not in install and forbidden not in body
+
+          mod_path='experiments/furina-agent-final/overrides/rc53/companion_state_v2.py'
+          spec=importlib.util.spec_from_file_location('companion_state_v2', mod_path)
+          mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+          class FakeStore:
+              def __init__(self): self.data={}
+              def get_state(self,key,default=None): return self.data.get(key,default)
+              def set_state(self,key,value): self.data[key]=value
+              def relationship_state(self): return {'trust':0.62,'closeness':0.58,'friction':0.05,'playfulness':0.52}
+          engine=mod.CompanionStateV2(FakeStore())
+          engine.before_user('Makasih, aku kangen ngobrol begini.',now=100000.0)
+          engine.after_turn('tes','baik',now=100010.0)
+          ctx=engine.context(now=103610.0)
+          assert 'BEHAVIOR CONTRACT:' in ctx and 'STATE COMPANION PERSISTEN' in ctx
+          print('FURINAHUB_RC53_R23_RC43_BINDINGS_OK')
           PY
 
       - name: Configure Android and Gradle
@@ -124,7 +149,7 @@ jobs:
           test -n "$FURINA_KEY_PASSWORD"
           gradle --no-daemon --stacktrace :bridge:app:assembleRelease
 
-      - name: Publish RC43 and update channel
+      - name: Publish RC43 shell and RC53 Core channel
         if: github.event_name != 'pull_request'
         shell: bash
         env:
@@ -132,10 +157,7 @@ jobs:
         run: |
           set -euo pipefail
           retry_cmd() {
-            for attempt in 1 2 3 4; do
-              "$@" && return 0
-              sleep $((attempt * 5))
-            done
+            for attempt in 1 2 3 4; do "$@" && return 0; sleep $((attempt * 5)); done
             return 1
           }
           ensure_prerelease() {
@@ -143,17 +165,18 @@ jobs:
             gh release view "$tag" >/dev/null 2>&1 && return 0
             retry_cmd gh release create "$tag" --target "$GITHUB_SHA" \
               --title "Furina Update Channel" \
-              --notes "Machine-readable recovery channel with evergreen bootstrap." \
-              --prerelease
+              --notes "Machine-readable recovery channel with evergreen bootstrap." --prerelease
           }
 
           cp experiments/furina-agent-final/install.sh furina-install.sh
-          cp experiments/furina-agent-final/overrides/runtime-r22/install-body.sh furina-install-body.sh
+          cp experiments/furina-agent-final/overrides/runtime-r23/install-body.sh furina-install-body.sh
           cp experiments/furina-agent-final/stable-bootstrap.sh stable-bootstrap.sh
           cp experiments/furina-agent-final/overrides/rc50/install-body.sh core-rc50-install-body.sh
           cp experiments/furina-agent-final/overrides/rc51/install-body.sh core-rc51-install-body.sh
           cp experiments/furina-agent-final/overrides/rc51/apply.py core-rc51-apply.py
           cp experiments/furina-agent-final/overrides/rc52/apply.py core-rc52-apply.py
+          cp experiments/furina-agent-final/overrides/rc53/apply.py core-rc53-apply.py
+          cp experiments/furina-agent-final/overrides/rc53/companion_state_v2.py core-rc53-companion-state.py
           cp experiments/furina-agent-final/manifest.json manifest.json
 
           SOURCE=/tmp/furina-agent-rc43-validate/termux/bridge/app/build/outputs/apk/release/app-release.apk
@@ -185,18 +208,15 @@ jobs:
           open('bridge.json','w',encoding='utf-8').write(json.dumps(data,indent=2)+'\n')
           PY
 
+          ASSETS=("$APK_NAME" bridge.json furina-install.sh furina-install-body.sh stable-bootstrap.sh \
+            core-rc50-install-body.sh core-rc51-install-body.sh core-rc51-apply.py core-rc52-apply.py \
+            core-rc53-apply.py core-rc53-companion-state.py manifest.json)
           if gh release view "$TAG" >/dev/null 2>&1; then
-            retry_cmd gh release upload "$TAG" "$APK_NAME" bridge.json \
-              furina-install.sh furina-install-body.sh stable-bootstrap.sh \
-              core-rc50-install-body.sh core-rc51-install-body.sh \
-              core-rc51-apply.py core-rc52-apply.py manifest.json --clobber
+            retry_cmd gh release upload "$TAG" "${ASSETS[@]}" --clobber
           else
-            retry_cmd gh release create "$TAG" "$APK_NAME" bridge.json \
-              furina-install.sh furina-install-body.sh stable-bootstrap.sh \
-              core-rc50-install-body.sh core-rc51-install-body.sh \
-              core-rc51-apply.py core-rc52-apply.py manifest.json \
-              --target "$GITHUB_SHA" --title "FurinaHub v1.0.0-rc43" \
-              --notes "RC43 fixes the black image-editor preview by decoding attachment bytes before Canvas use, sniffing the actual image MIME, and displaying the decoded image in a dedicated IMG preview layer while Canvas remains the crop/output pixel source. RC42 crop interaction and RC41 updater recovery remain intact."
+            retry_cmd gh release create "$TAG" "${ASSETS[@]}" --target "$GITHUB_SHA" \
+              --title "FurinaHub v1.0.0-rc43" \
+              --notes "RC43 Android shell retained; Core RC53 adds persistent companion state, learned-self integration, time-aware continuity, causal emotion decay, and natural conversation behavior without weakening Android safety boundaries."
           fi
 
           ensure_prerelease "$UPDATE_CHANNEL_TAG"
@@ -204,7 +224,7 @@ jobs:
           retry_cmd gh release upload "$UPDATE_CHANNEL_TAG" \
             furina-install.sh furina-install-body.sh core-rc50-install-body.sh \
             core-rc51-install-body.sh core-rc51-apply.py core-rc52-apply.py \
-            manifest.json bridge.json --clobber
+            core-rc53-apply.py core-rc53-companion-state.py manifest.json bridge.json --clobber
           git tag -f "$UPDATE_CHANNEL_TAG" "$GITHUB_SHA"
           retry_cmd git push origin "refs/tags/$UPDATE_CHANNEL_TAG" --force
 
@@ -215,9 +235,9 @@ jobs:
           python3 - <<'PY'
           import json
           m=json.load(open('/tmp/furina-manifest-live.json'))
-          assert m['version']=='1.0.0-rc52'
-          assert m['dependency_revision']=='2026.08.18-r22'
+          assert m['version']=='1.0.0-rc53'
+          assert m['dependency_revision']=='2026.08.18-r23'
           assert m['bridge_version']=='1.0.0-rc43'
           assert int(m['bridge_version_code'])==10043
-          print('FURINA_UPDATE_CHANNEL_RC43_LIVE_OK')
+          print('FURINA_UPDATE_CHANNEL_RC53_LIVE_OK')
           PY
