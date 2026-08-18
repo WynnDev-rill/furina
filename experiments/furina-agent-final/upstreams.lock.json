@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "sources": [
+    {
+      "id": "soul_of_waifu",
+      "repo": "jofizcd/Soul-of-Waifu",
+      "ref": "e5185eea9c4eb44990561a4bb5c2a18cf610381b",
+      "license": "GPL-3.0",
+      "integration": "isolated-python-sidecar",
+      "archive": "https://codeload.github.com/jofizcd/Soul-of-Waifu/tar.gz/e5185eea9c4eb44990561a4bb5c2a18cf610381b",
+      "required": ["LICENSE", "app/utils/soul_memory.py"]
+    },
+    {
+      "id": "utsuwa",
+      "repo": "The-Lab-by-Ordinary-Company/utsuwa",
+      "ref": "24d79278cdbba714bcf94a4a06839d80f56d2827",
+      "license": "MIT",
+      "integration": "node-sidecar",
+      "archive": "https://codeload.github.com/The-Lab-by-Ordinary-Company/utsuwa/tar.gz/24d79278cdbba714bcf94a4a06839d80f56d2827",
+      "required": ["LICENSE", "src/lib/engine/state-updates.ts", "src/lib/engine/stages.ts"]
+    },
+    {
+      "id": "lumimuse",
+      "repo": "in30mn1a/LumiMuse",
+      "ref": "5486a545eabdceb843c4dbc01e070ce2e1ecd5f2",
+      "license": "MIT",
+      "integration": "full-source-vendor",
+      "archive": "https://codeload.github.com/in30mn1a/LumiMuse/tar.gz/5486a545eabdceb843c4dbc01e070ce2e1ecd5f2",
+      "required": ["LICENSE", "src/lib/memory-retrieval.ts", "src/lib/memory-engine.ts"]
+    },
+    {
+      "id": "zerochat",
+      "repo": "sh1nny0u/ZeroChat",
+      "ref": "d1785ded9534543c58a4861b178afe18f46bb10f",
+      "license": "MIT",
+      "integration": "full-source-vendor",
+      "archive": "https://codeload.github.com/sh1nny0u/ZeroChat/tar.gz/d1785ded9534543c58a4861b178afe18f46bb10f",
+      "required": ["LICENSE", "server/routers/ai_behavior.py", "lib/core/chat_controller.dart"]
+    }
+  ]
+}
