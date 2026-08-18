@@ -136,7 +136,7 @@ def main() -> None:
         hub,
         "    def get_update_status(self) -> dict:\n",
         "    def get_model_status(self) -> dict:\n",
-        status_methods + "\n    def get_model_status(self) -> dict:\n",
+        status_methods,
     )
 
     set_status = r'''    def _set_update_status(self, **values) -> None:
@@ -153,8 +153,6 @@ def main() -> None:
             os.replace(temp, UPDATE_STATUS_PATH)
         except Exception:
             pass
-
-    @staticmethod
 '''
     hub = replace_method(
         hub,
@@ -197,8 +195,6 @@ def main() -> None:
                 for line in proc.stdout:
                     log.write(line)
                     log.flush()
-                    # The shell updater owns the shared status file. Keep only a
-                    # transient in-memory mirror for sub-second UI responsiveness.
                     clean = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", line).strip()
                     match = re.match(r"PROGRESS\s+(\d{1,3})\s+(.+)", clean)
                     if match:
@@ -272,11 +268,9 @@ def main() -> None:
         hub,
         "    def _run_core_update(self) -> None:\n",
         "    def chat(self, text: str, image: dict | None = None, plugins: list | None = None) -> dict:\n",
-        run_update + "\n    def chat(self, text: str, image: dict | None = None, plugins: list | None = None) -> dict:\n",
+        run_update,
     )
 
-    # The Android bridge target changes in RC45; accept either state so Core RC60
-    # can be installed before or after the APK source patch is applied.
     version = version_path.read_text(encoding="utf-8")
     version = re.sub(
         r'VERSION\s*=\s*(["\'])([^"\']+)\1',
