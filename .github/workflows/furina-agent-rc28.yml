@@ -1,4 +1,4 @@
-name: Validate FurinaHub RC43 + Core RC53
+name: Validate FurinaHub RC43 + Core RC54
 
 on:
   pull_request:
@@ -21,7 +21,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: furinahub-core-rc53-${{ github.ref }}
+  group: furinahub-core-rc54-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -36,20 +36,21 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Validate RC53 updater, patch, and state engine
+      - name: Validate RC54 updater and transactional patch
         shell: bash
         run: |
           set -euo pipefail
           bash -n experiments/furina-agent-final/install.sh
           bash -n experiments/furina-agent-final/stable-bootstrap.sh
-          bash -n experiments/furina-agent-final/overrides/runtime-r23/install-body.sh
+          bash -n experiments/furina-agent-final/overrides/runtime-r24/install-body.sh
           bash -n furina-agent-termux/experiments/furina-agent-final/install.sh
           python3 -m py_compile \
-            experiments/furina-agent-final/overrides/rc53/apply.py \
-            experiments/furina-agent-final/overrides/rc53/companion_state_v2.py
+            experiments/furina-agent-final/overrides/rc54/apply.py \
+            experiments/furina-agent-final/overrides/rc53/companion_state_v2.py \
+            experiments/furina-agent-final/overrides/core/furina_agent/mind_v2.py
 
           python3 - <<'PY'
-          import hashlib, importlib.util, json
+          import hashlib,json
           from pathlib import Path
 
           def blob(path):
@@ -57,62 +58,58 @@ jobs:
               return hashlib.sha1(f"blob {len(data)}\0".encode()+data).hexdigest()
 
           manifest=json.loads(Path('experiments/furina-agent-final/manifest.json').read_text())
-          assert manifest['version']=='1.0.0-rc53'
-          assert manifest['dependency_revision']=='2026.08.18-r23'
+          assert manifest['version']=='1.0.0-rc54'
+          assert manifest['dependency_revision']=='2026.08.18-r24'
           assert manifest['bridge_version']=='1.0.0-rc43'
           assert int(manifest['bridge_version_code'])==10043
 
           install=Path('experiments/furina-agent-final/install.sh').read_text()
           compat=Path('furina-agent-termux/experiments/furina-agent-final/install.sh').read_text()
-          runtime=Path('experiments/furina-agent-final/overrides/runtime-r23/install-body.sh').read_text()
+          runtime=Path('experiments/furina-agent-final/overrides/runtime-r24/install-body.sh').read_text()
           assert install == compat
-          assert 'FURINA_UPDATER_GENERATION="6"' in install
-          assert 'BODY_BLOB="df5a61c6b4a005fe3c214bf8af75f7754d35821f"' in install
-          assert 'RC53_APPLY_BLOB="a6c914f90dd526956d91aff57b135fb102f48131"' in install
-          assert 'RC53_APPLY_BLOB="a6c914f90dd526956d91aff57b135fb102f48131"' in runtime
-          assert blob('experiments/furina-agent-final/overrides/rc53/apply.py') == 'a6c914f90dd526956d91aff57b135fb102f48131'
+          assert 'FURINA_UPDATER_GENERATION="7"' in install
+          assert 'BODY_BLOB="251b6cac5a57a6ca8411d7e3930843b5e12d6243"' in install
+          assert 'RC54_APPLY_BLOB="0b7e0449de01fe40746230e79d93740078fc785c"' in install
+          assert 'RC54_APPLY_BLOB="0b7e0449de01fe40746230e79d93740078fc785c"' in runtime
+          assert blob('experiments/furina-agent-final/overrides/rc54/apply.py') == '0b7e0449de01fe40746230e79d93740078fc785c'
           assert blob('experiments/furina-agent-final/overrides/rc53/companion_state_v2.py') == '27fdb2a785bfdf28d7514ca35db1d5e73cfd5584'
-          assert blob('experiments/furina-agent-final/overrides/runtime-r23/install-body.sh') == 'df5a61c6b4a005fe3c214bf8af75f7754d35821f'
-          assert blob('experiments/furina-agent-final/install.sh') == '3032e6f5689f6bb4ef7ef4a5d6e7d3e0170a8df6'
+          assert blob('experiments/furina-agent-final/overrides/core/furina_agent/mind_v2.py') == '05f5a5a6d5700c449f03535ec658363351e3c560'
+          assert blob('experiments/furina-agent-final/overrides/runtime-r24/install-body.sh') == '251b6cac5a57a6ca8411d7e3930843b5e12d6243'
+          assert 'patch pertama gagal; melakukan recovery otomatis dari RC52' in runtime
           forbidden='https://github.com/WynnDev-rill/furina/releases/latest/download'
           assert forbidden not in install and forbidden not in runtime
-
-          spec=importlib.util.spec_from_file_location('companion_state_v2','experiments/furina-agent-final/overrides/rc53/companion_state_v2.py')
-          mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
-          class FakeStore:
-              def __init__(self): self.data={}
-              def get_state(self,key,default=None): return self.data.get(key,default)
-              def set_state(self,key,value): self.data[key]=value
-              def relationship_state(self): return {'trust':0.62,'closeness':0.58,'friction':0.05,'playfulness':0.52}
-          store=FakeStore()
-          engine=mod.CompanionStateV2(store)
-          before=engine.before_user('Makasih, aku kangen ngobrol begini.',now=100000.0)
-          engine.after_turn('tes','baik',now=100010.0)
-          engine.maintenance(now=103610.0)
-          context=engine.context(now=103611.0)
-          assert before['attachment'] > 0.34
-          assert 'STATE COMPANION PERSISTEN' in context
-          assert 'BEHAVIOR CONTRACT:' in context
-          assert store.get_state('companion_state_v2')
-          print('FURINA_RC53_STATE_SMOKE_OK')
+          print('FURINA_RC54_BINDINGS_OK')
           PY
 
-          rm -rf /tmp/rc53-patch-stage /tmp/rc53-patch
-          mkdir -p /tmp/rc53-patch-stage/core /tmp/rc53-patch
-          cp -a experiments/furina-agent-final/overrides/core/furina_agent /tmp/rc53-patch-stage/core/
+          rm -rf /tmp/rc54-stage /tmp/rc54-patch
+          mkdir -p /tmp/rc54-stage/core /tmp/rc54-patch
+          cp -a experiments/furina-agent-final/overrides/core/furina_agent /tmp/rc54-stage/core/
+          cp experiments/furina-agent-final/overrides/rc54/apply.py /tmp/rc54-patch/apply.py
+          cp experiments/furina-agent-final/overrides/rc53/companion_state_v2.py /tmp/rc54-patch/companion_state_v2.py
+          cp experiments/furina-agent-final/overrides/core/furina_agent/mind_v2.py /tmp/rc54-patch/mind_v2.py
           python3 - <<'PY'
           from pathlib import Path
-          p=Path('/tmp/rc53-patch-stage/core/furina_agent/version.py')
+          p=Path('/tmp/rc54-stage/core/furina_agent/version.py')
           p.write_text('VERSION = "1.0.0-rc52"\n',encoding='utf-8')
           PY
-          cp experiments/furina-agent-final/overrides/rc53/apply.py /tmp/rc53-patch/apply.py
-          cp experiments/furina-agent-final/overrides/rc53/companion_state_v2.py /tmp/rc53-patch/companion_state_v2.py
-          python3 /tmp/rc53-patch/apply.py /tmp/rc53-patch-stage
-          grep -Fq 'VERSION = "1.0.0-rc53"' /tmp/rc53-patch-stage/core/furina_agent/version.py
-          grep -Fq 'LIVING COMPANION STATE:' /tmp/rc53-patch-stage/core/furina_agent/chat.py
-          grep -Fq 'self.companion_state.before_user(user_text)' /tmp/rc53-patch-stage/core/furina_agent/chat.py
-          grep -Fq 'source="reflection_behavior"' /tmp/rc53-patch-stage/core/furina_agent/chat.py
-          python3 -m compileall -q /tmp/rc53-patch-stage/core/furina_agent
+          python3 /tmp/rc54-patch/apply.py /tmp/rc54-stage
+          grep -Fq 'VERSION = "1.0.0-rc54"' /tmp/rc54-stage/core/furina_agent/version.py
+          grep -Fq 'LIVING COMPANION STATE:' /tmp/rc54-stage/core/furina_agent/chat.py
+          grep -Fq 'LEARNED SELF / EXPERIENCE:' /tmp/rc54-stage/core/furina_agent/chat.py
+          grep -Fq 'self.companion_state.after_turn(user_text, answer)' /tmp/rc54-stage/core/furina_agent/chat.py
+          python3 -m compileall -q /tmp/rc54-stage/core/furina_agent
+
+          # Simulate a retry from a syntactically valid partially-versioned RC53.
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/rc54-stage/core/furina_agent/version.py')
+          p.write_text('VERSION = "1.0.0-rc53"\n',encoding='utf-8')
+          PY
+          python3 /tmp/rc54-patch/apply.py /tmp/rc54-stage
+          test "$(grep -Fc 'self.companion_state = CompanionStateV2(store)' /tmp/rc54-stage/core/furina_agent/chat.py)" = 1
+          test "$(grep -Fc 'self.mind = FurinaMind(store)' /tmp/rc54-stage/core/furina_agent/chat.py)" = 1
+          grep -Fq 'VERSION = "1.0.0-rc54"' /tmp/rc54-stage/core/furina_agent/version.py
+          python3 -m compileall -q /tmp/rc54-stage/core/furina_agent
 
       - name: Validate FurinaHub RC43 source chain
         shell: bash
@@ -149,7 +146,7 @@ jobs:
         shell: bash
         run: gradle --no-daemon --stacktrace :bridge:app:assembleDebug
 
-      - name: Publish RC53 Core recovery channel
+      - name: Publish RC54 Core recovery channel
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         shell: bash
         env:
@@ -172,20 +169,22 @@ jobs:
           fi
 
           cp experiments/furina-agent-final/stable-bootstrap.sh furina-install.sh
-          cp experiments/furina-agent-final/overrides/runtime-r23/install-body.sh furina-install-body.sh
+          cp experiments/furina-agent-final/overrides/runtime-r24/install-body.sh furina-install-body.sh
+          cp experiments/furina-agent-final/overrides/runtime-r22/install-body.sh core-r22-install-body.sh
           cp experiments/furina-agent-final/overrides/rc50/install-body.sh core-rc50-install-body.sh
           cp experiments/furina-agent-final/overrides/rc51/install-body.sh core-rc51-install-body.sh
           cp experiments/furina-agent-final/overrides/rc51/apply.py core-rc51-apply.py
           cp experiments/furina-agent-final/overrides/rc52/apply.py core-rc52-apply.py
-          cp experiments/furina-agent-final/overrides/rc53/apply.py core-rc53-apply.py
-          cp experiments/furina-agent-final/overrides/rc53/companion_state_v2.py core-rc53-companion-state.py
+          cp experiments/furina-agent-final/overrides/rc54/apply.py core-rc54-apply.py
+          cp experiments/furina-agent-final/overrides/rc53/companion_state_v2.py core-rc54-companion-state.py
+          cp experiments/furina-agent-final/overrides/core/furina_agent/mind_v2.py core-rc54-mind.py
           cp experiments/furina-agent-final/manifest.json manifest.json
 
           retry_cmd gh release upload "$UPDATE_CHANNEL_TAG" \
-            furina-install.sh furina-install-body.sh \
+            furina-install.sh furina-install-body.sh core-r22-install-body.sh \
             core-rc50-install-body.sh core-rc51-install-body.sh \
-            core-rc51-apply.py core-rc52-apply.py core-rc53-apply.py \
-            core-rc53-companion-state.py manifest.json --clobber
+            core-rc51-apply.py core-rc52-apply.py core-rc54-apply.py \
+            core-rc54-companion-state.py core-rc54-mind.py manifest.json --clobber
 
           sleep 2
           retry_cmd curl -fL --silent --show-error --connect-timeout 10 --max-time 90 \
@@ -194,8 +193,8 @@ jobs:
           python3 - <<'PY'
           import json
           m=json.load(open('/tmp/furina-manifest-live.json'))
-          assert m['version']=='1.0.0-rc53'
-          assert m['dependency_revision']=='2026.08.18-r23'
+          assert m['version']=='1.0.0-rc54'
+          assert m['dependency_revision']=='2026.08.18-r24'
           assert m['bridge_version']=='1.0.0-rc43'
-          print('FURINA_UPDATE_CHANNEL_RC53_LIVE_OK')
+          print('FURINA_UPDATE_CHANNEL_RC54_LIVE_OK')
           PY
