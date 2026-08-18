@@ -1,9 +1,8 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-# This asset is intentionally version-agnostic. The mutable release channel only
-# needs to deliver this bootstrap once; every run resolves the current installer
-# from the source branch before execution.
+# Version-agnostic bootstrap. It only resolves the current installer; the
+# versioned runtime performs the transactional update and validation.
 FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"
 FURINA_STABLE_BOOTSTRAP="1"
 API_URL="https://api.github.com/repos/WynnDev-rill/furina/contents/experiments/furina-agent-final/install.sh?ref=experiment/furina-agent-termux"
@@ -13,6 +12,13 @@ BOOTSTRAP_URL="https://cdn.jsdelivr.net/gh/WynnDev-rill/furina@furina-bootstrap-
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 FETCH_CODE="000"
+BOOT_TTY=0
+
+if [[ "${FURINA_BOOTSTRAP_VALIDATE_ONLY:-0}" != "1" && -t 1 && "${TERM:-dumb}" != "dumb" ]]; then
+  BOOT_TTY=1
+  printf '\r\033[38;5;244mSedang berjalan… Memeriksa update Furina\033[0m'
+fi
+clear_status(){ [[ "$BOOT_TTY" == "1" ]] && printf '\r\033[2K'; }
 
 fetch_script() {
   local url="$1" api="${2:-0}" out="$TMP/current-install.sh" code
@@ -20,7 +26,7 @@ fetch_script() {
   local args=(-L --silent --show-error --connect-timeout 10 --max-time 90
               --retry 2 --retry-delay 1 --retry-all-errors
               -o "$out" -w '%{http_code}'
-              -H 'User-Agent: Furina-Stable-Bootstrap/1'
+              -H 'User-Agent: Furina-Stable-Bootstrap/2'
               -H 'Cache-Control: no-cache' -H 'Pragma: no-cache')
   if [[ "$api" == "1" ]]; then
     args+=(-H 'Accept: application/vnd.github.raw+json')
@@ -40,6 +46,7 @@ command -v curl >/dev/null 2>&1 || {
   if [[ -d /data/data/com.termux/files/usr ]]; then
     pkg install -y curl >/dev/null
   else
+    clear_status
     echo "curl tidak tersedia untuk bootstrap update." >&2
     exit 1
   fi
@@ -54,8 +61,10 @@ if fetch_script "$API_URL" 1 ||
     echo "FURINA_STABLE_BOOTSTRAP_RESOLVED"
     exit 0
   fi
+  clear_status
   exec bash "$TMP/current-install.sh" "$@"
 fi
 
+clear_status
 echo "Channel update dapat dijangkau, tetapi installer terbaru belum dapat diambil. Coba ulang 'furina update'." >&2
 exit 75
