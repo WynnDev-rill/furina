@@ -13,7 +13,7 @@ LOCK_PATH="upstreams.lock.json"; LOCK_BLOB="fa81a690d5b697194853668ffd035dc9b25a
 VENDOR_PATH="overrides/rc57/vendor-install.sh"; VENDOR_BLOB="f5ed88c9daf9b6b99bbdd34cc86914c8de137e4c"
 APPLY_PATH="overrides/rc57/apply.py"; APPLY_BLOB="680522409f6e149027007a4c04ed668f08e92b51"
 BRIDGE_PATH="overrides/rc57/upstream_bridge.py"; BRIDGE_BLOB="78638fed17f7f56d99ac8b2b92fcdb979ac9b19e"
-SOUL_PATH="overrides/rc57/soul_worker.py"; SOUL_BLOB="03cc95a6008ae80d1291177d357119bf006fc055"
+SOUL_PATH="overrides/rc57/soul_worker.py"; SOUL_BLOB="cdffe5cf05708d5a791c540c27660764dbfd0549"
 UTSUWA_PATH="overrides/rc57/utsuwa_worker.mjs"; UTSUWA_BLOB="ac85c1cfba2c6079e8739edf32a29f82679ea201"
 PERSONA_PATH="overrides/rc57/persona.py"; PERSONA_BLOB="848650bdad431a529f6692ca2753791dbf5eab63"
 TMP="$(mktemp -d)"; LOG="$ROOT/logs/update-r27-furinahub.log"
@@ -21,7 +21,23 @@ trap 'rm -rf "$TMP"' EXIT
 
 progress(){ local p="$1"; shift; if [[ "${FURINAHUB_MACHINE_PROGRESS:-0}" == "1" ]]; then printf 'PROGRESS %d %s\n' "$p" "$*"; else printf '[%3d%%] %s\n' "$p" "$*"; fi; }
 fetch_url(){ local u="$1" o="$2" api="${3:-0}" code; rm -f "$o"; local a=(-L --silent --show-error --connect-timeout 12 --max-time 120 --retry 3 --retry-delay 2 --retry-all-errors -o "$o" -w '%{http_code}' -H 'User-Agent: Furina-Core-Updater/10' -H 'Cache-Control: no-cache'); [[ "$api" == 1 ]] && a+=(-H 'Accept: application/vnd.github.raw+json'); code="$(curl "${a[@]}" "$u" 2>/dev/null || true)"; [[ "$code" == 200 && -s "$o" ]]; }
-fetch_rel(){ local r="$1" o="$2"; fetch_url "$API_BASE/$r?ref=experiment/furina-agent-termux" "$o" 1 || fetch_url "$RAW_BASE/$r" "$o" || fetch_url "$WEB_BASE/$r" "$o"; }
+fetch_rel(){
+  local r="$1" o="$2" asset=""
+  case "$r" in
+    upstreams.lock.json) asset="upstreams.lock.json" ;;
+    overrides/runtime-r26/install-body.sh) asset="furina-runtime-r26.sh" ;;
+    overrides/rc57/vendor-install.sh) asset="core-rc57-vendor-install.sh" ;;
+    overrides/rc57/apply.py) asset="core-rc57-apply.py" ;;
+    overrides/rc57/upstream_bridge.py) asset="core-rc57-upstream-bridge.py" ;;
+    overrides/rc57/soul_worker.py) asset="core-rc57-soul-worker.py" ;;
+    overrides/rc57/utsuwa_worker.mjs) asset="core-rc57-utsuwa-worker.mjs" ;;
+    overrides/rc57/persona.py) asset="core-rc57-persona.py" ;;
+  esac
+  fetch_url "$API_BASE/$r?ref=experiment/furina-agent-termux" "$o" 1 ||
+  fetch_url "$RAW_BASE/$r" "$o" ||
+  { [[ -n "$asset" ]] && fetch_url "$STABLE_RELEASE/$asset" "$o"; } ||
+  fetch_url "$WEB_BASE/$r" "$o"
+}
 verify(){ python - "$1" "$2" <<'PY'
 import hashlib,pathlib,sys
 d=pathlib.Path(sys.argv[1]).read_bytes(); a=hashlib.sha1(f"blob {len(d)}\0".encode()+d).hexdigest()
