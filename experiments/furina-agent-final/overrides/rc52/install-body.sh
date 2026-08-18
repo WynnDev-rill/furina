@@ -12,7 +12,7 @@ WEB_BASE="https://github.com/WynnDev-rill/furina/raw/refs/heads/experiment/furin
 RC51_BODY_PATH="overrides/rc51/install-body.sh"
 RC51_BODY_BLOB="5e5396a488a0c7a69038a38eaa85d826a31c0045"
 RC52_APPLY_PATH="overrides/rc52/apply.py"
-RC52_APPLY_BLOB="4cc06c09b7c1b6151b3327809b3006a729aec4b5"
+RC52_APPLY_BLOB="b601bc4ad0b9c77bb6cdfeb64029e7046a624310"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
