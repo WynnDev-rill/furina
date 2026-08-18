@@ -43,21 +43,21 @@ def main() -> None:
             raise SystemExit("RC53 FurinaMind import anchor missing")
         chat = chat.replace(anchor, anchor + "from .mind_v2 import FurinaMind\n", 1)
 
+    init_anchor = "        self._background_lock = threading.Lock()\n"
+    if init_anchor not in chat:
+        raise SystemExit("RC53 chat init anchor missing")
     if "self.companion_state = CompanionStateV2(store)" not in chat:
-        anchor = "        self._background_lock = threading.Lock()\n"
-        if anchor not in chat:
-            raise SystemExit("RC53 chat init anchor missing")
         chat = chat.replace(
-            anchor,
-            anchor + "        self.companion_state = CompanionStateV2(store)\n        self.mind = FurinaMind(store)\n",
+            init_anchor,
+            init_anchor + "        self.companion_state = CompanionStateV2(store)\n",
             1,
         )
-    elif "self.mind = FurinaMind(store)" not in chat:
-        chat = chat.replace(
-            "        self.companion_state = CompanionStateV2(store)\n",
-            "        self.companion_state = CompanionStateV2(store)\n        self.mind = FurinaMind(store)\n",
-            1,
-        )
+    if "self.mind = FurinaMind(store)" not in chat:
+        state_anchor = "        self.companion_state = CompanionStateV2(store)\n"
+        if state_anchor in chat:
+            chat = chat.replace(state_anchor, state_anchor + "        self.mind = FurinaMind(store)\n", 1)
+        else:
+            chat = chat.replace(init_anchor, init_anchor + "        self.mind = FurinaMind(store)\n", 1)
 
     if "LIVING COMPANION STATE:" not in chat:
         anchor = (
@@ -69,23 +69,26 @@ def main() -> None:
         living = (
             '            + "\\n\\nLIVING COMPANION STATE:\\n"\n'
             '            + self.companion_state.context()\n'
-            '            + "\\n\\nLEARNED SELF / EXPERIENCE:\\n"\n'
-            '            + self.mind.current_context()\n'
-            '            + "\\n"\n'
-            '            + self.mind.context(8)\n'
         )
+        if "self.mind.context(" not in chat:
+            living += (
+                '            + "\\n\\nLEARNED SELF / EXPERIENCE:\\n"\n'
+                '            + self.mind.current_context()\n'
+                '            + "\\n"\n'
+                '            + self.mind.context(8)\n'
+            )
         chat = chat.replace(anchor, anchor + living, 1)
 
+    profile_anchor = "        profile = choose_profile(user_text, self.store)\n"
+    if profile_anchor not in chat:
+        raise SystemExit("RC53 respond pre-state anchor missing")
+    before = ""
     if "self.companion_state.before_user(user_text)" not in chat:
-        anchor = "        profile = choose_profile(user_text, self.store)\n"
-        if anchor not in chat:
-            raise SystemExit("RC53 respond pre-state anchor missing")
-        chat = chat.replace(
-            anchor,
-            "        self.companion_state.before_user(user_text)\n"
-            "        self.mind.observe_user_feedback(user_text)\n" + anchor,
-            1,
-        )
+        before += "        self.companion_state.before_user(user_text)\n"
+    if "self.mind.observe_user_feedback(user_text)" not in chat:
+        before += "        self.mind.observe_user_feedback(user_text)\n"
+    if before:
+        chat = chat.replace(profile_anchor, before + profile_anchor, 1)
 
     if "self.companion_state.after_turn(user_text, answer)" not in chat:
         anchor = '        self.store.add_message("assistant", answer)\n'
