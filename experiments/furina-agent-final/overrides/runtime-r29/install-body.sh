@@ -10,7 +10,7 @@ RAW_BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furin
 STABLE_RELEASE="https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable"
 WEB_BASE="https://github.com/WynnDev-rill/furina/raw/refs/heads/experiment/furina-agent-termux/experiments/furina-agent-final"
 R28_PATH="overrides/runtime-r28/install-body.sh"; R28_BLOB="3842248101e18012e257b757d16eeeaa6d99884c"
-APPLY_PATH="overrides/rc59/apply.py"; APPLY_BLOB="1b040239930dcb31a14194d33dcfd1f568d7452d"
+APPLY_PATH="overrides/rc59/apply.py"; APPLY_BLOB="456ddc52347330ae557d879d2b3e62aded43b7ca"
 BRIDGE_PATH="overrides/rc59/upstream_bridge.py"; BRIDGE_BLOB="3cf0f0e516231e729bb789a0d13481426030de6f"
 
 TMP="$(mktemp -d)"
@@ -158,6 +158,9 @@ root=Path(sys.argv[1]); core=root/'core/furina_agent'
 chat=(core/'chat.py').read_text(); bridge=(core/'upstream_bridge.py').read_text()
 assert 'upstream_context = self.upstream_bridge.context(user_text)' in chat
 assert 'if upstream_context:' in chat
+assert 'self._background_queue.put((user_text, answer, turn))' in chat
+assert 'def _background_worker_loop(self)' in chat
+assert '_background_lock' not in chat
 assert '_turn_queue.put' in bridge and '_turn_worker_loop' in bridge
 assert 'worker deadline exceeded' in bridge
 assert 'acquire(blocking=False)' not in bridge
