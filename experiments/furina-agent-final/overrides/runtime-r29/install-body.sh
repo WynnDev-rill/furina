@@ -12,7 +12,7 @@ WEB_BASE="https://github.com/WynnDev-rill/furina/raw/refs/heads/experiment/furin
 R28_PATH="overrides/runtime-r28/install-body.sh"
 R28_BLOB="3842248101e18012e257b757d16eeeaa6d99884c"
 APPLY_PATH="overrides/rc59/apply.py"
-APPLY_BLOB="456ddc52347330ae557d879d2b3e62aded43b7ca"
+APPLY_BLOB="2be10d3d060ba7d09e12dddde172a337d943d996"
 BRIDGE_PATH="overrides/rc59/upstream_bridge.py"
 BRIDGE_BLOB="3cf0f0e516231e729bb789a0d13481426030de6f"
 
