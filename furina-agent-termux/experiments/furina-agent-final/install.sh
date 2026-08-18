@@ -2,18 +2,19 @@
 set -euo pipefail
 
 FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"
-FURINA_UPDATER_GENERATION="6"
-VERSION="1.0.0-rc53"
-DEPENDENCY_REVISION="2026.08.18-r23"
+FURINA_UPDATER_GENERATION="7"
+VERSION="1.0.0-rc54"
+DEPENDENCY_REVISION="2026.08.18-r24"
 STABLE_RELEASE="https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable"
 BOOTSTRAP_CDN="https://cdn.jsdelivr.net/gh/WynnDev-rill/furina@furina-bootstrap-v1.0.0/experiments/furina-agent-final"
 API_BASE="https://api.github.com/repos/WynnDev-rill/furina/contents/experiments/furina-agent-final"
 RAW_BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 WEB_BASE="https://github.com/WynnDev-rill/furina/raw/refs/heads/experiment/furina-agent-termux/experiments/furina-agent-final"
-BODY_PATH="overrides/runtime-r23/install-body.sh"
-BODY_BLOB="df5a61c6b4a005fe3c214bf8af75f7754d35821f"
-RC53_APPLY_BLOB="a6c914f90dd526956d91aff57b135fb102f48131"
-RC53_MODULE_BLOB="27fdb2a785bfdf28d7514ca35db1d5e73cfd5584"
+BODY_PATH="overrides/runtime-r24/install-body.sh"
+BODY_BLOB="251b6cac5a57a6ca8411d7e3930843b5e12d6243"
+RC54_APPLY_BLOB="0b7e0449de01fe40746230e79d93740078fc785c"
+STATE_BLOB="27fdb2a785bfdf28d7514ca35db1d5e73cfd5584"
+MIND_BLOB="05f5a5a6d5700c449f03535ec658363351e3c560"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
   echo "Installer FurinaHub harus dijalankan dari Termux." >&2
@@ -32,7 +33,7 @@ fetch_url() {
   local args=(-L --silent --show-error --connect-timeout 10 --max-time 90
               --retry 2 --retry-delay 1 --retry-all-errors
               -o "$out" -w '%{http_code}'
-              -H 'User-Agent: Furina-Core-Bootstrap/6'
+              -H 'User-Agent: Furina-Core-Bootstrap/7'
               -H 'Cache-Control: no-cache' -H 'Pragma: no-cache')
   if [[ "$api" == "1" ]]; then args+=(-H 'Accept: application/vnd.github.raw+json'); fi
   code="$(curl "${args[@]}" "$url" 2>/dev/null || true)"
@@ -53,27 +54,28 @@ fetch_body() {
 }
 
 fetch_body "$TMP/install-body.sh"
-python - "$TMP/install-body.sh" "$BODY_BLOB" "$RC53_APPLY_BLOB" "$RC53_MODULE_BLOB" <<'PY'
+python - "$TMP/install-body.sh" "$BODY_BLOB" "$RC54_APPLY_BLOB" "$STATE_BLOB" "$MIND_BLOB" <<'PY'
 import hashlib,pathlib,sys
-path,expected,apply_blob,module_blob=sys.argv[1:]
+path,expected,apply_blob,state_blob,mind_blob=sys.argv[1:]
 data=pathlib.Path(path).read_bytes()
 actual=hashlib.sha1(f"blob {len(data)}\0".encode()+data).hexdigest()
 if actual != expected:
     raise SystemExit(f"Integritas bootstrap FurinaHub berubah: {actual} != {expected}")
 text=data.decode('utf-8')
 checks=(
-    'VERSION="1.0.0-rc53"',
-    'DEPENDENCY_REVISION="2026.08.18-r23"',
-    f'RC53_APPLY_BLOB="{apply_blob}"',
-    f'RC53_MODULE_BLOB="{module_blob}"',
+    'VERSION="1.0.0-rc54"',
+    'DEPENDENCY_REVISION="2026.08.18-r24"',
+    f'RC54_APPLY_BLOB="{apply_blob}"',
+    f'STATE_BLOB="{state_blob}"',
+    f'MIND_BLOB="{mind_blob}"',
     'R22_BODY_BLOB="3e892305bad6ddc880cff610d87c37ca814e9351"',
-    'Companion Runtime',
+    'recovery otomatis',
     'api.github.com/repos/WynnDev-rill/furina/contents/experiments/furina-agent-final',
 )
 missing=[item for item in checks if item not in text]
 if missing:
-    raise SystemExit(f'Binding runtime RC53/r23 tidak lengkap: {missing}')
+    raise SystemExit(f'Binding runtime RC54/r24 tidak lengkap: {missing}')
 if 'releases/latest/download' in text:
-    raise SystemExit('Updater RC53/r23 masih bergantung pada repository-wide latest release')
+    raise SystemExit('Updater RC54/r24 masih bergantung pada repository-wide latest release')
 PY
 bash "$TMP/install-body.sh" "$@"
