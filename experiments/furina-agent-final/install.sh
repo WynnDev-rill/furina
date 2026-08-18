@@ -11,8 +11,8 @@ API_BASE="https://api.github.com/repos/WynnDev-rill/furina/contents/experiments/
 RAW_BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 WEB_BASE="https://github.com/WynnDev-rill/furina/raw/refs/heads/experiment/furina-agent-termux/experiments/furina-agent-final"
 BODY_PATH="overrides/runtime-r29/install-body.sh"
-BODY_BLOB="3be9342417a52af3116d57156fca1b1b0092c395"
-APPLY_BLOB="456ddc52347330ae557d879d2b3e62aded43b7ca"
+BODY_BLOB="d2d6dbc5b1b3b602d3e7fe1c91ebe7e8d8e1e701"
+APPLY_BLOB="2be10d3d060ba7d09e12dddde172a337d943d996"
 BRIDGE_BLOB="3cf0f0e516231e729bb789a0d13481426030de6f"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
