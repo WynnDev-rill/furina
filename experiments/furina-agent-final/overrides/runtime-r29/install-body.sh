@@ -26,15 +26,16 @@ trap cleanup EXIT
 
 is_tty(){ [[ "${FURINAHUB_MACHINE_PROGRESS:-0}" != "1" && -t 1 && "${TERM:-dumb}" != "dumb" ]]; }
 ui_header(){
-  [[ "$UI_STARTED" == "1" ]] && return
+  [[ "$UI_STARTED" == "1" ]] && return 0
   UI_STARTED=1
   if is_tty; then
     printf '\n\033[38;5;45mFURINA\033[0m \033[38;5;213m// SYSTEM UPDATE\033[0m\n'
     printf '\033[38;5;244mCore %s  ·  runtime r29\033[0m\n\n' "$VERSION"
   fi
+  return 0
 }
 bar(){
-  local p="$1" width=26 fill empty i out=""
+  local p="$1" width=18 fill empty i out=""
   fill=$(( p * width / 100 )); empty=$(( width - fill ))
   for ((i=0;i<fill;i++)); do out+="█"; done
   for ((i=0;i<empty;i++)); do out+="·"; done
@@ -46,16 +47,26 @@ progress(){
     printf 'PROGRESS %d %s\n' "$p" "$*"
   elif is_tty; then
     ui_header
-    printf '\r\033[2K\033[38;5;45m%s\033[0m \033[38;5;250m%3d%%\033[0m  \033[38;5;244mSedang berjalan…\033[0m %s' "$(bar "$p")" "$p" "$*"
-    [[ "$p" -ge 100 ]] && printf '\n'
+    printf '\r\033[2K\033[38;5;45m%s\033[0m \033[38;5;250m%3d%%\033[0m  %s' "$(bar "$p")" "$p" "$*"
+    if [[ "$p" -ge 100 ]]; then
+      printf '\n'
+    fi
   else
-    printf '[%3d%%] Sedang berjalan... %s\n' "$p" "$*"
+    printf '[%3d%%] Sedang berjalan… %s\n' "$p" "$*"
   fi
+  return 0
 }
 fail(){
   local code=$?
+  trap - ERR
   if is_tty; then printf '\n'; fi
-  printf '✗ Update Furina gagal. Detail: %s\n' "$LOG" >&2
+  printf '✗ Update Furina gagal (kode %d).\n' "$code" >&2
+  if [[ -r "$LOG" && -s "$LOG" ]]; then
+    printf '%s\n' '── detail terakhir ──' >&2
+    tail -n 24 "$LOG" >&2 || true
+    printf '%s\n' '────────────────────' >&2
+  fi
+  printf 'Log lengkap: tail -n 60 %q\n' "$LOG" >&2
   exit "$code"
 }
 trap fail ERR
@@ -66,7 +77,7 @@ fetch_url(){
   local a=(-L --silent --show-error --connect-timeout 12 --max-time 150
            --retry 3 --retry-delay 2 --retry-all-errors
            -o "$o" -w '%{http_code}'
-           -H 'User-Agent: Furina-Core-Updater/12'
+           -H 'User-Agent: Furina-Core-Updater/13'
            -H 'Cache-Control: no-cache')
   [[ "$api" == "1" ]] && a+=(-H 'Accept: application/vnd.github.raw+json')
   code="$(curl "${a[@]}" "$u" 2>/dev/null || true)"

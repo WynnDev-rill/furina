@@ -11,7 +11,7 @@ API_BASE="https://api.github.com/repos/WynnDev-rill/furina/contents/experiments/
 RAW_BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 WEB_BASE="https://github.com/WynnDev-rill/furina/raw/refs/heads/experiment/furina-agent-termux/experiments/furina-agent-final"
 BODY_PATH="overrides/runtime-r29/install-body.sh"
-BODY_BLOB="d2d6dbc5b1b3b602d3e7fe1c91ebe7e8d8e1e701"
+BODY_BLOB="13ed34620849ef1efd9a0bf9bc8f41d27cc79947"
 APPLY_BLOB="2be10d3d060ba7d09e12dddde172a337d943d996"
 BRIDGE_BLOB="3cf0f0e516231e729bb789a0d13481426030de6f"
 
@@ -70,7 +70,8 @@ checks=(
     'TYPESCRIPT_VERSION="5.9.3"',
     f'APPLY_BLOB="{apply_blob}"',
     f'BRIDGE_BLOB="{bridge_blob}"',
-    'Sedang berjalan…',
+    'return 0',
+    'tail -n 24 "$LOG"',
     'FURINA_RC59_RUNTIME_REGRESSION_OK',
 )
 missing=[x for x in checks if x not in t]
