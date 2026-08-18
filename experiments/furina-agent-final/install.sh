@@ -2,7 +2,7 @@
 set -euo pipefail
 
 FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"
-FURINA_UPDATER_GENERATION="13"
+FURINA_UPDATER_GENERATION="12"
 VERSION="1.0.0-rc59"
 DEPENDENCY_REVISION="2026.08.18-r29"
 STABLE_RELEASE="https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable"
@@ -36,7 +36,7 @@ fetch_url(){
   local args=(-L --silent --show-error --connect-timeout 10 --max-time 150
               --retry 3 --retry-delay 2 --retry-all-errors
               -o "$out" -w '%{http_code}'
-              -H 'User-Agent: Furina-Core-Bootstrap/13'
+              -H 'User-Agent: Furina-Core-Bootstrap/12'
               -H 'Cache-Control: no-cache' -H 'Pragma: no-cache')
   [[ "$api" == "1" ]] && args+=(-H 'Accept: application/vnd.github.raw+json')
   code="$(curl "${args[@]}" "$url" 2>/dev/null || true)"
