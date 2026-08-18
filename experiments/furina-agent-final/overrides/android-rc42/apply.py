@@ -41,7 +41,12 @@ def main() -> None:
     gradle_path.write_text(gradle, encoding="utf-8")
 
     hub = hub_path.read_text(encoding="utf-8")
-    hub = replace_once(hub, '"bridge_target": "1.0.0-rc41"', '"bridge_target": "1.0.0-rc42"', "bridge target")
+    old_target='"bridge_target": "1.0.0-rc41"'
+    new_target='"bridge_target": "1.0.0-rc42"'
+    if old_target in hub:
+        hub = hub.replace(old_target, new_target)
+    if new_target not in hub or old_target in hub:
+        raise SystemExit("Android RC42 bridge target tidak lengkap")
     hub_path.write_text(hub, encoding="utf-8")
 
     updater = updater_path.read_text(encoding="utf-8")
