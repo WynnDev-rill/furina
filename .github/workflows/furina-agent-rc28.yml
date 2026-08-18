@@ -1,4 +1,4 @@
-name: Build FurinaHub Android RC42 + Core RC52
+name: Build FurinaHub Android RC43 + Core RC52
 
 on:
   pull_request:
@@ -21,12 +21,12 @@ permissions:
   contents: write
 
 concurrency:
-  group: furinahub-android-rc42-${{ github.ref }}
+  group: furinahub-android-rc43-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  TAG: furinahub-v1.0.0-rc42
-  APK_NAME: FurinaHub-v1.0.0-rc42.apk
+  TAG: furinahub-v1.0.0-rc43
+  APK_NAME: FurinaHub-v1.0.0-rc43.apk
   UPDATE_CHANNEL_TAG: furina-update-stable
 
 jobs:
@@ -38,11 +38,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Validate Core RC52 r22 and Android RC42
+      - name: Validate Core RC52 r22 and Android RC43
         shell: bash
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/android-rc42/validate.sh
+          bash experiments/furina-agent-final/overrides/android-rc43/validate.sh
           bash -n experiments/furina-agent-final/install.sh
           bash -n experiments/furina-agent-final/stable-bootstrap.sh
           bash -n experiments/furina-agent-final/overrides/runtime-r22/install-body.sh
@@ -50,14 +50,14 @@ jobs:
           python3 - <<'PY'
           import json
           from pathlib import Path
-          stage=Path('/tmp/furina-agent-rc42-validate/termux')
+          stage=Path('/tmp/furina-agent-rc43-validate/termux')
           m=json.loads(Path('experiments/furina-agent-final/manifest.json').read_text())
           assert m['version']=='1.0.0-rc52'
           assert m['dependency_revision']=='2026.08.18-r22'
-          assert m['bridge_version']=='1.0.0-rc42'
-          assert int(m['bridge_version_code'])==10042
-          assert "versionName '1.0.0-rc42'" in (stage/'bridge/app/build.gradle').read_text()
-          assert '"bridge_target": "1.0.0-rc42"' in (stage/'core/furina_agent/hub.py').read_text()
+          assert m['bridge_version']=='1.0.0-rc43'
+          assert int(m['bridge_version_code'])==10043
+          assert "versionName '1.0.0-rc43'" in (stage/'bridge/app/build.gradle').read_text()
+          assert '"bridge_target": "1.0.0-rc43"' in (stage/'core/furina_agent/hub.py').read_text()
           install=Path('experiments/furina-agent-final/install.sh').read_text()
           compat=Path('furina-agent-termux/experiments/furina-agent-final/install.sh').read_text()
           body=Path('experiments/furina-agent-final/overrides/runtime-r22/install-body.sh').read_text()
@@ -68,7 +68,7 @@ jobs:
           assert 'FURINA_STABLE_BOOTSTRAP="1"' in stable
           forbidden='https://github.com/WynnDev-rill/furina/releases/latest/download'
           assert forbidden not in install and forbidden not in body and forbidden not in stable
-          print('FURINAHUB_RC52_R22_RC42_BINDINGS_OK')
+          print('FURINAHUB_RC52_R22_RC43_BINDINGS_OK')
           PY
 
       - name: Configure Android and Gradle
@@ -92,15 +92,15 @@ jobs:
           echo "$GRADLE_DIR/bin" >> "$GITHUB_PATH"
           gradle --version
 
-      - name: Build FurinaHub RC42 debug on PR
+      - name: Build FurinaHub RC43 debug on PR
         if: github.event_name == 'pull_request'
-        working-directory: /tmp/furina-agent-rc42-validate/termux
+        working-directory: /tmp/furina-agent-rc43-validate/termux
         shell: bash
         run: gradle --no-daemon --stacktrace :bridge:app:assembleDebug
 
       - name: Restore FurinaHub signing identity
         if: github.event_name != 'pull_request'
-        working-directory: /tmp/furina-agent-rc42-validate/termux
+        working-directory: /tmp/furina-agent-rc43-validate/termux
         shell: bash
         env:
           FURINA_RELEASE_KEYSTORE_B64: ${{ secrets.FURINA_RELEASE_KEYSTORE_B64 }}
@@ -109,12 +109,12 @@ jobs:
           printf '%s' "$FURINA_RELEASE_KEYSTORE_B64" | base64 --decode > bridge/app/furina-agent-release.jks
           chmod 600 bridge/app/furina-agent-release.jks
 
-      - name: Build signed FurinaHub RC42
+      - name: Build signed FurinaHub RC43
         if: github.event_name != 'pull_request'
-        working-directory: /tmp/furina-agent-rc42-validate/termux
+        working-directory: /tmp/furina-agent-rc43-validate/termux
         shell: bash
         env:
-          FURINA_AGENT_KEYSTORE_PATH: /tmp/furina-agent-rc42-validate/termux/bridge/app/furina-agent-release.jks
+          FURINA_AGENT_KEYSTORE_PATH: /tmp/furina-agent-rc43-validate/termux/bridge/app/furina-agent-release.jks
           FURINA_KEYSTORE_PASSWORD: ${{ secrets.FURINA_KEYSTORE_PASSWORD }}
           FURINA_KEY_ALIAS: ${{ secrets.FURINA_KEY_ALIAS }}
           FURINA_KEY_PASSWORD: ${{ secrets.FURINA_KEY_PASSWORD }}
@@ -124,7 +124,7 @@ jobs:
           test -n "$FURINA_KEY_PASSWORD"
           gradle --no-daemon --stacktrace :bridge:app:assembleRelease
 
-      - name: Publish RC42 and update channel
+      - name: Publish RC43 and update channel
         if: github.event_name != 'pull_request'
         shell: bash
         env:
@@ -156,7 +156,7 @@ jobs:
           cp experiments/furina-agent-final/overrides/rc52/apply.py core-rc52-apply.py
           cp experiments/furina-agent-final/manifest.json manifest.json
 
-          SOURCE=/tmp/furina-agent-rc42-validate/termux/bridge/app/build/outputs/apk/release/app-release.apk
+          SOURCE=/tmp/furina-agent-rc43-validate/termux/bridge/app/build/outputs/apk/release/app-release.apk
           cp "$SOURCE" "$APK_NAME"
           APKANALYZER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer | sort | tail -n1)"
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n1)"
@@ -167,8 +167,8 @@ jobs:
           CERT="$("$APKSIGNER" verify --verbose --print-certs "$APK_NAME")"
           SIGNER="$(printf '%s\n' "$CERT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
           test "$PACKAGE" = com.wynndev.furinaagentbridge
-          test "$CODE" = 10042
-          test "$NAME" = 1.0.0-rc42
+          test "$CODE" = 10043
+          test "$NAME" = 1.0.0-rc43
           test "${#SHA}" = 64
           test "${#SIGNER}" = 64
           export PACKAGE CODE NAME SHA SIGNER
@@ -180,7 +180,7 @@ jobs:
             'package_name':os.environ['PACKAGE'],
             'sha256':os.environ['SHA'],
             'signer_sha256':os.environ['SIGNER'],
-            'apk_url':'https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc42/FurinaHub-v1.0.0-rc42.apk',
+            'apk_url':'https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc43/FurinaHub-v1.0.0-rc43.apk',
           }
           open('bridge.json','w',encoding='utf-8').write(json.dumps(data,indent=2)+'\n')
           PY
@@ -195,8 +195,8 @@ jobs:
               furina-install.sh furina-install-body.sh stable-bootstrap.sh \
               core-rc50-install-body.sh core-rc51-install-body.sh \
               core-rc51-apply.py core-rc52-apply.py manifest.json \
-              --target "$GITHUB_SHA" --title "FurinaHub v1.0.0-rc42" \
-              --notes "RC42 replaces the mobile crop interaction with direct client-coordinate geometry, larger touch targets, pointer capture, layout resync, and exact Canvas source slicing. RC41 updater recovery and RC40 local/image/icon fixes remain intact."
+              --target "$GITHUB_SHA" --title "FurinaHub v1.0.0-rc43" \
+              --notes "RC43 fixes the black image-editor preview by decoding attachment bytes before Canvas use, sniffing the actual image MIME, and displaying the decoded image in a dedicated IMG preview layer while Canvas remains the crop/output pixel source. RC42 crop interaction and RC41 updater recovery remain intact."
           fi
 
           ensure_prerelease "$UPDATE_CHANNEL_TAG"
@@ -217,7 +217,7 @@ jobs:
           m=json.load(open('/tmp/furina-manifest-live.json'))
           assert m['version']=='1.0.0-rc52'
           assert m['dependency_revision']=='2026.08.18-r22'
-          assert m['bridge_version']=='1.0.0-rc42'
-          assert int(m['bridge_version_code'])==10042
-          print('FURINA_UPDATE_CHANNEL_RC42_LIVE_OK')
+          assert m['bridge_version']=='1.0.0-rc43'
+          assert int(m['bridge_version_code'])==10043
+          print('FURINA_UPDATE_CHANNEL_RC43_LIVE_OK')
           PY
