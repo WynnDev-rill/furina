@@ -14,6 +14,14 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
+def replace_between(text: str, start_marker: str, end_marker: str, replacement: str, label: str) -> str:
+    start = text.find(start_marker)
+    end = text.find(end_marker, start + len(start_marker))
+    if start < 0 or end < 0 or end <= start:
+        raise SystemExit(f"RC52 boundary mismatch: {label}")
+    return text[:start] + replacement.rstrip() + "\n\n" + text[end:]
+
+
 def main() -> None:
     if len(sys.argv) < 2:
         raise SystemExit("usage: apply.py <termux-root>")
@@ -26,33 +34,11 @@ def main() -> None:
             raise SystemExit(f"RC52 source missing: {path}")
 
     routing = routing_path.read_text(encoding="utf-8")
-    routing = replace_once(
-        routing,
-        "import re\nimport subprocess\nfrom pathlib import Path",
-        "import re\nimport subprocess\nimport time\nfrom pathlib import Path",
-        "routing time import",
-    )
+    if "import time\n" not in routing:
+        if routing.count("import subprocess\n") != 1:
+            raise SystemExit("RC52 import anchor missing")
+        routing = routing.replace("import subprocess\n", "import subprocess\nimport time\n", 1)
 
-    old_ensure = '''    def _ensure_local(self) -> bool:
-        if self.local.health():
-            return True
-        if not self.cfg.model_path or not Path(self.cfg.model_path).exists():
-            return False
-        launcher = HOME / "bin" / "furina"
-        if not launcher.exists():
-            return False
-        try:
-            subprocess.run(
-                [str(launcher), "start"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=135,
-                check=False,
-            )
-        except Exception:
-            return False
-        return self.local.health()
-'''
     new_ensure = '''    def _ensure_local(self) -> bool:
         # Fast path: keep a healthy llama.cpp process warm instead of reloading
         # the GGUF for every local conversation turn.
@@ -86,19 +72,19 @@ def main() -> None:
             time.sleep(0.25)
         return self.local.health()
 '''
-    routing = replace_once(routing, old_ensure, new_ensure, "local startup readiness")
+    routing = replace_between(
+        routing,
+        "    def _ensure_local(self) -> bool:",
+        "    def chat(",
+        new_ensure,
+        "local startup readiness",
+    )
 
-    old_local = '''        if self.cfg.routing_mode == "local":
-            answer = self.local.chat(
-                messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                on_token=on_token,
-                json_mode=json_mode,
-            )
-            self._record("local", "GGUF", role)
-            return answer
-'''
+    chat_start = routing.find("    def chat(")
+    local_start = routing.find('        if self.cfg.routing_mode == "local":', chat_start)
+    online_start = routing.find('        if self.cfg.routing_mode in {"auto", "online"}:', local_start)
+    if local_start < 0 or online_start < 0:
+        raise SystemExit("RC52 explicit local routing boundary missing")
     new_local = '''        if self.cfg.routing_mode == "local":
             # Explicit Local must have the same self-start behavior as Auto
             # fallback. Previously this branch skipped _ensure_local(), so the
@@ -117,7 +103,7 @@ def main() -> None:
             self._record("local", "GGUF", role)
             return answer
 '''
-    routing = replace_once(routing, old_local, new_local, "explicit local startup")
+    routing = routing[:local_start] + new_local.rstrip() + "\n\n" + routing[online_start:]
     routing_path.write_text(routing, encoding="utf-8")
 
     version = version_path.read_text(encoding="utf-8")
@@ -140,6 +126,7 @@ def main() -> None:
         "deadline = time.monotonic() + 12.0",
         "time.sleep(0.25)",
         'self._record("local", "GGUF", role)',
+        'if self.cfg.routing_mode in {"auto", "online"}:',
     )
     missing = [item for item in checks if item not in combined]
     if missing:
