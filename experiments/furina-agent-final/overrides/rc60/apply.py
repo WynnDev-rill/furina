@@ -132,12 +132,7 @@ def main() -> None:
             self.update_status = dict(status)
         return dict(status)
 '''
-    hub = replace_method(
-        hub,
-        "    def get_update_status(self) -> dict:\n",
-        "    def get_model_status(self) -> dict:\n",
-        status_methods,
-    )
+    hub = replace_method(hub, "    def get_update_status(self) -> dict:\n", "    def get_model_status(self) -> dict:\n", status_methods)
 
     set_status = r'''    def _set_update_status(self, **values) -> None:
         with self.update_lock:
@@ -154,12 +149,7 @@ def main() -> None:
         except Exception:
             pass
 '''
-    hub = replace_method(
-        hub,
-        "    def _set_update_status(self, **values) -> None:\n",
-        "    @staticmethod\n",
-        set_status,
-    )
+    hub = replace_method(hub, "    def _set_update_status(self, **values) -> None:\n", "    @staticmethod\n", set_status)
 
     run_update = r'''    def _run_core_update(self) -> None:
         log_path = HOME / "logs" / "furinahub-inapp-update.log"
@@ -168,42 +158,30 @@ def main() -> None:
             if not command:
                 raise RuntimeError("launcher furina tidak ditemukan")
             self._set_update_status(
-                state="running",
-                result="",
-                stage="checking",
-                message="Memeriksa pembaruan Core & dependency…",
-                percent=1,
-                source="furinahub",
-                target_version=VERSION,
-                target_revision=EXPECTED_DEPENDENCY_REVISION,
-                restart_required=False,
+                state="running", result="", stage="checking",
+                message="Memeriksa pembaruan Core & dependency…", percent=1,
+                source="furinahub", target_version=VERSION,
+                target_revision=EXPECTED_DEPENDENCY_REVISION, restart_required=False,
             )
             with log_path.open("w", encoding="utf-8") as log:
                 update_env = dict(os.environ)
                 update_env["FURINAHUB_MACHINE_PROGRESS"] = "1"
                 update_env["FURINA_UPDATE_SOURCE"] = "furinahub"
                 proc = subprocess.Popen(
-                    [command, "update"],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                    env=update_env,
+                    [command, "update"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, bufsize=1, env=update_env,
                 )
                 started = time.time()
                 assert proc.stdout is not None
                 for line in proc.stdout:
-                    log.write(line)
-                    log.flush()
+                    log.write(line); log.flush()
                     clean = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", line).strip()
                     match = re.match(r"PROGRESS\s+(\d{1,3})\s+(.+)", clean)
                     if match:
                         with self.update_lock:
                             self.update_status.update(
-                                state="running",
-                                percent=max(1, min(99, int(match.group(1)))),
-                                message=match.group(2)[:180],
-                                elapsed_seconds=int(time.time() - started),
+                                state="running", percent=max(1, min(99, int(match.group(1)))),
+                                message=match.group(2)[:180], elapsed_seconds=int(time.time() - started),
                             )
                 proc.wait(timeout=1500)
             if proc.returncode != 0:
@@ -211,39 +189,27 @@ def main() -> None:
                 if current.get("state") != "error":
                     detail = self._update_failure_detail(log_path)
                     self._set_update_status(
-                        state="error",
-                        result="error",
-                        stage=str(current.get("stage") or "updater"),
+                        state="error", result="error", stage=str(current.get("stage") or "updater"),
                         message=f"Pembaruan gagal: {detail or f'updater berhenti (kode {proc.returncode})'}"[:320],
-                        percent=int(current.get("percent") or 0),
-                        source="furinahub",
-                        restart_required=False,
+                        percent=int(current.get("percent") or 0), source="furinahub", restart_required=False,
                     )
                 return
             current = self.get_update_status()
             if current.get("state") != "done":
                 disk_version, revision = self._disk_update_versions()
                 self._set_update_status(
-                    state="done",
-                    result="updated" if disk_version != VERSION else "no_update",
-                    stage="done",
+                    state="done", result="updated" if disk_version != VERSION else "no_update", stage="done",
                     message=f"Pemeriksaan selesai. Core {disk_version or VERSION} · runtime {revision.rsplit('-', 1)[-1] if revision else '?'} aktif.",
-                    percent=100,
-                    source="furinahub",
-                    target_version=disk_version or VERSION,
+                    percent=100, source="furinahub", target_version=disk_version or VERSION,
                     target_revision=revision or EXPECTED_DEPENDENCY_REVISION,
                     restart_required=bool(disk_version and disk_version != VERSION),
                 )
         except Exception as exc:
             current = self.get_update_status()
             self._set_update_status(
-                state="error",
-                result="error",
-                stage=str(current.get("stage") or "updater"),
+                state="error", result="error", stage=str(current.get("stage") or "updater"),
                 message=f"Pembaruan gagal pada tahap {current.get('stage') or 'updater'}: {str(exc)[:260]}",
-                percent=int(current.get("percent") or 0),
-                source="furinahub",
-                restart_required=False,
+                percent=int(current.get("percent") or 0), source="furinahub", restart_required=False,
             )
 
     def start_core_update(self) -> dict:
@@ -251,15 +217,10 @@ def main() -> None:
         if current.get("state") in {"running", "starting"}:
             return current
         self._set_update_status(
-            state="starting",
-            result="",
-            stage="checking",
-            message="Memeriksa pembaruan Core & dependency…",
-            percent=0,
-            source="furinahub",
-            target_version=VERSION,
-            target_revision=EXPECTED_DEPENDENCY_REVISION,
-            restart_required=False,
+            state="starting", result="", stage="checking",
+            message="Memeriksa pembaruan Core & dependency…", percent=0,
+            source="furinahub", target_version=VERSION,
+            target_revision=EXPECTED_DEPENDENCY_REVISION, restart_required=False,
         )
         threading.Thread(target=self._run_core_update, name="furinahub-core-update", daemon=True).start()
         return self.get_update_status()
@@ -272,12 +233,7 @@ def main() -> None:
     )
 
     version = version_path.read_text(encoding="utf-8")
-    version = re.sub(
-        r'VERSION\s*=\s*(["\'])([^"\']+)\1',
-        f'VERSION = "{TARGET_VERSION}"',
-        version,
-        count=1,
-    )
+    version = re.sub(r'VERSION\s*=\s*(["\'])([^"\']+)\1', f'VERSION = "{TARGET_VERSION}"', version, count=1)
 
     compile(hub, str(hub_path), "exec")
     compile(version, str(version_path), "exec")
@@ -286,7 +242,7 @@ def main() -> None:
         "def _disk_update_versions",
         "Disk state is authoritative",
         'update_env["FURINA_UPDATE_SOURCE"] = "furinahub"',
-        'result="no_update"',
+        '"no_update"',
         'stage="checking"',
     )
     missing = [item for item in required if item not in hub]
