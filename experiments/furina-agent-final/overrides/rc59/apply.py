@@ -54,6 +54,14 @@ def insert_before_method(text: str, cls: str, method: str, block: str) -> str:
     return "".join(lines)
 
 
+def replace_or_insert_method(
+    text: str, cls: str, method: str, replacement: str, before_method: str
+) -> str:
+    if node_for(text, cls, method):
+        return replace_method(text, cls, method, replacement)
+    return insert_before_method(text, cls, before_method, replacement)
+
+
 def harden_local_background(chat: str) -> str:
     if "import queue\n" not in chat:
         marker = "import json\n"
@@ -70,15 +78,25 @@ def harden_local_background(chat: str) -> str:
     )
     if "self._background_queue = queue.Queue()" not in chat:
         old = "        self._background_lock = threading.Lock()"
-        if chat.count(old) != 1:
-            raise SystemExit(f"RC59 background init boundary mismatch: {chat.count(old)}")
-        chat = chat.replace(old, new_init, 1)
+        if old in chat:
+            if chat.count(old) != 1:
+                raise SystemExit(f"RC59 background init boundary mismatch: {chat.count(old)}")
+            chat = chat.replace(old, new_init, 1)
+        else:
+            init = node_for(chat, "FurinaChat", "__init__")
+            if not init:
+                raise SystemExit("RC59 FurinaChat.__init__ missing")
+            lines = chat.splitlines(keepends=True)
+            lines.insert(init.end_lineno, new_init + "\n")
+            chat = "".join(lines)
 
     schedule = '''    def _schedule_background(self, user_text: str, answer: str, turn: int) -> None:
         # Preserve every turn in one ordered worker instead of spawning a thread
         # per message and dropping work when a nonblocking lock is busy.
         self._background_queue.put((user_text, answer, turn))'''
-    chat = replace_method(chat, "FurinaChat", "_schedule_background", schedule)
+    chat = replace_or_insert_method(
+        chat, "FurinaChat", "_schedule_background", schedule, "_consolidate"
+    )
 
     background = '''    def _background(self, user_text: str, answer: str, turn: int) -> None:
         self._consolidate(user_text, answer)
@@ -86,7 +104,9 @@ def harden_local_background(chat: str) -> str:
             self._reflect()
         if turn % 16 == 0:
             self.store.decay_memories()'''
-    chat = replace_method(chat, "FurinaChat", "_background", background)
+    chat = replace_or_insert_method(
+        chat, "FurinaChat", "_background", background, "_consolidate"
+    )
 
     if "def _background_worker_loop(self)" not in chat:
         worker = '''    def _background_worker_loop(self) -> None:
@@ -166,6 +186,7 @@ def main() -> None:
         "self.upstream_bridge.after_turn(user_text, answer)",
         "self._background_queue = queue.Queue()",
         "def _background_worker_loop(self)",
+        "def _background(self, user_text: str, answer: str, turn: int)",
         "self._background_queue.put((user_text, answer, turn))",
     )
     missing = [item for item in required_chat if item not in chat]
