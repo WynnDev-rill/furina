@@ -30,6 +30,9 @@ assert 'opacity:1!important' in html
 assert 'async function decodeEditorBitmap(source)' in html
 assert 'createImageBitmap(packed.blob)' in html
 assert "img.src='data:'+packed.blob.type+';base64,'+packed.base64" in html
+assert 'function waitEditorImageLoad(img,timeoutMs=8000)' in html
+assert "if(img.complete){if(img.naturalWidth>0)resolve();else reject" in html
+assert 'Decode gambar melewati batas waktu' in html
 assert "ctx.drawImage(decoded.image,0,0,c.width,c.height)" in html
 assert "editorSetStatus('Menyiapkan gambar…')" in html
 assert 'async function applyImageEdit()' in html
