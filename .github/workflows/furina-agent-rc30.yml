@@ -1,0 +1,236 @@
+name: Validate FurinaHub RC45 + Core RC60
+
+on:
+  pull_request:
+    branches: [experiment/furina-agent-termux]
+    paths:
+      - 'experiments/furina-agent-final/**'
+      - 'furina-agent-termux/experiments/furina-agent-final/**'
+      - '.github/workflows/furina-agent-rc30.yml'
+  push:
+    branches: [experiment/furina-agent-termux]
+    paths:
+      - 'experiments/furina-agent-final/**'
+      - 'furina-agent-termux/experiments/furina-agent-final/**'
+      - '.github/workflows/furina-agent-rc30.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: furinahub-core-rc60-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UPDATE_CHANNEL_TAG: furina-update-stable
+  HUB_TAG: furinahub-v1.0.0-rc45
+  APK_NAME: FurinaHub-v1.0.0-rc45.apk
+
+jobs:
+  validate-build-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate RC60 bindings and shared updater contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n experiments/furina-agent-final/install.sh
+          bash -n experiments/furina-agent-final/stable-bootstrap.sh
+          bash -n experiments/furina-agent-final/overrides/runtime-r30/install-body.sh
+          bash -n furina-agent-termux/experiments/furina-agent-final/install.sh
+          python3 -m py_compile experiments/furina-agent-final/overrides/rc60/apply.py experiments/furina-agent-final/overrides/android-rc45/apply.py
+          cmp experiments/furina-agent-final/install.sh furina-agent-termux/experiments/furina-agent-final/install.sh
+          python3 - <<'PY'
+          import hashlib,json,re
+          from pathlib import Path
+          def blob(path):
+              d=Path(path).read_bytes(); return hashlib.sha1(f"blob {len(d)}\0".encode()+d).hexdigest()
+          def var(text,name):
+              m=re.search(rf'^{re.escape(name)}="([^"]+)"',text,re.M); assert m,name; return m.group(1)
+          root=Path('experiments/furina-agent-final')
+          manifest=json.loads((root/'manifest.json').read_text())
+          assert manifest['version']=='1.0.0-rc60'
+          assert manifest['dependency_revision']=='2026.08.18-r30'
+          assert manifest['bridge_version']=='1.0.0-rc45' and manifest['bridge_version_code']==10045
+          assert manifest['update_state_schema']==2 and manifest['update_surface']=='shared-core-state'
+          install=(root/'install.sh').read_text(); runtime=(root/'overrides/runtime-r30/install-body.sh').read_text()
+          assert var(install,'FURINA_UPDATER_GENERATION')=='13'
+          assert var(install,'BODY_BLOB')==blob(root/'overrides/runtime-r30/install-body.sh')
+          assert var(install,'APPLY_BLOB')==blob(root/'overrides/rc60/apply.py')
+          assert var(runtime,'APPLY_BLOB')==blob(root/'overrides/rc60/apply.py')
+          for marker in ('STATUS_PATH="$ROOT/run/furinahub-update.json"','FURINA_UPDATE_SOURCE','render_panel','Tidak ada pembaruan terbaru','Pembaruan berhasil','Pembaruan gagal pada tahap'):
+              assert marker in runtime,marker
+          print('FURINA_RC60_BINDINGS_AND_SHARED_STATE_OK')
+          PY
+
+      - name: Exercise RC52 to RC60 migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/rc60-stage /tmp/rc55-patch /tmp/rc56-patch /tmp/rc57-patch /tmp/rc58-patch /tmp/rc59-patch /tmp/rc60-patch
+          mkdir -p /tmp/rc60-stage/core/furina_agent /tmp/rc55-patch /tmp/rc56-patch /tmp/rc57-patch /tmp/rc58-patch /tmp/rc59-patch /tmp/rc60-patch
+          cp -a experiments/furina-agent-final/overrides/core/furina_agent/. /tmp/rc60-stage/core/furina_agent/
+          cp experiments/furina-agent-final/overrides/rc43/hub.py /tmp/rc60-stage/core/furina_agent/hub.py
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          v=Path('/tmp/rc60-stage/core/furina_agent/version.py'); v.write_text('VERSION = "1.0.0-rc52"\n')
+          p=Path('/tmp/rc60-stage/core/furina_agent/chat.py'); text=p.read_text(); tree=ast.parse(text); target=None
+          for node in tree.body:
+              if isinstance(node,ast.ClassDef) and node.name=='FurinaChat':
+                  for item in node.body:
+                      if isinstance(item,(ast.FunctionDef,ast.AsyncFunctionDef)) and item.name=='_background': target=item; break
+          if target:
+              lines=text.splitlines(keepends=True); del lines[target.lineno-1:target.end_lineno]; p.write_text(''.join(lines))
+          PY
+          cp experiments/furina-agent-final/overrides/rc55/apply.py /tmp/rc55-patch/apply.py
+          cp experiments/furina-agent-final/overrides/rc53/companion_state_v2.py /tmp/rc55-patch/companion_state_v2.py
+          cp experiments/furina-agent-final/overrides/core/furina_agent/mind_v2.py /tmp/rc55-patch/mind_v2.py
+          python3 /tmp/rc55-patch/apply.py /tmp/rc60-stage
+          cp experiments/furina-agent-final/overrides/rc56/*.py /tmp/rc56-patch/; python3 /tmp/rc56-patch/apply.py /tmp/rc60-stage
+          cp experiments/furina-agent-final/overrides/rc57/{apply.py,upstream_bridge.py,soul_worker.py,persona.py,utsuwa_worker.mjs} /tmp/rc57-patch/; python3 /tmp/rc57-patch/apply.py /tmp/rc60-stage
+          cp experiments/furina-agent-final/overrides/rc58/{apply.py,upstream_bridge.py,zerochat_worker.py,soul_worker.py,lumimuse_worker.cjs,utsuwa_worker.cjs} /tmp/rc58-patch/; python3 /tmp/rc58-patch/apply.py /tmp/rc60-stage
+          cp experiments/furina-agent-final/overrides/rc59/{apply.py,upstream_bridge.py} /tmp/rc59-patch/; python3 /tmp/rc59-patch/apply.py /tmp/rc60-stage
+          cp experiments/furina-agent-final/overrides/rc60/apply.py /tmp/rc60-patch/; python3 /tmp/rc60-patch/apply.py /tmp/rc60-stage
+          grep -Fq 'VERSION = "1.0.0-rc60"' /tmp/rc60-stage/core/furina_agent/version.py
+          grep -Fq 'def _disk_update_versions' /tmp/rc60-stage/core/furina_agent/hub.py
+          grep -Fq 'Disk state is authoritative' /tmp/rc60-stage/core/furina_agent/hub.py
+          grep -Fq 'EXPECTED_DEPENDENCY_REVISION = "2026.08.18-r30"' /tmp/rc60-stage/core/furina_agent/hub.py
+          grep -Fq 'self._background_queue.put((user_text, answer, turn))' /tmp/rc60-stage/core/furina_agent/chat.py
+          grep -Fq '_turn_queue.put' /tmp/rc60-stage/core/furina_agent/upstream_bridge.py
+          python3 -m compileall -q /tmp/rc60-stage/core/furina_agent
+          echo FURINA_RC60_MIGRATION_OK
+
+      - name: Regress shared no-update state and machine protocol
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/rc60-home
+          mkdir -p /tmp/rc60-home/.furina-agent/core /tmp/rc60-home/.furina-agent/data
+          cp -a /tmp/rc60-stage/core/furina_agent /tmp/rc60-home/.furina-agent/core/
+          printf '%s\n' '2026.08.18-r30' > /tmp/rc60-home/.furina-agent/data/dependency_revision
+          HOME=/tmp/rc60-home FURINAHUB_MACHINE_PROGRESS=1 FURINA_UPDATE_SOURCE=furinahub bash experiments/furina-agent-final/overrides/runtime-r30/install-body.sh | tee /tmp/rc60-no-update.out
+          grep -Fq 'PROGRESS 100 Tidak ada pembaruan terbaru' /tmp/rc60-no-update.out
+          python3 - <<'PY'
+          import json
+          p='/tmp/rc60-home/.furina-agent/run/furinahub-update.json'; s=json.load(open(p))
+          assert s['state']=='done' and s['result']=='no_update' and s['percent']==100,s
+          assert s['source']=='furinahub' and s['target_version']=='1.0.0-rc60',s
+          assert s['target_revision']=='2026.08.18-r30',s
+          print('FURINA_RC60_SHARED_NO_UPDATE_OK')
+          PY
+
+      - name: Validate FurinaHub RC45 unified update UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash experiments/furina-agent-final/overrides/android-rc45/validate.sh
+          grep -Fq "versionName '1.0.0-rc45'" /tmp/furina-agent-rc45-validate/termux/bridge/app/build.gradle
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK components
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build FurinaHub RC45 debug on PR
+        if: github.event_name == 'pull_request'
+        working-directory: /tmp/furina-agent-rc45-validate/termux
+        run: gradle --no-daemon --stacktrace :bridge:app:assembleDebug
+
+      - name: Restore FurinaHub release signing identity
+        if: github.event_name != 'pull_request'
+        working-directory: /tmp/furina-agent-rc45-validate/termux
+        env:
+          FURINA_RELEASE_KEYSTORE_B64: ${{ secrets.FURINA_RELEASE_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$FURINA_RELEASE_KEYSTORE_B64"
+          printf '%s' "$FURINA_RELEASE_KEYSTORE_B64" | base64 --decode > bridge/app/furina-agent-release.jks
+          chmod 600 bridge/app/furina-agent-release.jks
+
+      - name: Build signed FurinaHub RC45
+        if: github.event_name != 'pull_request'
+        working-directory: /tmp/furina-agent-rc45-validate/termux
+        env:
+          FURINA_AGENT_KEYSTORE_PATH: /tmp/furina-agent-rc45-validate/termux/bridge/app/furina-agent-release.jks
+          FURINA_KEYSTORE_PASSWORD: ${{ secrets.FURINA_KEYSTORE_PASSWORD }}
+          FURINA_KEY_ALIAS: ${{ secrets.FURINA_KEY_ALIAS }}
+          FURINA_KEY_PASSWORD: ${{ secrets.FURINA_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$FURINA_KEYSTORE_PASSWORD"; test -n "$FURINA_KEY_ALIAS"; test -n "$FURINA_KEY_PASSWORD"
+          gradle --no-daemon --stacktrace :bridge:app:assembleRelease
+
+      - name: Verify signed APK and create bridge metadata
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SOURCE=/tmp/furina-agent-rc45-validate/termux/bridge/app/build/outputs/apk/release/app-release.apk
+          test -s "$SOURCE"; cp "$SOURCE" "$APK_NAME"
+          APKANALYZER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer | sort | tail -n1)"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          PACKAGE="$("$APKANALYZER" manifest application-id "$APK_NAME" | tr -d '\r')"
+          CODE="$("$APKANALYZER" manifest version-code "$APK_NAME" | tr -d '\r')"
+          NAME="$("$APKANALYZER" manifest version-name "$APK_NAME" | tr -d '\r')"
+          SHA="$(sha256sum "$APK_NAME" | awk '{print $1}')"
+          CERT="$("$APKSIGNER" verify --verbose --print-certs "$APK_NAME")"
+          SIGNER="$(printf '%s\n' "$CERT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
+          test "$PACKAGE" = com.wynndev.furinaagentbridge; test "$CODE" = 10045; test "$NAME" = 1.0.0-rc45; test "${#SHA}" = 64; test "${#SIGNER}" = 64
+          rm -rf /tmp/furinahub-prev && mkdir -p /tmp/furinahub-prev
+          gh release download furinahub-v1.0.0-rc44 -R "$GITHUB_REPOSITORY" -p bridge.json -D /tmp/furinahub-prev
+          OLD_SIGNER="$(python3 -c 'import json; print(json.load(open("/tmp/furinahub-prev/bridge.json"))["signer_sha256"].replace(":","").lower())')"
+          test "$OLD_SIGNER" = "$SIGNER"
+          export PACKAGE CODE NAME SHA SIGNER
+          python3 - <<'PY'
+          import json,os
+          data={'version':os.environ['NAME'],'version_code':int(os.environ['CODE']),'package_name':os.environ['PACKAGE'],'sha256':os.environ['SHA'],'signer_sha256':os.environ['SIGNER'],'apk_url':'https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc45/FurinaHub-v1.0.0-rc45.apk'}
+          open('bridge.json','w').write(json.dumps(data,indent=2)+'\n')
+          PY
+          echo FURINAHUB_RC45_SIGNING_CONTINUITY_OK
+
+      - name: Publish RC45 and RC60 update channel
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          retry(){ for attempt in 1 2 3 4; do "$@" && return 0; sleep $((attempt*4)); done; return 1; }
+          if ! gh release view "$HUB_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            retry gh release create "$HUB_TAG" "$APK_NAME" bridge.json -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "FurinaHub v1.0.0-rc45" --notes "RC45 makes Core update status shared with Termux, clears stale native errors, and keeps RC44 single-canvas image editing." --prerelease
+          fi
+          if ! gh release view "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            retry gh release create "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Furina Update Channel" --notes "Machine-readable FurinaHub Core recovery channel." --prerelease
+          fi
+          cp experiments/furina-agent-final/stable-bootstrap.sh furina-install.sh
+          cp experiments/furina-agent-final/overrides/runtime-r30/install-body.sh furina-install-body.sh
+          cp experiments/furina-agent-final/overrides/runtime-r29/install-body.sh furina-runtime-r29.sh
+          cp experiments/furina-agent-final/overrides/rc60/apply.py core-rc60-apply.py
+          cp experiments/furina-agent-final/manifest.json manifest.json
+          retry gh release upload "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" furina-install.sh furina-install-body.sh furina-runtime-r29.sh core-rc60-apply.py manifest.json --clobber
+          sleep 2
+          retry curl -fL --silent --show-error --connect-timeout 10 --max-time 90 "https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable/manifest.json" -o /tmp/furina-manifest-live.json
+          retry curl -fL --silent --show-error --connect-timeout 10 --max-time 90 "https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc45/bridge.json" -o /tmp/furinahub-bridge-live.json
+          python3 - <<'PY'
+          import json
+          core=json.load(open('/tmp/furina-manifest-live.json')); hub=json.load(open('/tmp/furinahub-bridge-live.json'))
+          assert core['version']=='1.0.0-rc60' and core['dependency_revision']=='2026.08.18-r30'
+          assert core['bridge_version']=='1.0.0-rc45'
+          assert hub['version']=='1.0.0-rc45' and hub['version_code']==10045
+          print('FURINA_UPDATE_CHANNEL_RC60_RC45_LIVE_OK')
+          PY
