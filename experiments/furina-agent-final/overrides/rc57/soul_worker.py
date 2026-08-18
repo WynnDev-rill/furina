@@ -20,7 +20,10 @@ def install_compat_stubs(mode: int, batch: int):
             raise RuntimeError("embedding disabled in Furina Termux sidecar")
     st.SentenceTransformer = SentenceTransformer
     sys.modules["sentence_transformers"] = st
+    app_pkg = types.ModuleType("app")
+    app_pkg.__path__ = []
     cfg_pkg = types.ModuleType("app.configuration")
+    cfg_pkg.__path__ = []
     cfg_mod = types.ModuleType("app.configuration.configuration")
     class ConfigurationCharacters:
         def load_configuration(self):
@@ -33,6 +36,8 @@ def install_compat_stubs(mode: int, batch: int):
     cfg_mod.ConfigurationCharacters = ConfigurationCharacters
     cfg_mod.ConfigurationSettings = ConfigurationSettings
     cfg_pkg.configuration = cfg_mod
+    app_pkg.configuration = cfg_pkg
+    sys.modules["app"] = app_pkg
     sys.modules["app.configuration"] = cfg_pkg
     sys.modules["app.configuration.configuration"] = cfg_mod
 
