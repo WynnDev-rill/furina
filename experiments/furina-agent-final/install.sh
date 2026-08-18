@@ -2,39 +2,80 @@
 set -euo pipefail
 
 FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"
-FURINA_UPDATER_GENERATION="11"
-VERSION="1.0.0-rc58"
-DEPENDENCY_REVISION="2026.08.18-r28"
+FURINA_UPDATER_GENERATION="12"
+VERSION="1.0.0-rc59"
+DEPENDENCY_REVISION="2026.08.18-r29"
 STABLE_RELEASE="https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable"
 BOOTSTRAP_CDN="https://cdn.jsdelivr.net/gh/WynnDev-rill/furina@furina-bootstrap-v1.0.0/experiments/furina-agent-final"
 API_BASE="https://api.github.com/repos/WynnDev-rill/furina/contents/experiments/furina-agent-final"
 RAW_BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 WEB_BASE="https://github.com/WynnDev-rill/furina/raw/refs/heads/experiment/furina-agent-termux/experiments/furina-agent-final"
-BODY_PATH="overrides/runtime-r28/install-body.sh"
-BODY_BLOB="3842248101e18012e257b757d16eeeaa6d99884c"
-APPLY_BLOB="453ec291aed738157ac504a941614432096704be"
-BRIDGE_BLOB="ace3c3c4bc98f7400ef3b183cc508c87ace76111"
-LUMI_BLOB="0fdd60c7b83448a9d954febef123e73cec2c477c"
-ZERO_BLOB="492311a1e8ac0f37a17358fe7866816eb89c338a"
-UTSUWA_BLOB="83619ffba46119a58dc994bf7e9e28a1f32db735"
-SOUL_BLOB="b6caebc1b2f393500f96e78feade2195ad69e14e"
+BODY_PATH="overrides/runtime-r29/install-body.sh"
+BODY_BLOB="a25216789f1670182d407160bf7b84957cf0bc5e"
+APPLY_BLOB="1b040239930dcb31a14194d33dcfd1f568d7452d"
+BRIDGE_BLOB="3cf0f0e516231e729bb789a0d13481426030de6f"
 
-if [[ ! -d /data/data/com.termux/files/usr ]]; then echo "Installer FurinaHub harus dijalankan dari Termux." >&2; exit 1; fi
+if [[ ! -d /data/data/com.termux/files/usr ]]; then
+  echo "Installer FurinaHub harus dijalankan dari Termux." >&2
+  exit 1
+fi
 command -v curl >/dev/null 2>&1 || pkg install -y curl >/dev/null
 command -v python >/dev/null 2>&1 || pkg install -y python >/dev/null
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
-fetch_url(){ local url="$1" out="$2" api="${3:-0}" code; rm -f "$out"; local args=(-L --silent --show-error --connect-timeout 10 --max-time 150 --retry 3 --retry-delay 2 --retry-all-errors -o "$out" -w '%{http_code}' -H 'User-Agent: Furina-Core-Bootstrap/11' -H 'Cache-Control: no-cache' -H 'Pragma: no-cache'); [[ "$api" == 1 ]] && args+=(-H 'Accept: application/vnd.github.raw+json'); code="$(curl "${args[@]}" "$url" 2>/dev/null || true)"; [[ "$code" == 200 && -s "$out" ]]; }
-fetch_body(){ local out="$1"; fetch_url "$API_BASE/$BODY_PATH?ref=experiment/furina-agent-termux" "$out" 1 || fetch_url "$RAW_BASE/$BODY_PATH" "$out" || fetch_url "$STABLE_RELEASE/furina-install-body.sh" "$out" || fetch_url "$WEB_BASE/$BODY_PATH" "$out" || fetch_url "$BOOTSTRAP_CDN/$BODY_PATH" "$out"; }
-fetch_body "$TMP/install-body.sh" || { echo "Tidak dapat mengambil updater terbaru." >&2; exit 75; }
-python - "$TMP/install-body.sh" "$BODY_BLOB" "$APPLY_BLOB" "$BRIDGE_BLOB" "$LUMI_BLOB" "$ZERO_BLOB" "$UTSUWA_BLOB" "$SOUL_BLOB" <<'PY'
+BOOT_TTY=0
+if [[ "${FURINAHUB_MACHINE_PROGRESS:-0}" != "1" && -t 1 && "${TERM:-dumb}" != "dumb" ]]; then
+  BOOT_TTY=1
+  printf '\r\033[38;5;244mSedang berjalan… Menghubungi channel update\033[0m'
+fi
+boot_clear(){ [[ "$BOOT_TTY" == "1" ]] && printf '\r\033[2K'; }
+
+fetch_url(){
+  local url="$1" out="$2" api="${3:-0}" code
+  rm -f "$out"
+  local args=(-L --silent --show-error --connect-timeout 10 --max-time 150
+              --retry 3 --retry-delay 2 --retry-all-errors
+              -o "$out" -w '%{http_code}'
+              -H 'User-Agent: Furina-Core-Bootstrap/12'
+              -H 'Cache-Control: no-cache' -H 'Pragma: no-cache')
+  [[ "$api" == "1" ]] && args+=(-H 'Accept: application/vnd.github.raw+json')
+  code="$(curl "${args[@]}" "$url" 2>/dev/null || true)"
+  [[ "$code" == "200" && -s "$out" ]]
+}
+fetch_body(){
+  local out="$1"
+  fetch_url "$API_BASE/$BODY_PATH?ref=experiment/furina-agent-termux" "$out" 1 ||
+  fetch_url "$RAW_BASE/$BODY_PATH" "$out" ||
+  fetch_url "$STABLE_RELEASE/furina-install-body.sh" "$out" ||
+  fetch_url "$WEB_BASE/$BODY_PATH" "$out" ||
+  fetch_url "$BOOTSTRAP_CDN/$BODY_PATH" "$out"
+}
+
+fetch_body "$TMP/install-body.sh" || {
+  boot_clear
+  echo "Tidak dapat mengambil updater terbaru." >&2
+  exit 75
+}
+python - "$TMP/install-body.sh" "$BODY_BLOB" "$APPLY_BLOB" "$BRIDGE_BLOB" <<'PY'
 import hashlib,pathlib,sys
-p,expected,apply_blob,bridge_blob,lumi_blob,zero_blob,utsuwa_blob,soul_blob=sys.argv[1:]
-d=pathlib.Path(p).read_bytes(); actual=hashlib.sha1(f"blob {len(d)}\0".encode()+d).hexdigest()
-if actual!=expected: raise SystemExit(f"Integritas bootstrap FurinaHub berubah: {actual} != {expected}")
+p,expected,apply_blob,bridge_blob=sys.argv[1:]
+d=pathlib.Path(p).read_bytes()
+actual=hashlib.sha1(f"blob {len(d)}\0".encode()+d).hexdigest()
+if actual!=expected:
+    raise SystemExit(f"Integritas bootstrap FurinaHub berubah: {actual} != {expected}")
 t=d.decode()
-checks=('VERSION="1.0.0-rc58"','DEPENDENCY_REVISION="2026.08.18-r28"',f'APPLY_BLOB="{apply_blob}"',f'BRIDGE_BLOB="{bridge_blob}"',f'LUMI_BLOB="{lumi_blob}"',f'ZERO_BLOB="{zero_blob}"',f'UTSUWA_BLOB="{utsuwa_blob}"',f'SOUL_BLOB="{soul_blob}"','FURINA_RC58_FOUR_UPSTREAM_SMOKE_OK','Semua upstream companion runtime')
+checks=(
+    'VERSION="1.0.0-rc59"',
+    'DEPENDENCY_REVISION="2026.08.18-r29"',
+    'TYPESCRIPT_VERSION="5.9.3"',
+    f'APPLY_BLOB="{apply_blob}"',
+    f'BRIDGE_BLOB="{bridge_blob}"',
+    'Sedang berjalan…',
+    'FURINA_RC59_RUNTIME_REGRESSION_OK',
+)
 missing=[x for x in checks if x not in t]
-if missing: raise SystemExit(f'Binding runtime RC58/r28 tidak lengkap: {missing}')
+if missing:
+    raise SystemExit(f'Binding runtime RC59/r29 tidak lengkap: {missing}')
 PY
+boot_clear
 bash "$TMP/install-body.sh" "$@"
