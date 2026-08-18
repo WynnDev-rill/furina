@@ -12,7 +12,7 @@ BOOTSTRAP_CDN="https://cdn.jsdelivr.net/gh/WynnDev-rill/furina@furina-bootstrap-
 R22_BODY_PATH="overrides/runtime-r22/install-body.sh"
 R22_BODY_BLOB="3e892305bad6ddc880cff610d87c37ca814e9351"
 RC53_APPLY_PATH="overrides/rc53/apply.py"
-RC53_APPLY_BLOB="96a47bdc3e06cd545b4b05d3f88eb6ca067c2cc4"
+RC53_APPLY_BLOB="a6c914f90dd526956d91aff57b135fb102f48131"
 RC53_MODULE_PATH="overrides/rc53/companion_state_v2.py"
 RC53_MODULE_BLOB="27fdb2a785bfdf28d7514ca35db1d5e73cfd5584"
 TMP="$(mktemp -d)"
@@ -121,7 +121,7 @@ state=(root/"core/furina_agent/companion_state_v2.py").read_text(encoding="utf-8
 chat=(root/"core/furina_agent/chat.py").read_text(encoding="utf-8")
 for item in ("class CompanionStateV2","STATE COMPANION PERSISTEN","BEHAVIOR CONTRACT:"):
     if item not in state: raise SystemExit("RC53 state validation missing: "+item)
-for item in ("LIVING COMPANION STATE:","self.mind.observe_user_feedback(user_text)","self.companion_state.after_turn(user_text, answer)"):
+for item in ("LIVING COMPANION STATE:","self.mind.observe_user_feedback(user_text)","self.companion_state.after_turn(user_text, answer)","reflection_behavior"):
     if item not in chat: raise SystemExit("RC53 chat validation missing: "+item)
 PY
 
