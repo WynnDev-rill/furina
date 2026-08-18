@@ -67,13 +67,13 @@ jobs:
           runtime=Path('experiments/furina-agent-final/overrides/runtime-r23/install-body.sh').read_text()
           assert install == compat
           assert 'FURINA_UPDATER_GENERATION="6"' in install
-          assert 'BODY_BLOB="d2991df5c1f407c328d910ee855065ab8571a462"' in install
-          assert 'RC53_APPLY_BLOB="96a47bdc3e06cd545b4b05d3f88eb6ca067c2cc4"' in install
-          assert 'RC53_APPLY_BLOB="96a47bdc3e06cd545b4b05d3f88eb6ca067c2cc4"' in runtime
-          assert blob('experiments/furina-agent-final/overrides/rc53/apply.py') == '96a47bdc3e06cd545b4b05d3f88eb6ca067c2cc4'
+          assert 'BODY_BLOB="df5a61c6b4a005fe3c214bf8af75f7754d35821f"' in install
+          assert 'RC53_APPLY_BLOB="a6c914f90dd526956d91aff57b135fb102f48131"' in install
+          assert 'RC53_APPLY_BLOB="a6c914f90dd526956d91aff57b135fb102f48131"' in runtime
+          assert blob('experiments/furina-agent-final/overrides/rc53/apply.py') == 'a6c914f90dd526956d91aff57b135fb102f48131'
           assert blob('experiments/furina-agent-final/overrides/rc53/companion_state_v2.py') == '27fdb2a785bfdf28d7514ca35db1d5e73cfd5584'
-          assert blob('experiments/furina-agent-final/overrides/runtime-r23/install-body.sh') == 'd2991df5c1f407c328d910ee855065ab8571a462'
-          assert blob('experiments/furina-agent-final/install.sh') == '2e5fae1b4afbacb3e9429f6705b7081d4fdf955a'
+          assert blob('experiments/furina-agent-final/overrides/runtime-r23/install-body.sh') == 'df5a61c6b4a005fe3c214bf8af75f7754d35821f'
+          assert blob('experiments/furina-agent-final/install.sh') == '3032e6f5689f6bb4ef7ef4a5d6e7d3e0170a8df6'
           forbidden='https://github.com/WynnDev-rill/furina/releases/latest/download'
           assert forbidden not in install and forbidden not in runtime
 
@@ -111,6 +111,7 @@ jobs:
           grep -Fq 'VERSION = "1.0.0-rc53"' /tmp/rc53-patch-stage/core/furina_agent/version.py
           grep -Fq 'LIVING COMPANION STATE:' /tmp/rc53-patch-stage/core/furina_agent/chat.py
           grep -Fq 'self.companion_state.before_user(user_text)' /tmp/rc53-patch-stage/core/furina_agent/chat.py
+          grep -Fq 'source="reflection_behavior"' /tmp/rc53-patch-stage/core/furina_agent/chat.py
           python3 -m compileall -q /tmp/rc53-patch-stage/core/furina_agent
 
       - name: Validate FurinaHub RC43 source chain
