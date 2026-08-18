@@ -49,7 +49,13 @@ def main() -> None:
     gradle_path.write_text(gradle, encoding="utf-8")
 
     hub = hub_path.read_text(encoding="utf-8")
-    hub = replace_once(hub, '"bridge_target": "1.0.0-rc43"', '"bridge_target": "1.0.0-rc44"', "bridge target")
+    old_target = '"bridge_target": "1.0.0-rc43"'
+    new_target = '"bridge_target": "1.0.0-rc44"'
+    old_count = hub.count(old_target)
+    if old_count:
+        hub = hub.replace(old_target, new_target)
+    if old_target in hub or new_target not in hub:
+        raise SystemExit(f"Android RC44 bridge target migration incomplete: old={old_count}, new={hub.count(new_target)}")
     hub_path.write_text(hub, encoding="utf-8")
 
     updater = updater_path.read_text(encoding="utf-8")
