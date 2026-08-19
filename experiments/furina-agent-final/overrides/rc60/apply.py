@@ -229,8 +229,10 @@ def main() -> None:
                 message=f"Pembaruan gagal pada tahap {current.get('stage') or 'updater'}: {str(exc)[:260]}",
                 percent=int(current.get("percent") or 0), source="furinahub", restart_required=False,
             )
+'''
+    hub = replace_class_method(hub, "Runtime", "_run_core_update", run_update)
 
-    def start_core_update(self) -> dict:
+    start_update = r'''    def start_core_update(self) -> dict:
         current = self.get_update_status()
         if current.get("state") in {"running", "starting"}:
             return current
@@ -243,7 +245,7 @@ def main() -> None:
         threading.Thread(target=self._run_core_update, name="furinahub-core-update", daemon=True).start()
         return self.get_update_status()
 '''
-    hub = replace_class_method(hub, "Runtime", "_run_core_update", run_update)
+    hub = replace_class_method(hub, "Runtime", "start_core_update", start_update)
 
     version = version_path.read_text(encoding="utf-8")
     version = re.sub(r'VERSION\s*=\s*(["\'])([^"\']+)\1', f'VERSION = "{TARGET_VERSION}"', version, count=1)
