@@ -1,0 +1,149 @@
+name: Validate FurinaHub RC48
+
+on:
+  pull_request:
+    branches: [experiment/furina-agent-termux]
+    paths:
+      - 'experiments/furina-agent-final/**'
+      - '.github/workflows/furinahub-rc48.yml'
+  push:
+    branches: [experiment/furina-agent-termux]
+    paths:
+      - 'experiments/furina-agent-final/**'
+      - '.github/workflows/furinahub-rc48.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: furinahub-rc48-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HUB_TAG: furinahub-v1.0.0-rc48
+  APK_NAME: FurinaHub-v1.0.0-rc48.apk
+  UPDATE_CHANNEL_TAG: furina-update-stable
+
+jobs:
+  validate-build-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate RC48 contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            experiments/furina-agent-final/overrides/android-rc46/apply.py \
+            experiments/furina-agent-final/overrides/android-rc47/apply.py \
+            experiments/furina-agent-final/overrides/android-rc48/apply.py
+          python3 - <<'PY'
+          import json
+          m=json.load(open('experiments/furina-agent-final/manifest.json'))
+          assert m['version']=='1.0.0-rc60'
+          assert m['dependency_revision']=='2026.08.18-r30'
+          assert m['bridge_version']=='1.0.0-rc48'
+          assert m['bridge_version_code']==10048
+          assert m['image_editor_runtime']=='direct-img-preview-positioned'
+          print('FURINAHUB_RC48_MANIFEST_OK')
+          PY
+
+      - name: Regress offline editor geometry
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash experiments/furina-agent-final/overrides/android-rc48/validate.sh
+          grep -Fq "versionName '1.0.0-rc48'" /tmp/furina-agent-rc48-validate/termux/bridge/app/build.gradle
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK components
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build RC48 debug
+        if: github.event_name == 'pull_request'
+        working-directory: /tmp/furina-agent-rc48-validate/termux
+        run: gradle --no-daemon --stacktrace :bridge:app:assembleDebug
+
+      - name: Restore release signing identity
+        if: github.event_name != 'pull_request'
+        working-directory: /tmp/furina-agent-rc48-validate/termux
+        env:
+          FURINA_RELEASE_KEYSTORE_B64: ${{ secrets.FURINA_RELEASE_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$FURINA_RELEASE_KEYSTORE_B64"
+          printf '%s' "$FURINA_RELEASE_KEYSTORE_B64" | base64 --decode > bridge/app/furina-agent-release.jks
+          chmod 600 bridge/app/furina-agent-release.jks
+
+      - name: Build signed RC48
+        if: github.event_name != 'pull_request'
+        working-directory: /tmp/furina-agent-rc48-validate/termux
+        env:
+          FURINA_AGENT_KEYSTORE_PATH: /tmp/furina-agent-rc48-validate/termux/bridge/app/furina-agent-release.jks
+          FURINA_KEYSTORE_PASSWORD: ${{ secrets.FURINA_KEYSTORE_PASSWORD }}
+          FURINA_KEY_ALIAS: ${{ secrets.FURINA_KEY_ALIAS }}
+          FURINA_KEY_PASSWORD: ${{ secrets.FURINA_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          gradle --no-daemon --stacktrace :bridge:app:assembleRelease
+
+      - name: Verify signer continuity
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SOURCE=/tmp/furina-agent-rc48-validate/termux/bridge/app/build/outputs/apk/release/app-release.apk
+          test -s "$SOURCE"
+          cp "$SOURCE" "$APK_NAME"
+          APKANALYZER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer | sort | tail -n1)"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          PACKAGE="$("$APKANALYZER" manifest application-id "$APK_NAME" | tr -d '\r')"
+          CODE="$("$APKANALYZER" manifest version-code "$APK_NAME" | tr -d '\r')"
+          NAME="$("$APKANALYZER" manifest version-name "$APK_NAME" | tr -d '\r')"
+          SHA="$(sha256sum "$APK_NAME" | awk '{print $1}')"
+          CERT="$("$APKSIGNER" verify --verbose --print-certs "$APK_NAME")"
+          SIGNER="$(printf '%s\n' "$CERT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
+          test "$PACKAGE" = com.wynndev.furinaagentbridge
+          test "$CODE" = 10048
+          test "$NAME" = 1.0.0-rc48
+          rm -rf /tmp/furinahub-prev && mkdir -p /tmp/furinahub-prev
+          gh release download furinahub-v1.0.0-rc47 -R "$GITHUB_REPOSITORY" -p bridge.json -D /tmp/furinahub-prev
+          OLD_SIGNER="$(python3 -c 'import json; print(json.load(open("/tmp/furinahub-prev/bridge.json"))["signer_sha256"].replace(":","").lower())')"
+          test "$OLD_SIGNER" = "$SIGNER"
+          export PACKAGE CODE NAME SHA SIGNER
+          python3 - <<'PY'
+          import json,os
+          data={'version':os.environ['NAME'],'version_code':int(os.environ['CODE']),'package_name':os.environ['PACKAGE'],'sha256':os.environ['SHA'],'signer_sha256':os.environ['SIGNER'],'apk_url':'https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc48/FurinaHub-v1.0.0-rc48.apk'}
+          open('bridge.json','w').write(json.dumps(data,indent=2)+'\n')
+          PY
+
+      - name: Publish RC48
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          retry(){ for attempt in 1 2 3 4; do "$@" && return 0; sleep $((attempt*4)); done; return 1; }
+          if ! gh release view "$HUB_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            retry gh release create "$HUB_TAG" "$APK_NAME" bridge.json -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "FurinaHub v1.0.0-rc48" --notes "RC48 anchors the direct local image preview to editorStage, fixing the black editor caused by absolute positioning against the wrong containing block. Core RC60/r30 is unchanged." --prerelease
+          else
+            retry gh release upload "$HUB_TAG" "$APK_NAME" bridge.json -R "$GITHUB_REPOSITORY" --clobber
+          fi
+          cp experiments/furina-agent-final/manifest.json manifest.json
+          retry gh release upload "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" manifest.json --clobber
+          echo FURINAHUB_RC48_PUBLISHED
