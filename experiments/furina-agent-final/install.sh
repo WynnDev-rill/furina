@@ -11,8 +11,8 @@ API_BASE="https://api.github.com/repos/WynnDev-rill/furina/contents/experiments/
 RAW_BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 WEB_BASE="https://github.com/WynnDev-rill/furina/raw/refs/heads/experiment/furina-agent-termux/experiments/furina-agent-final"
 BODY_PATH="overrides/runtime-r30/install-body.sh"
-BODY_BLOB="ecc5ba90e8bf01984749bd6a6c4bf93e060c3096"
-APPLY_BLOB="459e0e42d0112cbb52fe148c064172ca14a130af"
+BODY_BLOB="61d0650b238173a55dd10dd2b979b595c063b010"
+APPLY_BLOB="4895f1c1da600bd53a5b4b449feee0883ad2161f"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
   echo "Installer FurinaHub harus dijalankan dari Termux." >&2

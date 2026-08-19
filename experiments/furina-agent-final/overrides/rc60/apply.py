@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import ast
 import os
 import re
 import sys
@@ -27,12 +28,29 @@ def atomic(path: Path, content: str) -> None:
     os.replace(temp, path)
 
 
-def replace_method(text: str, start: str, end: str, replacement: str) -> str:
-    a = text.find(start)
-    b = text.find(end, max(0, a) + len(start))
-    if a < 0 or b < 0 or b <= a:
-        raise SystemExit(f"RC60 hub boundary mismatch: {start.strip()} -> {end.strip()}")
-    return text[:a] + replacement.rstrip() + "\n\n" + text[b:]
+def replace_class_method(text: str, class_name: str, method_name: str, replacement: str) -> str:
+    """Replace one Python class method using AST line ranges, not neighboring text."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError as exc:
+        raise SystemExit(f"RC60 hub parse failed before {method_name}: {exc}") from exc
+    cls = next((node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == class_name), None)
+    if cls is None:
+        raise SystemExit(f"RC60 hub class missing: {class_name}")
+    matches = [
+        node for node in cls.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == method_name
+    ]
+    if len(matches) != 1:
+        raise SystemExit(f"RC60 hub method mismatch: {class_name}.{method_name} ({len(matches)})")
+    node = matches[0]
+    if node.end_lineno is None:
+        raise SystemExit(f"RC60 hub method range unavailable: {class_name}.{method_name}")
+    start_line = min([node.lineno] + [d.lineno for d in node.decorator_list])
+    lines = text.splitlines(keepends=True)
+    before = "".join(lines[: start_line - 1])
+    after = "".join(lines[node.end_lineno :])
+    return before + replacement.rstrip() + "\n" + after
 
 
 def main() -> None:
@@ -132,7 +150,7 @@ def main() -> None:
             self.update_status = dict(status)
         return dict(status)
 '''
-    hub = replace_method(hub, "    def get_update_status(self) -> dict:\n", "    def get_model_status(self) -> dict:\n", status_methods)
+    hub = replace_class_method(hub, "Runtime", "get_update_status", status_methods)
 
     set_status = r'''    def _set_update_status(self, **values) -> None:
         with self.update_lock:
@@ -149,7 +167,7 @@ def main() -> None:
         except Exception:
             pass
 '''
-    hub = replace_method(hub, "    def _set_update_status(self, **values) -> None:\n", "    @staticmethod\n", set_status)
+    hub = replace_class_method(hub, "Runtime", "_set_update_status", set_status)
 
     run_update = r'''    def _run_core_update(self) -> None:
         log_path = HOME / "logs" / "furinahub-inapp-update.log"
@@ -211,8 +229,10 @@ def main() -> None:
                 message=f"Pembaruan gagal pada tahap {current.get('stage') or 'updater'}: {str(exc)[:260]}",
                 percent=int(current.get("percent") or 0), source="furinahub", restart_required=False,
             )
+'''
+    hub = replace_class_method(hub, "Runtime", "_run_core_update", run_update)
 
-    def start_core_update(self) -> dict:
+    start_update = r'''    def start_core_update(self) -> dict:
         current = self.get_update_status()
         if current.get("state") in {"running", "starting"}:
             return current
@@ -225,21 +245,21 @@ def main() -> None:
         threading.Thread(target=self._run_core_update, name="furinahub-core-update", daemon=True).start()
         return self.get_update_status()
 '''
-    hub = replace_method(
-        hub,
-        "    def _run_core_update(self) -> None:\n",
-        "    def chat(self, text: str, image: dict | None = None, plugins: list | None = None) -> dict:\n",
-        run_update,
-    )
+    hub = replace_class_method(hub, "Runtime", "start_core_update", start_update)
 
     version = version_path.read_text(encoding="utf-8")
     version = re.sub(r'VERSION\s*=\s*(["\'])([^"\']+)\1', f'VERSION = "{TARGET_VERSION}"', version, count=1)
 
     compile(hub, str(hub_path), "exec")
     compile(version, str(version_path), "exec")
+    parsed = ast.parse(hub)
+    runtime = next(node for node in parsed.body if isinstance(node, ast.ClassDef) and node.name == "Runtime")
+    names = [node.name for node in runtime.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    for method in ("_disk_update_versions", "get_update_status", "_set_update_status", "_run_core_update", "start_core_update"):
+        if names.count(method) != 1:
+            raise SystemExit(f"RC60 unified update method count invalid: {method}={names.count(method)}")
     required = (
         "EXPECTED_DEPENDENCY_REVISION",
-        "def _disk_update_versions",
         "Disk state is authoritative",
         'update_env["FURINA_UPDATE_SOURCE"] = "furinahub"',
         '"no_update"',
@@ -253,7 +273,7 @@ def main() -> None:
     atomic(version_path, version)
     if read_version(version_path) != TARGET_VERSION:
         raise SystemExit("RC60 version commit failed")
-    print("FURINA_RC60_UNIFIED_UPDATE_STATE_OK")
+    print("FURINA_RC60_AST_METHOD_REPLACEMENT_OK")
 
 
 if __name__ == "__main__":
