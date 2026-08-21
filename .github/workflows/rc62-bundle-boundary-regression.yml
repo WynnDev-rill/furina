@@ -51,6 +51,6 @@ jobs:
           assert install.read_bytes() == Path('furina-agent-termux/experiments/furina-agent-final/install.sh').read_bytes()
           assert 'dateparser' in apply.read_text()
           assert 'sync_furinahub_apk' in body.read_text()
-          assert 'furina-update-stable/bundle.json' in body.read_text()
+          assert '$STABLE_RELEASE/bundle.json' in body.read_text()
           print('FURINA_RC62_SHARED_BUNDLE_HASH_CHAIN_OK')
           PY
