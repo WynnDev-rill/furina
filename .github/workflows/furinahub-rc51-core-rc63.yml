@@ -45,6 +45,7 @@ jobs:
             experiments/furina-agent-final/overrides/android-rc49/apply.py \
             experiments/furina-agent-final/overrides/android-rc50/apply.py \
             experiments/furina-agent-final/overrides/android-rc51/apply.py \
+            experiments/furina-agent-final/overrides/rc62/apply.py \
             experiments/furina-agent-final/overrides/rc63/apply.py
           python3 - <<'PY'
           import json
@@ -155,11 +156,13 @@ jobs:
             retry gh release upload "$HUB_TAG" "$APK_NAME" bridge.json bundle.json -R "$GITHUB_REPOSITORY" --clobber
           fi
           cp experiments/furina-agent-final/manifest.json manifest.json
+          cp experiments/furina-agent-final/overrides/runtime-r32/install-body.sh furina-runtime-r32.sh
           cp experiments/furina-agent-final/overrides/runtime-r33/install-body.sh furina-runtime-r33.sh
+          cp experiments/furina-agent-final/overrides/rc62/apply.py core-rc62-apply.py
           cp experiments/furina-agent-final/overrides/rc63/apply.py core-rc63-apply.py
           cp experiments/furina-agent-final/install.sh furina-install.sh
           # Publish all referenced files first. bundle.json is the single atomic
           # pointer and is deliberately uploaded last.
-          retry gh release upload "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" manifest.json furina-runtime-r33.sh core-rc63-apply.py furina-install.sh --clobber
+          retry gh release upload "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" manifest.json furina-runtime-r32.sh furina-runtime-r33.sh core-rc62-apply.py core-rc63-apply.py furina-install.sh --clobber
           retry gh release upload "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" bundle.json --clobber
           echo FURINAHUB_RC51_RC63_PUBLISHED

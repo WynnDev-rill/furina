@@ -9,7 +9,7 @@ RAW_BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furin
 STABLE_RELEASE="https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable"
 WEB_BASE="https://github.com/WynnDev-rill/furina/raw/refs/heads/experiment/furina-agent-termux/experiments/furina-agent-final"
 R32_PATH="overrides/runtime-r32/install-body.sh"
-R32_BLOB="94637b7cdee61cfdd6cd655b1f533f50e09bec81"
+R32_BLOB="5b2d9d18d156e219bd7591928bdfe2a4ec36525e"
 APPLY_PATH="overrides/rc63/apply.py"
 APPLY_BLOB="94a3692767c4473ae940cb2441b0cb28f4401d9c"
 

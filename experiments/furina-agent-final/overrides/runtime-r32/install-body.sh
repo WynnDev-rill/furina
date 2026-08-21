@@ -11,7 +11,7 @@ WEB_BASE="https://github.com/WynnDev-rill/furina/raw/refs/heads/experiment/furin
 R31_PATH="overrides/runtime-r31/install-body.sh"
 R31_BLOB="333a96066a585dbae38e4ceb6dedb56512d4f90e"
 APPLY_PATH="overrides/rc62/apply.py"
-APPLY_BLOB="9af955cdcb09063f55ca9bb198d9a86bb875f412"
+APPLY_BLOB="7f3fb20870141c498fb51b3c91d7f6cd36391050"
 
 TMP="$(mktemp -d)"
 LOG="$ROOT/logs/update-r32-furinahub.log"

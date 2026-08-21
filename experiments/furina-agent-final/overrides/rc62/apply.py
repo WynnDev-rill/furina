@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import sys
 
 
@@ -108,15 +109,26 @@ DATEPARSER_VERSION = "1.4.2"
     )
 
     hub = hub_path.read_text(encoding="utf-8")
-    bootstrap_old = '            "core_version": VERSION,\n            "bridge_target": "1.0.0-rc49",'
-    if bootstrap_old not in hub:
-        bootstrap_old = '            "core_version": VERSION,\n            "bridge_target": "1.0.0-rc48",'
-    hub = once(
-        hub,
-        bootstrap_old,
-        f'            "core_version": VERSION,\n            "bundle_id": "{BUNDLE_ID}",\n            "bridge_target": "1.0.0-rc50",',
-        "bootstrap bundle id",
+    # RC61 exists in several valid device lineages (bridge targets RC48-RC50).
+    # Match the snapshot dictionary by structure instead of a release-specific
+    # literal so an otherwise healthy older install can always migrate.
+    bootstrap_pattern = re.compile(
+        r'(?P<indent>^[ \t]+)"core_version": VERSION,\n'
+        r'(?:(?P=indent)"bundle_id": "[^"]+",\n)?'
+        r'(?P=indent)"bridge_target": "[^"]+",',
+        re.MULTILINE,
     )
+    hub, bootstrap_count = bootstrap_pattern.subn(
+        lambda match: (
+            f'{match.group("indent")}"core_version": VERSION,\n'
+            f'{match.group("indent")}"bundle_id": "{BUNDLE_ID}",\n'
+            f'{match.group("indent")}"bridge_target": "1.0.0-rc50",'
+        ),
+        hub,
+        count=1,
+    )
+    if bootstrap_count != 1:
+        raise SystemExit("RC62 marker missing: bootstrap status dictionary")
     hub = once(
         hub,
         '''        try:

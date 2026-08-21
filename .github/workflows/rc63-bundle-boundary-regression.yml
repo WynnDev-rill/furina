@@ -8,6 +8,7 @@ on:
       - 'experiments/furina-agent-final/overrides/runtime-r30/**'
       - 'experiments/furina-agent-final/overrides/rc61/**'
       - 'experiments/furina-agent-final/overrides/runtime-r32/**'
+      - 'experiments/furina-agent-final/overrides/rc62/**'
       - 'experiments/furina-agent-final/overrides/rc63/**'
       - 'experiments/furina-agent-final/overrides/runtime-r33/**'
       - 'experiments/furina-agent-final/overrides/android-rc50/**'
@@ -45,16 +46,19 @@ jobs:
           apply=root/'overrides/rc63/apply.py'
           body=root/'overrides/runtime-r33/install-body.sh'
           foundation=root/'overrides/runtime-r32/install-body.sh'
+          legacy_apply=root/'overrides/rc62/apply.py'
           install=root/'install.sh'
           assert var(body.read_text(),'APPLY_BLOB') == blob(apply)
           assert var(install.read_text(),'APPLY_BLOB') == blob(apply)
           assert var(install.read_text(),'BODY_BLOB') == blob(body)
           assert var(body.read_text(),'R32_BLOB') == blob(foundation)
+          assert var(foundation.read_text(),'APPLY_BLOB') == blob(legacy_apply)
           assert install.read_bytes() == Path('furina-agent-termux/experiments/furina-agent-final/install.sh').read_bytes()
           assert 'furina-2026.08.21-rc63-rc51' in apply.read_text()
           assert 'sync_furinahub_apk' in body.read_text()
           assert '$STABLE_RELEASE/bundle.json' in body.read_text()
           assert "'render_panel'" not in install.read_text()
           assert "'sync_furinahub_apk'" in install.read_text()
+          assert 'bootstrap_pattern = re.compile' in legacy_apply.read_text()
           print('FURINA_RC63_SHARED_BUNDLE_HASH_CHAIN_OK')
           PY
