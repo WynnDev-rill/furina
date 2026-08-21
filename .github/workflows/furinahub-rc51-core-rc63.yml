@@ -193,7 +193,7 @@ jobs:
           cp experiments/furina-agent-final/overrides/android-rc54/apply.py android-rc54-apply.py
           cp experiments/furina-agent-final/overrides/android-rc55/apply.py android-rc55-apply.py
           cp experiments/furina-agent-final/install.sh furina-install.sh
-          tar --format=ustar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner --exclude='__pycache__' --exclude='*.pyc' --exclude='bridge/.gradle' --exclude='bridge/app/build' -C /tmp/furina-agent-rc54-validate/termux -cf furina-core-bridge-rc67-rc55.tar core bridge
+          cat experiments/furina-agent-final/overrides/runtime-r37/snapshot-parts/part-* > furina-core-bridge-rc67-rc55.tar
           echo '502df5c11809b027ec118b3209adb3a4d14ffa441b570b8da02083dc9f2b20f9  furina-core-bridge-rc67-rc55.tar' | sha256sum -c -
           # Publish the complete snapshot and runtime before the public
           # installer. bundle.json remains the final atomic channel pointer.

@@ -60,6 +60,8 @@ jobs:
           python3 -m py_compile experiments/furina-agent-final/overrides/rc67/relationship_v4.py
           python3 -m py_compile experiments/furina-agent-final/overrides/android-rc55/apply.py
           bash -n experiments/furina-agent-final/overrides/runtime-r37/install-body.sh
+          cat experiments/furina-agent-final/overrides/runtime-r37/snapshot-parts/part-* > /tmp/furina-core-bridge-rc67-rc55.tar
+          echo '502df5c11809b027ec118b3209adb3a4d14ffa441b570b8da02083dc9f2b20f9  /tmp/furina-core-bridge-rc67-rc55.tar' | sha256sum -c -
           python3 - <<'PY'
           import hashlib,re
           from pathlib import Path
