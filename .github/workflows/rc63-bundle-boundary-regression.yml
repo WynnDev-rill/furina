@@ -60,5 +60,6 @@ jobs:
           assert "'render_panel'" not in install.read_text()
           assert "'sync_furinahub_apk'" in install.read_text()
           assert 'bootstrap_pattern = re.compile' in legacy_apply.read_text()
+          assert 'system_pattern = re.compile' in legacy_apply.read_text()
           print('FURINA_RC63_SHARED_BUNDLE_HASH_CHAIN_OK')
           PY
