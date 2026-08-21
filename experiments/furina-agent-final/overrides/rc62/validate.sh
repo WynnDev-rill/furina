@@ -47,3 +47,20 @@ hub=(core/'hub.py').read_text()
 assert 'furina-2026.08.21-rc62-rc50' in hub and '"bundle_synced":' in hub
 print('FURINA_RC62_DATEPARSER_BUNDLE_VALIDATION_OK')
 PY
+
+# A released RC61 device may already target a newer bridge than the original
+# fixture. This was the exact field variation that blocked RC61 -> RC63.
+VARIANT=/tmp/furina-agent-rc62-variant/termux
+rm -rf "$VARIANT"; mkdir -p "$(dirname "$VARIANT")"; cp -a "$BASE" "$VARIANT"
+python3 - "$VARIANT/core/furina_agent/hub.py" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); text=p.read_text(encoding='utf-8')
+old='            "core_version": VERSION,\n            "bridge_target": "1.0.0-rc48",'
+assert old in text
+p.write_text(text.replace(old, '            "core_version": VERSION,\n            "bridge_target": "1.0.0-rc50",', 1), encoding='utf-8')
+PY
+python3 "$HERE/apply.py" "$VARIANT"
+grep -Fq 'VERSION = "1.0.0-rc62"' "$VARIANT/core/furina_agent/version.py"
+test "$(grep -Fc '"bundle_id": "furina-2026.08.21-rc62-rc50"' "$VARIANT/core/furina_agent/hub.py")" -eq 1
+printf '%s\n' FURINA_RC62_RELEASED_RC61_VARIANT_OK
