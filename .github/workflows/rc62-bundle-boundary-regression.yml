@@ -1,4 +1,4 @@
-name: RC61 Pipeline Boundary Regression
+name: RC62 Shared Bundle Boundary Regression
 
 on:
   pull_request:
@@ -8,16 +8,19 @@ on:
       - 'experiments/furina-agent-final/overrides/runtime-r30/**'
       - 'experiments/furina-agent-final/overrides/rc61/**'
       - 'experiments/furina-agent-final/overrides/runtime-r31/**'
+      - 'experiments/furina-agent-final/overrides/rc62/**'
+      - 'experiments/furina-agent-final/overrides/runtime-r32/**'
+      - 'experiments/furina-agent-final/overrides/android-rc50/**'
       - 'experiments/furina-agent-final/install.sh'
       - 'furina-agent-termux/experiments/furina-agent-final/install.sh'
-      - '.github/workflows/rc61-boundary-regression.yml'
+      - '.github/workflows/rc62-bundle-boundary-regression.yml'
 
 jobs:
   boundary-regression:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate RC60 foundation and RC61 hash chain
+      - name: Validate RC61 foundation and RC62 shared bundle hash chain
         shell: bash
         run: |
           set -euo pipefail
@@ -25,6 +28,10 @@ jobs:
           python3 experiments/furina-agent-final/overrides/rc60/test_ast_boundary.py
           python3 -m py_compile experiments/furina-agent-final/overrides/rc61/apply.py
           bash -n experiments/furina-agent-final/overrides/runtime-r31/install-body.sh
+          python3 -m py_compile experiments/furina-agent-final/overrides/rc62/apply.py
+          python3 -m py_compile experiments/furina-agent-final/overrides/android-rc50/apply.py
+          bash -n experiments/furina-agent-final/overrides/runtime-r32/install-body.sh
+          bash experiments/furina-agent-final/overrides/runtime-r32/validate.sh
           python3 - <<'PY'
           import hashlib,re
           from pathlib import Path
@@ -33,15 +40,17 @@ jobs:
               d=Path(p).read_bytes(); return hashlib.sha1(f"blob {len(d)}\0".encode()+d).hexdigest()
           def var(text,name):
               m=re.search(rf'^{re.escape(name)}="([^"]+)"', text, re.M); assert m,name; return m.group(1)
-          apply=root/'overrides/rc61/apply.py'
-          body=root/'overrides/runtime-r31/install-body.sh'
-          foundation=root/'overrides/runtime-r30/install-body.sh'
+          apply=root/'overrides/rc62/apply.py'
+          body=root/'overrides/runtime-r32/install-body.sh'
+          foundation=root/'overrides/runtime-r31/install-body.sh'
           install=root/'install.sh'
           assert var(body.read_text(),'APPLY_BLOB') == blob(apply)
           assert var(install.read_text(),'APPLY_BLOB') == blob(apply)
           assert var(install.read_text(),'BODY_BLOB') == blob(body)
-          assert var(body.read_text(),'R30_BLOB') == blob(foundation)
+          assert var(body.read_text(),'R31_BLOB') == blob(foundation)
           assert install.read_bytes() == Path('furina-agent-termux/experiments/furina-agent-final/install.sh').read_bytes()
-          assert 'replace_method' in apply.read_text()
-          print('FURINA_RC61_HASH_CHAIN_OK')
+          assert 'dateparser' in apply.read_text()
+          assert 'sync_furinahub_apk' in body.read_text()
+          assert 'furina-update-stable/bundle.json' in body.read_text()
+          print('FURINA_RC62_SHARED_BUNDLE_HASH_CHAIN_OK')
           PY
