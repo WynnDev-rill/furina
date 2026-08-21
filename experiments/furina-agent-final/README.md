@@ -1,6 +1,6 @@
 # FurinaHub — Furina Agent Experimental
 
-FurinaHub is the Android front-end for the experimental Furina Agent. The AI runtime, local models, Psyche, memory, and Android agent still live in Termux; FurinaHub provides a chat-first Android interface over the local loopback Core.
+Furina is a relationship-first AI companion. **Furina Lite** in Termux remains a complete, lightweight chat client; **FurinaHub Full** adds the Android experience, multimedia, native controls, and richer relationship settings. Both surfaces use the same local Core, memory, relationship state, and shared moments.
 
 The experiment remains isolated from the main Furina APK. The layout direction is inspired by clean, chat-first Android ergonomics similar to RikkaHub, while FurinaHub keeps its own implementation and Furina Agent architecture.
 
@@ -61,6 +61,7 @@ If Termux integration itself is not prepared, the user can open Termux from the 
 The navigation drawer contains:
 
 - Percakapan
+- Kita
 - Memori & Psyche
 - Model & Provider
 - Personalisasi
@@ -86,7 +87,18 @@ The **Pengaturan** page now centralizes:
 - Core/dependency update;
 - advanced local-model settings when Core is connected.
 
-The Memori screen intentionally does **not** expose a relationship score/summary. Relationship context may still be used internally by Psyche when relevant to conversation.
+The Memori screen intentionally does **not** expose a relationship score. The **Kita** screen instead shows human-readable stages, user-controlled Close/Romantic modes, conversation pace, affection style, initiative, rituals, a shared note, and explicitly saved moments.
+
+## Relationship Core v3
+
+Core RC66 changes the product center from tasks to long-term casual and romantic companionship:
+
+- casual conversation is the default intent; work/task behavior only activates when explicitly requested;
+- Romantic mode requires an explicit 18+ confirmation and never implies automatic sexual escalation;
+- affection, banter, vulnerability, technical discussion, and high-risk situations receive different bounded dialogue guidance without a second model call;
+- long-pressing a message can save it as a shared moment or propose it for reviewed memory;
+- the existing Focus data remains intact for compatibility, but Focus is no longer a primary navigation item;
+- no streak, guilt, forced jealousy, exclusivity demand, or punishment for absence is used to drive engagement.
 
 The Android shell follows the repository-scoped **UI UX Pro Max v2.15.0** design system: minimum 44px interaction targets, semantic status feedback, restrained motion, responsive text, reduced-motion support, sparse surfaces, and progressive disclosure of technical controls. The persisted project rules are in `design-system/furinahub/MASTER.md`.
 
@@ -174,7 +186,19 @@ FurinaHub has two update paths from the app:
 - uses the same staged Core validation as CLI updates;
 - dependencies are reconciled against a versioned `dependency_revision`, not blindly upgraded.
 
-Core RC36 targets FurinaHub Android RC21. The Android package ID and signing identity remain compatible with RC20, so RC21 is an in-place upgrade rather than a separate application.
+If the normal updater cannot start, use:
+
+```bash
+furina recover
+```
+
+For an older installation that does not have that command yet, stream the installer directly instead of writing to Android's invalid global `/tmp` path:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final/install.sh | bash
+```
+
+Core RC66 targets FurinaHub Android RC54. The Android package ID and signing identity remain unchanged, so RC54 is an in-place upgrade rather than a separate application.
 
 ## Local architecture
 
@@ -188,6 +212,8 @@ FurinaHub APK
              ▼
 Furina Core in Termux
   ├─ conversation
+  ├─ Relationship Core v3
+  ├─ shared moments
   ├─ Psyche
   ├─ memory
   ├─ model router
@@ -202,8 +228,8 @@ The WebView does not directly navigate to localhost. The bundled shell calls a n
 
 ## Current versions
 
-- Core: `1.0.0-rc36`
-- FurinaHub Android: `1.0.0-rc21`
-- Dependency revision: `2026.08.14-r1`
+- Core: `1.0.0-rc66`
+- FurinaHub Android: `1.0.0-rc54`
+- Dependency revision: `2026.08.22-r36`
 
-RC34 chat-first intent separation and RC32 execution policy remain active underneath RC36.
+RC65 shared workspace, RC53 persistent companion state, RC34 chat-first intent separation, and RC32 execution policy remain active underneath Relationship Core v3.
