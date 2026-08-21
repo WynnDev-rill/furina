@@ -2,17 +2,17 @@
 set -euo pipefail
 
 FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"
-FURINA_UPDATER_GENERATION="13"
-VERSION="1.0.0-rc60"
-DEPENDENCY_REVISION="2026.08.18-r30"
+FURINA_UPDATER_GENERATION="14"
+VERSION="1.0.0-rc61"
+DEPENDENCY_REVISION="2026.08.21-r31"
 STABLE_RELEASE="https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable"
 BOOTSTRAP_CDN="https://cdn.jsdelivr.net/gh/WynnDev-rill/furina@furina-bootstrap-v1.0.0/experiments/furina-agent-final"
 API_BASE="https://api.github.com/repos/WynnDev-rill/furina/contents/experiments/furina-agent-final"
 RAW_BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 WEB_BASE="https://github.com/WynnDev-rill/furina/raw/refs/heads/experiment/furina-agent-termux/experiments/furina-agent-final"
-BODY_PATH="overrides/runtime-r30/install-body.sh"
-BODY_BLOB="61d0650b238173a55dd10dd2b979b595c063b010"
-APPLY_BLOB="4895f1c1da600bd53a5b4b449feee0883ad2161f"
+BODY_PATH="overrides/runtime-r31/install-body.sh"
+BODY_BLOB="333a96066a585dbae38e4ceb6dedb56512d4f90e"
+APPLY_BLOB="3992cdc9bf7da0f4269c8a9e0f35d6946ef5113e"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
   echo "Installer FurinaHub harus dijalankan dari Termux." >&2
@@ -54,13 +54,13 @@ d=pathlib.Path(p).read_bytes(); actual=hashlib.sha1(f"blob {len(d)}\0".encode()+
 if actual!=expected: raise SystemExit(f"Integritas bootstrap FurinaHub berubah: {actual} != {expected}")
 t=d.decode()
 checks=(
-  'VERSION="1.0.0-rc60"','DEPENDENCY_REVISION="2026.08.18-r30"',
+  'VERSION="1.0.0-rc61"','DEPENDENCY_REVISION="2026.08.21-r31"',
   f'APPLY_BLOB="{apply_blob}"','STATUS_PATH="$ROOT/run/furinahub-update.json"',
   'FURINA_UPDATE_SOURCE','Tidak ada pembaruan terbaru','Pembaruan berhasil',
   'Pembaruan gagal pada tahap','render_panel',
 )
 missing=[x for x in checks if x not in t]
-if missing: raise SystemExit(f'Binding runtime RC60/r30 tidak lengkap: {missing}')
+if missing: raise SystemExit(f'Binding runtime RC61/r31 tidak lengkap: {missing}')
 PY
 boot_clear
 bash "$TMP/install-body.sh" "$@"
