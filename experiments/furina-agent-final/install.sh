@@ -2,7 +2,7 @@
 set -euo pipefail
 
 FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"
-FURINA_UPDATER_GENERATION="17"
+FURINA_UPDATER_GENERATION="18"
 VERSION="1.0.0-rc63"
 DEPENDENCY_REVISION="2026.08.21-r33"
 STABLE_RELEASE="https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable"
@@ -11,7 +11,7 @@ API_BASE="https://api.github.com/repos/WynnDev-rill/furina/contents/experiments/
 RAW_BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
 WEB_BASE="https://github.com/WynnDev-rill/furina/raw/refs/heads/experiment/furina-agent-termux/experiments/furina-agent-final"
 BODY_PATH="overrides/runtime-r33/install-body.sh"
-BODY_BLOB="cd205532c50d1183d6a919e4da5aa296fba6b764"
+BODY_BLOB="6bc0c9c8d97cb6e8f0838383527be1981edf02f3"
 APPLY_BLOB="94a3692767c4473ae940cb2441b0cb28f4401d9c"
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
@@ -32,7 +32,7 @@ boot_clear(){ [[ "$BOOT_TTY" == "1" ]] && printf '\r\033[2K'; }
 fetch_url(){
   local url="$1" out="$2" api="${3:-0}" code
   rm -f "$out"
-  local args=(-L --silent --show-error --connect-timeout 10 --max-time 180 --retry 3 --retry-delay 2 --retry-all-errors -o "$out" -w '%{http_code}' -H 'User-Agent: Furina-Core-Bootstrap/17' -H 'Cache-Control: no-cache' -H 'Pragma: no-cache')
+  local args=(-L --silent --show-error --connect-timeout 10 --max-time 180 --retry 3 --retry-delay 2 --retry-all-errors -o "$out" -w '%{http_code}' -H 'User-Agent: Furina-Core-Bootstrap/18' -H 'Cache-Control: no-cache' -H 'Pragma: no-cache')
   [[ "$api" == "1" ]] && args+=(-H 'Accept: application/vnd.github.raw+json')
   code="$(curl "${args[@]}" "$url" 2>/dev/null || true)"
   [[ "$code" == "200" && -s "$out" ]]

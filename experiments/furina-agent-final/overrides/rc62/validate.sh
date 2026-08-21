@@ -58,9 +58,13 @@ import sys
 p=Path(sys.argv[1]); text=p.read_text(encoding='utf-8')
 old='            "core_version": VERSION,\n            "bridge_target": "1.0.0-rc48",'
 assert old in text
-p.write_text(text.replace(old, '            "core_version": VERSION,\n            "bridge_target": "1.0.0-rc50",', 1), encoding='utf-8')
+text=text.replace(old, '            "core_version": VERSION,\n            "bridge_target": "1.0.0-rc50",', 1)
+system_old='            "core_version": VERSION,\n            "bridge_target": "1.0.0-rc45",\n            "dependency_revision": dependency_revision,'
+assert system_old in text
+text=text.replace(system_old, '            "core_version": VERSION,\n            "bridge_target": "1.0.0-rc51",\n            "dependency_revision": dependency_revision,', 1)
+p.write_text(text, encoding='utf-8')
 PY
 python3 "$HERE/apply.py" "$VARIANT"
 grep -Fq 'VERSION = "1.0.0-rc62"' "$VARIANT/core/furina_agent/version.py"
 test "$(grep -Fc '"bundle_id": "furina-2026.08.21-rc62-rc50"' "$VARIANT/core/furina_agent/hub.py")" -eq 1
-printf '%s\n' FURINA_RC62_RELEASED_RC61_VARIANT_OK
+printf '%s\n' FURINA_RC62_RELEASED_RC61_DUAL_STATUS_VARIANT_OK

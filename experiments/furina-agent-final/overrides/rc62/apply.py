@@ -149,24 +149,29 @@ DATEPARSER_VERSION = "1.4.2"
 ''',
         "shared bundle state",
     )
-    hub = once(
-        hub,
-        '''            "core_version": VERSION,
-            "bridge_target": "1.0.0-rc45",
-            "dependency_revision": dependency_revision,
-            "bridge": bridge,
-''',
-        f'''            "core_version": VERSION,
-            "bundle_id": bundle_id,
-            "expected_bundle_id": "{BUNDLE_ID}",
-            "bridge_bundle_id": bridge_bundle_id,
-            "bundle_synced": bundle_id == "{BUNDLE_ID}" and bridge_bundle_id == "{BUNDLE_ID}",
-            "bridge_target": "1.0.0-rc50",
-            "dependency_revision": dependency_revision,
-            "bridge": bridge,
-''',
-        "system bundle state",
+    system_pattern = re.compile(
+        r'(?P<indent>^[ \t]+)"core_version": VERSION,\n'
+        r'(?P=indent)"bridge_target": "[^"]+",\n'
+        r'(?P=indent)"dependency_revision": dependency_revision,\n'
+        r'(?P=indent)"bridge": bridge,',
+        re.MULTILINE,
     )
+    hub, system_count = system_pattern.subn(
+        lambda match: (
+            f'{match.group("indent")}"core_version": VERSION,\n'
+            f'{match.group("indent")}"bundle_id": bundle_id,\n'
+            f'{match.group("indent")}"expected_bundle_id": "{BUNDLE_ID}",\n'
+            f'{match.group("indent")}"bridge_bundle_id": bridge_bundle_id,\n'
+            f'{match.group("indent")}"bundle_synced": bundle_id == "{BUNDLE_ID}" and bridge_bundle_id == "{BUNDLE_ID}",\n'
+            f'{match.group("indent")}"bridge_target": "1.0.0-rc50",\n'
+            f'{match.group("indent")}"dependency_revision": dependency_revision,\n'
+            f'{match.group("indent")}"bridge": bridge,'
+        ),
+        hub,
+        count=1,
+    )
+    if system_count != 1:
+        raise SystemExit("RC62 marker missing: system status dictionary")
 
     checks = (
         'VERSION = "1.0.0-rc62"', 'DATEPARSER_VERSION = "1.4.2"',
