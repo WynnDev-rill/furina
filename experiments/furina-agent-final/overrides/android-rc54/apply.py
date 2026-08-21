@@ -81,7 +81,7 @@ def main() -> None:
     page = once(
         page,
         "if(!history.length)addMsg('assistant','Aku sudah terhubung. Ada yang ingin kamu bicarakan atau kerjakan?');",
-        "if(!history.length)addMsg('assistant','Aku di sini. Jangan membuatku menunggu terlalu lama.');",
+        "if(!history.length)addMsg('assistant','Aku di sini. Tidak harus topik besar—hal kecil pun boleh.');",
         "relationship-first empty greeting",
     )
 

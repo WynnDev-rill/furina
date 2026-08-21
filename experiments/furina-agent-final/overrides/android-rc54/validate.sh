@@ -34,6 +34,7 @@ for marker in (
 assert 'data-view="focus"' not in html
 assert "Jadikan Fokus" not in html
 assert "Ada yang ingin kamu bicarakan atau kerjakan?" not in html
+assert "Jangan membuatku menunggu" not in html
 assert html.count("async function captureSelected(action)") == 1
 print("FURINAHUB_ANDROID_RC54_STATIC_OK")
 PY
