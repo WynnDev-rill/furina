@@ -11,10 +11,10 @@ pkg update -y && pkg install -y curl
 ## 2. Pasang Furina Agent
 
 ```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/WynnDev-rill/furina@experiment/furina-agent-termux/experiments/furina-agent-final/install.sh | bash
+curl -fsSL https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable/furina-install.sh | bash
 ```
 
-Bootstrap memakai beberapa jalur unduh dengan verifikasi integritas. Core, dependency runtime, model, dan data pengguna disimpan terpisah di `~/.furina-agent`, sehingga update Core tidak menghapus data atau model.
+Bootstrap stabil mengunduh satu snapshot Core + bridge yang lengkap dan memverifikasi SHA-256 sebelum aktivasi atomik. Ia dapat dipakai untuk instalasi baru maupun pemulihan versi lama tanpa rantai patch perantara. Model dan data pengguna disimpan terpisah di `~/.furina-agent`, sehingga update Core tidak menghapus data atau model.
 
 Saat instalasi/update interaktif, Termux menampilkan progress ringkas. Detail teknis tetap ditulis ke log agar layar tidak dipenuhi output dependency.
 
@@ -43,7 +43,7 @@ furina recover
 Instalasi lama yang belum memiliki `furina recover` harus memakai pipe langsung—jangan menulis file ke `/tmp`, karena lokasi global itu bukan direktori temp yang valid untuk Termux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final/install.sh | bash
+curl -fsSL https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable/furina-install.sh | bash
 ```
 
 APK FurinaHub diperbarui dari **FurinaHub → Pengaturan → Pembaruan**. APK dan Core memiliki lifecycle terpisah agar kegagalan salah satunya tidak merusak yang lain.

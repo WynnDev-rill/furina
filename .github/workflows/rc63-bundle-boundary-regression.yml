@@ -1,4 +1,4 @@
-name: RC66 Relationship Bundle Boundary Regression
+name: RC67 Full Snapshot Boundary Regression
 
 on:
   pull_request:
@@ -22,6 +22,9 @@ on:
       - 'experiments/furina-agent-final/overrides/rc66/**'
       - 'experiments/furina-agent-final/overrides/runtime-r36/**'
       - 'experiments/furina-agent-final/overrides/android-rc54/**'
+      - 'experiments/furina-agent-final/overrides/rc67/**'
+      - 'experiments/furina-agent-final/overrides/runtime-r37/**'
+      - 'experiments/furina-agent-final/overrides/android-rc55/**'
       - 'experiments/furina-agent-final/install.sh'
       - 'furina-agent-termux/experiments/furina-agent-final/install.sh'
       - '.github/workflows/rc63-bundle-boundary-regression.yml'
@@ -31,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate RC61 foundation and RC66 relationship bundle hash chain
+      - name: Validate RC67 partner baseline and snapshot boundary
         shell: bash
         run: |
           set -euo pipefail
@@ -53,6 +56,12 @@ jobs:
           python3 -m py_compile experiments/furina-agent-final/overrides/rc66/relationship_v3.py
           python3 -m py_compile experiments/furina-agent-final/overrides/android-rc54/apply.py
           bash -n experiments/furina-agent-final/overrides/runtime-r36/install-body.sh
+          python3 -m py_compile experiments/furina-agent-final/overrides/rc67/apply.py
+          python3 -m py_compile experiments/furina-agent-final/overrides/rc67/relationship_v4.py
+          python3 -m py_compile experiments/furina-agent-final/overrides/android-rc55/apply.py
+          bash -n experiments/furina-agent-final/overrides/runtime-r37/install-body.sh
+          cat experiments/furina-agent-final/overrides/runtime-r37/snapshot-parts/part-* > /tmp/furina-core-bridge-rc67-rc55.tar
+          echo '502df5c11809b027ec118b3209adb3a4d14ffa441b570b8da02083dc9f2b20f9  /tmp/furina-core-bridge-rc67-rc55.tar' | sha256sum -c -
           python3 - <<'PY'
           import hashlib,re
           from pathlib import Path
@@ -61,34 +70,31 @@ jobs:
               d=Path(p).read_bytes(); return hashlib.sha1(f"blob {len(d)}\0".encode()+d).hexdigest()
           def var(text,name):
               m=re.search(rf'^{re.escape(name)}="([^"]+)"', text, re.M); assert m,name; return m.group(1)
-          apply=root/'overrides/rc66/apply.py'
-          relationship=root/'overrides/rc66/relationship_v3.py'
-          android=root/'overrides/android-rc54/apply.py'
-          body=root/'overrides/runtime-r36/install-body.sh'
-          foundation=root/'overrides/runtime-r35/install-body.sh'
+          apply=root/'overrides/rc67/apply.py'
+          relationship=root/'overrides/rc67/relationship_v4.py'
+          android=root/'overrides/android-rc55/apply.py'
+          body=root/'overrides/runtime-r37/install-body.sh'
           legacy_apply=root/'overrides/rc62/apply.py'
           install=root/'install.sh'
-          assert var(body.read_text(),'CORE_BLOB') == blob(apply)
-          assert var(body.read_text(),'RELATIONSHIP_BLOB') == blob(relationship)
-          assert var(body.read_text(),'ANDROID_BLOB') == blob(android)
           assert var(install.read_text(),'BODY_BLOB') == blob(body)
-          assert var(body.read_text(),'R35_BLOB') == blob(foundation)
-          assert var(install.read_text(),'RUNTIME_CONTRACT') == 'furina-runtime/v2'
-          assert var(body.read_text(),'FURINA_RUNTIME_CONTRACT') == 'furina-runtime/v2'
+          assert var(install.read_text(),'RUNTIME_CONTRACT') == 'furina-runtime/v3-full-snapshot'
+          assert var(body.read_text(),'FURINA_RUNTIME_CONTRACT') == 'furina-runtime/v3-full-snapshot'
           assert install.read_bytes() == Path('furina-agent-termux/experiments/furina-agent-final/install.sh').read_bytes()
-          assert 'RelationshipEngine' in apply.read_text()
-          assert 'def cmd_recover' in apply.read_text()
-          assert 'furina-2026.08.22-rc66-rc54' in body.read_text()
+          assert 'relationship_v4' in apply.read_text()
+          assert 'relationship_mode' not in relationship.read_text()
+          assert 'furina-2026.08.22-rc67-rc55' in body.read_text()
           assert 'sync_apk' in body.read_text()
           assert 'COMMIT_STARTED' in body.read_text()
-          assert 'STAGED_ROOT' in body.read_text()
+          assert 'SNAPSHOT_SHA256' in body.read_text()
+          assert 'validate_archive' in body.read_text()
           assert '$STABLE_RELEASE/bundle.json' in body.read_text()
           assert "'render_panel'" not in install.read_text()
           assert "'sync_apk'" in install.read_text()
           assert 'APPLY_BLOB' not in install.read_text()
-          assert '/tmp/furina-recover.sh' not in apply.read_text()
-          assert 'RUN_DIR / "furina-recover.sh"' in apply.read_text()
+          assert 'runtime-r36' not in body.read_text()
+          assert 'foundation' not in body.read_text().lower()
           assert 'bootstrap_pattern = re.compile' in legacy_apply.read_text()
           assert 'system_pattern = re.compile' in legacy_apply.read_text()
-          print('FURINA_RC66_RELATIONSHIP_BUNDLE_HASH_CHAIN_OK')
+          assert 'id="relationshipBaseline"' in android.read_text()
+          print('FURINA_RC67_FULL_SNAPSHOT_BOUNDARY_OK')
           PY
