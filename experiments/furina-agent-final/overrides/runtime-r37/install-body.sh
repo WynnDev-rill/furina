@@ -9,8 +9,8 @@ ROOT="$HOME/.furina-agent"
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 STABLE_RELEASE="https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable"
 HUB_RELEASE="https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc55"
-SNAPSHOT_ASSET="furina-core-bridge-rc67-rc55.tar.gz"
-SNAPSHOT_SHA256="0f91696d6d9c9f88c33a827d69e2ce492f63e4269ac421777de975afc3e161bc"
+SNAPSHOT_ASSET="furina-core-bridge-rc67-rc55.tar"
+SNAPSHOT_SHA256="502df5c11809b027ec118b3209adb3a4d14ffa441b570b8da02083dc9f2b20f9"
 STATUS_PATH="$ROOT/run/furinahub-update.json"
 LOCKDIR="$ROOT/run/update.lock"
 SOURCE="${FURINA_UPDATE_SOURCE:-termux}"
@@ -60,10 +60,10 @@ PY
 
 validate_archive(){ python - "$1" <<'PY'
 import hashlib,pathlib,sys,tarfile
-p=pathlib.Path(sys.argv[1]); expected="0f91696d6d9c9f88c33a827d69e2ce492f63e4269ac421777de975afc3e161bc"
+p=pathlib.Path(sys.argv[1]); expected="502df5c11809b027ec118b3209adb3a4d14ffa441b570b8da02083dc9f2b20f9"
 actual=hashlib.sha256(p.read_bytes()).hexdigest()
 if actual != expected: raise SystemExit(f"snapshot sha256 {actual} != {expected}")
-with tarfile.open(p,"r:gz") as archive:
+with tarfile.open(p,"r:") as archive:
     members=archive.getmembers()
     if not members: raise SystemExit("snapshot kosong")
     for member in members:
@@ -139,10 +139,10 @@ fi
 progress 5 checking "Memeriksa full snapshot Furina"
 install_dependencies
 progress 36 download "Mengunduh snapshot Core dan bridge yang utuh"
-fetch_url "$STABLE_RELEASE/$SNAPSHOT_ASSET" "$TMP/snapshot.tar.gz" || fetch_url "$HUB_RELEASE/$SNAPSHOT_ASSET" "$TMP/snapshot.tar.gz"
-validate_archive "$TMP/snapshot.tar.gz"
+fetch_url "$STABLE_RELEASE/$SNAPSHOT_ASSET" "$TMP/snapshot.tar" || fetch_url "$HUB_RELEASE/$SNAPSHOT_ASSET" "$TMP/snapshot.tar"
+validate_archive "$TMP/snapshot.tar"
 progress 56 staging "Mengekstrak snapshot ke staging"
-mkdir -p "$TMP/staged-root"; tar -xzf "$TMP/snapshot.tar.gz" -C "$TMP/staged-root"
+mkdir -p "$TMP/staged-root"; tar -xf "$TMP/snapshot.tar" -C "$TMP/staged-root"
 progress 72 validation "Memvalidasi Partner Core dan FurinaHub"
 FURINA_HOME="$TMP/test-home" PYTHONPATH="$TMP/staged-root/core" python -m compileall -q "$TMP/staged-root/core/furina_agent"
 FURINA_HOME="$TMP/test-home" PYTHONPATH="$TMP/staged-root/core" python - "$TMP/staged-root" <<'PY'

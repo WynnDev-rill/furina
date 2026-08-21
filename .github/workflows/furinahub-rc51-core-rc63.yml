@@ -156,7 +156,7 @@ jobs:
           import json,os
           data={'version':os.environ['NAME'],'version_code':int(os.environ['CODE']),'package_name':os.environ['PACKAGE'],'sha256':os.environ['SHA'],'signer_sha256':os.environ['SIGNER'],'apk_url':'https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc55/FurinaHub-v1.0.0-rc55.apk'}
           open('bridge.json','w').write(json.dumps(data,indent=2)+'\n')
-          bundle={'schema':2,'bundle_id':'furina-2026.08.22-rc67-rc55','core_version':'1.0.0-rc67','dependency_revision':'2026.08.22-r37','bridge_version':os.environ['NAME'],'bridge_version_code':int(os.environ['CODE']),'package_name':os.environ['PACKAGE'],'apk_url':data['apk_url'],'apk_sha256':os.environ['SHA'],'signer_sha256':os.environ['SIGNER'],'snapshot_asset':'furina-core-bridge-rc67-rc55.tar.gz','snapshot_sha256':'0f91696d6d9c9f88c33a827d69e2ce492f63e4269ac421777de975afc3e161bc'}
+          bundle={'schema':2,'bundle_id':'furina-2026.08.22-rc67-rc55','core_version':'1.0.0-rc67','dependency_revision':'2026.08.22-r37','bridge_version':os.environ['NAME'],'bridge_version_code':int(os.environ['CODE']),'package_name':os.environ['PACKAGE'],'apk_url':data['apk_url'],'apk_sha256':os.environ['SHA'],'signer_sha256':os.environ['SIGNER'],'snapshot_asset':'furina-core-bridge-rc67-rc55.tar','snapshot_sha256':'502df5c11809b027ec118b3209adb3a4d14ffa441b570b8da02083dc9f2b20f9'}
           open('bundle.json','w').write(json.dumps(bundle,indent=2)+'\n')
           PY
 
@@ -193,11 +193,11 @@ jobs:
           cp experiments/furina-agent-final/overrides/android-rc54/apply.py android-rc54-apply.py
           cp experiments/furina-agent-final/overrides/android-rc55/apply.py android-rc55-apply.py
           cp experiments/furina-agent-final/install.sh furina-install.sh
-          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner --exclude='__pycache__' --exclude='*.pyc' --exclude='bridge/.gradle' --exclude='bridge/app/build' -C /tmp/furina-agent-rc54-validate/termux -cf - core bridge | gzip -n -9 > furina-core-bridge-rc67-rc55.tar.gz
-          echo '0f91696d6d9c9f88c33a827d69e2ce492f63e4269ac421777de975afc3e161bc  furina-core-bridge-rc67-rc55.tar.gz' | sha256sum -c -
+          tar --format=ustar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner --exclude='__pycache__' --exclude='*.pyc' --exclude='bridge/.gradle' --exclude='bridge/app/build' -C /tmp/furina-agent-rc54-validate/termux -cf furina-core-bridge-rc67-rc55.tar core bridge
+          echo '502df5c11809b027ec118b3209adb3a4d14ffa441b570b8da02083dc9f2b20f9  furina-core-bridge-rc67-rc55.tar' | sha256sum -c -
           # Publish the complete snapshot and runtime before the public
           # installer. bundle.json remains the final atomic channel pointer.
-          retry gh release upload "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" furina-core-bridge-rc67-rc55.tar.gz furina-runtime-r37.sh core-rc67-apply.py core-rc67-relationship-v4.py android-rc55-apply.py --clobber
+          retry gh release upload "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" furina-core-bridge-rc67-rc55.tar furina-runtime-r37.sh core-rc67-apply.py core-rc67-relationship-v4.py android-rc55-apply.py --clobber
           retry gh release upload "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" manifest.json furina-runtime-r32.sh furina-runtime-r33.sh furina-runtime-r34.sh furina-runtime-r35.sh furina-runtime-r36.sh core-rc62-apply.py core-rc63-apply.py core-rc64-apply.py core-rc64-lite-full.py core-rc65-apply.py core-rc66-apply.py core-rc66-relationship-v3.py android-rc52-apply.py android-rc53-apply.py android-rc54-apply.py furina-install.sh --clobber
           retry gh release upload "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" bundle.json --clobber
           echo FURINAHUB_RC55_RC67_PUBLISHED
