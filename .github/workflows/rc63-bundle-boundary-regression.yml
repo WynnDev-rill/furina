@@ -1,4 +1,4 @@
-name: RC63 Shared Bundle Boundary Regression
+name: RC64 Lite and Full Bundle Boundary Regression
 
 on:
   pull_request:
@@ -13,6 +13,9 @@ on:
       - 'experiments/furina-agent-final/overrides/runtime-r33/**'
       - 'experiments/furina-agent-final/overrides/android-rc50/**'
       - 'experiments/furina-agent-final/overrides/android-rc51/**'
+      - 'experiments/furina-agent-final/overrides/android-rc52/**'
+      - 'experiments/furina-agent-final/overrides/rc64/**'
+      - 'experiments/furina-agent-final/overrides/runtime-r34/**'
       - 'experiments/furina-agent-final/install.sh'
       - 'furina-agent-termux/experiments/furina-agent-final/install.sh'
       - '.github/workflows/rc63-bundle-boundary-regression.yml'
@@ -22,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate RC61 foundation and RC63 shared bundle hash chain
+      - name: Validate RC61 foundation and RC64 Lite/Full bundle hash chain
         shell: bash
         run: |
           set -euo pipefail
@@ -33,8 +36,10 @@ jobs:
           python3 -m py_compile experiments/furina-agent-final/overrides/rc63/apply.py
           python3 -m py_compile experiments/furina-agent-final/overrides/android-rc50/apply.py
           python3 -m py_compile experiments/furina-agent-final/overrides/android-rc51/apply.py
+          python3 -m py_compile experiments/furina-agent-final/overrides/android-rc52/apply.py
           bash -n experiments/furina-agent-final/overrides/runtime-r33/install-body.sh
-          bash experiments/furina-agent-final/overrides/runtime-r33/validate.sh
+          python3 -m py_compile experiments/furina-agent-final/overrides/rc64/apply.py
+          bash -n experiments/furina-agent-final/overrides/runtime-r34/install-body.sh
           python3 - <<'PY'
           import hashlib,re
           from pathlib import Path
@@ -43,23 +48,27 @@ jobs:
               d=Path(p).read_bytes(); return hashlib.sha1(f"blob {len(d)}\0".encode()+d).hexdigest()
           def var(text,name):
               m=re.search(rf'^{re.escape(name)}="([^"]+)"', text, re.M); assert m,name; return m.group(1)
-          apply=root/'overrides/rc63/apply.py'
-          body=root/'overrides/runtime-r33/install-body.sh'
-          foundation=root/'overrides/runtime-r32/install-body.sh'
+          apply=root/'overrides/rc64/apply.py'
+          product=root/'overrides/rc64/lite_full.py'
+          android=root/'overrides/android-rc52/apply.py'
+          body=root/'overrides/runtime-r34/install-body.sh'
+          foundation=root/'overrides/runtime-r33/install-body.sh'
           legacy_apply=root/'overrides/rc62/apply.py'
           install=root/'install.sh'
-          assert var(body.read_text(),'APPLY_BLOB') == blob(apply)
+          assert var(body.read_text(),'CORE_BLOB') == blob(apply)
+          assert var(body.read_text(),'PRODUCT_BLOB') == blob(product)
+          assert var(body.read_text(),'ANDROID_BLOB') == blob(android)
           assert var(install.read_text(),'APPLY_BLOB') == blob(apply)
           assert var(install.read_text(),'BODY_BLOB') == blob(body)
-          assert var(body.read_text(),'R32_BLOB') == blob(foundation)
-          assert var(foundation.read_text(),'APPLY_BLOB') == blob(legacy_apply)
+          assert var(body.read_text(),'R33_BLOB') == blob(foundation)
           assert install.read_bytes() == Path('furina-agent-termux/experiments/furina-agent-final/install.sh').read_bytes()
-          assert 'furina-2026.08.21-rc63-rc51' in apply.read_text()
-          assert 'sync_furinahub_apk' in body.read_text()
+          assert 'ProductWorkspace' in apply.read_text()
+          assert 'furina-2026.08.21-rc64-rc52' in body.read_text()
+          assert 'sync_apk' in body.read_text()
           assert '$STABLE_RELEASE/bundle.json' in body.read_text()
           assert "'render_panel'" not in install.read_text()
-          assert "'sync_furinahub_apk'" in install.read_text()
+          assert "'sync_apk'" in install.read_text()
           assert 'bootstrap_pattern = re.compile' in legacy_apply.read_text()
           assert 'system_pattern = re.compile' in legacy_apply.read_text()
-          print('FURINA_RC63_SHARED_BUNDLE_HASH_CHAIN_OK')
+          print('FURINA_RC64_LITE_FULL_BUNDLE_HASH_CHAIN_OK')
           PY
