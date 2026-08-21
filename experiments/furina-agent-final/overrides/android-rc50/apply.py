@@ -180,7 +180,7 @@ def main() -> None:
                 byte[] fuseBuf = new byte[8192];
                 int fuseRead;
                 while ((fuseRead = fuseIn.read(fuseBuf)) >= 0) fuseOut.write(fuseBuf, 0, fuseRead);
-                String fuse = fuseOut.toString("UTF-8").replace("</script", "<\\/script");
+                String fuse = fuseOut.toString("UTF-8").replace("</script", "<\\\\/script");
                 String bootstrap = "const module={exports:{}};const exports=module.exports;\\n"
                         + fuse + "\\nwindow.Fuse=module.exports;";
                 html = html.replace("/*__FURINAHUB_FUSE__*/", bootstrap);
