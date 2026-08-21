@@ -39,12 +39,30 @@ def main() -> None:
         if not path.is_file():
             raise SystemExit(f"Android RC54 source missing: {path}")
 
-    build = once(gradle.read_text(encoding="utf-8"), "versionCode 10053", "versionCode 10054", "version code")
+    original_build = gradle.read_text(encoding="utf-8")
+    original_main = main.read_text(encoding="utf-8")
+    original_runtime = runtime.read_text(encoding="utf-8")
+    original_page = html.read_text(encoding="utf-8")
+    if "versionCode 10054" in original_build and "versionName '1.0.0-rc54'" in original_build:
+        installed = "\n".join((original_build, original_main, original_runtime, original_page))
+        required = (
+            NEW_BUNDLE, 'EXPECTED_CORE_VERSION = "1.0.0-rc66"', 'id="relationship"',
+            'data-view="relationship"', "async function loadRelationship()",
+            "/api/relationship/preferences", "/api/relationship/moments",
+            "Simpan sebagai Momen kita", "relationshipData",
+        )
+        missing = [marker for marker in required if marker not in installed]
+        if missing or 'data-view="focus"' in original_page or "Jadikan Fokus" in original_page:
+            raise SystemExit("Android RC54 existing install is incomplete: " + ", ".join(missing or ["legacy Focus action"]))
+        print("FURINAHUB_ANDROID_RC54_ALREADY_APPLIED_OK")
+        return
+
+    build = once(original_build, "versionCode 10053", "versionCode 10054", "version code")
     build = once(build, "versionName '1.0.0-rc53'", "versionName '1.0.0-rc54'", "version name")
-    main_text = main.read_text(encoding="utf-8").replace(OLD_BUNDLE, NEW_BUNDLE)
+    main_text = original_main.replace(OLD_BUNDLE, NEW_BUNDLE)
     main_text = once(main_text, 'EXPECTED_CORE_VERSION = "1.0.0-rc65"', 'EXPECTED_CORE_VERSION = "1.0.0-rc66"', "Core target")
-    runtime_text = runtime.read_text(encoding="utf-8").replace(OLD_BUNDLE, NEW_BUNDLE)
-    page = html.read_text(encoding="utf-8")
+    runtime_text = original_runtime.replace(OLD_BUNDLE, NEW_BUNDLE)
+    page = original_page
 
     old_today = '''<section id="today" class="view"><div class="sectionhead"><h1>Hari ini</h1><div class="sub">Yang perlu kamu lihat sekarang—bukan dashboard yang penuh angka.</div></div><div id="todayOffline" class="card"></div><div id="todayOnline" class="hidden"><div class="card"><h3>Berikutnya</h3><div id="todayFocus"></div></div><div class="card"><h3>Ruang kerja Furina</h3><div id="todaySignals"></div></div><div class="actions"><button class="btn primary" onclick="go('chat')">Lanjut chat</button><button class="btn" onclick="go('focus')">Kelola fokus</button></div></div></section>'''
     relationship = '''<section id="relationship" class="view"><div class="sectionhead"><h1>Kita</h1><div class="sub">Tempat hubungan kalian tumbuh—tanpa skor, streak, atau tuntutan untuk selalu kembali.</div></div><div id="relationshipOffline" class="card"></div><div id="relationshipOnline" class="hidden"><div class="card relationshipHero"><div class="row"><div class="rowmain"><div id="relationshipStage" class="rowtitle">Makin akrab</div><div id="relationshipTone" class="rowdesc">Tenang & hangat</div></div><span id="relationshipModeBadge" class="badge">Dekat</span></div><div id="relationshipMode" class="seg"><button onclick="setRelationshipMode('close')">Dekat</button><button onclick="setRelationshipMode('romantic')">Romantis</button></div><div id="relationshipModeNote" class="sub relationshipNote"></div></div><div class="card"><h3>Cara kita berbicara</h3><div class="relationshipGrid"><div class="field"><label>Ritme kedekatan</label><select id="relationshipPace"><option value="slow">Pelan</option><option value="natural">Natural</option><option value="direct">Terbuka</option></select></div><div class="field"><label>Gaya afeksi</label><select id="relationshipAffection"><option value="gentle">Lembut</option><option value="playful">Playful</option><option value="expressive">Ekspresif</option></select></div><div class="field"><label>Inisiatif Furina</label><select id="relationshipInitiative"><option value="reserved">Tenang</option><option value="balanced">Seimbang</option><option value="expressive">Aktif</option></select></div><div class="field"><label>Ritual percakapan</label><select id="relationshipRitual"><option value="none">Tanpa ritual</option><option value="reconnect">Sambut kembali</option><option value="daybook">Pagi & malam</option></select></div></div><div class="field"><label>Catatan bersama</label><textarea id="relationshipNote" placeholder="Hal penting tentang hubungan, batas, atau cara kalian ingin berbicara"></textarea></div><button class="btn primary full" onclick="saveRelationshipPreferences()">Simpan cara kita</button></div><div class="card"><div class="row"><div class="rowmain"><div class="rowtitle">Momen kita</div><div class="rowdesc">Hanya momen yang kamu pilih sendiri yang disimpan di sini.</div></div><button class="btn" onclick="addMoment()">Tambah</button></div><div id="relationshipMoments"></div></div><div id="relationshipGuard" class="sub relationshipGuard"></div></div></section>'''

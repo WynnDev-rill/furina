@@ -10,6 +10,9 @@ rm -rf "$STAGE"
 mkdir -p "$(dirname "$STAGE")"
 cp -a "$BASE" "$STAGE"
 python3 "$HERE/apply.py" "$STAGE"
+# A retry after Core/Bridge activation but before metadata finalization must be
+# a successful no-op, not a second destructive UI transform.
+python3 "$HERE/apply.py" "$STAGE" | grep -Fq FURINAHUB_ANDROID_RC54_ALREADY_APPLIED_OK
 python3 -m py_compile "$HERE/apply.py"
 
 python3 - "$STAGE" <<'PY'
