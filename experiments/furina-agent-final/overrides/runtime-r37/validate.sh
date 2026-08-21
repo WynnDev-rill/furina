@@ -21,7 +21,7 @@ python3 - "$HERE/install-body.sh" <<'PY'
 from pathlib import Path
 import sys
 t=Path(sys.argv[1]).read_text()
-required=('FURINA_RUNTIME_CONTRACT="furina-runtime/v3-full-snapshot"','SNAPSHOT_SHA256="502df5c1','validate_archive','install_launchers','rollback','FURINA_FULL_SNAPSHOT_WRAPPER_V1')
+required=('FURINA_RUNTIME_CONTRACT="furina-runtime/v3-full-snapshot"','SNAPSHOT_SHA256="502df5c1','validate_archive','install_launchers','enable_termux_integration','allow-external-apps=true','install_openconnector_runtime','installation_healthy','snapshot-manifest-r37.json','rollback','FURINA_FULL_SNAPSHOT_WRAPPER_V1')
 assert all(x in t for x in required)
 assert 'runtime-r36' not in t and 'foundation' not in t.lower()
 print('FURINA_RUNTIME_R37_FULL_SNAPSHOT_STATIC_OK')
