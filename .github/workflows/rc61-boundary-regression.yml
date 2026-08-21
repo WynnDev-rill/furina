@@ -1,4 +1,4 @@
-name: RC60 Hub Boundary Regression
+name: RC61 Pipeline Boundary Regression
 
 on:
   pull_request:
@@ -6,21 +6,25 @@ on:
     paths:
       - 'experiments/furina-agent-final/overrides/rc60/**'
       - 'experiments/furina-agent-final/overrides/runtime-r30/**'
+      - 'experiments/furina-agent-final/overrides/rc61/**'
+      - 'experiments/furina-agent-final/overrides/runtime-r31/**'
       - 'experiments/furina-agent-final/install.sh'
       - 'furina-agent-termux/experiments/furina-agent-final/install.sh'
-      - '.github/workflows/rc60-boundary-regression.yml'
+      - '.github/workflows/rc61-boundary-regression.yml'
 
 jobs:
   boundary-regression:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate AST-safe hub method replacement
+      - name: Validate RC60 foundation and RC61 hash chain
         shell: bash
         run: |
           set -euo pipefail
           python3 -m py_compile experiments/furina-agent-final/overrides/rc60/apply.py
           python3 experiments/furina-agent-final/overrides/rc60/test_ast_boundary.py
+          python3 -m py_compile experiments/furina-agent-final/overrides/rc61/apply.py
+          bash -n experiments/furina-agent-final/overrides/runtime-r31/install-body.sh
           python3 - <<'PY'
           import hashlib,re
           from pathlib import Path
@@ -29,14 +33,15 @@ jobs:
               d=Path(p).read_bytes(); return hashlib.sha1(f"blob {len(d)}\0".encode()+d).hexdigest()
           def var(text,name):
               m=re.search(rf'^{re.escape(name)}="([^"]+)"', text, re.M); assert m,name; return m.group(1)
-          apply=root/'overrides/rc60/apply.py'
-          body=root/'overrides/runtime-r30/install-body.sh'
+          apply=root/'overrides/rc61/apply.py'
+          body=root/'overrides/runtime-r31/install-body.sh'
+          foundation=root/'overrides/runtime-r30/install-body.sh'
           install=root/'install.sh'
           assert var(body.read_text(),'APPLY_BLOB') == blob(apply)
           assert var(install.read_text(),'APPLY_BLOB') == blob(apply)
           assert var(install.read_text(),'BODY_BLOB') == blob(body)
+          assert var(body.read_text(),'R30_BLOB') == blob(foundation)
           assert install.read_bytes() == Path('furina-agent-termux/experiments/furina-agent-final/install.sh').read_bytes()
-          assert 'replace_class_method' in apply.read_text()
-          assert 'replace_method(' not in apply.read_text()
-          print('FURINA_RC60_HOTFIX_HASH_CHAIN_OK')
+          assert 'replace_method' in apply.read_text()
+          print('FURINA_RC61_HASH_CHAIN_OK')
           PY

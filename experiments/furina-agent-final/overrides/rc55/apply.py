@@ -226,8 +226,11 @@ def main() -> None:
     version_path = core / "version.py"
     state_path = core / "companion_state_v2.py"
     mind_path = core / "mind_v2.py"
-    state_source = Path(__file__).with_name("companion_state_v2.py")
-    mind_source = Path(__file__).with_name("mind_v2.py")
+    # RC55 is the compatibility recovery patch. Reuse the canonical RC53 state
+    # module and the already installed mind module instead of referring to two
+    # files that were never shipped in the RC55 override directory.
+    state_source = Path(__file__).resolve().parent.parent / "rc53" / "companion_state_v2.py"
+    mind_source = mind_path
 
     for path in (chat_path, version_path, state_source, mind_source):
         if not path.is_file():
