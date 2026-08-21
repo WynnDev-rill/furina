@@ -2,9 +2,11 @@
 
 Repository utama proyek Furina Android.
 
-## Furina Agent — Eksperimen Termux
+## Furina Lite + FurinaHub
 
-Furina Agent adalah eksperimen terpisah yang berjalan di Termux dan dapat memakai Furina Bridge untuk kontrol Android. Agent **tidak menjadi bagian dari build APK Furina utama** dan dikembangkan di branch `experiment/furina-agent-termux`.
+Furina adalah companion AI *relationship-first* untuk percakapan kasual dan romantis. **Furina Lite** berjalan mandiri di Termux; **FurinaHub** menambahkan pengalaman Android lengkap, multimedia, dan pengaturan visual. Keduanya memakai Core, memori, serta hubungan lokal yang sama.
+
+Pada instalasi baru, setup hanya meminta nama pengguna. Furina langsung mengenali pengguna sebagai pasangannya; memori awal lain tetap kosong sampai berkembang dari percakapan atau disimpan secara eksplisit.
 
 ### Instalasi cepat
 
@@ -12,10 +14,10 @@ Buka Termux dan jalankan:
 
 ```bash
 pkg update -y && pkg install -y curl
-curl -fsSL https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final/install.sh | bash
+curl -fsSL https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable/furina-install.sh | bash
 furina
 ```
 
 Panduan lengkap: [Memasang Furina Agent di Termux](https://github.com/WynnDev-rill/furina/blob/experiment/furina-agent-termux/experiments/furina-agent-final/INSTALL.md)
 
-> Furina Agent masih eksperimental. Dokumentasi di halaman ini hanya menjadi pintu masuk; source, installer, dan pengembangan Agent tetap dipisahkan dari Furina utama.
+Installer stabil memverifikasi snapshot Core + bridge sebelum aktivasi dan dapat dipakai untuk instalasi baru maupun pemulihan instalasi lama. Data pengguna dan model tidak dihapus saat pembaruan.
