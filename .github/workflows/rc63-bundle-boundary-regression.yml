@@ -93,6 +93,6 @@ jobs:
           assert 'foundation' not in body.read_text().lower()
           assert 'bootstrap_pattern = re.compile' in legacy_apply.read_text()
           assert 'system_pattern = re.compile' in legacy_apply.read_text()
-          assert 'setRelationshipMode(' not in android.read_text()
+          assert 'id="relationshipBaseline"' in android.read_text()
           print('FURINA_RC67_FULL_SNAPSHOT_BOUNDARY_OK')
           PY
