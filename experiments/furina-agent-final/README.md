@@ -9,13 +9,14 @@ The experiment remains isolated from the main Furina APK. The layout direction i
 From a fresh Termux:
 
 ```bash
-pkg update -y && pkg install -y curl && curl -fsSL https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final/install.sh | bash
+pkg update -y && pkg install -y curl
+curl -fsSL https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable/furina-install.sh | bash
 ```
 
 The installer:
 
-1. checks and reconciles only dependencies required by the current dependency revision;
-2. reconstructs and verifies Furina Core;
+1. checks only dependencies required by the current dependency revision;
+2. downloads and verifies one complete Core + bridge snapshot;
 3. keeps the `furina` CLI and installs the `furina-hub` local GUI launcher;
 4. enables the explicit Termux integration needed by the Android shell;
 5. downloads the signed FurinaHub APK, verifies its release SHA-256, and opens the Android installer when possible.
@@ -87,11 +88,15 @@ The **Pengaturan** page now centralizes:
 - Core/dependency update;
 - advanced local-model settings when Core is connected.
 
-The Memori screen intentionally does **not** expose a relationship score. The **Kita** screen instead shows human-readable stages, user-controlled Close/Romantic modes, conversation pace, affection style, initiative, rituals, a shared note, and explicitly saved moments.
+The Memori screen intentionally does **not** expose a relationship score. The **Kita** screen identifies the relationship as **Pasangan** and exposes only useful controls: conversation pace, affection style, initiative, rituals, a shared note, and explicitly saved moments.
 
 ## Relationship Core v3
 
-Core RC66 changes the product center from tasks to long-term casual and romantic companionship:
+Core RC67 makes the initial relationship unambiguous: Furina and the user start as partners, not friends choosing a later mode. A fresh memory contains only Furina's name, the user's chosen name, and the partner relationship; upgrades preserve every existing user memory.
+
+The updater now installs one verified full Core + bridge snapshot from any prior or incomplete version. It no longer walks a fragile chain of historical foundation patches.
+
+Core RC66 changed the product center from tasks to long-term casual and romantic companionship:
 
 - casual conversation is the default intent; work/task behavior only activates when explicitly requested;
 - Romantic mode requires an explicit 18+ confirmation and never implies automatic sexual escalation;
@@ -195,10 +200,10 @@ furina recover
 For an older installation that does not have that command yet, stream the installer directly instead of writing to Android's invalid global `/tmp` path:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final/install.sh | bash
+curl -fsSL https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable/furina-install.sh | bash
 ```
 
-Core RC66 targets FurinaHub Android RC54. The Android package ID and signing identity remain unchanged, so RC54 is an in-place upgrade rather than a separate application.
+Core RC67 targets FurinaHub Android RC55. The Android package ID and signing identity remain unchanged, so RC55 is an in-place upgrade rather than a separate application.
 
 ## Local architecture
 
@@ -228,8 +233,8 @@ The WebView does not directly navigate to localhost. The bundled shell calls a n
 
 ## Current versions
 
-- Core: `1.0.0-rc66`
-- FurinaHub Android: `1.0.0-rc54`
-- Dependency revision: `2026.08.22-r36`
+- Core: `1.0.0-rc67`
+- FurinaHub Android: `1.0.0-rc55`
+- Dependency revision: `2026.08.22-r37`
 
 RC65 shared workspace, RC53 persistent companion state, RC34 chat-first intent separation, and RC32 execution policy remain active underneath Relationship Core v3.
