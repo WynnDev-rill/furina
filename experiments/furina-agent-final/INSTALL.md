@@ -34,6 +34,18 @@ Core + runtime:
 furina update
 ```
 
+Jika updater normal rusak atau berhenti sebelum berjalan:
+
+```bash
+furina recover
+```
+
+Instalasi lama yang belum memiliki `furina recover` harus memakai pipe langsung—jangan menulis file ke `/tmp`, karena lokasi global itu bukan direktori temp yang valid untuk Termux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final/install.sh | bash
+```
+
 APK FurinaHub diperbarui dari **FurinaHub → Pengaturan → Pembaruan**. APK dan Core memiliki lifecycle terpisah agar kegagalan salah satunya tidak merusak yang lain.
 
 ## Mode kontrol Android
@@ -61,6 +73,7 @@ Provider `no_auth` dapat dipakai langsung. Provider yang membutuhkan API key men
 ```bash
 furina doctor
 furina repair
+furina recover
 furina optimize
 ```
 
