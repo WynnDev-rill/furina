@@ -1,4 +1,4 @@
-name: RC68 R38 Update Boundary Regression
+name: Furina Single Pipeline Boundary Regression
 
 on:
   pull_request:
@@ -26,61 +26,58 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify r38 bootstrap integrity
+      - name: Enforce one active update path
         shell: bash
         run: |
           set -euo pipefail
           bash -n experiments/furina-agent-final/install.sh
           bash -n furina-agent-termux/experiments/furina-agent-final/install.sh
-          bash -n experiments/furina-agent-final/overrides/runtime-r38/install-body.sh
-          python3 -m py_compile \
-            experiments/furina-agent-final/overrides/rc68/apply.py \
-            experiments/furina-agent-final/overrides/android-rc56/apply.py
           cmp experiments/furina-agent-final/install.sh furina-agent-termux/experiments/furina-agent-final/install.sh
+          python3 -m py_compile experiments/furina-agent-final/overrides/runtime-r39/update_client.py
           python3 - <<'PY'
-          import hashlib,re
           from pathlib import Path
-          runtime=Path('experiments/furina-agent-final/overrides/runtime-r38/install-body.sh')
-          installer=Path('experiments/furina-agent-final/install.sh')
-          data=runtime.read_bytes()
-          blob=hashlib.sha1(f"blob {len(data)}\0".encode()+data).hexdigest()
-          text=installer.read_text()
-          m=re.search(r'^BODY_BLOB="([^"]+)"',text,re.M); assert m
-          assert m.group(1)==blob,(m.group(1),blob)
-          assert 'BODY_PATH="overrides/runtime-r38/install-body.sh"' in text
-          assert 'RUNTIME_CONTRACT="furina-runtime/v4-channel-snapshot"' in text
-          assert 'fetch_verified_body' in text
-          assert 'schema not in (1,2)' in runtime.read_text()
-          print('FURINA_R38_BOOTSTRAP_HASH_OK')
+          installer=Path('experiments/furina-agent-final/install.sh').read_text()
+          client=Path('experiments/furina-agent-final/overrides/runtime-r39/update_client.py').read_text()
+          assert 'FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"' in installer
+          assert 'UPDATE_PROTOCOL="furina-update/1"' in installer
+          assert 'CHANNEL_URL="$STABLE_RELEASE/channel.json"' in installer
+          assert 'BODY_BLOB=' not in installer
+          assert 'runtime-r38/install-body.sh' not in installer
+          assert 'fetch_verified_body' not in installer
+          assert 'PROTOCOL = "furina-update/1"' in client
+          assert 'installed_is_current(root, channel)' in client
+          assert 'maybe_reexec' in client
+          assert 'commit_snapshot' in client
+          assert 'safe_extract' in client
+          assert 'requests' not in client and 'pip install' not in client
+          assert client.count('sync_apk(') >= 2
+          print('FURINA_ONE_ACTIVE_UPDATE_PATH_OK')
           PY
 
-      - name: Run full updater and APK confirmation regression
+      - name: Test install update no-op repair and APK confirmation
         shell: bash
         run: |
           set -euo pipefail
           HOME="$RUNNER_TEMP/furina-home" FURINA_HOME="$RUNNER_TEMP/furina-home" \
-            bash experiments/furina-agent-final/overrides/runtime-r38/validate.sh
+            bash experiments/furina-agent-final/overrides/runtime-r39/validate.sh
 
-      - name: Verify release boundary is atomic
+      - name: Enforce atomic publication boundary
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
           wf=Path('.github/workflows/furinahub-rc51-core-rc63.yml').read_text()
-          runtime=Path('experiments/furina-agent-final/overrides/runtime-r38/install-body.sh').read_text()
-          rc68=Path('experiments/furina-agent-final/overrides/rc68/apply.py').read_text()
-          rc56=Path('experiments/furina-agent-final/overrides/android-rc56/apply.py').read_text()
-          installer=Path('experiments/furina-agent-final/install.sh').read_text()
-          assert wf.rfind('bundle.json --clobber') > wf.rfind('furina-install.sh --clobber')
-          assert wf.rfind('bundle.json --clobber') > wf.rfind('furina-runtime-r38.sh')
-          assert "furina-core-bridge-rc68-rc56.tar" in wf
-          assert "snapshot_sha256" in wf and "schema':2" in wf
-          assert 'printf \'%s\\n\' "$BUNDLE_ID" >"$marker"' not in runtime
-          assert 'furina-apk-confirm' in runtime and 'wrong-bundle' not in runtime
-          assert '"Kita"' not in [x for x in rc68.splitlines() if 'choice = _choose("", ["Chat"' in x][-1]
-          assert 'data-view="relationship"' in rc56
-          assert 'FURINA_UPDATER_GENERATION="23"' in installer
-          print('FURINA_RC68_R38_RELEASE_BOUNDARY_OK')
+          manifest=Path('experiments/furina-agent-final/manifest.json').read_text()
+          publish=wf[wf.index('- name: Publish RC57 and single stable update channel'):]
+          assert publish.rfind('channel.json --clobber') > publish.rfind('furina-install.sh')
+          assert publish.rfind('channel.json --clobber') > publish.rfind('"$CLIENT_NAME"')
+          assert publish.rfind('channel.json --clobber') > publish.rfind('"$SNAPSHOT_NAME"')
+          assert 'bundle.json --clobber' not in publish
+          assert 'furina-runtime-r38.sh' not in publish
+          assert 'core-rc68-apply.py' not in publish
+          assert 'android-rc56-apply.py' not in publish
+          assert '"legacy_patch_chain": "build-time-only-not-device-update-path"' in manifest
+          print('FURINA_ATOMIC_CHANNEL_LAST_OK')
           PY
           git diff --check
