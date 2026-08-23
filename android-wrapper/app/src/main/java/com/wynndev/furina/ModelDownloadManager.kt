@@ -271,6 +271,7 @@ class ModelDownloadManager(private val context: Context) {
         val retired = listOf(
             "qwen35-4b-uncensored-q4km" to "Qwen3.5-4B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
             "qwen35-9b-uncensored-q4km" to "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
+            "qwen35-4b-deckard-heretic-q4km" to "Qwen3.5-4B-Deckard-HERETIC-UNCENSORED-Thinking.i1-Q4_K_M.gguf",
         )
         retired.forEach { (id, fileName) ->
             workManager.cancelUniqueWork("furina-model-$id")
