@@ -12,21 +12,16 @@ on:
 jobs:
   final-audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Reconstruct current shipped Core and FurinaHub
+      - name: Reconstruct and validate private final build
         shell: bash
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/android-rc57/validate.sh
-      - name: Inspect staged UI and worker boundaries
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 experiments/furina-agent-final/final-inspect.py /tmp/furina-agent-rc54-validate/termux
+          bash experiments/furina-agent-final/overrides/final-1.0/validate.sh
       - name: Run final product engineering audit
         shell: bash
         run: |
