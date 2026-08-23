@@ -1,11 +1,11 @@
 # Furina — private final build
 
-Furina is one local-first AI companion with two surfaces that share the same Core and data:
+Furina is one local-first AI companion with two surfaces that share the same Core and user data:
 
-- **Furina Lite** in Termux: fast chat, memory, provider/model, settings, system controls, backup, update and recovery.
-- **FurinaHub** on Android: the full chat and multimedia experience, native image tools, model/provider controls, plugin UI, personalization and Android-agent controls.
+- **Furina Lite** in Termux: a deliberately small terminal surface for chat, provider/model selection, settings, update and recovery.
+- **FurinaHub** on Android: the full chat and multimedia experience, native image tools, provider/model controls, Plugin UI, personalization and Android-agent controls.
 
-This branch is treated as the final private build. It is optimized for one owner and one device workflow, not public distribution or store requirements.
+This branch is optimized for a private owner/device workflow rather than app-store distribution.
 
 ## Install
 
@@ -14,60 +14,82 @@ Use a current Termux installation:
 ```bash
 pkg update -y && pkg install -y curl
 curl -fsSL https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable/furina-install.sh | bash
-```
-
-After installation:
-
-```bash
 furina
 ```
 
-The installer and `furina update` use the same green Furina terminal language as the main Lite UI. Interactive Termux sessions show a compact live progress bar; FurinaHub receives machine-readable progress through the same updater.
+Fresh installation does **not** download a local LLM. The installer only prepares Furina itself, required runtime/dependencies, and the FurinaHub APK. Local chat models are optional and are downloaded later from **Provider & Model**.
 
-## Product model
+The installer and `furina update` use the same green **Furina By Wynn** terminal language as Furina Lite. Interactive Termux sessions show compact progress; FurinaHub receives machine-readable progress from the same updater.
 
-There is no separate friendship mode and no primary **Kita** menu. A fresh setup begins with only three relationship facts: Furina's name, the user's chosen name, and that they are partners. Everything else must be learned from actual conversation or explicitly saved state.
+## Furina Lite
 
-The primary surfaces are intentionally limited:
+The top-level menu is intentionally limited to four items:
 
-- Chat
-- Memory / Psyche
-- Provider & Model
-- Personalization
-- Agent & Skill
-- Settings / System
+```text
+Chat
+Provider & Model
+Pengaturan
+Exit
+```
+
+Memory/Psyche remains active internally but is not exposed as a maintenance screen. Less-frequent controls are grouped under **Pengaturan**:
+
+- Identitas
+- Kontrol perangkat
+- Sistem
 - Backup
 - Update & Recovery
 
-Relationship preferences and shared moments remain internal companion state instead of a second product mode.
+This keeps the terminal UI focused on what is used during normal conversation without removing the underlying capabilities.
+
+## Provider & Model
+
+There is no `AUTO` mode. Chat runs in exactly one of two routing modes:
+
+**Online**
+
+Provider/API routing stays automatic among configured online providers and models. An online failure never silently changes the chat to a local model.
+
+**Local**
+
+Exactly one downloaded local model is selected for chat. Furina does not start or pre-warm the model merely because `furina` is opened; the selected model is loaded lazily when the first local-chat message actually needs it.
+
+The supported local catalog contains exactly two chat models:
+
+| Model | Quantization | Download size | State before download |
+| --- | --- | ---: | --- |
+| wifuGPT 1.7B | Q4_K_M | ~1.03 GiB | `Unduh` |
+| Qwen3 1.7B Heretic | Q5_K_M | ~1.17 GiB | `Unduh` |
+
+After a verified download the action becomes `Pilih`; the selected model shows `Aktif`. A partially downloaded or invalid file cannot be selected. Downloads support resume and are checked against the pinned byte size, GGUF header and SHA-256 before activation.
+
+The previous Furina-owned Qwen3.5 4B Deckard/legacy catalog files are retired during migration. Furina does not delete unrelated GGUF files that the user placed in the models directory manually.
+
+## Product model
+
+There is no separate friendship mode and no primary **Kita** menu. A fresh setup begins with only Furina's name, the user's chosen name, and the fact that they are partners. Other memory develops from conversation or explicit saved state.
+
+Relationship state, memory, Psyche, shared moments and personalization continue to work behind the simplified surfaces; hiding a maintenance screen does not disable the companion systems.
 
 ## FurinaHub
 
-FurinaHub uses the Core running in Termux through a narrow loopback bridge. The Android shell keeps file/content access restricted and does not rely on browser-style navigation. Zoom controls are disabled.
+FurinaHub uses the same Core and model catalog in Termux through the local bridge. The Android model screen mirrors Furina Lite:
 
-The full Android surface includes:
+- Online or one selected local model;
+- wifuGPT 1.7B Q4_K_M and Qwen3 1.7B Heretic Q5_K_M only;
+- `Unduh`, `Pilih`, and `Aktif` states;
+- resumable, size/SHA-verified local downloads;
+- automatic provider/API failover only while Online is selected.
 
-- conversation history and message actions;
-- image attachment, preview, crop and canvas markup before sending;
-- local model download/remove and provider configuration/testing;
-- memory and personalization backed by the same data used by Furina Lite;
-- Plugin/OpenConnector controls;
-- Normal, Shizuku and Root device-control modes with explicit readiness and policy boundaries;
-- APK/Core update status using the same update state as Termux.
+The direct Memory/Psyche navigation is hidden here as well, while memory remains part of the shared Core. FurinaHub still includes conversation history, image attachment/preview/crop/markup, Plugin/OpenConnector controls, personalization, device-control modes, and APK/Core update status.
 
-The technical connection indicator is simplified to user-facing states such as **Siap**, **Terhubung**, **Menghubungkan**, or **Offline** instead of exposing implementation wording such as “Core aktif”.
-
-## Updates
+## Update and recovery
 
 Normal update:
 
 ```bash
 furina update
 ```
-
-The update path is one self-updating stdlib Python client and one signed channel. It verifies hashes and sizes, stages a complete Core + bridge snapshot, validates it, then swaps Core/bridge atomically without touching user data.
-
-A current installation takes the fast path: after checking the small channel metadata it skips package/npm/Plugin reconciliation unless a real Core update or repair is required. FurinaHub APK confirmation is tracked separately so an interrupted Android install does not falsely mark the APK as installed.
 
 Recovery:
 
@@ -81,7 +103,19 @@ Repair:
 furina repair
 ```
 
-The bootstrap keeps old recovery markers only as inert compatibility text for already-installed clients. Historical patch chains are build-time reconstruction only and are not the device update path.
+The update path uses one self-updating stdlib Python client and one signed channel. It verifies hashes and sizes, stages a complete Core + bridge snapshot, validates it, then swaps Core/bridge atomically without replacing user data. A current installation takes the fast path and avoids unnecessary package/npm/Plugin reconciliation.
+
+Historical patch chains remain build-time reconstruction only. Old installer markers are retained solely as inert recovery compatibility for devices that already have older Furina versions.
+
+## Uninstall from Termux
+
+To remove Furina completely from Termux:
+
+```bash
+hapus furina
+```
+
+The command asks for destructive confirmation and then removes Furina-owned Termux data, memories, conversations, provider secrets, models, backups, runtime files and Furina launchers. It does **not** remove shared Termux packages and does **not** uninstall the Android FurinaHub APK.
 
 ## Data and performance
 
@@ -91,34 +125,31 @@ User data lives under:
 ~/.furina-agent/
 ```
 
-Core/bridge updates replace application code, not memories, conversations, provider secrets, models or user state.
+Normal Core/bridge updates preserve that data. Background memory work uses one ordered queue bounded at 64 pending turns, preventing unlimited backlog growth while preserving turn ordering.
 
-Background memory work is handled by one ordered microbatch worker. The final build bounds its queue at 64 pending turns: normal chat remains non-blocking, while an extreme backlog applies backpressure instead of growing memory without limit.
-
-OpenConnector remains optional at product level and loopback-scoped. Its runtime is reconciled only when a Core install/repair requires dependency validation; a no-op update does not pay that cost.
-
-## Final architecture
+## Architecture
 
 ```text
 Furina Lite (Termux) ─┐
                       ├── ~/.furina-agent/ Core + shared data
 FurinaHub (Android) ──┘            │
-                                   ├── conversation / memory / Psyche
+                                   ├── conversation / hidden memory / Psyche
                                    ├── partner-first relationship state
-                                   ├── model + provider router
+                                   ├── Online provider router
+                                   ├── one selected local GGUF (optional)
                                    ├── Android Agent
                                    └── optional OpenConnector adapter
 
 Update: furina-update/1 → verified channel → staged snapshot → atomic swap
 ```
 
-## Final versions
+## Current versions
 
-- Core: `1.0.0`
-- FurinaHub Android: `1.0.0` (`versionCode 10058`)
-- Dependency revision: `2026.08.23-r40`
-- Bundle: `furina-2026.08.23-private-1.0.0`
-- Update client: `1.1.0`
-- Runtime contract: `furina-runtime/v6-private-final`
+- Core: `1.0.1`
+- FurinaHub Android: `1.0.1` (`versionCode 10059`)
+- Dependency revision: `2026.08.23-r41`
+- Bundle: `furina-2026.08.23-private-1.0.1`
+- Update client: `1.2.0`
+- Runtime contract: `furina-runtime/v7-local-model-on-demand`
 
 For installation and recovery details, see [`INSTALL.md`](./INSTALL.md).
