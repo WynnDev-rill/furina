@@ -65,6 +65,8 @@ def main() -> int:
     required = (
         core / "version.py", core / "cli.py", core / "tui.py", core / "hub.py", core / "routing.py",
         core / "local_models.py", core / "chat.py", core / "persona.py", core / "relationship_v4.py",
+        core / "config.py", core / "llm.py", core / "providers.py", core / "local_runtime.py",
+        core / "streaming.py", core / "performance.py",
         java / "MainActivity.java", java / "BridgeRuntime.java", html_path, bridge / "build.gradle",
     )
     for path in required:
@@ -94,6 +96,12 @@ def main() -> int:
     persona = read(core / "persona.py")
     relationship = read(core / "relationship_v4.py")
     local_models = read(core / "local_models.py")
+    config = read(core / "config.py")
+    llm = read(core / "llm.py")
+    providers_src = read(core / "providers.py")
+    local_runtime = read(core / "local_runtime.py")
+    performance = read(core / "performance.py")
+    streaming = read(core / "streaming.py")
     build = read(bridge / "build.gradle")
     main_java = read(java / "MainActivity.java")
     runtime_java = read(java / "BridgeRuntime.java")
@@ -115,7 +123,7 @@ def main() -> int:
 
     run_tui = top_level_function(core / "tui.py", "run_tui")
     main_menu = top_level_function(core / "tui.py", "_main_menu")
-    providers = top_level_function(core / "tui.py", "_providers")
+    provider_menu = top_level_function(core / "tui.py", "_providers")
     settings = top_level_function(core / "tui.py", "_settings")
     if tui.count("def run_tui():") != 1 or not run_tui:
         fail("TUI_ENTRY", "TUI has shadowed or missing run_tui entrypoints")
@@ -126,10 +134,12 @@ def main() -> int:
     for item in ("Identitas", "Kontrol perangkat", "Sistem", "Backup", "Update & Recovery"):
         if item not in settings:
             fail("SETTINGS_GROUP", f"missing nested Settings item {item}")
-    if "Unduh" not in providers or "Pilih" not in providers or "Aktif" not in providers:
+    if "Unduh" not in provider_menu or "Pilih" not in provider_menu or "Aktif" not in provider_menu:
         fail("MODEL_STATE", "Termux local models do not expose Unduh/Pilih/Aktif states")
-    if "AUTO" in providers or 'routing_mode = "auto"' in providers:
+    if "AUTO" in provider_menu or 'routing_mode = "auto"' in provider_menu:
         fail("AUTO_ROUTE", "AUTO is still user-selectable in Termux")
+    if "sedang disiapkan di background" not in provider_menu:
+        fail("PREWARM_UX", "local selection does not expose background preparation")
 
     # Model catalog is intentionally tiny, pinned and on-demand.
     try:
@@ -175,8 +185,44 @@ def main() -> int:
         fail("ROUTING", f"expected one routing chat method, got {len(routing_chat_nodes)}")
     if 'routing_mode in {"auto", "online"}' in chat_fn or "falling back to local" in chat_fn.lower():
         fail("ROUTING", "online route can still silently fall back to local")
-    if 'self.cfg.routing_mode == "local"' not in chat_fn or "self._ensure_local()" not in chat_fn:
-        fail("ROUTING", "single selected local route is not lazy-loaded")
+    if 'self.cfg.routing_mode == "local"' not in chat_fn or "self._ensure_local(" not in chat_fn:
+        fail("ROUTING", "single selected local route is not prepared on demand")
+
+    # Local Performance V2: latency optimizations may not change model identity
+    # or reduce the established response-quality budget.
+    for marker in (
+        "context_size: int = 4096", "threads: int = 5", "max_tokens: int = 2048",
+        "response_continuations: int = 4", "cache_reuse: int = 256",
+        "keep_warm_seconds: int = 600", 'flash_attention: str = "auto"',
+    ):
+        if marker not in config:
+            fail("LOCAL_PERF_CONFIG", f"missing {marker}")
+    for marker in ("get_local_runtime", "ensure_ready(timeout=45.0", "prewarm_local", "stop_local", "def cancel(self)"):
+        if marker not in routing:
+            fail("LOCAL_RUNTIME", f"routing missing {marker}")
+    if "timeout=135" in routing:
+        fail("LOCAL_RUNTIME", "legacy multi-minute local wait remains")
+    for marker in ("min(timeout, 45.0)", "_idle_watchdog", "--cache-reuse", "--flash-attn", "_flag_supported"):
+        if marker not in local_runtime:
+            fail("LOCAL_RUNTIME", f"runtime missing {marker}")
+    if "for threads in (4, 5, 6)" not in performance:
+        fail("LOCAL_TUNER", "4/5/6 thread tuner is missing")
+    for marker in ("FURINA_LLAMA_SERVER_OPENCL", "FURINA_LLAMA_SERVER_VULKAN", 'return shutil.which("llama-server") if backend == "cpu" else None'):
+        if marker not in performance:
+            fail("LOCAL_ACCEL", f"accelerator gate missing {marker}")
+    if "SmoothStream" not in llm or '"stream": bool(on_token) and not json_mode' not in llm:
+        fail("LOCAL_STREAM", "local native stream path is incomplete")
+    if "SmoothStream" not in providers_src or '"stream": bool(on_token) and not json_mode' not in providers_src:
+        fail("ONLINE_STREAM", "online native stream path is incomplete")
+    if "Never fail over after visible text has streamed" not in routing:
+        fail("ONLINE_STREAM", "visible-stream provider failover boundary is missing")
+    for marker in ("Never delay the first token/chunk", "frame_ms", "max_buffer_chars"):
+        if marker not in streaming:
+            fail("STREAM_RENDER", f"stream coalescer missing {marker}")
+    if "action:'prewarm'" not in page or "Menyiapkan model lokal" not in page:
+        fail("HUB_PREWARM", "FurinaHub does not trigger/show local background preparation")
+    if 'action == "stop-generation"' not in hub:
+        fail("STOP_GENERATION", "Core stop-generation endpoint missing")
 
     # Android boundary and native-feeling WebView behavior.
     for marker in ("setSupportZoom(false)", "setBuiltInZoomControls(false)", "setDisplayZoomControls(false)"):
@@ -222,7 +268,7 @@ def main() -> int:
     for marker in ('FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"', 'UPDATE_PROTOCOL="furina-update/1"', 'FURINA_RUNTIME_CONTRACT="furina-runtime/v2"'):
         if marker not in installer:
             fail("BOOTSTRAP", f"missing {marker}")
-    for marker in ('FURINA_UPDATER_GENERATION="26"', 'VERSION="1.0.1"', 'DEPENDENCY_REVISION="2026.08.23-r41"', 'RUNTIME_CONTRACT="furina-runtime/v7-local-model-on-demand"'):
+    for marker in ('FURINA_UPDATER_GENERATION="27"', 'VERSION="1.0.2"', 'DEPENDENCY_REVISION="2026.08.24-r42"', 'RUNTIME_CONTRACT="furina-runtime/v8-local-performance-v2"'):
         if marker not in active:
             fail("BOOTSTRAP", f"active bootstrap missing {marker}")
     if "BODY_BLOB=" in active or "runtime-r38/install-body.sh" in active:
