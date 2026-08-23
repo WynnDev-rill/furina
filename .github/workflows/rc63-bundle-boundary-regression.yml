@@ -48,6 +48,7 @@ jobs:
           assert 'Compatibility ledger' in installer
           assert 'FURINA_UPDATER_GENERATION="23"' in installer
           assert 'BUNDLE_ID="furina-2026.08.23-rc68-rc56"' in installer
+          assert 'FURINA_RUNTIME_CONTRACT="furina-runtime/v2"' in installer
           assert 'PROTOCOL = "furina-update/1"' in client
           assert 'installed_is_current(root, channel)' in client
           assert 'maybe_reexec' in client
@@ -56,6 +57,32 @@ jobs:
           assert 'requests' not in client and 'pip install' not in client
           assert client.count('sync_apk(') >= 2
           print('FURINA_ONE_ACTIVE_UPDATE_PATH_OK')
+          PY
+
+      - name: Gate deployed RC67 recovery bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import io, tarfile
+          from pathlib import Path
+
+          installer = Path('experiments/furina-agent-final/install.sh').read_text(encoding='utf-8')
+          parts = sorted(Path('experiments/furina-agent-final/overrides/runtime-r37/snapshot-parts').glob('part-*'))
+          assert parts, 'RC67 snapshot parts missing'
+          archive = b''.join(p.read_bytes() for p in parts)
+          with tarfile.open(fileobj=io.BytesIO(archive), mode='r:') as tf:
+              cli = tf.extractfile('core/furina_agent/cli.py').read().decode('utf-8')
+          required = (
+              'FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"',
+              'FURINA_RUNTIME_CONTRACT="furina-runtime/v2"',
+          )
+          assert 'Recovery tidak dapat diambil.' in cli
+          assert 'kontrak installer tidak lengkap' in cli
+          for marker in required:
+              assert marker in cli, f'deployed RC67 gate changed: {marker}'
+              assert marker in installer, f'bootstrap cannot cross deployed RC67 gate: {marker}'
+          print('FURINA_DEPLOYED_RC67_RECOVERY_GATE_OK')
           PY
 
       - name: Test install update no-op repair and APK confirmation
