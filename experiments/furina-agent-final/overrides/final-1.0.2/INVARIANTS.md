@@ -1,0 +1,1 @@
+No model/quantization change. No startup prewarm unless Local is selected. CPU remains fallback. User memory stays untouched. `furina update`/installer remain compatible. Both Termux and FurinaHub consume the same selected local model state.
