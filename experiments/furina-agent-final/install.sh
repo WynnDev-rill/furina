@@ -17,16 +17,17 @@ CLIENT="$ROOT/updater/update_client.py"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-# Compatibility ledger for grep/string-contract recovery gates already shipped
-# in older Furina Lite builds. They are intentionally inert comments, not a
-# second updater implementation. This lets old clients cross the boundary while
-# keeping exactly one active update engine after migration.
+# Compatibility ledger for string-contract recovery gates already shipped in
+# Furina Lite. These are deliberately inert comments, not another updater.
+# The RC67 snapshot's CLI checks the v2 marker verbatim before it will execute
+# this bootstrap, so that exact marker must remain for installed devices.
 # FURINA_UPDATER_GENERATION="22"
 # FURINA_UPDATER_GENERATION="23"
 # VERSION="1.0.0-rc67"
 # VERSION="1.0.0-rc68"
 # DEPENDENCY_REVISION="2026.08.22-r37"
 # DEPENDENCY_REVISION="2026.08.23-r38"
+# FURINA_RUNTIME_CONTRACT="furina-runtime/v2"
 # FURINA_RUNTIME_CONTRACT="furina-runtime/v3-full-snapshot"
 # FURINA_RUNTIME_CONTRACT="furina-runtime/v4-channel-snapshot"
 # BODY_PATH="overrides/runtime-r37/install-body.sh"
