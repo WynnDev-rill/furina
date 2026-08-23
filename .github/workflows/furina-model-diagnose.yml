@@ -1,0 +1,58 @@
+name: Furina Model Architecture Diagnostic
+
+on:
+  pull_request:
+    branches: [experiment/furina-agent-termux]
+    paths:
+      - '.github/workflows/furina-model-diagnose.yml'
+      - 'experiments/furina-agent-final/**'
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reconstruct final snapshot
+        run: bash experiments/furina-agent-final/overrides/final-1.0/validate.sh
+      - name: Dump model and TUI boundaries
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          root=Path('/tmp/furina-agent-rc54-validate/termux/core/furina_agent')
+          def dump_function(path,name):
+              text=path.read_text(encoding='utf-8',errors='replace'); tree=ast.parse(text); lines=text.splitlines()
+              for node in ast.walk(tree):
+                  if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and node.name==name:
+                      print(f'===== {path.name}:{name} =====')
+                      print('\n'.join(lines[node.lineno-1:node.end_lineno])); return
+              print(f'===== {path.name}:{name} MISSING =====')
+          for name in ('run_tui','_providers','_settings','_auto_start_local','_system','_update_repair','_lite_backup','_setup'):
+              dump_function(root/'tui.py',name)
+          for name in ('load_config','save_config'):
+              dump_function(root/'config.py',name)
+          for name in ('_ensure_local','chat'):
+              dump_function(root/'routing.py',name)
+          for name in ('bootstrap','change_config'):
+              dump_function(root/'hub.py',name)
+          for fn in ('config.py','routing.py','llm.py','hub.py'):
+              path=root/fn; text=path.read_text(encoding='utf-8',errors='replace'); lines=text.splitlines()
+              print(f'===== MATCHES {fn} =====')
+              for i,line in enumerate(lines):
+                  low=line.lower()
+                  if any(k in low for k in ('routing_mode','model_path','gguf','download','local model','model lokal')):
+                      lo=max(0,i-2); hi=min(len(lines),i+3)
+                      print(f'--- {i+1} ---'); print('\n'.join(lines[lo:hi]))
+          page=Path('/tmp/furina-agent-rc54-validate/termux/bridge/app/src/main/assets/furinahub/index.html').read_text(encoding='utf-8',errors='replace')
+          print('===== FURINAHUB MODEL CONTEXT =====')
+          for needle in ('Model lokal','routing_mode','model_path','LOCAL','AUTO','ONLINE','modelMode','localModel'):
+              start=0
+              while True:
+                  i=page.find(needle,start)
+                  if i<0: break
+                  print(f'--- {needle} @ {i} ---'); print(page[max(0,i-500):i+1200]); start=i+len(needle)
+          PY
