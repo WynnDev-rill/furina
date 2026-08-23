@@ -21,6 +21,7 @@ on:
 
 permissions:
   contents: write
+  statuses: write
 
 concurrency:
   group: furina-private-final-${{ github.ref }}
@@ -42,6 +43,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Record stable release pending
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending \
+            -f context="furina/release-1.0.1" \
+            -f description="Furina 1.0.1 stable release is running" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
       - name: Validate private 1.0.1 architecture
         shell: bash
@@ -229,3 +241,22 @@ jobs:
           # The mutable channel pointer is always published last.
           retry gh release upload "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" channel.json --clobber
           echo FURINA_PRIVATE_1_0_1_PUBLISHED
+
+      - name: Record stable release result
+        if: always() && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          state=failure
+          description="Furina 1.0.1 stable release failed"
+          if [[ "$RELEASE_JOB_STATUS" == "success" ]]; then
+            state=success
+            description="Furina 1.0.1 stable release published"
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state="$state" \
+            -f context="furina/release-1.0.1" \
+            -f description="$description" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
