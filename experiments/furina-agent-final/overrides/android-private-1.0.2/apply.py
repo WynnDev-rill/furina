@@ -23,7 +23,12 @@ BUILD.write_text(build, encoding="utf-8")
 
 main = MAIN.read_text(encoding="utf-8")
 main = one(main, 'EXPECTED_CORE_VERSION = "1.0.1"', 'EXPECTED_CORE_VERSION = "1.0.2"', "expected core")
-main = one(main, 'furina-2026.08.23-private-1.0.1', 'furina-2026.08.24-private-1.0.2', "bundle id")
+old_bundle = 'furina-2026.08.23-private-1.0.1'
+new_bundle = 'furina-2026.08.24-private-1.0.2'
+bundle_count = main.count(old_bundle)
+if bundle_count not in {1, 2}:
+    raise SystemExit(f"bundle id: expected one or two generated references, got {bundle_count}")
+main = main.replace(old_bundle, new_bundle)
 MAIN.write_text(main, encoding="utf-8")
 
 page = HTML.read_text(encoding="utf-8")
