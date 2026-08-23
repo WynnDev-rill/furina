@@ -1,4 +1,4 @@
-name: Validate FurinaHub 1.0.0 + Core 1.0.0
+name: Validate FurinaHub 1.0.1 + Core 1.0.1
 
 on:
   pull_request:
@@ -8,6 +8,7 @@ on:
       - 'furina-agent-termux/experiments/furina-agent-final/install.sh'
       - '.github/workflows/furinahub-rc51-core-rc63.yml'
       - '.github/workflows/rc63-bundle-boundary-regression.yml'
+      - '.github/workflows/furina-final-audit.yml'
   push:
     branches: [experiment/furina-agent-termux]
     paths:
@@ -15,6 +16,7 @@ on:
       - 'furina-agent-termux/experiments/furina-agent-final/install.sh'
       - '.github/workflows/furinahub-rc51-core-rc63.yml'
       - '.github/workflows/rc63-bundle-boundary-regression.yml'
+      - '.github/workflows/furina-final-audit.yml'
   workflow_dispatch:
 
 permissions:
@@ -25,10 +27,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  HUB_TAG: furinahub-v1.0.0
-  APK_NAME: FurinaHub-v1.0.0.apk
+  HUB_TAG: furinahub-v1.0.1
+  APK_NAME: FurinaHub-v1.0.1.apk
   UPDATE_CHANNEL_TAG: furina-update-stable
-  SNAPSHOT_NAME: furina-core-bridge-private-1.0.0.tar
+  SNAPSHOT_NAME: furina-core-bridge-private-1.0.1.tar
   CLIENT_NAME: furina-update.py
   STAGE_ROOT: /tmp/furina-agent-rc54-validate/termux
 
@@ -41,48 +43,59 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Validate private final architecture
+      - name: Validate private 1.0.1 architecture
         shell: bash
         run: |
           set -euo pipefail
           python3 -m py_compile \
             experiments/furina-agent-final/overrides/final-1.0/apply.py \
-            experiments/furina-agent-final/overrides/android-final/apply.py \
-            experiments/furina-agent-final/overrides/runtime-final/build_client.py \
+            experiments/furina-agent-final/overrides/private-1.0.1/preflight.py \
+            experiments/furina-agent-final/overrides/private-1.0.1/apply.py \
+            experiments/furina-agent-final/overrides/android-private-1.0.1/apply.py \
+            experiments/furina-agent-final/overrides/runtime-private-1.0.1/build_client.py \
             experiments/furina-agent-final/final-audit.py
           bash -n experiments/furina-agent-final/install.sh
           bash -n furina-agent-termux/experiments/furina-agent-final/install.sh
-          bash -n experiments/furina-agent-final/overrides/final-1.0/validate.sh
+          bash -n experiments/furina-agent-final/overrides/private-1.0.1/validate.sh
           cmp experiments/furina-agent-final/install.sh furina-agent-termux/experiments/furina-agent-final/install.sh
           python3 - <<'PY'
           import json
           from pathlib import Path
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
-          assert m['version']=='1.0.0'
+          assert m['version']=='1.0.1'
           assert m['channel']=='private-final'
-          assert m['dependency_revision']=='2026.08.23-r40'
-          assert m['bundle_id']=='furina-2026.08.23-private-1.0.0'
-          assert m['bridge_version']=='1.0.0' and m['bridge_version_code']==10058
+          assert m['dependency_revision']=='2026.08.23-r41'
+          assert m['bundle_id']=='furina-2026.08.23-private-1.0.1'
+          assert m['bridge_version']=='1.0.1' and m['bridge_version_code']==10059
           assert m['update_protocol']=='furina-update/1'
-          assert m['update_client_version']=='1.1.0'
+          assert m['update_client_version']=='1.2.0'
           assert m['update_noop_path']=='channel-and-apk-confirm-only'
-          assert m['runtime_contract']=='furina-runtime/v6-private-final'
+          assert m['runtime_contract']=='furina-runtime/v7-local-model-on-demand'
+          assert m['routing_modes']==['online','local']
+          assert m['termux_menu']==['Chat','Provider & Model','Pengaturan','Exit']
+          assert m['termux_uninstall']=='hapus furina'
+          assert len(m['local_model_catalog'])==2
           installer=Path('experiments/furina-agent-final/install.sh').read_text()
           active='\n'.join(x for x in installer.splitlines() if not x.lstrip().startswith('#'))
           assert 'FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"' in installer
           assert 'FURINA_RUNTIME_CONTRACT="furina-runtime/v2"' in installer
+          assert 'FURINA_UPDATER_GENERATION="26"' in active
+          assert 'VERSION="1.0.1"' in active
+          assert 'DEPENDENCY_REVISION="2026.08.23-r41"' in active
+          assert 'RUNTIME_CONTRACT="furina-runtime/v7-local-model-on-demand"' in active
           assert 'UPDATE_PROTOCOL="furina-update/1"' in active
           assert 'render_header' in active and 'render_step' in active
           assert 'BODY_BLOB=' not in active and 'runtime-r38/install-body.sh' not in active
-          print('FURINA_PRIVATE_FINAL_MANIFEST_OK')
+          assert '.gguf' not in active.lower() and 'wifugpt' not in active.lower()
+          print('FURINA_PRIVATE_1_0_1_MANIFEST_OK')
           PY
           git diff --check
 
-      - name: Reconstruct and test private final updater
+      - name: Reconstruct and test private 1.0.1 updater
         shell: bash
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/final-1.0/validate.sh
+          bash experiments/furina-agent-final/overrides/private-1.0.1/validate.sh
           python3 experiments/furina-agent-final/final-audit.py "$STAGE_ROOT"
 
       - uses: actions/setup-java@v5
@@ -98,7 +111,7 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build private final debug
+      - name: Build private 1.0.1 debug
         if: github.event_name == 'pull_request'
         working-directory: ${{ env.STAGE_ROOT }}
         run: gradle --no-daemon --stacktrace :bridge:app:assembleDebug
@@ -114,7 +127,7 @@ jobs:
           printf '%s' "$FURINA_RELEASE_KEYSTORE_B64" | base64 --decode > bridge/app/furina-agent-release.jks
           chmod 600 bridge/app/furina-agent-release.jks
 
-      - name: Build signed private final APK
+      - name: Build signed private 1.0.1 APK
         if: github.event_name != 'pull_request'
         working-directory: ${{ env.STAGE_ROOT }}
         env:
@@ -124,7 +137,7 @@ jobs:
           FURINA_KEY_PASSWORD: ${{ secrets.FURINA_KEY_PASSWORD }}
         run: gradle --no-daemon --stacktrace :bridge:app:assembleRelease
 
-      - name: Build verified private final targets
+      - name: Build verified private 1.0.1 targets
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -143,26 +156,26 @@ jobs:
           CERT="$("$APKSIGNER" verify --verbose --print-certs "$APK_NAME")"
           SIGNER="$(printf '%s\n' "$CERT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
           test "$PACKAGE" = com.wynndev.furinaagentbridge
-          test "$CODE" = 10058
-          test "$NAME" = 1.0.0
+          test "$CODE" = 10059
+          test "$NAME" = 1.0.1
 
-          rm -rf /tmp/furinahub-prev /tmp/furina-private-final-snapshot
-          mkdir -p /tmp/furinahub-prev /tmp/furina-private-final-snapshot
-          gh release download furinahub-v1.0.0-rc57 -R "$GITHUB_REPOSITORY" -p bridge.json -D /tmp/furinahub-prev
+          rm -rf /tmp/furinahub-prev /tmp/furina-private-101-snapshot
+          mkdir -p /tmp/furinahub-prev /tmp/furina-private-101-snapshot
+          gh release download furinahub-v1.0.0 -R "$GITHUB_REPOSITORY" -p bridge.json -D /tmp/furinahub-prev
           OLD_SIGNER="$(python3 -c 'import json; print(json.load(open("/tmp/furinahub-prev/bridge.json"))["signer_sha256"].replace(":","").lower())')"
           test "$OLD_SIGNER" = "$SIGNER"
 
-          cp -a "$STAGE_ROOT/core" "$STAGE_ROOT/bridge" /tmp/furina-private-final-snapshot/
-          rm -f /tmp/furina-private-final-snapshot/bridge/app/furina-agent-release.jks
-          find /tmp/furina-private-final-snapshot -type d -name __pycache__ -prune -exec rm -rf {} +
-          find /tmp/furina-private-final-snapshot -type f -name '*.pyc' -delete
-          rm -rf /tmp/furina-private-final-snapshot/bridge/.gradle /tmp/furina-private-final-snapshot/bridge/app/build
+          cp -a "$STAGE_ROOT/core" "$STAGE_ROOT/bridge" /tmp/furina-private-101-snapshot/
+          rm -f /tmp/furina-private-101-snapshot/bridge/app/furina-agent-release.jks
+          find /tmp/furina-private-101-snapshot -type d -name __pycache__ -prune -exec rm -rf {} +
+          find /tmp/furina-private-101-snapshot -type f -name '*.pyc' -delete
+          rm -rf /tmp/furina-private-101-snapshot/bridge/.gradle /tmp/furina-private-101-snapshot/bridge/app/build
           tar --sort=name --mtime='UTC 2026-08-23 00:00:00' --owner=0 --group=0 --numeric-owner \
-            -cf "$SNAPSHOT_NAME" -C /tmp/furina-private-final-snapshot core bridge
+            -cf "$SNAPSHOT_NAME" -C /tmp/furina-private-101-snapshot core bridge
           SNAPSHOT_SHA="$(sha256sum "$SNAPSHOT_NAME" | awk '{print $1}')"
           SNAPSHOT_SIZE="$(stat -c '%s' "$SNAPSHOT_NAME")"
 
-          python3 experiments/furina-agent-final/overrides/runtime-final/build_client.py \
+          python3 experiments/furina-agent-final/overrides/runtime-private-1.0.1/build_client.py \
             experiments/furina-agent-final/overrides/runtime-r39/update_client.py "$CLIENT_NAME"
           CLIENT_SHA="$(sha256sum "$CLIENT_NAME" | awk '{print $1}')"
           CLIENT_SIZE="$(stat -c '%s' "$CLIENT_NAME")"
@@ -172,29 +185,31 @@ jobs:
           export PACKAGE CODE NAME APK_SHA APK_SIZE SIGNER SNAPSHOT_SHA SNAPSHOT_SIZE CLIENT_SHA CLIENT_SIZE
           python3 - <<'PY'
           import json,os,time
-          apk_url='https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0/FurinaHub-v1.0.0.apk'
+          apk_url='https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.1/FurinaHub-v1.0.1.apk'
           stable='https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable'
           bridge={'version':os.environ['NAME'],'version_code':int(os.environ['CODE']),'package_name':os.environ['PACKAGE'],'sha256':os.environ['APK_SHA'],'signer_sha256':os.environ['SIGNER'],'apk_url':apk_url}
           open('bridge.json','w').write(json.dumps(bridge,indent=2)+'\n')
           channel={
-            'schema':1,'protocol':'furina-update/1','bundle_id':'furina-2026.08.23-private-1.0.0','published_at':int(time.time()),
-            'core':{'version':'1.0.0','revision':'2026.08.23-r40','url':stable+'/furina-core-bridge-private-1.0.0.tar','sha256':os.environ['SNAPSHOT_SHA'],'size':int(os.environ['SNAPSHOT_SIZE'])},
+            'schema':1,'protocol':'furina-update/1','bundle_id':'furina-2026.08.23-private-1.0.1','published_at':int(time.time()),
+            'core':{'version':'1.0.1','revision':'2026.08.23-r41','url':stable+'/furina-core-bridge-private-1.0.1.tar','sha256':os.environ['SNAPSHOT_SHA'],'size':int(os.environ['SNAPSHOT_SIZE'])},
             'apk':{'version':os.environ['NAME'],'version_code':int(os.environ['CODE']),'package':os.environ['PACKAGE'],'url':apk_url,'sha256':os.environ['APK_SHA'],'size':int(os.environ['APK_SIZE'])},
-            'client':{'version':'1.1.0','url':stable+'/furina-update.py','sha256':os.environ['CLIENT_SHA'],'size':int(os.environ['CLIENT_SIZE'])},
+            'client':{'version':'1.2.0','url':stable+'/furina-update.py','sha256':os.environ['CLIENT_SHA'],'size':int(os.environ['CLIENT_SIZE'])},
           }
           open('channel.json','w').write(json.dumps(channel,indent=2)+'\n')
           PY
           python3 - <<'PY'
           import json,tarfile
           c=json.load(open('channel.json'))
-          assert c['bundle_id']=='furina-2026.08.23-private-1.0.0'
-          assert c['core']['version']=='1.0.0' and c['apk']['version']=='1.0.0' and c['client']['version']=='1.1.0'
-          with tarfile.open('furina-core-bridge-private-1.0.0.tar','r:') as a:
-              names=a.getnames(); assert 'core/furina_agent/version.py' in names and 'bridge/app/build.gradle' in names
-          print('FURINA_PRIVATE_FINAL_TARGETS_OK')
+          assert c['bundle_id']=='furina-2026.08.23-private-1.0.1'
+          assert c['core']['version']=='1.0.1' and c['core']['revision']=='2026.08.23-r41'
+          assert c['apk']['version']=='1.0.1' and c['apk']['version_code']==10059
+          assert c['client']['version']=='1.2.0'
+          with tarfile.open('furina-core-bridge-private-1.0.1.tar','r:') as a:
+              names=a.getnames(); assert 'core/furina_agent/version.py' in names and 'core/furina_agent/local_models.py' in names and 'bridge/app/build.gradle' in names
+          print('FURINA_PRIVATE_1_0_1_TARGETS_OK')
           PY
 
-      - name: Publish private final and stable update channel
+      - name: Publish private 1.0.1 and stable update channel
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -203,8 +218,8 @@ jobs:
           retry(){ for attempt in 1 2 3 4; do "$@" && return 0; sleep $((attempt*4)); done; return 1; }
           if ! gh release view "$HUB_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             retry gh release create "$HUB_TAG" "$APK_NAME" bridge.json -R "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" --title "FurinaHub v1.0.0 — Private Final" \
-              --notes "Private final build for Furina Lite + FurinaHub. Single updater, atomic Core/bridge snapshot, final Termux TUI, and shared local-first state." --prerelease
+              --target "$GITHUB_SHA" --title "FurinaHub v1.0.1 — Private Final" \
+              --notes "Private 1.0.1: on-demand wifuGPT/Qwen3 1.7B local models, no AUTO routing or startup prewarm, simplified Furina Lite navigation, shared FurinaHub model state, and the new 'hapus furina' Termux uninstall command." --prerelease
           else
             retry gh release upload "$HUB_TAG" "$APK_NAME" bridge.json -R "$GITHUB_REPOSITORY" --clobber
           fi
@@ -213,4 +228,4 @@ jobs:
             "$SNAPSHOT_NAME" "$CLIENT_NAME" furina-install.sh manifest.json --clobber
           # The mutable channel pointer is always published last.
           retry gh release upload "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" channel.json --clobber
-          echo FURINA_PRIVATE_FINAL_PUBLISHED
+          echo FURINA_PRIVATE_1_0_1_PUBLISHED
