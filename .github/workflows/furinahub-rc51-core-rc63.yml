@@ -54,6 +54,7 @@ jobs:
           cmp experiments/furina-agent-final/install.sh furina-agent-termux/experiments/furina-agent-final/install.sh
           python3 - <<'PY'
           import json
+          from pathlib import Path
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
           assert m['version']=='1.0.0-rc69'
           assert m['dependency_revision']=='2026.08.23-r39'
@@ -66,12 +67,18 @@ jobs:
           assert m['update_noop_path']=='channel-only'
           assert m['legacy_patch_chain']=='build-time-only-not-device-update-path'
           assert m['runtime_contract']=='furina-runtime/v5-single-pipeline'
+          installer=Path('experiments/furina-agent-final/install.sh').read_text()
+          active='\n'.join(line for line in installer.splitlines() if not line.lstrip().startswith('#'))
+          assert 'FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"' in installer
+          assert 'UPDATE_PROTOCOL="furina-update/1"' in active
+          assert 'CHANNEL_URL="$STABLE_RELEASE/channel.json"' in active
+          assert 'BODY_BLOB=' not in active
+          assert 'runtime-r38/install-body.sh' not in active
+          assert 'fetch_verified_body' not in active
+          assert 'FURINA_UPDATER_GENERATION="23"' in installer
+          assert 'BUNDLE_ID="furina-2026.08.23-rc68-rc56"' in installer
           print('FURINA_SINGLE_PIPELINE_MANIFEST_OK')
           PY
-          grep -Fq 'FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"' experiments/furina-agent-final/install.sh
-          grep -Fq 'UPDATE_PROTOCOL="furina-update/1"' experiments/furina-agent-final/install.sh
-          ! grep -Fq 'BODY_BLOB=' experiments/furina-agent-final/install.sh
-          ! grep -Fq 'runtime-r38/install-body.sh' experiments/furina-agent-final/install.sh
           git diff --check
 
       - name: Reconstruct once and test distributed snapshot updater
@@ -148,7 +155,7 @@ jobs:
           rm -rf /tmp/furinahub-prev /tmp/furina-snapshot-rc69
           mkdir -p /tmp/furinahub-prev /tmp/furina-snapshot-rc69
           gh release download furinahub-v1.0.0-rc55 -R "$GITHUB_REPOSITORY" -p bridge.json -D /tmp/furinahub-prev
-          OLD_SIGNER="$(python3 -c 'import json; print(json.load(open("/tmp/furinahub-prev/bridge.json"))["signer_sha256"].replace(":,"").replace(":","").lower())')"
+          OLD_SIGNER="$(python3 -c 'import json; print(json.load(open("/tmp/furinahub-prev/bridge.json"))["signer_sha256"].replace(":","").lower())')"
           test "$OLD_SIGNER" = "$SIGNER"
 
           cp -a "$STAGE_ROOT/core" "$STAGE_ROOT/bridge" /tmp/furina-snapshot-rc69/
