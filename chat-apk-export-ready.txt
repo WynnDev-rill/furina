@@ -1,0 +1,3 @@
+run_id=32648616982
+run_number=354
+asset=https://github.com/WynnDev-rill/furina/releases/download/chat-apk-1.7b-20260823/Furina-1.7B.apk
