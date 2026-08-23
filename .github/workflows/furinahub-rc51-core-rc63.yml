@@ -1,4 +1,4 @@
-name: Validate FurinaHub RC56 + Core RC68
+name: Validate FurinaHub RC57 + Core RC69
 
 on:
   pull_request:
@@ -21,14 +21,15 @@ permissions:
   contents: write
 
 concurrency:
-  group: furinahub-rc56-core-rc68-${{ github.ref }}
+  group: furina-single-pipeline-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  HUB_TAG: furinahub-v1.0.0-rc56
-  APK_NAME: FurinaHub-v1.0.0-rc56.apk
+  HUB_TAG: furinahub-v1.0.0-rc57
+  APK_NAME: FurinaHub-v1.0.0-rc57.apk
   UPDATE_CHANNEL_TAG: furina-update-stable
-  SNAPSHOT_NAME: furina-core-bridge-rc68-rc56.tar
+  SNAPSHOT_NAME: furina-core-bridge-rc69-rc57.tar
+  CLIENT_NAME: furina-update.py
   STAGE_ROOT: /tmp/furina-agent-rc54-validate/termux
 
 jobs:
@@ -40,48 +41,48 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Validate RC68 r38 RC56 contract
+      - name: Validate active architecture
         shell: bash
         run: |
           set -euo pipefail
           python3 -m py_compile \
-            experiments/furina-agent-final/overrides/rc67/apply.py \
-            experiments/furina-agent-final/overrides/rc67/relationship_v4.py \
-            experiments/furina-agent-final/overrides/rc68/apply.py \
-            experiments/furina-agent-final/overrides/android-rc55/apply.py \
-            experiments/furina-agent-final/overrides/android-rc56/apply.py
+            experiments/furina-agent-final/overrides/rc69/apply.py \
+            experiments/furina-agent-final/overrides/android-rc57/apply.py \
+            experiments/furina-agent-final/overrides/runtime-r39/update_client.py
           bash -n experiments/furina-agent-final/install.sh
           bash -n furina-agent-termux/experiments/furina-agent-final/install.sh
-          bash -n experiments/furina-agent-final/overrides/runtime-r38/install-body.sh
-          bash -n experiments/furina-agent-final/overrides/runtime-r38/validate.sh
           cmp experiments/furina-agent-final/install.sh furina-agent-termux/experiments/furina-agent-final/install.sh
           python3 - <<'PY'
           import json
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
-          assert m['version']=='1.0.0-rc68'
-          assert m['dependency_revision']=='2026.08.23-r38'
-          assert m['bundle_id']=='furina-2026.08.23-rc68-rc56'
-          assert m['bridge_version']=='1.0.0-rc56'
-          assert m['bridge_version_code']==10056
-          assert m['update_state_schema']==6
-          assert m['primary_surface']=='single-companion-chat-no-separate-us-menu'
-          assert m['relationship_core']=='v4-partner-first-no-friendship-mode'
-          assert m['fresh_memory_baseline']=='companion-name-user-name-partner-only'
-          assert m['runtime_contract']=='furina-runtime/v4-channel-snapshot'
-          assert m['apk_update_confirmation']=='installed-only-after-rc56-app-launch'
-          print('FURINAHUB_RC56_RC68_MANIFEST_OK')
+          assert m['version']=='1.0.0-rc69'
+          assert m['dependency_revision']=='2026.08.23-r39'
+          assert m['bundle_id']=='furina-2026.08.23-rc69-rc57'
+          assert m['bridge_version']=='1.0.0-rc57'
+          assert m['bridge_version_code']==10057
+          assert m['update_protocol']=='furina-update/1'
+          assert m['update_state_schema']==7
+          assert m['update_surface']=='single-channel-single-client-atomic-snapshot'
+          assert m['update_noop_path']=='channel-only'
+          assert m['legacy_patch_chain']=='build-time-only-not-device-update-path'
+          assert m['runtime_contract']=='furina-runtime/v5-single-pipeline'
+          print('FURINA_SINGLE_PIPELINE_MANIFEST_OK')
           PY
+          grep -Fq 'FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"' experiments/furina-agent-final/install.sh
+          grep -Fq 'UPDATE_PROTOCOL="furina-update/1"' experiments/furina-agent-final/install.sh
+          ! grep -Fq 'BODY_BLOB=' experiments/furina-agent-final/install.sh
+          ! grep -Fq 'runtime-r38/install-body.sh' experiments/furina-agent-final/install.sh
           git diff --check
 
-      - name: Regress single surface full snapshot and APK confirmation
+      - name: Reconstruct once and test distributed snapshot updater
         shell: bash
         run: |
           set -euo pipefail
           HOME="$RUNNER_TEMP/furina-home" FURINA_HOME="$RUNNER_TEMP/furina-home" \
-            bash experiments/furina-agent-final/overrides/runtime-r38/validate.sh
-          grep -Fq "versionName '1.0.0-rc56'" "$STAGE_ROOT/bridge/app/build.gradle"
-          ! grep -Fq 'data-view="relationship"' "$STAGE_ROOT/bridge/app/src/main/assets/furinahub/index.html"
-          grep -Fq 'furina-apk-confirm' "$STAGE_ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java"
+            bash experiments/furina-agent-final/overrides/runtime-r39/validate.sh
+          grep -Fq 'VERSION = "1.0.0-rc69"' "$STAGE_ROOT/core/furina_agent/version.py"
+          grep -Fq "versionName '1.0.0-rc57'" "$STAGE_ROOT/bridge/app/build.gradle"
+          grep -Fq 'furina-2026.08.23-rc69-rc57' "$STAGE_ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java"
 
       - uses: actions/setup-java@v5
         with:
@@ -96,7 +97,7 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build RC56 debug
+      - name: Build RC57 debug
         if: github.event_name == 'pull_request'
         working-directory: ${{ env.STAGE_ROOT }}
         run: gradle --no-daemon --stacktrace :bridge:app:assembleDebug
@@ -112,7 +113,7 @@ jobs:
           printf '%s' "$FURINA_RELEASE_KEYSTORE_B64" | base64 --decode > bridge/app/furina-agent-release.jks
           chmod 600 bridge/app/furina-agent-release.jks
 
-      - name: Build signed RC56
+      - name: Build signed RC57
         if: github.event_name != 'pull_request'
         working-directory: ${{ env.STAGE_ROOT }}
         env:
@@ -122,7 +123,7 @@ jobs:
           FURINA_KEY_PASSWORD: ${{ secrets.FURINA_KEY_PASSWORD }}
         run: gradle --no-daemon --stacktrace :bridge:app:assembleRelease
 
-      - name: Verify signer and build atomic snapshot
+      - name: Build immutable release targets and channel metadata
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -136,68 +137,93 @@ jobs:
           PACKAGE="$("$APKANALYZER" manifest application-id "$APK_NAME" | tr -d '\r')"
           CODE="$("$APKANALYZER" manifest version-code "$APK_NAME" | tr -d '\r')"
           NAME="$("$APKANALYZER" manifest version-name "$APK_NAME" | tr -d '\r')"
-          SHA="$(sha256sum "$APK_NAME" | awk '{print $1}')"
+          APK_SHA="$(sha256sum "$APK_NAME" | awk '{print $1}')"
+          APK_SIZE="$(stat -c '%s' "$APK_NAME")"
           CERT="$("$APKSIGNER" verify --verbose --print-certs "$APK_NAME")"
           SIGNER="$(printf '%s\n' "$CERT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
           test "$PACKAGE" = com.wynndev.furinaagentbridge
-          test "$CODE" = 10056
-          test "$NAME" = 1.0.0-rc56
+          test "$CODE" = 10057
+          test "$NAME" = 1.0.0-rc57
 
-          rm -rf /tmp/furinahub-prev /tmp/furina-snapshot-rc68
-          mkdir -p /tmp/furinahub-prev /tmp/furina-snapshot-rc68
+          rm -rf /tmp/furinahub-prev /tmp/furina-snapshot-rc69
+          mkdir -p /tmp/furinahub-prev /tmp/furina-snapshot-rc69
           gh release download furinahub-v1.0.0-rc55 -R "$GITHUB_REPOSITORY" -p bridge.json -D /tmp/furinahub-prev
-          OLD_SIGNER="$(python3 -c 'import json; print(json.load(open("/tmp/furinahub-prev/bridge.json"))["signer_sha256"].replace(":","").lower())')"
+          OLD_SIGNER="$(python3 -c 'import json; print(json.load(open("/tmp/furinahub-prev/bridge.json"))["signer_sha256"].replace(":,"").replace(":","").lower())')"
           test "$OLD_SIGNER" = "$SIGNER"
 
-          cp -a "$STAGE_ROOT/core" "$STAGE_ROOT/bridge" /tmp/furina-snapshot-rc68/
-          rm -f /tmp/furina-snapshot-rc68/bridge/app/furina-agent-release.jks
-          find /tmp/furina-snapshot-rc68 -type d -name __pycache__ -prune -exec rm -rf {} +
-          find /tmp/furina-snapshot-rc68 -type f -name '*.pyc' -delete
-          rm -rf /tmp/furina-snapshot-rc68/bridge/.gradle /tmp/furina-snapshot-rc68/bridge/app/build
+          cp -a "$STAGE_ROOT/core" "$STAGE_ROOT/bridge" /tmp/furina-snapshot-rc69/
+          rm -f /tmp/furina-snapshot-rc69/bridge/app/furina-agent-release.jks
+          find /tmp/furina-snapshot-rc69 -type d -name __pycache__ -prune -exec rm -rf {} +
+          find /tmp/furina-snapshot-rc69 -type f -name '*.pyc' -delete
+          rm -rf /tmp/furina-snapshot-rc69/bridge/.gradle /tmp/furina-snapshot-rc69/bridge/app/build
           tar --sort=name --mtime='UTC 2026-08-23 00:00:00' --owner=0 --group=0 --numeric-owner \
-            -cf "$SNAPSHOT_NAME" -C /tmp/furina-snapshot-rc68 core bridge
+            -cf "$SNAPSHOT_NAME" -C /tmp/furina-snapshot-rc69 core bridge
           SNAPSHOT_SHA="$(sha256sum "$SNAPSHOT_NAME" | awk '{print $1}')"
+          SNAPSHOT_SIZE="$(stat -c '%s' "$SNAPSHOT_NAME")"
 
-          export PACKAGE CODE NAME SHA SIGNER SNAPSHOT_SHA
+          cp experiments/furina-agent-final/overrides/runtime-r39/update_client.py "$CLIENT_NAME"
+          CLIENT_SHA="$(sha256sum "$CLIENT_NAME" | awk '{print $1}')"
+          CLIENT_SIZE="$(stat -c '%s' "$CLIENT_NAME")"
+          cp experiments/furina-agent-final/install.sh furina-install.sh
+          cp experiments/furina-agent-final/manifest.json manifest.json
+
+          export PACKAGE CODE NAME APK_SHA APK_SIZE SIGNER SNAPSHOT_SHA SNAPSHOT_SIZE CLIENT_SHA CLIENT_SIZE
           python3 - <<'PY'
-          import json,os
-          data={
+          import json,os,time
+          apk_url='https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc57/FurinaHub-v1.0.0-rc57.apk'
+          stable='https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable'
+          bridge={
             'version':os.environ['NAME'],
             'version_code':int(os.environ['CODE']),
             'package_name':os.environ['PACKAGE'],
-            'sha256':os.environ['SHA'],
+            'sha256':os.environ['APK_SHA'],
             'signer_sha256':os.environ['SIGNER'],
-            'apk_url':'https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.0-rc56/FurinaHub-v1.0.0-rc56.apk',
+            'apk_url':apk_url,
           }
-          open('bridge.json','w').write(json.dumps(data,indent=2)+'\n')
-          bundle={
-            'schema':2,
-            'bundle_id':'furina-2026.08.23-rc68-rc56',
-            'core_version':'1.0.0-rc68',
-            'dependency_revision':'2026.08.23-r38',
-            'bridge_version':os.environ['NAME'],
-            'bridge_version_code':int(os.environ['CODE']),
-            'package_name':os.environ['PACKAGE'],
-            'apk_url':data['apk_url'],
-            'apk_sha256':os.environ['SHA'],
-            'signer_sha256':os.environ['SIGNER'],
-            'snapshot_asset':'furina-core-bridge-rc68-rc56.tar',
-            'snapshot_sha256':os.environ['SNAPSHOT_SHA'],
+          open('bridge.json','w').write(json.dumps(bridge,indent=2)+'\n')
+          channel={
+            'schema':1,
+            'protocol':'furina-update/1',
+            'bundle_id':'furina-2026.08.23-rc69-rc57',
+            'published_at':int(time.time()),
+            'core':{
+              'version':'1.0.0-rc69',
+              'revision':'2026.08.23-r39',
+              'url':stable+'/furina-core-bridge-rc69-rc57.tar',
+              'sha256':os.environ['SNAPSHOT_SHA'],
+              'size':int(os.environ['SNAPSHOT_SIZE']),
+            },
+            'apk':{
+              'version':os.environ['NAME'],
+              'version_code':int(os.environ['CODE']),
+              'package':os.environ['PACKAGE'],
+              'url':apk_url,
+              'sha256':os.environ['APK_SHA'],
+              'size':int(os.environ['APK_SIZE']),
+            },
+            'client':{
+              'version':'1.0.0',
+              'url':stable+'/furina-update.py',
+              'sha256':os.environ['CLIENT_SHA'],
+              'size':int(os.environ['CLIENT_SIZE']),
+            },
           }
-          open('bundle.json','w').write(json.dumps(bundle,indent=2)+'\n')
+          open('channel.json','w').write(json.dumps(channel,indent=2)+'\n')
           PY
           python3 - <<'PY'
           import json,tarfile
-          b=json.load(open('bundle.json'))
-          assert b['schema']==2 and len(b['snapshot_sha256'])==64
-          with tarfile.open('furina-core-bridge-rc68-rc56.tar','r:') as a:
+          c=json.load(open('channel.json'))
+          assert c['schema']==1 and c['protocol']=='furina-update/1'
+          assert c['bundle_id']=='furina-2026.08.23-rc69-rc57'
+          assert len(c['core']['sha256'])==64 and len(c['client']['sha256'])==64 and len(c['apk']['sha256'])==64
+          with tarfile.open('furina-core-bridge-rc69-rc57.tar','r:') as a:
               names=a.getnames()
               assert 'core/furina_agent/version.py' in names
               assert 'bridge/app/build.gradle' in names
-          print('FURINA_RC68_RC56_RELEASE_BUNDLE_OK')
+          print('FURINA_SINGLE_PIPELINE_TARGETS_OK')
           PY
 
-      - name: Publish RC56 and RC68 r38 stable bundle
+      - name: Publish RC57 and single stable update channel
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -205,25 +231,16 @@ jobs:
           set -euo pipefail
           retry(){ for attempt in 1 2 3 4; do "$@" && return 0; sleep $((attempt*4)); done; return 1; }
           if ! gh release view "$HUB_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            retry gh release create "$HUB_TAG" "$APK_NAME" bridge.json bundle.json -R "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" --title "FurinaHub v1.0.0-rc56" \
-              --notes "RC56 removes the separate Kita navigation while preserving Partner Core. RC68/r38 makes furina update recover from a verified full snapshot and only marks the APK installed after RC56 actually launches." --prerelease
+            retry gh release create "$HUB_TAG" "$APK_NAME" bridge.json -R "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --title "FurinaHub v1.0.0-rc57" \
+              --notes "RC57/Core RC69 moves updates to one self-updating client and one atomic channel. Existing features and user data remain intact." --prerelease
           else
-            retry gh release upload "$HUB_TAG" "$APK_NAME" bridge.json bundle.json -R "$GITHUB_REPOSITORY" --clobber
+            retry gh release upload "$HUB_TAG" "$APK_NAME" bridge.json -R "$GITHUB_REPOSITORY" --clobber
           fi
 
-          cp experiments/furina-agent-final/manifest.json manifest.json
-          cp experiments/furina-agent-final/overrides/runtime-r38/install-body.sh furina-runtime-r38.sh
-          cp experiments/furina-agent-final/overrides/rc68/apply.py core-rc68-apply.py
-          cp experiments/furina-agent-final/overrides/android-rc56/apply.py android-rc56-apply.py
-          cp experiments/furina-agent-final/install.sh furina-install.sh
-
-          # Publish immutable payloads first. The installer is next; bundle.json
-          # remains the final atomic channel pointer. r38 retries while that
-          # pointer is transitioning, so a user cannot commit a mixed bundle.
+          # Immutable targets first. The tiny bootstrap is stable compatibility
+          # glue. channel.json is the only mutable pointer and is published last.
           retry gh release upload "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" \
-            "$SNAPSHOT_NAME" furina-runtime-r38.sh core-rc68-apply.py android-rc56-apply.py --clobber
-          retry gh release upload "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" \
-            manifest.json furina-install.sh --clobber
-          retry gh release upload "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" bundle.json --clobber
-          echo FURINAHUB_RC56_RC68_R38_PUBLISHED
+            "$SNAPSHOT_NAME" "$CLIENT_NAME" furina-install.sh manifest.json --clobber
+          retry gh release upload "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" channel.json --clobber
+          echo FURINA_SINGLE_PIPELINE_PUBLISHED
