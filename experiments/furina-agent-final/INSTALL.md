@@ -1,6 +1,6 @@
 # Instalasi Furina Lite + FurinaHub
 
-Panduan ini untuk private final build: Core `1.0.0`, FurinaHub `1.0.0`, dependency revision `2026.08.23-r40`.
+Panduan private build saat ini: Core `1.0.1`, FurinaHub `1.0.1`, dependency revision `2026.08.23-r41`.
 
 ## Instalasi baru
 
@@ -11,15 +11,53 @@ pkg update -y && pkg install -y curl
 curl -fsSL https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable/furina-install.sh | bash
 ```
 
-Bootstrap hanya bertugas menemukan dan memverifikasi updater. Setelah itu satu client `furina-update/1` menangani snapshot Core/bridge, dependency yang benar-benar diperlukan, dan FurinaHub APK.
+Bootstrap memverifikasi updater, lalu satu client `furina-update/1` menangani Core/bridge, dependency yang dibutuhkan, dan FurinaHub APK. Instalasi baru **tidak mengunduh model LLM lokal**.
 
-Di sesi Termux interaktif, instalasi memakai tampilan yang sama dengan Furina Lite: header **Furina By Wynn**, garis pemisah hijau, persentase, dan satu status aktif. Saat dipanggil dari FurinaHub, output berubah otomatis ke progress machine-readable agar APK dapat menampilkan statusnya sendiri.
+Di sesi Termux interaktif, instalasi memakai tampilan **Furina By Wynn** dengan progress ringkas. Saat dipanggil dari FurinaHub, updater mengirim progress machine-readable agar APK menampilkan statusnya sendiri.
 
-Jalankan Furina:
+Setelah selesai:
 
 ```bash
 furina
 ```
+
+Menu utama hanya berisi **Chat**, **Provider & Model**, **Pengaturan**, dan **Exit**. Memory/Psyche tetap berjalan secara internal tetapi tidak ditampilkan sebagai menu pemeliharaan.
+
+## Menyiapkan model chat
+
+Buka:
+
+```text
+furina → Provider & Model
+```
+
+Pilihan routing hanya dua:
+
+- **Online** — model/provider API yang tersedia dapat berganti otomatis di dalam jalur online.
+- **Local** — tepat satu model lokal yang sudah selesai diunduh dan dipilih.
+
+Katalog lokal:
+
+- **wifuGPT 1.7B Q4_K_M** — sekitar 1.03 GiB.
+- **Qwen3 1.7B Heretic Q5_K_M** — sekitar 1.17 GiB.
+
+Model yang belum ada menunjukkan **Unduh**. Setelah download selesai, ukuran, header GGUF dan SHA-256 diverifikasi; baru setelah itu tombol berubah menjadi **Pilih**. Model yang dipakai menunjukkan **Aktif**.
+
+Unduhan dapat dilanjutkan setelah koneksi terputus. Model lokal yang dipilih tidak dipanaskan saat membuka `furina`; proses model baru dimulai ketika chat lokal pertama membutuhkan inferensi.
+
+Migrasi menghapus file Deckard/Qwen lama yang memang dimiliki katalog Furina sebelumnya. File GGUF lain yang ditaruh pengguna sendiri tidak dihapus otomatis.
+
+## Pengaturan
+
+Kontrol yang jarang dipakai dipindahkan ke **Pengaturan** agar layar utama tetap sederhana:
+
+- Identitas
+- Kontrol perangkat
+- Sistem
+- Backup
+- Update & Recovery
+
+Mode kontrol Android tetap **Normal**, **Shizuku**, atau **Root**, tanpa eskalasi otomatis.
 
 ## Update
 
@@ -27,64 +65,63 @@ furina
 furina update
 ```
 
-Jika Core dan APK sudah sesuai channel, updater berhenti lewat fast path setelah pemeriksaan metadata dan tidak menjalankan pemeriksaan npm/Plugin yang berat.
+Jika Core dan APK sudah sesuai channel, updater memakai fast path dan tidak mengulang pekerjaan dependency/npm/Plugin yang berat.
 
-Jika update lokal rusak atau client hilang:
+Jika updater lokal rusak atau client hilang:
 
 ```bash
 furina recover
 ```
 
-Untuk memvalidasi ulang snapshot, integrasi Termux, Plugin runtime dan bridge:
+Untuk memvalidasi ulang snapshot dan integrasi:
 
 ```bash
 furina repair
 ```
 
-Instalasi lama yang belum memiliki `furina recover` dapat memakai installer stabil yang sama:
+Instalasi lama yang belum memiliki `furina recover` dapat memakai bootstrap stabil yang sama:
 
 ```bash
 curl -fsSL https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable/furina-install.sh | bash
 ```
 
-Jangan menyimpan bootstrap ke `/tmp` Android global. Installer/recovery memakai direktori internal Furina dan temporary directory Termux yang valid.
-
 ## FurinaHub APK
 
-Saat bundle baru memiliki APK yang belum dikonfirmasi, updater mengunduh APK terverifikasi dan membuka Android Package Installer. Bundle APK baru dianggap terpasang hanya setelah FurinaHub versi baru benar-benar dijalankan dan mengirim konfirmasi kembali ke Termux.
+Saat channel memiliki APK baru, updater mengunduh APK terverifikasi dan membuka Android Package Installer. Versi baru baru dianggap terpasang setelah FurinaHub yang baru benar-benar dijalankan dan mengonfirmasi bundle ke Termux.
 
-FurinaHub juga dapat memulai pemeriksaan update dari **Pengaturan → Pembaruan**; jalurnya tetap client yang sama dengan `furina update`.
+FurinaHub memakai katalog model yang sama dengan Termux. Download/pilih/hapus model dari FurinaHub memengaruhi Core yang sama; status model juga tetap **Unduh**, **Pilih**, atau **Aktif**. Memory/Psyche tetap digunakan oleh Core tetapi direct navigation-nya disembunyikan.
 
-## Kontrol Android
+## Hapus seluruh Furina dari Termux
 
-- **Normal** — default, tanpa privilege tambahan.
-- **Shizuku** — opsional setelah readiness check berhasil.
-- **Root** — opsional pada perangkat root.
+```bash
+hapus furina
+```
 
-Tidak ada eskalasi otomatis dari Normal ke Shizuku/root.
+Perintah ini meminta konfirmasi `HAPUS` lalu menghapus seluruh data Furina di Termux, termasuk percakapan, memory, provider secret, model lokal, backup, runtime dan launcher Furina. Tindakan ini tidak dapat dipulihkan tanpa backup.
+
+Yang **tidak** dihapus:
+
+- paket Termux bersama seperti Python/Git/Node;
+- konfigurasi Termux global yang bukan milik Furina;
+- APK FurinaHub yang sudah terpasang di Android.
+
+Untuk penghapusan non-interaktif yang disengaja:
+
+```bash
+hapus furina --yes
+```
 
 ## Plugin
 
-OpenConnector bersifat lokal dan opsional pada level produk. Runtime-nya direkonsiliasi saat instalasi/repair Core memang membutuhkannya; no-op update tidak mengulang pekerjaan tersebut.
+OpenConnector bersifat lokal dan opsional. Runtime direkonsiliasi saat instalasi/repair benar-benar memerlukannya; no-op update tidak mengulang setup tersebut.
 
-Pemeriksaan manual:
+Pemeriksaan manual tetap tersedia:
 
 ```bash
 furina-openconnector status
 furina-openconnector repair
 furina-openconnector logs
 ```
-
-## Diagnostik
-
-```bash
-furina doctor
-furina repair
-furina recover
-furina optimize
-```
-
-`furina optimize` hanya untuk benchmark/tuning model lokal, bukan bagian startup normal.
 
 ## Data
 
@@ -94,4 +131,4 @@ Semua data pengguna berada di:
 ~/.furina-agent/
 ```
 
-Update Core/bridge tidak menghapus percakapan, memory, provider secret, model lokal, personalization, shared moments, atau konfigurasi pengguna.
+Update Core/bridge normal tidak menghapus percakapan, memory, provider secret, model lokal, personalization, shared moments, atau konfigurasi pengguna. Hanya `hapus furina` yang melakukan penghapusan penuh dari Termux.
