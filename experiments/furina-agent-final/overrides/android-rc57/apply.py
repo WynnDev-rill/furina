@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -40,7 +41,15 @@ def main() -> None:
     )
 
     hub = hub_path.read_text(encoding="utf-8")
-    hub = replace_once(hub, '"bridge_target": "1.0.0-rc56"', '"bridge_target": "1.0.0-rc57"', "bridge target")
+    target = '"bridge_target": "1.0.0-rc57"'
+    if target not in hub:
+        hub, count = re.subn(
+            r'"bridge_target"\s*:\s*"1\.0\.0-rc\d+"',
+            target,
+            hub,
+        )
+        if count not in (1, 2):
+            raise SystemExit(f"Android RC57 bridge target migration mismatch: {count}")
 
     gradle_path.write_text(build, encoding="utf-8")
     main_path.write_text(main, encoding="utf-8")
@@ -53,7 +62,7 @@ def main() -> None:
         "versionName '1.0.0-rc57'",
         "furina-2026.08.23-rc69-rc57",
         'EXPECTED_CORE_VERSION = "1.0.0-rc69"',
-        '"bridge_target": "1.0.0-rc57"',
+        target,
         "furina-apk-confirm",
     )
     missing = [item for item in required if item not in combined]
