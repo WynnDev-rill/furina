@@ -1,0 +1,1 @@
+Local Performance V2 validation overlay. This directory intentionally contains validation metadata only until the final reconstructed source tree is updated by the active release overlay.
