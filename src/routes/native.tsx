@@ -158,11 +158,18 @@ const VV_SPEAKERS = [
 
 const FALLBACK_MODELS: NativeModel[] = [
   {
-    id: "qwen35-4b-deckard-heretic-q4km",
-    name: "Qwen3.5 4B Deckard Heretic",
-    subtitle: "Uncensored · natural companion · Q4_K_M",
-    expectedBytes: 2_708_805_792,
+    id: "wifugpt-1.7b-q4km",
+    name: "wifuGPT 1.7B",
+    subtitle: "Uncensored · companion & roleplay · Q4_K_M",
+    expectedBytes: 1_107_408_480,
     recommended: true,
+  },
+  {
+    id: "qwen3-1.7b-heretic-q5km",
+    name: "Qwen3 1.7B Heretic",
+    subtitle: "Uncensored · natural companion · Q5_K_M",
+    expectedBytes: 1_257_880_480,
+    recommended: false,
   },
 ];
 
@@ -563,6 +570,8 @@ function FurinaNativeApp() {
       },
     }));
     try {
+      b.selectModel(model.id);
+      setSelectedModel(model.id);
       b.startModelDownload(model.id);
       toast.success(`Download ${model.name} dimulai di latar belakang`);
       window.setTimeout(refreshModels, 350);
@@ -840,7 +849,7 @@ function FurinaNativeApp() {
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Brain className="h-[18px] w-[18px]" /></span>
                 <div className="min-w-0">
                   <Label>Model AI lokal</Label>
-                  <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">Deckard Heretic 4B tetap tersedia sebagai mesin offline. Dipakai saat mode Mesin AI diatur ke Lokal.</p>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">Pilih wifuGPT 1.7B atau Qwen3 1.7B Heretic sebagai mesin offline. Setelah unduhan dan verifikasi selesai, model aktif bisa langsung diuji di percakapan.</p>
                 </div>
               </div>
 
