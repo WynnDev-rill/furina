@@ -6,6 +6,7 @@ PROJECT="$(cd "$HERE/../.." && pwd)"
 
 bash "$PROJECT/overrides/private-1.0.1/validate.sh" "$ROOT"
 python3 "$HERE/apply.py" "$ROOT"
+python3 "$HERE/preserve_quality.py" "$ROOT"
 python3 "$PROJECT/overrides/android-private-1.0.2/apply.py" "$ROOT"
 
 python3 -m py_compile \
@@ -25,12 +26,13 @@ grep -Fq "versionName '1.0.2'" "$ROOT/bridge/app/build.gradle"
 grep -Fq 'furina-2026.08.24-private-1.0.2' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java"
 
 env STAGE_ROOT="$ROOT" python3 - <<'PY'
-import ast, os, time
+import ast, os
 from pathlib import Path
 root=Path(os.environ['STAGE_ROOT']); core=root/'core/furina_agent'
 for p in core.glob('*.py'): ast.parse(p.read_text(encoding='utf-8'),filename=str(p))
 config=(core/'config.py').read_text(); routing=(core/'routing.py').read_text(); llm=(core/'llm.py').read_text(); providers=(core/'providers.py').read_text(); runtime=(core/'local_runtime.py').read_text(); perf=(core/'performance.py').read_text(); tui=(core/'tui.py').read_text(); models=(core/'local_models.py').read_text(); page=(root/'bridge/app/src/main/assets/furinahub/index.html').read_text()
 assert 'context_size: int = 4096' in config and 'threads: int = 5' in config
+assert 'max_tokens: int = 2048' in config and 'response_continuations: int = 4' in config
 assert 'cache_reuse: int = 256' in config and 'keep_warm_seconds: int = 600' in config
 assert 'flash_attention: str = "auto"' in config and 'accel_backend: str = "auto"' in config
 assert 'timeout=135' not in routing and 'ensure_ready(timeout=45.0' in routing
@@ -64,7 +66,8 @@ s.feed('B'); s.feed('C'); s.close(); assert ''.join(x[0] for x in seen)=='ABC'
 print('FURINA_STREAM_V2_FIRST_CHUNK_OK')
 PY
 
-# Config migration preserves custom values but moves legacy defaults to V2.
+# Config migration optimizes legacy performance defaults without reducing the
+# prior response-quality budget.
 TMP_HOME="$(mktemp -d)"; trap 'rm -rf "$TMP_HOME"' EXIT
 mkdir -p "$TMP_HOME/data"
 cat >"$TMP_HOME/config.json" <<'JSON'
@@ -72,7 +75,7 @@ cat >"$TMP_HOME/config.json" <<'JSON'
 JSON
 FURINA_HOME="$TMP_HOME" PYTHONPATH="$ROOT/core" python3 - <<'PY'
 from furina_agent.config import load_config
-c=load_config(); assert c.config_revision==6; assert c.context_size==4096; assert c.threads==5; assert c.max_tokens==1536; assert c.response_continuations==2
+c=load_config(); assert c.config_revision==6; assert c.context_size==4096; assert c.threads==5; assert c.max_tokens==2048; assert c.response_continuations==4
 print('FURINA_LOCAL_PERF_MIGRATION_OK')
 PY
 
