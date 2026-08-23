@@ -1,9 +1,9 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-# Stable compatibility header. Older Furina launchers only inspect this small
-# contract before handing control to the installer, so keep it intentionally
-# boring and backward-readable while the implementation behind it evolves.
+# Stable compatibility boundary. Existing devices only need to understand this
+# tiny bootstrap once; after migration all normal updates run through the local
+# furina-update/1 client.
 FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"
 FURINA_UPDATER_GENERATION="24"
 VERSION="1.0.0-rc69"
@@ -17,14 +17,31 @@ CLIENT="$ROOT/updater/update_client.py"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-# Legacy marker compatibility for launchers shipped before the single-pipeline
-# updater. These are comments by design: old grep-based recovery gates can
-# recognize the installer without forcing today's runtime to emulate old code.
+# Compatibility ledger for grep/string-contract recovery gates already shipped
+# in older Furina Lite builds. They are intentionally inert comments, not a
+# second updater implementation. This lets old clients cross the boundary while
+# keeping exactly one active update engine after migration.
+# FURINA_UPDATER_GENERATION="22"
+# FURINA_UPDATER_GENERATION="23"
+# VERSION="1.0.0-rc67"
+# VERSION="1.0.0-rc68"
+# DEPENDENCY_REVISION="2026.08.22-r37"
+# DEPENDENCY_REVISION="2026.08.23-r38"
 # FURINA_RUNTIME_CONTRACT="furina-runtime/v3-full-snapshot"
 # FURINA_RUNTIME_CONTRACT="furina-runtime/v4-channel-snapshot"
+# BODY_PATH="overrides/runtime-r37/install-body.sh"
+# BODY_PATH="overrides/runtime-r38/install-body.sh"
+# STATUS_PATH="$ROOT/run/furinahub-update.json"
+# FURINA_UPDATE_SOURCE
 # BUNDLE_ID="furina-2026.08.22-rc67-rc55"
 # BUNDLE_ID="furina-2026.08.23-rc68-rc56"
+# Tidak ada pembaruan terbaru
+# Pembaruan berhasil
+# Pembaruan gagal pada tahap
 # fetch_target_bundle
+# validate_archive
+# sync_apk
+# rollback
 # furina-apk-confirm
 # Do not mark the bundle installed here
 
