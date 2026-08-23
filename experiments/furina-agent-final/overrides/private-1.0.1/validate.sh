@@ -6,6 +6,7 @@ PROJECT="$(cd "$HERE/../.." && pwd)"
 
 # Reconstruct the exact previously released private 1.0.0 baseline first.
 bash "$PROJECT/overrides/final-1.0/validate.sh"
+python3 "$HERE/preflight.py" "$ROOT"
 python3 "$HERE/apply.py" "$ROOT"
 python3 "$PROJECT/overrides/android-private-1.0.1/apply.py" "$ROOT"
 
@@ -32,6 +33,7 @@ config=(core/'config.py').read_text(encoding='utf-8')
 models=(core/'local_models.py').read_text(encoding='utf-8')
 page=(root/'bridge/app/src/main/assets/furinahub/index.html').read_text(encoding='utf-8')
 for p in core.glob('*.py'): ast.parse(p.read_text(encoding='utf-8'),filename=str(p))
+assert tui.count('def run_tui():') == 1
 assert '["Chat", "Provider & Model", "Pengaturan", "Exit"]' in tui
 run=tui[tui.index('def run_tui():'):]
 run=run[:run.index('\ndef ',20)] if '\ndef ' in run[20:] else run
