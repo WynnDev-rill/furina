@@ -165,7 +165,14 @@ def main() -> int:
     if "Qwen_Qwen3.5-4B-Q4_K_M.gguf" in hub or "Qwen3.5-4B" in page:
         fail("LEGACY_MODEL", "Deckard/old 4B catalog remains active")
 
-    chat_fn = top_level_function(core / "routing.py", "chat")
+    routing_tree = ast.parse(routing, filename=str(core / "routing.py"))
+    routing_chat_nodes = [node for node in ast.walk(routing_tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "chat"]
+    chat_fn = ""
+    if len(routing_chat_nodes) == 1:
+        node = routing_chat_nodes[0]
+        chat_fn = "\n".join(routing.splitlines()[node.lineno - 1 : node.end_lineno])
+    else:
+        fail("ROUTING", f"expected one routing chat method, got {len(routing_chat_nodes)}")
     if 'routing_mode in {"auto", "online"}' in chat_fn or "falling back to local" in chat_fn.lower():
         fail("ROUTING", "online route can still silently fall back to local")
     if 'self.cfg.routing_mode == "local"' not in chat_fn or "self._ensure_local()" not in chat_fn:
