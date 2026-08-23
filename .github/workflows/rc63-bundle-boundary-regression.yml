@@ -37,13 +37,17 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           installer=Path('experiments/furina-agent-final/install.sh').read_text()
+          active='\n'.join(line for line in installer.splitlines() if not line.lstrip().startswith('#'))
           client=Path('experiments/furina-agent-final/overrides/runtime-r39/update_client.py').read_text()
           assert 'FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"' in installer
-          assert 'UPDATE_PROTOCOL="furina-update/1"' in installer
-          assert 'CHANNEL_URL="$STABLE_RELEASE/channel.json"' in installer
-          assert 'BODY_BLOB=' not in installer
-          assert 'runtime-r38/install-body.sh' not in installer
-          assert 'fetch_verified_body' not in installer
+          assert 'UPDATE_PROTOCOL="furina-update/1"' in active
+          assert 'CHANNEL_URL="$STABLE_RELEASE/channel.json"' in active
+          assert 'BODY_BLOB=' not in active
+          assert 'runtime-r38/install-body.sh' not in active
+          assert 'fetch_verified_body' not in active
+          assert 'Compatibility ledger' in installer
+          assert 'FURINA_UPDATER_GENERATION="23"' in installer
+          assert 'BUNDLE_ID="furina-2026.08.23-rc68-rc56"' in installer
           assert 'PROTOCOL = "furina-update/1"' in client
           assert 'installed_is_current(root, channel)' in client
           assert 'maybe_reexec' in client
