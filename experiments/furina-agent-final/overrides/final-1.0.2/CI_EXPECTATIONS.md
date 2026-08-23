@@ -1,1 +1,0 @@
-Required gates before merge: Python syntax; reconstructed final-stage contract; local model catalog unchanged; no first-install GGUF download; lazy-prewarm only after Local selection; keep-warm bounded; stream v2 local+online; cooperative stop; CPU fallback; Android build; updater/boundary regression.

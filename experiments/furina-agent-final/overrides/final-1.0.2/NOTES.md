@@ -1,1 +1,0 @@
-Implementation target: improve perceived and steady-state local inference latency without changing the two user-selected 1.7B GGUF models. Streaming behavior must be shared across local and online paths; accelerator use must remain benchmark-gated with CPU fallback.

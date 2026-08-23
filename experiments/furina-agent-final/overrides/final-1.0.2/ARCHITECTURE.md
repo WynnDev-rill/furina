@@ -1,1 +1,0 @@
-Local Performance V2 architecture: local model lifecycle is background-prewarmed only when Local is active, kept warm for bounded idle time, streamed through a first-chunk-priority coalescer, and benchmarked on demand. Online providers use the same presentation-level stream coalescer. Accelerators are benchmark-gated with CPU fallback.

@@ -1,1 +1,0 @@
-Plan: integrate LocalRuntime into the active model manager, route both local and online streams through SmoothStream, expose cooperative stop, add explicit status events, benchmark thread/backend only on demand, validate reconstructed final tree, update version/release metadata, run exact-head CI, then merge.
