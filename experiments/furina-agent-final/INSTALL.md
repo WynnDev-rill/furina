@@ -1,6 +1,6 @@
 # Instalasi Furina Lite + FurinaHub
 
-Panduan private build saat ini: Core `1.0.1`, FurinaHub `1.0.1`, dependency revision `2026.08.23-r41`.
+Panduan private build saat ini: Core `1.0.2`, FurinaHub `1.0.2`, dependency revision `2026.08.24-r42`.
 
 ## Instalasi baru
 
@@ -33,7 +33,7 @@ furina → Provider & Model
 
 Pilihan routing hanya dua:
 
-- **Online** — model/provider API yang tersedia dapat berganti otomatis di dalam jalur online.
+- **Online** — model/provider API yang tersedia dapat berganti otomatis di dalam jalur online sebelum jawaban terlihat. Setelah streaming jawaban mulai tampil, response tidak dipindah ke provider lain.
 - **Local** — tepat satu model lokal yang sudah selesai diunduh dan dipilih.
 
 Katalog lokal:
@@ -43,7 +43,11 @@ Katalog lokal:
 
 Model yang belum ada menunjukkan **Unduh**. Setelah download selesai, ukuran, header GGUF dan SHA-256 diverifikasi; baru setelah itu tombol berubah menjadi **Pilih**. Model yang dipakai menunjukkan **Aktif**.
 
-Unduhan dapat dilanjutkan setelah koneksi terputus. Model lokal yang dipilih tidak dipanaskan saat membuka `furina`; proses model baru dimulai ketika chat lokal pertama membutuhkan inferensi.
+Unduhan dapat dilanjutkan setelah koneksi terputus. Membuka `furina` biasa tidak memuat model. Setelah **Local** dipilih, Furina mulai menyiapkan model terpilih di background. Jika chat dibuka lebih cepat, tampil status **Menyiapkan model lokal…** dan pesan tetap menunggu runtime yang sama; model sehat kemudian dipertahankan warm hingga sekitar 10 menit idle agar pesan berikutnya tidak memuat GGUF dari awal.
+
+Local Performance V2 memakai context dasar 4096, cache-reuse dan Flash Attention secara capability-gated. Benchmark performa opsional membandingkan 4/5/6 thread pada model yang benar-benar terpasang. OpenCL/Vulkan hanya digunakan bila build backend khusus memang tersedia dan lolos benchmark; CPU tetap fallback. Model, quantization, sampling, dan budget jawaban tidak diturunkan untuk mengejar angka benchmark.
+
+Baik chat Online maupun Local mengirim jawaban secara streaming. Chunk pertama langsung ditampilkan; chunk kecil berikutnya digabung dalam interval sangat pendek agar tampilan Termux/FurinaHub terasa lancar tanpa fake typing.
 
 Migrasi menghapus file Deckard/Qwen lama yang memang dimiliki katalog Furina sebelumnya. File GGUF lain yang ditaruh pengguna sendiri tidak dihapus otomatis.
 
@@ -89,7 +93,7 @@ curl -fsSL https://github.com/WynnDev-rill/furina/releases/download/furina-updat
 
 Saat channel memiliki APK baru, updater mengunduh APK terverifikasi dan membuka Android Package Installer. Versi baru baru dianggap terpasang setelah FurinaHub yang baru benar-benar dijalankan dan mengonfirmasi bundle ke Termux.
 
-FurinaHub memakai katalog model yang sama dengan Termux. Download/pilih/hapus model dari FurinaHub memengaruhi Core yang sama; status model juga tetap **Unduh**, **Pilih**, atau **Aktif**. Memory/Psyche tetap digunakan oleh Core tetapi direct navigation-nya disembunyikan.
+FurinaHub memakai katalog model dan runtime yang sama dengan Termux. Download/pilih/hapus model dari FurinaHub memengaruhi Core yang sama; status model juga tetap **Unduh**, **Pilih**, atau **Aktif**. Memilih model Local dari FurinaHub juga memulai persiapan background yang sama. Memory/Psyche tetap digunakan oleh Core tetapi direct navigation-nya disembunyikan.
 
 ## Hapus seluruh Furina dari Termux
 
