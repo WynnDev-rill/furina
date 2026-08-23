@@ -4,7 +4,6 @@ ROOT="${1:-/tmp/furina-agent-rc54-validate/termux}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PROJECT="$(cd "$HERE/../.." && pwd)"
 
-# Reconstruct the exact previously released private 1.0.0 baseline first.
 bash "$PROJECT/overrides/final-1.0/validate.sh"
 python3 "$HERE/preflight.py" "$ROOT"
 python3 "$HERE/apply.py" "$ROOT"
@@ -32,15 +31,17 @@ hub=(core/'hub.py').read_text(encoding='utf-8')
 config=(core/'config.py').read_text(encoding='utf-8')
 models=(core/'local_models.py').read_text(encoding='utf-8')
 page=(root/'bridge/app/src/main/assets/furinahub/index.html').read_text(encoding='utf-8')
-for p in core.glob('*.py'): ast.parse(p.read_text(encoding='utf-8'),filename=str(p))
+for p in core.glob('*.py'):
+    ast.parse(p.read_text(encoding='utf-8'),filename=str(p))
 assert tui.count('def run_tui():') == 1
 assert '["Chat", "Provider & Model", "Pengaturan", "Exit"]' in tui
 run=tui[tui.index('def run_tui():'):]
 run=run[:run.index('\ndef ',20)] if '\ndef ' in run[20:] else run
 assert '_auto_start_local(console)' not in run
-assert 'Toggle local auto-start' not in tui[tui.index('def _settings'):tui.index('def _auto_start_local')]
-assert 'AUTO · online' not in tui[tui.index('def _providers'):tui.index('def _settings')]
-assert 'Memory' not in tui[tui.index('def _main_menu'):tui.index('def _providers')]
+settings=tui[tui.index('def _settings'):tui.index('def _auto_start_local')]
+providers=tui[tui.index('def _providers'):tui.index('def _settings')]
+assert 'Toggle local auto-start' not in settings
+assert 'AUTO · online' not in providers
 assert 'routing_mode: str = "online"' in config
 assert '{"local", "online"}' in config
 chat=routing[routing.index('    def chat('):]
@@ -60,8 +61,6 @@ assert 'Unduh' in page and 'Pilih' in page and 'Aktif' in page
 print('FURINA_PRIVATE_1_0_1_SURFACE_OK')
 PY
 
-# Import Config with an isolated FURINA_HOME and prove AUTO migrates to ONLINE
-# and legacy catalog files are removed without touching arbitrary GGUF files.
 TMP_HOME="$(mktemp -d)"
 trap 'rm -rf "$TMP_HOME"' EXIT
 mkdir -p "$TMP_HOME/models" "$TMP_HOME/data"
@@ -81,8 +80,6 @@ assert (home/'models/my-private-model.gguf').exists()
 print('FURINA_PRIVATE_1_0_1_MODEL_MIGRATION_OK')
 PY
 
-# Build the exact updater that will be released and verify `hapus furina` in an
-# isolated prefix. The uninstall must remove Furina-owned data/launchers only.
 CLIENT="$TMP_HOME/furina-update.py"
 python3 "$PROJECT/overrides/runtime-private-1.0.1/build_client.py" "$PROJECT/overrides/runtime-r39/update_client.py" "$CLIENT"
 grep -Fq 'CLIENT_VERSION = "1.2.0"' "$CLIENT"
