@@ -1,0 +1,30 @@
+name: Furina Final Product Audit
+
+on:
+  pull_request:
+    branches: [experiment/furina-agent-termux]
+    paths:
+      - 'experiments/furina-agent-final/**'
+      - 'furina-agent-termux/experiments/furina-agent-final/**'
+      - '.github/workflows/furina-final-audit.yml'
+  workflow_dispatch:
+
+jobs:
+  final-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reconstruct current shipped Core and FurinaHub
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash experiments/furina-agent-final/overrides/android-rc57/validate.sh
+      - name: Run final product engineering audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 experiments/furina-agent-final/final-audit.py /tmp/furina-agent-rc54-validate/termux
+          git diff --check
