@@ -63,6 +63,17 @@ HOME="$TMP/home" FURINA_HOME="$TMP/home/.furina-agent" PREFIX="$TMP/prefix" FURI
 grep -Fq 'Tidak ada pembaruan terbaru' "$TMP/second.log"
 test ! -e "$TMP/home/FurinaHub-v1.0.0-rc57.apk"
 
+# Repair is explicit and deterministic: force one verified snapshot swap after
+# corruption while keeping memory/profile/data outside the code snapshot.
+printf 'VERSION = "broken"\n' >"$TMP/home/.furina-agent/core/furina_agent/version.py"
+HOME="$TMP/home" FURINA_HOME="$TMP/home/.furina-agent" PREFIX="$TMP/prefix" FURINA_TEST_MODE=1 \
+  python3 "$TMP/home/.furina-agent/updater/update_client.py" repair --channel-file "$TMP/channel.json" \
+  | tee "$TMP/repair.log"
+grep -Fq 'Core diperbarui' "$TMP/repair.log"
+grep -Fq 'VERSION = "1.0.0-rc69"' "$TMP/home/.furina-agent/core/furina_agent/version.py"
+test "$(cat "$TMP/home/.furina-agent/data/keep.txt")" = user-data-survives
+test "$(cat "$TMP/home/.furina-agent/data/furinahub_apk_bundle")" = furina-2026.08.23-rc69-rc57
+
 python3 - "$CLIENT" <<'PY'
 from pathlib import Path
 import sys
