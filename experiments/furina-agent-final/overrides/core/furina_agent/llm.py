@@ -117,6 +117,7 @@ class LocalLLM:
     def __init__(self, cfg: Config):
         self.cfg = cfg
         self.lock = threading.RLock()
+        self._active_response = None
 
     @property
     def base_url(self) -> str:
@@ -128,6 +129,16 @@ class LocalLLM:
                 return 200 <= r.status < 300
         except Exception:
             return False
+
+    def cancel(self) -> None:
+        """Abort the active HTTP stream without stopping the warm model server."""
+        with self.lock:
+            response = self._active_response
+        if response is not None:
+            try:
+                response.close()
+            except Exception:
+                pass
 
     def _request_once(
         self,
@@ -157,10 +168,12 @@ class LocalLLM:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
+        response = None
         try:
-            # Only serialize requests; do not hold a lifecycle lock while the
-            # UI consumes chunks. llama-server does continuous batching itself.
-            with self.lock, urllib.request.urlopen(req, timeout=180) as r:
+            response = urllib.request.urlopen(req, timeout=180)
+            with self.lock:
+                self._active_response = response
+            with response as r:
                 if not payload["stream"]:
                     raw = json.loads(r.read().decode("utf-8"))
                     choice = raw["choices"][0]
@@ -202,6 +215,10 @@ class LocalLLM:
             raise LLMError(f"llama-server HTTP {e.code}: {body[:700]}") from e
         except Exception as e:
             raise LLMError(f"Tidak dapat menghubungi llama-server: {e}") from e
+        finally:
+            with self.lock:
+                if self._active_response is response:
+                    self._active_response = None
 
     def chat(
         self,
