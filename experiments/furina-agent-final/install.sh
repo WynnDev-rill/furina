@@ -4,10 +4,10 @@ set -euo pipefail
 # Stable compatibility boundary. Existing devices only need to understand this
 # tiny bootstrap once; normal updates use the local furina-update/1 client.
 FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"
-FURINA_UPDATER_GENERATION="26"
-VERSION="1.0.1"
-DEPENDENCY_REVISION="2026.08.23-r41"
-RUNTIME_CONTRACT="furina-runtime/v7-local-model-on-demand"
+FURINA_UPDATER_GENERATION="27"
+VERSION="1.0.2"
+DEPENDENCY_REVISION="2026.08.24-r42"
+RUNTIME_CONTRACT="furina-runtime/v8-local-performance-v2"
 UPDATE_PROTOCOL="furina-update/1"
 STABLE_RELEASE="https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable"
 CHANNEL_URL="$STABLE_RELEASE/channel.json"
@@ -22,18 +22,22 @@ trap 'rm -rf "$TMP"' EXIT
 # FURINA_UPDATER_GENERATION="23"
 # FURINA_UPDATER_GENERATION="24"
 # FURINA_UPDATER_GENERATION="25"
+# FURINA_UPDATER_GENERATION="26"
 # VERSION="1.0.0-rc67"
 # VERSION="1.0.0-rc68"
 # VERSION="1.0.0-rc69"
 # VERSION="1.0.0"
+# VERSION="1.0.1"
 # DEPENDENCY_REVISION="2026.08.22-r37"
 # DEPENDENCY_REVISION="2026.08.23-r38"
 # DEPENDENCY_REVISION="2026.08.23-r39"
 # DEPENDENCY_REVISION="2026.08.23-r40"
+# DEPENDENCY_REVISION="2026.08.23-r41"
 # FURINA_RUNTIME_CONTRACT="furina-runtime/v2"
 # FURINA_RUNTIME_CONTRACT="furina-runtime/v3-full-snapshot"
 # FURINA_RUNTIME_CONTRACT="furina-runtime/v4-channel-snapshot"
 # RUNTIME_CONTRACT="furina-runtime/v6-private-final"
+# RUNTIME_CONTRACT="furina-runtime/v7-local-model-on-demand"
 # BODY_PATH="overrides/runtime-r37/install-body.sh"
 # BODY_PATH="overrides/runtime-r38/install-body.sh"
 # STATUS_PATH="$ROOT/run/furinahub-update.json"
@@ -42,6 +46,7 @@ trap 'rm -rf "$TMP"' EXIT
 # BUNDLE_ID="furina-2026.08.23-rc68-rc56"
 # BUNDLE_ID="furina-2026.08.23-rc69-rc57"
 # BUNDLE_ID="furina-2026.08.23-private-1.0.0"
+# BUNDLE_ID="furina-2026.08.23-private-1.0.1"
 # Tidak ada pembaruan terbaru
 # Pembaruan berhasil
 # Pembaruan gagal pada tahap
@@ -87,7 +92,7 @@ fetch(){
   local url="$1" out="$2"
   curl -fL --silent --show-error --connect-timeout 12 --max-time 180 \
     --retry 4 --retry-delay 2 --retry-all-errors \
-    -H 'User-Agent: Furina-Bootstrap/26' -H 'Cache-Control: no-cache' \
+    -H 'User-Agent: Furina-Bootstrap/27' -H 'Cache-Control: no-cache' \
     "$url" -o "$out"
 }
 

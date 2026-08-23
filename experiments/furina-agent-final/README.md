@@ -48,11 +48,11 @@ There is no `AUTO` mode. Chat runs in exactly one of two routing modes:
 
 **Online**
 
-Provider/API routing stays automatic among configured online providers and models. An online failure never silently changes the chat to a local model.
+Provider/API routing stays automatic among configured online providers and models. Failover is allowed before visible output begins; after the first streamed text is shown, Furina keeps that response bound to the same provider so text is never duplicated or silently rewritten. Online chat uses native provider streaming and renders the first visible chunk immediately.
 
 **Local**
 
-Exactly one downloaded local model is selected for chat. Furina does not start or pre-warm the model merely because `furina` is opened; the selected model is loaded lazily when the first local-chat message actually needs it.
+Exactly one downloaded local model is selected for chat. Opening the generic `furina` TUI still does no model work. When Local is explicitly selected, Furina begins preparing the selected model in the background; if chat is opened before it is ready, the UI shows `Menyiapkan model lokal…` rather than appearing frozen. A healthy local runtime is kept warm for a bounded idle window so follow-up messages avoid repeated GGUF loading.
 
 The supported local catalog contains exactly two chat models:
 
@@ -64,6 +64,21 @@ The supported local catalog contains exactly two chat models:
 After a verified download the action becomes `Pilih`; the selected model shows `Aktif`. A partially downloaded or invalid file cannot be selected. Downloads support resume and are checked against the pinned byte size, GGUF header and SHA-256 before activation.
 
 The previous Furina-owned Qwen3.5 4B Deckard/legacy catalog files are retired during migration. Furina does not delete unrelated GGUF files that the user placed in the models directory manually.
+
+## Local Performance V2
+
+The 1.0.2 runtime focuses on latency without changing either selected model or its quantization:
+
+- phone-first `4096` context baseline while relevant memory continues to be selected by retrieval instead of disabling memory;
+- llama.cpp prompt/KV cache reuse when the installed server exposes the capability;
+- Flash Attention set to capability-gated `auto`;
+- first streamed local token is not intentionally delayed; later tiny deltas are coalesced in a short render window to reduce Termux/WebView repaint overhead;
+- local runtime remains warm for up to 600 seconds of idle time and can be stopped without deleting the selected model;
+- optional device benchmark compares 4, 5 and 6 CPU threads on the exact downloaded GGUF;
+- OpenCL/Vulkan are considered only when a real backend-specific llama-server build is present and benchmarked healthy; CPU always remains the fallback;
+- stopping an active generation closes only its response stream, not the warm local model.
+
+The 1.0.1 answer budget is deliberately preserved (`max_tokens 2048`, up to four explicit length continuations). Performance is gained from startup, prefill, caching and rendering rather than shortening answers.
 
 ## Product model
 
@@ -79,7 +94,8 @@ FurinaHub uses the same Core and model catalog in Termux through the local bridg
 - wifuGPT 1.7B Q4_K_M and Qwen3 1.7B Heretic Q5_K_M only;
 - `Unduh`, `Pilih`, and `Aktif` states;
 - resumable, size/SHA-verified local downloads;
-- automatic provider/API failover only while Online is selected.
+- contextual background preparation after a local model is selected;
+- automatic provider/API failover only while Online is selected and before visible streamed text begins.
 
 The direct Memory/Psyche navigation is hidden here as well, while memory remains part of the shared Core. FurinaHub still includes conversation history, image attachment/preview/crop/markup, Plugin/OpenConnector controls, personalization, device-control modes, and APK/Core update status.
 
@@ -135,8 +151,8 @@ Furina Lite (Termux) ─┐
 FurinaHub (Android) ──┘            │
                                    ├── conversation / hidden memory / Psyche
                                    ├── partner-first relationship state
-                                   ├── Online provider router
-                                   ├── one selected local GGUF (optional)
+                                   ├── Online provider router + native stream
+                                   ├── one selected local GGUF + warm runtime
                                    ├── Android Agent
                                    └── optional OpenConnector adapter
 
@@ -145,11 +161,11 @@ Update: furina-update/1 → verified channel → staged snapshot → atomic swap
 
 ## Current versions
 
-- Core: `1.0.1`
-- FurinaHub Android: `1.0.1` (`versionCode 10059`)
-- Dependency revision: `2026.08.23-r41`
-- Bundle: `furina-2026.08.23-private-1.0.1`
+- Core: `1.0.2`
+- FurinaHub Android: `1.0.2` (`versionCode 10060`)
+- Dependency revision: `2026.08.24-r42`
+- Bundle: `furina-2026.08.24-private-1.0.2`
 - Update client: `1.2.0`
-- Runtime contract: `furina-runtime/v7-local-model-on-demand`
+- Runtime contract: `furina-runtime/v8-local-performance-v2`
 
 For installation and recovery details, see [`INSTALL.md`](./INSTALL.md).

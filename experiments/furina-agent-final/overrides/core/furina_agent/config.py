@@ -19,7 +19,7 @@ PERF_STATE_PATH = DATA_DIR / "performance.json"
 
 @dataclass
 class Config:
-    config_revision: int = 5
+    config_revision: int = 6
     bridge_host: str = "127.0.0.1"
     bridge_port: int = 8765
     bridge_token: str = ""
@@ -28,13 +28,22 @@ class Config:
     llama_host: str = "127.0.0.1"
     llama_port: int = 8080
     model_path: str = ""
-    # RC5 carries richer memory/persona context. 6144 remains reasonable for a
-    # 4B phone model while avoiding the cramped 4096-token companion prompt.
-    context_size: int = 6144
-    threads: int = 6
 
-    # Per-generation safety ceiling only. Normal responses stop on EOS/stop;
-    # explicit length stops are continued automatically.
+    # Local Performance V2 defaults. 4K is the phone-first baseline; retrieval
+    # keeps the useful companion context dense instead of blindly carrying a
+    # large prompt into every turn.
+    context_size: int = 4096
+    threads: int = 5
+    batch_size: int = 512
+    ubatch_size: int = 128
+    cache_reuse: int = 256
+    flash_attention: str = "auto"
+    accel_backend: str = "auto"
+    keep_warm_seconds: int = 600
+    prewarm_on_local_select: bool = True
+
+    # Preserve the 1.0.1 response budget. Performance work targets startup,
+    # prefill, caching and rendering rather than shortening Furina's answers.
     max_tokens: int = 2048
     response_continuations: int = 4
 
@@ -54,7 +63,6 @@ class Config:
     provider_max_models: int = 5
 
     performance_tuned: bool = False
-    cache_reuse: int = 256
     server_priority: int = 1
     cpu_mask: str = ""
     cpu_strict: bool = False
@@ -85,33 +93,29 @@ def load_config() -> Config:
 
     if not isinstance(defaults.get("provider_order"), list):
         defaults["provider_order"] = list(Config().provider_order)
-    if defaults.get("routing_mode") not in {"local", "auto", "online"}:
+    if defaults.get("routing_mode") not in {"local", "online"}:
         defaults["routing_mode"] = "local"
 
     try:
         revision = int(raw.get("config_revision", 0) or 0)
     except Exception:
         revision = 0
-    try:
-        old_limit = int(raw.get("max_tokens", 0) or 0)
-    except Exception:
-        old_limit = 0
-    if revision < 4 and (old_limit <= 1536 or old_limit == 0):
-        defaults["max_tokens"] = 2048
-        defaults["response_continuations"] = max(4, int(defaults.get("response_continuations", 0) or 0))
-        defaults["agent_max_steps"] = max(24, int(defaults.get("agent_max_steps", 0) or 0))
 
-    # RC5 migration: richer user model, examples and episodic context need more
-    # room. Preserve deliberate larger custom contexts.
-    if revision < 5:
+    # V2 migration only adjusts legacy performance defaults. Deliberate user
+    # overrides and the response-quality budget are retained.
+    if revision < 6:
         try:
-            current_ctx = int(raw.get("context_size", 0) or 0)
+            old_ctx = int(raw.get("context_size", 0) or 0)
         except Exception:
-            current_ctx = 0
-        if current_ctx <= 4096:
-            defaults["context_size"] = 6144
-        defaults["memory_limit"] = max(7, int(defaults.get("memory_limit", 0) or 0))
-        defaults["agent_max_steps"] = max(28, int(defaults.get("agent_max_steps", 0) or 0))
+            old_ctx = 0
+        if old_ctx in {0, 6144}:
+            defaults["context_size"] = 4096
+        try:
+            old_threads = int(raw.get("threads", 0) or 0)
+        except Exception:
+            old_threads = 0
+        if old_threads in {0, 6}:
+            defaults["threads"] = 5
 
     defaults["max_tokens"] = max(128, min(int(defaults["max_tokens"]), 8192))
     defaults["response_continuations"] = max(0, min(int(defaults["response_continuations"]), 6))
@@ -119,6 +123,16 @@ def load_config() -> Config:
     defaults["memory_limit"] = max(3, min(int(defaults["memory_limit"]), 16))
     defaults["threads"] = max(1, min(int(defaults["threads"]), 12))
     defaults["context_size"] = max(2048, min(int(defaults["context_size"]), 16384))
+    defaults["batch_size"] = max(64, min(int(defaults["batch_size"]), 2048))
+    defaults["ubatch_size"] = max(32, min(int(defaults["ubatch_size"]), defaults["batch_size"]))
+    defaults["cache_reuse"] = max(0, min(int(defaults["cache_reuse"]), 4096))
+    defaults["keep_warm_seconds"] = max(0, min(int(defaults["keep_warm_seconds"]), 3600))
+    defaults["flash_attention"] = str(defaults.get("flash_attention") or "auto").lower()
+    if defaults["flash_attention"] not in {"auto", "on", "off"}:
+        defaults["flash_attention"] = "auto"
+    defaults["accel_backend"] = str(defaults.get("accel_backend") or "auto").lower()
+    if defaults["accel_backend"] not in {"auto", "cpu", "opencl", "vulkan"}:
+        defaults["accel_backend"] = "auto"
     defaults["top_k"] = max(0, min(int(defaults["top_k"]), 100))
     defaults["min_p"] = max(0.0, min(float(defaults["min_p"]), 1.0))
     mask = str(defaults.get("cpu_mask") or "").strip().lower().removeprefix("0x")

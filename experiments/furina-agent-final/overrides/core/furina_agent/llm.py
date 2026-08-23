@@ -8,6 +8,7 @@ import urllib.request
 from collections.abc import Callable
 
 from .config import Config
+from .streaming import SmoothStream
 
 
 class LLMError(RuntimeError):
@@ -35,8 +36,6 @@ def sanitize(text: str) -> str:
     text = str(text or "")
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.I | re.S)
     text = re.sub(r"<analysis>.*?</analysis>", "", text, flags=re.I | re.S)
-    # If a backend cuts off while still inside a hidden reasoning block, hide
-    # the unfinished block instead of leaking it to the user.
     text = re.sub(r"<think>.*$", "", text, flags=re.I | re.S)
     text = re.sub(r"<analysis>.*$", "", text, flags=re.I | re.S)
     text = re.sub(r"</?(?:think|analysis)>", "", text, flags=re.I)
@@ -47,7 +46,7 @@ def sanitize(text: str) -> str:
 
 
 class _VisibleStreamFilter:
-    """Incrementally suppress <think>/<analysis> blocks before Rich renders them."""
+    """Incrementally suppress hidden reasoning before any chunk reaches the UI."""
 
     def __init__(self, emit: Callable[[str], None]):
         self.emit = emit
@@ -118,6 +117,7 @@ class LocalLLM:
     def __init__(self, cfg: Config):
         self.cfg = cfg
         self.lock = threading.RLock()
+        self._active_response = None
 
     @property
     def base_url(self) -> str:
@@ -125,10 +125,20 @@ class LocalLLM:
 
     def health(self) -> bool:
         try:
-            with urllib.request.urlopen(self.base_url + "/health", timeout=2) as r:
+            with urllib.request.urlopen(self.base_url + "/health", timeout=1) as r:
                 return 200 <= r.status < 300
         except Exception:
             return False
+
+    def cancel(self) -> None:
+        """Abort the active HTTP stream without stopping the warm model server."""
+        with self.lock:
+            response = self._active_response
+        if response is not None:
+            try:
+                response.close()
+            except Exception:
+                pass
 
     def _request_once(
         self,
@@ -151,7 +161,6 @@ class LocalLLM:
             "chat_template_kwargs": {"enable_thinking": bool(self.cfg.local_reasoning)},
         }
         if json_mode:
-            # The pinned llama-server supports OpenAI-style JSON object mode.
             payload["response_format"] = {"type": "json_object"}
         req = urllib.request.Request(
             self.base_url + "/v1/chat/completions",
@@ -159,8 +168,12 @@ class LocalLLM:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
+        response = None
         try:
-            with self.lock, urllib.request.urlopen(req, timeout=360) as r:
+            response = urllib.request.urlopen(req, timeout=180)
+            with self.lock:
+                self._active_response = response
+            with response as r:
                 if not payload["stream"]:
                     raw = json.loads(r.read().decode("utf-8"))
                     choice = raw["choices"][0]
@@ -170,7 +183,8 @@ class LocalLLM:
 
                 raw_chunks: list[str] = []
                 finish = ""
-                stream_filter = _VisibleStreamFilter(on_token) if on_token else None
+                smoother = SmoothStream(on_token, frame_ms=22, max_buffer_chars=96) if on_token else None
+                stream_filter = _VisibleStreamFilter(smoother.feed) if smoother else None
                 for raw_line in r:
                     line = raw_line.decode("utf-8", errors="replace").strip()
                     if not line.startswith("data:"):
@@ -193,12 +207,18 @@ class LocalLLM:
                             stream_filter.feed(piece)
                 if stream_filter:
                     stream_filter.finish()
+                if smoother:
+                    smoother.close()
                 return sanitize("".join(raw_chunks)), finish
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8", errors="replace")
             raise LLMError(f"llama-server HTTP {e.code}: {body[:700]}") from e
         except Exception as e:
             raise LLMError(f"Tidak dapat menghubungi llama-server: {e}") from e
+        finally:
+            with self.lock:
+                if self._active_response is response:
+                    self._active_response = None
 
     def chat(
         self,
@@ -219,10 +239,6 @@ class LocalLLM:
             on_token=on_token,
             json_mode=json_mode,
         )
-
-        # JSON planning/routing must stay a single valid object. Ordinary chat,
-        # however, keeps going only when the backend explicitly reports that it
-        # hit a length cap. Natural EOS/stop ends immediately.
         if json_mode:
             return sanitize(answer)
 
@@ -231,14 +247,11 @@ class LocalLLM:
                 break
             continuation_messages = list(messages) + [
                 {"role": "assistant", "content": answer[-6000:]},
-                {
-                    "role": "user",
-                    "content": "Lanjutkan tepat dari bagian terakhir tanpa mengulang pembukaan. Berhenti sendiri setelah jawaban benar-benar selesai.",
-                },
+                {"role": "user", "content": "Lanjutkan tepat dari bagian terakhir tanpa mengulang pembukaan. Berhenti sendiri setelah jawaban benar-benar selesai."},
             ]
             more, finish = self._request_once(
                 continuation_messages,
-                max_tokens=max(512, min(limit, 2048)),
+                max_tokens=max(384, min(limit, 1536)),
                 temperature=temp,
                 on_token=on_token,
                 json_mode=False,
@@ -250,7 +263,6 @@ class LocalLLM:
 
 
 def normalize_messages(messages: list[dict]) -> list[dict]:
-    """Normalize messages for strict llama.cpp/Qwen chat templates."""
     system_parts: list[str] = []
     turns: list[dict] = []
     for message in messages:

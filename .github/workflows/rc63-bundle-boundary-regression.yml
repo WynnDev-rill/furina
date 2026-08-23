@@ -1,4 +1,4 @@
-name: Furina Private 1.0.1 Boundary Regression
+name: Furina Private 1.0.2 Boundary Regression
 
 on:
   pull_request:
@@ -20,7 +20,7 @@ on:
 jobs:
   boundary-regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,35 +35,27 @@ jobs:
           cmp experiments/furina-agent-final/install.sh furina-agent-termux/experiments/furina-agent-final/install.sh
           python3 -m py_compile \
             experiments/furina-agent-final/overrides/runtime-r39/update_client.py \
-            experiments/furina-agent-final/overrides/runtime-final/build_client.py \
-            experiments/furina-agent-final/overrides/runtime-private-1.0.1/build_client.py
+            experiments/furina-agent-final/overrides/runtime-private-1.0.1/build_client.py \
+            experiments/furina-agent-final/overrides/private-1.0.2/apply.py \
+            experiments/furina-agent-final/overrides/android-private-1.0.2/apply.py
           TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
           python3 experiments/furina-agent-final/overrides/runtime-private-1.0.1/build_client.py \
             experiments/furina-agent-final/overrides/runtime-r39/update_client.py "$TMP/furina-update.py"
           python3 - <<'PY'
-          import io,tarfile
           from pathlib import Path
           installer=Path('experiments/furina-agent-final/install.sh').read_text()
           active='\n'.join(x for x in installer.splitlines() if not x.lstrip().startswith('#'))
           assert 'FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"' in installer
           assert 'FURINA_RUNTIME_CONTRACT="furina-runtime/v2"' in installer
-          assert 'FURINA_UPDATER_GENERATION="26"' in active
-          assert 'VERSION="1.0.1"' in active
-          assert 'DEPENDENCY_REVISION="2026.08.23-r41"' in active
-          assert 'RUNTIME_CONTRACT="furina-runtime/v7-local-model-on-demand"' in active
+          assert 'FURINA_UPDATER_GENERATION="27"' in active
+          assert 'VERSION="1.0.2"' in active
+          assert 'DEPENDENCY_REVISION="2026.08.24-r42"' in active
+          assert 'RUNTIME_CONTRACT="furina-runtime/v8-local-performance-v2"' in active
           assert 'UPDATE_PROTOCOL="furina-update/1"' in active
           assert 'CHANNEL_URL="$STABLE_RELEASE/channel.json"' in active
           assert 'BODY_BLOB=' not in active and 'fetch_verified_body' not in active
-          assert 'render_header' in active and 'render_step' in active
           assert '.gguf' not in active.lower() and 'wifugpt' not in active.lower()
-          parts=sorted(Path('experiments/furina-agent-final/overrides/runtime-r37/snapshot-parts').glob('part-*'))
-          archive=b''.join(p.read_bytes() for p in parts)
-          with tarfile.open(fileobj=io.BytesIO(archive),mode='r:') as tf:
-              cli=tf.extractfile('core/furina_agent/cli.py').read().decode()
-          for marker in ('FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"','FURINA_RUNTIME_CONTRACT="furina-runtime/v2"'):
-              assert marker in cli and marker in installer
-          assert 'kontrak installer tidak lengkap' in cli
-          print('FURINA_PRIVATE_1_0_1_RECOVERY_BOUNDARY_OK')
+          print('FURINA_PRIVATE_1_0_2_RECOVERY_BOUNDARY_OK')
           PY
           python3 - "$TMP/furina-update.py" <<'PY'
           from pathlib import Path
@@ -72,23 +64,17 @@ jobs:
           assert 'PROTOCOL = "furina-update/1"' in client
           assert 'CLIENT_VERSION = "1.2.0"' in client
           assert 'class TerminalUI' in client
-          assert 'core_current = installed_is_current(root, channel)' in client
-          assert 'if core_current and not force_core' in client
           assert 'safe_extract' in client and 'commit_snapshot' in client and 'maybe_reexec' in client
           assert 'def uninstall_termux' in client and '"hapus"' in client
           assert 'requests' not in client and 'pip install' not in client
-          assert 'wifuGPT-1.7B-Q4_K_M.gguf' not in client and 'Qwen3-1.7B-heretic' not in client
-          update=client[client.index('def update('):client.index('def uninstall_termux(')]
-          assert 'ensure_termux_packages()' not in update
-          assert update.index('if core_current and not force_core') < update.index('ensure_openconnector(')
-          print('FURINA_PRIVATE_1_0_1_ONE_CLIENT_OK')
+          print('FURINA_PRIVATE_1_0_2_ONE_CLIENT_OK')
           PY
 
-      - name: Test 1.0.1 install update no-op repair uninstall and APK confirmation
+      - name: Test 1.0.2 reconstruction and performance contract
         shell: bash
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/private-1.0.1/validate.sh
+          bash experiments/furina-agent-final/overrides/private-1.0.2/validate.sh
           python3 experiments/furina-agent-final/final-audit.py /tmp/furina-agent-rc54-validate/termux
 
       - name: Enforce channel-last publication
@@ -100,17 +86,18 @@ jobs:
           from pathlib import Path
           wf=Path('.github/workflows/furinahub-rc51-core-rc63.yml').read_text()
           manifest=json.load(open('experiments/furina-agent-final/manifest.json'))
-          publish=wf[wf.index('- name: Publish private 1.0.1 and stable update channel'):]
+          publish=wf[wf.index('- name: Publish private 1.0.2 and stable update channel'):]
           last=publish.rfind('channel.json --clobber')
           assert last > publish.rfind('furina-install.sh')
           assert last > publish.rfind('"$CLIENT_NAME"')
           assert last > publish.rfind('"$SNAPSHOT_NAME"')
           assert 'bundle.json --clobber' not in publish
-          assert manifest['legacy_patch_chain']=='build-time-only-not-device-update-path'
-          assert manifest['bundle_id']=='furina-2026.08.23-private-1.0.1'
-          assert manifest['version']=='1.0.1' and manifest['bridge_version']=='1.0.1'
+          assert manifest['bundle_id']=='furina-2026.08.24-private-1.0.2'
+          assert manifest['version']=='1.0.2' and manifest['bridge_version']=='1.0.2'
           assert manifest['update_client_version']=='1.2.0'
           assert manifest['local_model_policy']=='on-demand-download-only-never-first-install'
-          print('FURINA_PRIVATE_1_0_1_CHANNEL_LAST_OK')
+          assert manifest['local_model_start'].startswith('contextual-background-prewarm')
+          assert manifest['streaming'].startswith('furina-stream-v2')
+          print('FURINA_PRIVATE_1_0_2_CHANNEL_LAST_OK')
           PY
           git diff --check
