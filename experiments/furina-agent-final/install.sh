@@ -5,10 +5,10 @@ set -euo pipefail
 # tiny bootstrap once; after migration all normal updates run through the local
 # furina-update/1 client.
 FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"
-FURINA_UPDATER_GENERATION="24"
-VERSION="1.0.0-rc69"
-DEPENDENCY_REVISION="2026.08.23-r39"
-RUNTIME_CONTRACT="furina-runtime/v5-single-pipeline"
+FURINA_UPDATER_GENERATION="25"
+VERSION="1.0.0"
+DEPENDENCY_REVISION="2026.08.23-r40"
+RUNTIME_CONTRACT="furina-runtime/v6-private-final"
 UPDATE_PROTOCOL="furina-update/1"
 STABLE_RELEASE="https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable"
 CHANNEL_URL="$STABLE_RELEASE/channel.json"
@@ -23,10 +23,13 @@ trap 'rm -rf "$TMP"' EXIT
 # this bootstrap, so that exact marker must remain for installed devices.
 # FURINA_UPDATER_GENERATION="22"
 # FURINA_UPDATER_GENERATION="23"
+# FURINA_UPDATER_GENERATION="24"
 # VERSION="1.0.0-rc67"
 # VERSION="1.0.0-rc68"
+# VERSION="1.0.0-rc69"
 # DEPENDENCY_REVISION="2026.08.22-r37"
 # DEPENDENCY_REVISION="2026.08.23-r38"
+# DEPENDENCY_REVISION="2026.08.23-r39"
 # FURINA_RUNTIME_CONTRACT="furina-runtime/v2"
 # FURINA_RUNTIME_CONTRACT="furina-runtime/v3-full-snapshot"
 # FURINA_RUNTIME_CONTRACT="furina-runtime/v4-channel-snapshot"
@@ -36,6 +39,7 @@ trap 'rm -rf "$TMP"' EXIT
 # FURINA_UPDATE_SOURCE
 # BUNDLE_ID="furina-2026.08.22-rc67-rc55"
 # BUNDLE_ID="furina-2026.08.23-rc68-rc56"
+# BUNDLE_ID="furina-2026.08.23-rc69-rc57"
 # Tidak ada pembaruan terbaru
 # Pembaruan berhasil
 # Pembaruan gagal pada tahap
@@ -50,6 +54,29 @@ if [[ ! -d /data/data/com.termux/files/usr ]]; then
   echo "Installer Furina harus dijalankan dari Termux." >&2
   exit 1
 fi
+
+TUI=0
+[[ -t 1 && "${FURINAHUB_MACHINE_PROGRESS:-0}" != "1" ]] && TUI=1
+SECTION="Instalasi"
+[[ " ${*:-} " == *" --update "* || " ${*:-} " == *" update "* ]] && SECTION="Update"
+
+render_header(){
+  [[ "$TUI" == 1 ]] || return 0
+  printf '\033[1;38;2;158;252;231mFurina\033[0m \033[38;2;93;228;199mBy Wynn\033[0m  \033[38;2;31;110;90m·\033[0m  \033[1m%s\033[0m\n' "$SECTION"
+  printf '\033[38;2;31;110;90m────────────────────────────────────────────────────\033[0m\n'
+}
+render_step(){
+  [[ "$TUI" == 1 ]] || return 0
+  local percent="$1" message="$2" width=24 done empty bar="" i
+  done=$(( width * percent / 100 )); empty=$(( width - done ))
+  for ((i=0;i<done;i++)); do bar+="━"; done
+  for ((i=0;i<empty;i++)); do bar+="─"; done
+  printf '\r\033[2K\033[38;2;93;228;199m%s\033[0m  %3d%%  %s' "$bar" "$percent" "$message"
+}
+render_break(){ [[ "$TUI" == 1 ]] && printf '\n' || true; }
+
+render_header
+render_step 1 "Menyiapkan Termux"
 command -v curl >/dev/null 2>&1 || pkg install -y curl >/dev/null
 command -v python >/dev/null 2>&1 || pkg install -y python >/dev/null
 mkdir -p "$ROOT/updater" "$ROOT/run"
@@ -58,11 +85,13 @@ fetch(){
   local url="$1" out="$2"
   curl -fL --silent --show-error --connect-timeout 12 --max-time 180 \
     --retry 4 --retry-delay 2 --retry-all-errors \
-    -H 'User-Agent: Furina-Bootstrap/24' -H 'Cache-Control: no-cache' \
+    -H 'User-Agent: Furina-Bootstrap/25' -H 'Cache-Control: no-cache' \
     "$url" -o "$out"
 }
 
+render_step 2 "Memeriksa channel Furina"
 fetch "$CHANNEL_URL?ts=$(date +%s)" "$TMP/channel.json" || {
+  render_break
   echo "Channel update Furina tidak dapat diambil. Coba lagi setelah koneksi stabil." >&2
   exit 75
 }
@@ -79,8 +108,9 @@ for k in ('url','sha256','size'):
 print(c['url']); print(c['sha256']); print(int(c['size']))
 PY
 )
-[[ "${#META[@]}" -eq 3 ]] || { echo "Metadata updater tidak lengkap." >&2; exit 75; }
+[[ "${#META[@]}" -eq 3 ]] || { render_break; echo "Metadata updater tidak lengkap." >&2; exit 75; }
 
+render_step 3 "Memverifikasi updater"
 fetch "${META[0]}" "$TMP/update_client.py"
 python - "$TMP/update_client.py" "${META[1]}" "${META[2]}" <<'PY'
 import hashlib,pathlib,sys
@@ -91,6 +121,7 @@ if actual!=expected: raise SystemExit('sha256 updater berubah')
 compile(p.read_text(encoding='utf-8'),str(p),'exec')
 PY
 install -m 700 "$TMP/update_client.py" "$CLIENT"
+render_break
 
 # Translate every historical bootstrap spelling into one local updater entry.
 [[ "${1:-}" == "--update" ]] && shift
