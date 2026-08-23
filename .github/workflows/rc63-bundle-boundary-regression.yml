@@ -1,100 +1,87 @@
-name: RC67 Full Snapshot Boundary Regression
+name: Furina Single Pipeline Boundary Regression
 
 on:
   pull_request:
     branches: [experiment/furina-agent-termux]
     paths:
-      - 'experiments/furina-agent-final/overrides/rc60/**'
-      - 'experiments/furina-agent-final/overrides/runtime-r30/**'
-      - 'experiments/furina-agent-final/overrides/rc61/**'
-      - 'experiments/furina-agent-final/overrides/runtime-r32/**'
-      - 'experiments/furina-agent-final/overrides/rc62/**'
-      - 'experiments/furina-agent-final/overrides/rc63/**'
-      - 'experiments/furina-agent-final/overrides/runtime-r33/**'
-      - 'experiments/furina-agent-final/overrides/android-rc50/**'
-      - 'experiments/furina-agent-final/overrides/android-rc51/**'
-      - 'experiments/furina-agent-final/overrides/android-rc52/**'
-      - 'experiments/furina-agent-final/overrides/rc64/**'
-      - 'experiments/furina-agent-final/overrides/runtime-r34/**'
-      - 'experiments/furina-agent-final/overrides/rc65/**'
-      - 'experiments/furina-agent-final/overrides/runtime-r35/**'
-      - 'experiments/furina-agent-final/overrides/android-rc53/**'
-      - 'experiments/furina-agent-final/overrides/rc66/**'
-      - 'experiments/furina-agent-final/overrides/runtime-r36/**'
-      - 'experiments/furina-agent-final/overrides/android-rc54/**'
-      - 'experiments/furina-agent-final/overrides/rc67/**'
-      - 'experiments/furina-agent-final/overrides/runtime-r37/**'
-      - 'experiments/furina-agent-final/overrides/android-rc55/**'
-      - 'experiments/furina-agent-final/install.sh'
+      - 'experiments/furina-agent-final/**'
       - 'furina-agent-termux/experiments/furina-agent-final/install.sh'
+      - '.github/workflows/furinahub-rc51-core-rc63.yml'
       - '.github/workflows/rc63-bundle-boundary-regression.yml'
+  push:
+    branches: [experiment/furina-agent-termux]
+    paths:
+      - 'experiments/furina-agent-final/**'
+      - 'furina-agent-termux/experiments/furina-agent-final/install.sh'
+      - '.github/workflows/furinahub-rc51-core-rc63.yml'
+      - '.github/workflows/rc63-bundle-boundary-regression.yml'
+  workflow_dispatch:
 
 jobs:
   boundary-regression:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - name: Validate RC67 partner baseline and snapshot boundary
+        with:
+          fetch-depth: 0
+
+      - name: Enforce one active update path
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m py_compile experiments/furina-agent-final/overrides/rc60/apply.py
-          python3 experiments/furina-agent-final/overrides/rc60/test_ast_boundary.py
-          python3 -m py_compile experiments/furina-agent-final/overrides/rc61/apply.py
-          bash -n experiments/furina-agent-final/overrides/runtime-r32/install-body.sh
-          python3 -m py_compile experiments/furina-agent-final/overrides/rc63/apply.py
-          python3 -m py_compile experiments/furina-agent-final/overrides/android-rc50/apply.py
-          python3 -m py_compile experiments/furina-agent-final/overrides/android-rc51/apply.py
-          python3 -m py_compile experiments/furina-agent-final/overrides/android-rc52/apply.py
-          python3 -m py_compile experiments/furina-agent-final/overrides/android-rc53/apply.py
-          bash -n experiments/furina-agent-final/overrides/runtime-r33/install-body.sh
-          python3 -m py_compile experiments/furina-agent-final/overrides/rc64/apply.py
-          bash -n experiments/furina-agent-final/overrides/runtime-r34/install-body.sh
-          python3 -m py_compile experiments/furina-agent-final/overrides/rc65/apply.py
-          bash -n experiments/furina-agent-final/overrides/runtime-r35/install-body.sh
-          python3 -m py_compile experiments/furina-agent-final/overrides/rc66/apply.py
-          python3 -m py_compile experiments/furina-agent-final/overrides/rc66/relationship_v3.py
-          python3 -m py_compile experiments/furina-agent-final/overrides/android-rc54/apply.py
-          bash -n experiments/furina-agent-final/overrides/runtime-r36/install-body.sh
-          python3 -m py_compile experiments/furina-agent-final/overrides/rc67/apply.py
-          python3 -m py_compile experiments/furina-agent-final/overrides/rc67/relationship_v4.py
-          python3 -m py_compile experiments/furina-agent-final/overrides/android-rc55/apply.py
-          bash -n experiments/furina-agent-final/overrides/runtime-r37/install-body.sh
-          cat experiments/furina-agent-final/overrides/runtime-r37/snapshot-parts/part-* > /tmp/furina-core-bridge-rc67-rc55.tar
-          echo '502df5c11809b027ec118b3209adb3a4d14ffa441b570b8da02083dc9f2b20f9  /tmp/furina-core-bridge-rc67-rc55.tar' | sha256sum -c -
+          bash -n experiments/furina-agent-final/install.sh
+          bash -n furina-agent-termux/experiments/furina-agent-final/install.sh
+          cmp experiments/furina-agent-final/install.sh furina-agent-termux/experiments/furina-agent-final/install.sh
+          python3 -m py_compile experiments/furina-agent-final/overrides/runtime-r39/update_client.py
           python3 - <<'PY'
-          import hashlib,re
           from pathlib import Path
-          root=Path('experiments/furina-agent-final')
-          def blob(p):
-              d=Path(p).read_bytes(); return hashlib.sha1(f"blob {len(d)}\0".encode()+d).hexdigest()
-          def var(text,name):
-              m=re.search(rf'^{re.escape(name)}="([^"]+)"', text, re.M); assert m,name; return m.group(1)
-          apply=root/'overrides/rc67/apply.py'
-          relationship=root/'overrides/rc67/relationship_v4.py'
-          android=root/'overrides/android-rc55/apply.py'
-          body=root/'overrides/runtime-r37/install-body.sh'
-          legacy_apply=root/'overrides/rc62/apply.py'
-          install=root/'install.sh'
-          assert var(install.read_text(),'BODY_BLOB') == blob(body)
-          assert var(install.read_text(),'RUNTIME_CONTRACT') == 'furina-runtime/v3-full-snapshot'
-          assert var(body.read_text(),'FURINA_RUNTIME_CONTRACT') == 'furina-runtime/v3-full-snapshot'
-          assert install.read_bytes() == Path('furina-agent-termux/experiments/furina-agent-final/install.sh').read_bytes()
-          assert 'relationship_v4' in apply.read_text()
-          assert 'relationship_mode' not in relationship.read_text()
-          assert 'furina-2026.08.22-rc67-rc55' in body.read_text()
-          assert 'sync_apk' in body.read_text()
-          assert 'COMMIT_STARTED' in body.read_text()
-          assert 'SNAPSHOT_SHA256' in body.read_text()
-          assert 'validate_archive' in body.read_text()
-          assert '$STABLE_RELEASE/bundle.json' in body.read_text()
-          assert "'render_panel'" not in install.read_text()
-          assert "'sync_apk'" in install.read_text()
-          assert 'APPLY_BLOB' not in install.read_text()
-          assert 'runtime-r36' not in body.read_text()
-          assert 'foundation' not in body.read_text().lower()
-          assert 'bootstrap_pattern = re.compile' in legacy_apply.read_text()
-          assert 'system_pattern = re.compile' in legacy_apply.read_text()
-          assert 'id="relationshipBaseline"' in android.read_text()
-          print('FURINA_RC67_FULL_SNAPSHOT_BOUNDARY_OK')
+          installer=Path('experiments/furina-agent-final/install.sh').read_text()
+          active='\n'.join(line for line in installer.splitlines() if not line.lstrip().startswith('#'))
+          client=Path('experiments/furina-agent-final/overrides/runtime-r39/update_client.py').read_text()
+          assert 'FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"' in installer
+          assert 'UPDATE_PROTOCOL="furina-update/1"' in active
+          assert 'CHANNEL_URL="$STABLE_RELEASE/channel.json"' in active
+          assert 'BODY_BLOB=' not in active
+          assert 'runtime-r38/install-body.sh' not in active
+          assert 'fetch_verified_body' not in active
+          assert 'Compatibility ledger' in installer
+          assert 'FURINA_UPDATER_GENERATION="23"' in installer
+          assert 'BUNDLE_ID="furina-2026.08.23-rc68-rc56"' in installer
+          assert 'PROTOCOL = "furina-update/1"' in client
+          assert 'installed_is_current(root, channel)' in client
+          assert 'maybe_reexec' in client
+          assert 'commit_snapshot' in client
+          assert 'safe_extract' in client
+          assert 'requests' not in client and 'pip install' not in client
+          assert client.count('sync_apk(') >= 2
+          print('FURINA_ONE_ACTIVE_UPDATE_PATH_OK')
           PY
+
+      - name: Test install update no-op repair and APK confirmation
+        shell: bash
+        run: |
+          set -euo pipefail
+          HOME="$RUNNER_TEMP/furina-home" FURINA_HOME="$RUNNER_TEMP/furina-home" \
+            bash experiments/furina-agent-final/overrides/runtime-r39/validate.sh
+
+      - name: Enforce atomic publication boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          wf=Path('.github/workflows/furinahub-rc51-core-rc63.yml').read_text()
+          manifest=Path('experiments/furina-agent-final/manifest.json').read_text()
+          publish=wf[wf.index('- name: Publish RC57 and single stable update channel'):]
+          assert publish.rfind('channel.json --clobber') > publish.rfind('furina-install.sh')
+          assert publish.rfind('channel.json --clobber') > publish.rfind('"$CLIENT_NAME"')
+          assert publish.rfind('channel.json --clobber') > publish.rfind('"$SNAPSHOT_NAME"')
+          assert 'bundle.json --clobber' not in publish
+          assert 'furina-runtime-r38.sh' not in publish
+          assert 'core-rc68-apply.py' not in publish
+          assert 'android-rc56-apply.py' not in publish
+          assert '"legacy_patch_chain": "build-time-only-not-device-update-path"' in manifest
+          print('FURINA_ATOMIC_CHANNEL_LAST_OK')
+          PY
+          git diff --check
