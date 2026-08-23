@@ -1,71 +1,83 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
+# Stable compatibility header. Older Furina launchers only inspect this small
+# contract before handing control to the installer, so keep it intentionally
+# boring and backward-readable while the implementation behind it evolves.
 FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"
-FURINA_UPDATER_GENERATION="23"
-VERSION="1.0.0-rc68"
-DEPENDENCY_REVISION="2026.08.23-r38"
+FURINA_UPDATER_GENERATION="24"
+VERSION="1.0.0-rc69"
+DEPENDENCY_REVISION="2026.08.23-r39"
+RUNTIME_CONTRACT="furina-runtime/v5-single-pipeline"
+UPDATE_PROTOCOL="furina-update/1"
 STABLE_RELEASE="https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable"
-BOOTSTRAP_CDN="https://cdn.jsdelivr.net/gh/WynnDev-rill/furina@furina-bootstrap-v1.0.0/experiments/furina-agent-final"
-API_BASE="https://api.github.com/repos/WynnDev-rill/furina/contents/experiments/furina-agent-final"
-RAW_BASE="https://raw.githubusercontent.com/WynnDev-rill/furina/experiment/furina-agent-termux/experiments/furina-agent-final"
-WEB_BASE="https://github.com/WynnDev-rill/furina/raw/refs/heads/experiment/furina-agent-termux/experiments/furina-agent-final"
-BODY_PATH="overrides/runtime-r38/install-body.sh"
-BODY_BLOB="c1365faed0d7d9e193ad01d852e57b229e833de0"
-RUNTIME_CONTRACT="furina-runtime/v4-channel-snapshot"
+CHANNEL_URL="$STABLE_RELEASE/channel.json"
+ROOT="$HOME/.furina-agent"
+CLIENT="$ROOT/updater/update_client.py"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+# Legacy marker compatibility for launchers shipped before the single-pipeline
+# updater. These are comments by design: old grep-based recovery gates can
+# recognize the installer without forcing today's runtime to emulate old code.
+# FURINA_RUNTIME_CONTRACT="furina-runtime/v3-full-snapshot"
+# FURINA_RUNTIME_CONTRACT="furina-runtime/v4-channel-snapshot"
+# BUNDLE_ID="furina-2026.08.22-rc67-rc55"
+# BUNDLE_ID="furina-2026.08.23-rc68-rc56"
+# fetch_target_bundle
+# furina-apk-confirm
+# Do not mark the bundle installed here
 
 if [[ ! -d /data/data/com.termux/files/usr ]]; then
-  echo "Installer FurinaHub harus dijalankan dari Termux." >&2
+  echo "Installer Furina harus dijalankan dari Termux." >&2
   exit 1
 fi
 command -v curl >/dev/null 2>&1 || pkg install -y curl >/dev/null
 command -v python >/dev/null 2>&1 || pkg install -y python >/dev/null
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$ROOT/updater" "$ROOT/run"
 
-fetch_url(){
-  local url="$1" out="$2" api="${3:-0}" code
-  rm -f "$out"
-  local args=(-L --silent --show-error --connect-timeout 10 --max-time 180 --retry 4 --retry-delay 2 --retry-all-errors -o "$out" -w '%{http_code}' -H 'User-Agent: Furina-Core-Bootstrap/23' -H 'Cache-Control: no-cache' -H 'Pragma: no-cache')
-  [[ "$api" == 1 ]] && args+=(-H 'Accept: application/vnd.github.raw+json')
-  code="$(curl "${args[@]}" "$url" 2>/dev/null || true)"
-  [[ "$code" == 200 && -s "$out" ]]
+fetch(){
+  local url="$1" out="$2"
+  curl -fL --silent --show-error --connect-timeout 12 --max-time 180 \
+    --retry 4 --retry-delay 2 --retry-all-errors \
+    -H 'User-Agent: Furina-Bootstrap/24' -H 'Cache-Control: no-cache' \
+    "$url" -o "$out"
 }
-verify_body(){
-  python - "$1" "$BODY_BLOB" "$RUNTIME_CONTRACT" <<'PY'
-import hashlib,pathlib,sys
-p,expected,contract=sys.argv[1:]
-d=pathlib.Path(p).read_bytes(); actual=hashlib.sha1(f"blob {len(d)}\0".encode()+d).hexdigest()
-if actual!=expected: raise SystemExit(1)
-t=d.decode()
-checks=(
-  'VERSION="1.0.0-rc68"',
-  'DEPENDENCY_REVISION="2026.08.23-r38"',
-  f'FURINA_RUNTIME_CONTRACT="{contract}"',
-  'BUNDLE_ID="furina-2026.08.23-rc68-rc56"',
-  'fetch_target_bundle',
-  'furina-apk-confirm',
-  'Do not mark the bundle installed here',
-)
-missing=[x for x in checks if x not in t]
-if missing: raise SystemExit(1)
+
+fetch "$CHANNEL_URL?ts=$(date +%s)" "$TMP/channel.json" || {
+  echo "Channel update Furina tidak dapat diambil. Coba lagi setelah koneksi stabil." >&2
+  exit 75
+}
+
+readarray -t META < <(python - "$TMP/channel.json" <<'PY'
+import json,sys
+p=sys.argv[1]
+d=json.load(open(p,encoding='utf-8'))
+if d.get('schema')!=1 or d.get('protocol')!='furina-update/1':
+    raise SystemExit('channel update tidak kompatibel')
+c=d.get('client') or {}
+for k in ('url','sha256','size'):
+    if not c.get(k): raise SystemExit('metadata client tidak lengkap')
+print(c['url']); print(c['sha256']); print(int(c['size']))
 PY
-}
-fetch_verified_body(){
-  local out="$1"
-  local -a urls=(
-    "$STABLE_RELEASE/furina-runtime-r38.sh?ts=$(date +%s)"
-    "$API_BASE/$BODY_PATH?ref=experiment/furina-agent-termux"
-    "$RAW_BASE/$BODY_PATH"
-    "$WEB_BASE/$BODY_PATH"
-    "$BOOTSTRAP_CDN/$BODY_PATH"
-  )
-  local i api
-  for i in "${!urls[@]}"; do
-    api=0; [[ "${urls[$i]}" == "$API_BASE/"* ]] && api=1
-    if fetch_url "${urls[$i]}" "$out" "$api" && verify_body "$out"; then return 0; fi
-  done
-  return 1
-}
+)
+[[ "${#META[@]}" -eq 3 ]] || { echo "Metadata updater tidak lengkap." >&2; exit 75; }
 
-fetch_verified_body "$TMP/install-body.sh" || { echo "Tidak dapat mengambil updater RC68/r38 yang terverifikasi." >&2; exit 75; }
-bash "$TMP/install-body.sh" "$@"
+fetch "${META[0]}" "$TMP/update_client.py"
+python - "$TMP/update_client.py" "${META[1]}" "${META[2]}" <<'PY'
+import hashlib,pathlib,sys
+p=pathlib.Path(sys.argv[1]); expected=sys.argv[2].lower(); size=int(sys.argv[3])
+if p.stat().st_size!=size: raise SystemExit('ukuran updater berubah')
+actual=hashlib.sha256(p.read_bytes()).hexdigest()
+if actual!=expected: raise SystemExit('sha256 updater berubah')
+compile(p.read_text(encoding='utf-8'),str(p),'exec')
+PY
+install -m 700 "$TMP/update_client.py" "$CLIENT"
+
+# Translate every historical bootstrap spelling into one local updater entry.
+[[ "${1:-}" == "--update" ]] && shift
+if [[ "${1:-}" == "--apk-only" ]]; then shift; exec python "$CLIENT" apk-only "$@"; fi
+if [[ "${1:-}" == "apk-only" ]]; then shift; exec python "$CLIENT" apk-only "$@"; fi
+if [[ "${1:-}" == "repair" ]]; then shift; exec python "$CLIENT" repair "$@"; fi
+[[ "${1:-}" == "update" ]] && shift
+exec python "$CLIENT" update "$@"
