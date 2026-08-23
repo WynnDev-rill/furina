@@ -42,10 +42,10 @@ class Config:
     keep_warm_seconds: int = 600
     prewarm_on_local_select: bool = True
 
-    # Per-generation safety ceiling only. Normal responses stop on EOS/stop;
-    # explicit length stops are continued automatically.
-    max_tokens: int = 1536
-    response_continuations: int = 2
+    # Preserve the 1.0.1 response budget. Performance work targets startup,
+    # prefill, caching and rendering rather than shortening Furina's answers.
+    max_tokens: int = 2048
+    response_continuations: int = 4
 
     temperature: float = 0.70
     top_p: float = 0.80
@@ -101,8 +101,8 @@ def load_config() -> Config:
     except Exception:
         revision = 0
 
-    # V2 migration only adjusts legacy defaults; deliberate user overrides are
-    # retained. The goal is lower TTFT without changing the selected model.
+    # V2 migration only adjusts legacy performance defaults. Deliberate user
+    # overrides and the response-quality budget are retained.
     if revision < 6:
         try:
             old_ctx = int(raw.get("context_size", 0) or 0)
@@ -116,18 +116,6 @@ def load_config() -> Config:
             old_threads = 0
         if old_threads in {0, 6}:
             defaults["threads"] = 5
-        try:
-            old_limit = int(raw.get("max_tokens", 0) or 0)
-        except Exception:
-            old_limit = 0
-        if old_limit in {0, 2048}:
-            defaults["max_tokens"] = 1536
-        try:
-            old_cont = int(raw.get("response_continuations", 0) or 0)
-        except Exception:
-            old_cont = 0
-        if old_cont in {0, 4}:
-            defaults["response_continuations"] = 2
 
     defaults["max_tokens"] = max(128, min(int(defaults["max_tokens"]), 8192))
     defaults["response_continuations"] = max(0, min(int(defaults["response_continuations"]), 6))
