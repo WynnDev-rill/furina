@@ -9,8 +9,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PROJECT = HERE.parent.parent
-BASE_BUILDER = PROJECT / "runtime-final/build_client.py"
-DEFAULT_BASE = PROJECT / "runtime-r39/update_client.py"
+BASE_BUILDER = PROJECT / "overrides/runtime-final/build_client.py"
+DEFAULT_BASE = PROJECT / "overrides/runtime-r39/update_client.py"
 
 
 def replace_function(text: str, name: str, replacement: str) -> str:
@@ -49,7 +49,7 @@ def build(base: Path, output: Path) -> None:
     }''',
     )
 
-    insert = '''\n\ndef uninstall_termux(args: argparse.Namespace) -> int:\n    root = root_dir()\n    if not args.yes:\n        if not sys.stdin.isatty():\n            print("Gunakan `hapus furina --yes` untuk penghapusan non-interaktif.", file=sys.stderr)\n            return 2\n        answer = input("Hapus seluruh Furina di Termux termasuk memori, model, provider, dan backup? Ketik HAPUS: ").strip()\n        if answer != "HAPUS":\n            print("Dibatalkan.")\n            return 0\n    # Stop only Furina-owned processes whose pid files live under FURINA_HOME.\n    import signal\n    run_dir = root / "run"\n    if run_dir.is_dir():\n        for pid_file in run_dir.glob("*.pid"):\n            try:\n                pid = int(pid_file.read_text(encoding="utf-8").strip())\n                if pid > 1:\n                    os.kill(pid, signal.SIGTERM)\n            except Exception:\n                pass\n    # Remove Furina-owned data and downloaded APK copies, but never shared\n    # Termux packages or global Termux settings.\n    shutil.rmtree(root, ignore_errors=True)\n    for pattern in ("FurinaHub.apk", "FurinaHub-v*.apk"):\n        for apk in Path.home().glob(pattern):\n            try: apk.unlink()\n            except OSError: pass\n    bindir = prefix_dir() / "bin"\n    for name in ("furina", "furina-real", "furina-hub", "furina-update", "furina-update-apk", "furina-apk-confirm", "furina-openconnector", "hapus"):\n        try: (bindir / name).unlink()\n        except OSError: pass\n    print("Furina sudah dihapus dari Termux. APK FurinaHub di Android tidak dihapus.")\n    return 0\n'''
+    insert = '''\n\ndef uninstall_termux(args: argparse.Namespace) -> int:\n    root = root_dir()\n    if not args.yes:\n        if not sys.stdin.isatty():\n            print("Gunakan `hapus furina --yes` untuk penghapusan non-interaktif.", file=sys.stderr)\n            return 2\n        answer = input("Hapus seluruh Furina di Termux termasuk memori, model, provider, dan backup? Ketik HAPUS: ").strip()\n        if answer != "HAPUS":\n            print("Dibatalkan.")\n            return 0\n    import signal\n    run_dir = root / "run"\n    if run_dir.is_dir():\n        for pid_file in run_dir.glob("*.pid"):\n            try:\n                pid = int(pid_file.read_text(encoding="utf-8").strip())\n                if pid > 1:\n                    os.kill(pid, signal.SIGTERM)\n            except Exception:\n                pass\n    shutil.rmtree(root, ignore_errors=True)\n    for pattern in ("FurinaHub.apk", "FurinaHub-v*.apk"):\n        for apk in Path.home().glob(pattern):\n            try: apk.unlink()\n            except OSError: pass\n    bindir = prefix_dir() / "bin"\n    for name in ("furina", "furina-real", "furina-hub", "furina-update", "furina-update-apk", "furina-apk-confirm", "furina-openconnector", "hapus"):\n        try: (bindir / name).unlink()\n        except OSError: pass\n    print("Furina sudah dihapus dari Termux. APK FurinaHub di Android tidak dihapus.")\n    return 0\n'''
     marker = "\ndef status(args: argparse.Namespace) -> int:"
     if marker not in text:
         raise SystemExit("status marker missing")
