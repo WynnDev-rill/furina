@@ -12,6 +12,7 @@ data class ModelSpec(
 )
 
 object ModelCatalog {
+    // Release catalog: lightweight 1.7B local companion models.
     // Retired migration marker for the current release gate: Qwen3.5 4B Deckard Heretic
     private const val WIFU_HF_REVISION = "8e9d8eb2c95e5f917af75f2e4c23c019ddb4798e"
     private const val HERETIC_HF_REVISION = "e2716dd20c87c9bf221059b942be6d33cbf4d647"
