@@ -39,8 +39,6 @@ assert 'skenario' in conversation_pacing('p').casefold()
 assert 'jawab inti' in conversation_pacing('apakah daun berwarna merah?').casefold()
 print('FURINA_110_TRAIT_COMPILER_OK')
 
-# Static runtime invariants. Validate removal of old personalization behavior by
-# API/field/function names rather than a harmless reused CSS layout class.
 chat=(core/'chat.py').read_text(); hub=(core/'hub.py').read_text(); tui=(core/'tui.py').read_text(); hs=(core/'hub_settings.py').read_text(); persona=(core/'persona.py').read_text(); dialog=(core/'dialogue_state.py').read_text(); page=html.read_text(); java=main.read_text()
 assert 'FURINA_PERSONALITY_SCHEMA_V3' in hs and 'personality_traits' in hs
 assert 'FURINA_TUI_PERSONALIZATION_110' in tui and 'Personalisasi' in tui
@@ -67,8 +65,6 @@ PY
 TMP_HOME="$(mktemp -d)"; trap 'rm -rf "$TMP_HOME"' EXIT
 mkdir -p "$TMP_HOME/data"
 FURINA_HOME="$TMP_HOME" STAGE_ROOT="$ROOT" PYTHONPATH="$ROOT/core" python3 - <<'PY'
-import os
-from pathlib import Path
 from furina_agent.hub_settings import defaults, load_hub_settings, save_hub_settings, personalization_prompt
 from furina_agent.personality import TRAIT_IDS
 s=defaults(); s['personality_traits']=list(TRAIT_IDS); save_hub_settings(s)
@@ -91,22 +87,19 @@ chat=FurinaChat(cfg,store,DummyLLM()); profile=choose_profile('apakah daun berwa
 assert len(msgs)==2 and msgs[-1]['role']=='user'
 system=msgs[0]['content']; assert 'UNIQUE_OLD_PATTERN' not in system, system
 assert 'PERSONAL EXPRESSION' in system and 'Tsundere' not in system and 'Playfulness=' not in system
-# Referential turns may see the immediately previous Furina utterance for clarification, without making it truth.
 msgs2=chat._messages('maksud?',profile); assert 'UNIQUE_OLD_PATTERN' in msgs2[0]['content'] and 'clarification_target' in msgs2[0]['content']
 msgs3=chat._messages('p',profile); assert 'UNIQUE_OLD_PATTERN' not in msgs3[0]['content']
-# Online uses the same shared personality store.
 cfg.routing_mode='online'; online=chat._messages('halo',profile)[0]['content']; assert 'PERSONAL EXPRESSION' in online and 'Tsundere' not in online
 print('FURINA_110_GROUNDED_PATTERN_RESET_OK')
 PY
 
 FURINA_HOME="$TMP_HOME" PYTHONPATH="$ROOT/core" python3 - <<'PY'
-from furina_agent.local_models import MODEL_CATALOG
-ids=[x['id'] for x in MODEL_CATALOG]
+from furina_agent import local_models
+ids=[x['id'] for x in local_models.CATALOG]
 assert ids==['wifugpt-1.7b-q4km','qwen3-1.7b-heretic-q5km','qwen3-4b-2507-uncensored-q4km'],ids
 print('FURINA_110_THREE_MODEL_CATALOG_OK')
 PY
 
-# Existing in-place streaming must survive the Hub UI transform.
 grep -Fq '/api/chat/progress' "$ROOT/bridge/app/src/main/assets/furinahub/index.html"
 grep -Fq 'sendMessage' "$ROOT/bridge/app/src/main/assets/furinahub/index.html"
 
