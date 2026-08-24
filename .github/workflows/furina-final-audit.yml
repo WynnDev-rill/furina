@@ -17,12 +17,24 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Reconstruct and validate private 1.0.8 build
+      - name: Reconstruct and validate private 1.0.9 build
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/private-1.0.8/validate.sh
-      - name: Run final 1.0.8 engineering audit
+          bash experiments/furina-agent-final/overrides/private-1.0.9/validate.sh
+      - name: Run final 1.0.9 engineering audit
         run: |
           set -euo pipefail
           python3 experiments/furina-agent-final/dialogue-state-audit.py /tmp/furina-agent-rc54-validate/termux
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('/tmp/furina-agent-rc54-validate/termux/core/furina_agent')
+          models=(root/'local_models.py').read_text(); llm=(root/'llm.py').read_text(); runtime=(root/'local_runtime.py').read_text()
+          m=json.load(open('experiments/furina-agent-final/manifest.json'))
+          assert m['version']=='1.0.9' and m['bridge_version']=='1.0.9' and m['bridge_version_code']==10067
+          assert [x['id'] for x in m['local_model_catalog']]==['wifugpt-1.7b-q4km','qwen3-1.7b-heretic-q5km','qwen3-4b-2507-uncensored-q4km']
+          assert '6615b7b5184931e4df9c6d0ae9cd29ca9319b73908d4423283d4cc401a12a1cd' in models
+          assert 'qwen_quality' in llm and 'cmd.append("--jinja")' in runtime
+          print('FURINA_PRIVATE_1_0_9_AUDIT_OK')
+          PY
           git diff --check

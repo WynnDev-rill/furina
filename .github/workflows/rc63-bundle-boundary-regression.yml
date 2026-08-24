@@ -1,4 +1,4 @@
-name: Furina Private 1.0.8 Boundary Regression
+name: Furina Private 1.0.9 Boundary Regression
 
 on:
   pull_request:
@@ -20,7 +20,7 @@ on:
 jobs:
   boundary-regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,8 +32,8 @@ jobs:
           bash -n furina-agent-termux/experiments/furina-agent-final/install.sh
           cmp experiments/furina-agent-final/install.sh furina-agent-termux/experiments/furina-agent-final/install.sh
           python3 -m py_compile \
-            experiments/furina-agent-final/overrides/private-1.0.8/*.py \
-            experiments/furina-agent-final/overrides/android-private-1.0.8/apply.py \
+            experiments/furina-agent-final/overrides/private-1.0.9/*.py \
+            experiments/furina-agent-final/overrides/android-private-1.0.9/apply.py \
             experiments/furina-agent-final/dialogue-state-audit.py \
             experiments/furina-agent-final/overrides/runtime-private-1.0.1/build_client.py
           TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
@@ -45,12 +45,16 @@ jobs:
           active='\n'.join(x for x in installer.splitlines() if not x.lstrip().startswith('#'))
           assert 'FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"' in installer
           assert 'FURINA_RUNTIME_CONTRACT="furina-runtime/v2"' in installer
-          for token in ('FURINA_UPDATER_GENERATION="33"','VERSION="1.0.8"','DEPENDENCY_REVISION="2026.08.24-r48"','RUNTIME_CONTRACT="furina-runtime/v14-grounded-dialogue-state"','UPDATE_PROTOCOL="furina-update/1"','pkg install -y llama-cpp'):
+          for token in ('FURINA_UPDATER_GENERATION="34"','VERSION="1.0.9"','DEPENDENCY_REVISION="2026.08.24-r49"','RUNTIME_CONTRACT="furina-runtime/v15-qwen3-4b-quality"','UPDATE_PROTOCOL="furina-update/1"','pkg install -y llama-cpp'):
               assert token in active,token
-          for historical in ('FURINA_UPDATER_GENERATION="32"','VERSION="1.0.7"','DEPENDENCY_REVISION="2026.08.24-r47"','RUNTIME_CONTRACT="furina-runtime/v13-conversation-quality-gate"'):
+          for historical in ('FURINA_UPDATER_GENERATION="33"','VERSION="1.0.8"','DEPENDENCY_REVISION="2026.08.24-r48"','RUNTIME_CONTRACT="furina-runtime/v14-grounded-dialogue-state"'):
               assert historical in installer,historical
-          assert '.gguf' not in active.lower() and 'wifugpt' not in active.lower()
-          print('FURINA_PRIVATE_1_0_8_RECOVERY_BOUNDARY_OK')
+          # Runtime contract may mention qwen3-4b; the bootstrap must still never
+          # contain a model artifact URL/file or trigger a GGUF download.
+          assert '.gguf' not in active.lower()
+          assert 'huggingface.co' not in active.lower()
+          assert 'download_model(' not in active
+          print('FURINA_PRIVATE_1_0_9_RECOVERY_BOUNDARY_OK')
           PY
           python3 - "$TMP/furina-update.py" <<'PY'
           from pathlib import Path
@@ -60,12 +64,12 @@ jobs:
           assert 'safe_extract' in client and 'commit_snapshot' in client and 'maybe_reexec' in client
           assert 'def uninstall_termux' in client and '"hapus"' in client
           assert 'requests' not in client and 'pip install' not in client
-          print('FURINA_PRIVATE_1_0_8_ONE_CLIENT_OK')
+          print('FURINA_PRIVATE_1_0_9_ONE_CLIENT_OK')
           PY
-      - name: Test 1.0.8 reconstruction and grounded dialogue contract
+      - name: Test 1.0.9 reconstruction and quality model contract
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/private-1.0.8/validate.sh
+          bash experiments/furina-agent-final/overrides/private-1.0.9/validate.sh
           python3 experiments/furina-agent-final/dialogue-state-audit.py /tmp/furina-agent-rc54-validate/termux
       - name: Enforce channel-last publication
         run: |
@@ -75,20 +79,18 @@ jobs:
           from pathlib import Path
           wf=Path('.github/workflows/furinahub-rc51-core-rc63.yml').read_text()
           manifest=json.load(open('experiments/furina-agent-final/manifest.json'))
-          publish=wf[wf.index('- name: Publish private 1.0.8 and stable update channel'):]
+          publish=wf[wf.index('- name: Publish private 1.0.9 and stable update channel'):]
           last=publish.rfind('channel.json --clobber')
           assert last>publish.rfind('furina-install.sh') and last>publish.rfind('"$CLIENT_NAME"') and last>publish.rfind('"$SNAPSHOT_NAME"')
-          assert manifest['version']=='1.0.8' and manifest['bridge_version']=='1.0.8' and manifest['bridge_version_code']==10066
-          assert manifest['bundle_id']=='furina-2026.08.24-private-1.0.8'
-          assert manifest['runtime_contract']=='furina-runtime/v14-grounded-dialogue-state'
-          assert manifest['termux_conversation_scope'].startswith('fresh-short-term-thread')
-          assert manifest['conversation_memory_model']=='short-term-thread-scoped-long-term-user-memory-cross-session'
-          assert manifest['hub_conversation_scope'].startswith('persistent-explicit-conversations')
-          assert manifest['shared_personal_context'].startswith('provider-neutral')
+          assert manifest['version']=='1.0.9' and manifest['bridge_version']=='1.0.9' and manifest['bridge_version_code']==10067
+          assert manifest['bundle_id']=='furina-2026.08.24-private-1.0.9'
+          assert manifest['runtime_contract']=='furina-runtime/v15-qwen3-4b-quality'
+          ids=[x['id'] for x in manifest['local_model_catalog']]
+          assert ids==['wifugpt-1.7b-q4km','qwen3-1.7b-heretic-q5km','qwen3-4b-2507-uncensored-q4km']
+          assert manifest['local_model_policy']=='on-demand-download-only-never-first-install'
           assert manifest['local_model_response_policy'].startswith('selected-model-generates-every-conversational-turn')
           assert manifest['dialogue_grounding'].startswith('assistant-output-never-becomes')
           assert manifest['hub_render_policy']=='live-chat-never-full-conversation-rerender'
-          assert manifest['local_model_policy']=='on-demand-download-only-never-first-install'
-          print('FURINA_PRIVATE_1_0_8_CHANNEL_LAST_OK')
+          print('FURINA_PRIVATE_1_0_9_CHANNEL_LAST_OK')
           PY
           git diff --check

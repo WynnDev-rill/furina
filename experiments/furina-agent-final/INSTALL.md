@@ -1,6 +1,6 @@
 # Instalasi Furina Lite + FurinaHub
 
-Private build saat ini: Core `1.0.8`, FurinaHub `1.0.8` (`versionCode 10066`), dependency revision `2026.08.24-r48`.
+Private build saat ini: Core `1.0.9`, FurinaHub `1.0.9` (`versionCode 10067`), dependency revision `2026.08.24-r49`.
 
 ## Instalasi baru
 
@@ -10,56 +10,48 @@ curl -fsSL https://github.com/WynnDev-rill/furina/releases/download/furina-updat
 furina
 ```
 
-Bootstrap memverifikasi updater dan menyiapkan runtime yang diperlukan. `llama-cpp` ikut dipastikan tersedia, tetapi instalasi baru **tidak mengunduh GGUF/model LLM**. Model hanya diunduh dari **Provider & Model**.
+Bootstrap memverifikasi updater dan memastikan `llama-cpp` tersedia, tetapi **tidak mengunduh model LLM**. Semua GGUF hanya diunduh dari **Provider & Model**.
 
-Menu Furina Lite tetap: **Chat**, **Provider & Model**, **Pengaturan**, **Exit**.
+## Sesi dan memory
 
-## Perilaku sesi Chat Termux
-
-Short-term history terpisah dari long-term memory.
-
-- Proses `furina` baru membuat thread Chat Termux baru saat pesan pertama dikirim.
-- Chat kosong tidak membawa percakapan Termux sebelumnya ke thread baru.
-- `/back` lalu kembali ke Chat dalam proses yang sama tetap memakai thread saat ini.
-- Memory personal terpercaya, relationship state, profile, provider/API, pilihan model, model lokal, dan shared moments tetap persisten.
-- FurinaHub mempertahankan conversation selection miliknya sendiri.
+Short-term history terpisah dari long-term Core Memory. Proses `furina` baru mendapat thread Termux baru; `/back` dalam proses yang sama tetap memakai thread sekarang. Memory personal terpercaya, relationship/profile, provider/API, pilihan model, local model files, dan shared moments tetap persisten. FurinaHub mempertahankan conversation selection miliknya sendiri.
 
 ## Model lokal
 
-Katalog lokal hanya:
+Tiga pilihan tersedia:
 
-- **wifuGPT 1.7B Q4_K_M** — ~1.03 GiB.
-- **Qwen3 1.7B Heretic Q5_K_M** — ~1.17 GiB.
+- **wifuGPT 1.7B Q4_K_M** — ~1.03 GiB, ringan/roleplay.
+- **Qwen3 1.7B Heretic Q5_K_M** — ~1.17 GiB, ringan/multibahasa.
+- **Qwen3 4B Instruct 2507 Uncensored Q4_K_M** — ~2.50 GB, **Quality**.
 
-Status model adalah **Unduh → Pilih → Aktif**. Unduhan mendukung resume dan diverifikasi dengan byte-size, header GGUF, dan SHA-256.
+Status model: **Unduh → Pilih → Aktif**. Model 4B tidak diunduh otomatis oleh `furina update`. Buka **Provider & Model**, pilih model 4B, lalu **Unduh**.
 
-Saat Local dipilih atau Chat Local dibuka, Furina menyiapkan model di background dan mempertahankannya warm sekitar 10 menit idle.
+Download mendukung resume. Dua model lama tetap memakai exact byte-size + GGUF + SHA-256 validation. Artifact 4B dari Hugging Face/Xet menggunakan remote Content-Length/Content-Range discovery lalu wajib lolos GGUF + pinned SHA-256 sebelum diaktifkan. SHA model 4B:
 
-### Grounded Dialogue State 1.0.8
+```text
+6615b7b5184931e4df9c6d0ae9cd29ca9319b73908d4423283d4cc401a12a1cd
+```
 
-1.0.8 menghapus conversational fast response, regex rewrite, held-prefix content guard, dan repair generation yang sebelumnya membuat chat terasa diprogram.
+Setelah unduhan selesai pilih **Pilih**, status berubah menjadi **Aktif**. Local tetap tidak mempunyai fallback diam-diam ke Online.
 
-Setiap balasan percakapan sekarang benar-benar dihasilkan model yang sedang dipilih. Core hanya menyusun konteks menjadi tiga lapisan:
+## Grounded Dialogue State
 
-1. **Dialogue State** — keadaan thread saat ini: fresh/active, jenis respons user terbaru, topik yang benar-benar dibuat user, ucapan user sebagai evidence, dan ucapan Furina lama sebagai continuity yang belum tentu benar.
-2. **Trusted Memory** — fakta personal dari shared Core Memory yang masuk hanya jika semantic retrieval menemukan kecocokan.
-3. **Persona** — menentukan karakter Furina dan chemistry percakapan, bukan menciptakan fakta atau skenario.
+1.0.9 mempertahankan Grounded Dialogue State 1.0.8. Semua balasan percakapan tetap dibuat oleh model yang dipilih—tidak ada fast-response sosial, regex content rewrite, atau repair generation kedua.
 
-Jika Furina menebak sesuatu dan user menjawab `tidak`, tebakan sebelumnya diberi status corrected/rejected. Jika user bertanya `maksud?`, ucapan Furina sebelumnya tetap tersedia untuk continuity tetapi tidak berubah menjadi fakta tentang user.
+User statements menjadi evidence utama thread. Ucapan Furina sebelumnya hanya continuity sampai user mengonfirmasi. Trusted long-term memory tetap dibaca dari Core yang sama oleh Online dan semua model Local.
 
-wifuGPT mendapat grounding lebih kuat karena ia memang waifu/roleplay fine-tune dari dataset multi-turn sintetis yang relatif kecil. Qwen3 Heretic tetap memakai non-thinking mode dan sampling yang dekat dengan rekomendasi Qwen3. Kedua model tetap sama; tidak ada pergantian quantization.
+Qwen3 4B Quality memakai non-thinking Qwen3 sampling (`top_p 0.8`, `top_k 20`) dan Jinja chat template jika llama.cpp di perangkat mendukung flag tersebut.
 
-Jika runtime llama.cpp terhapus, installer/update atau runtime Local mencoba memulihkan paket `llama-cpp` tanpa menyentuh model yang sudah diunduh.
+## Runtime Local
 
-## Pengaturan
+- Context phone-first: `4096`.
+- Prewarm saat Local/chat dibuka.
+- Keep-warm sekitar 10 menit idle.
+- Prompt/cache reuse dan native streaming tetap aktif.
+- Safe CPU retry tetap tersedia jika optimized llama-server gagal.
+- 4B memerlukan lebih banyak RAM dan compute; dua model 1.7B tetap tersedia sebagai pilihan cepat.
 
-Kontrol yang jarang dipakai berada di **Pengaturan**:
-
-- Identitas
-- Kontrol perangkat
-- Sistem
-- Backup
-- Update & Recovery
+Jika `llama-cpp` terhapus, installer/update/runtime mencoba memulihkannya tanpa menghapus atau mengunduh ulang model.
 
 ## Update dan recovery
 
@@ -69,11 +61,11 @@ furina recover
 furina repair
 ```
 
-Update Core/bridge memakai snapshot terverifikasi dan atomic swap. Data user di `~/.furina-agent/`—conversation, memory, provider secrets, local models, personalization, shared moments—tidak diganti oleh update normal.
+Update Core/bridge memakai snapshot terverifikasi dan atomic swap. Conversation, memory, provider secrets, local models, personalization dan shared moments di `~/.furina-agent/` tidak diganti oleh update normal.
 
 ## FurinaHub
 
-FurinaHub memakai Core, katalog model, runtime, dan long-term personal memory yang sama dengan Furina Lite. Message history tetap mengikuti conversation/thread masing-masing surface. FurinaHub mempertahankan in-place streaming sehingga live chat tidak melakukan full rerender.
+FurinaHub memakai Core, katalog model, runtime, dan long-term personal memory yang sama dengan Furina Lite. Model 4B muncul di **Provider & Model** yang sama. FurinaHub tetap memakai in-place streaming untuk live response.
 
 ## Hapus seluruh Furina dari Termux
 
@@ -81,18 +73,10 @@ FurinaHub memakai Core, katalog model, runtime, dan long-term personal memory ya
 hapus furina
 ```
 
-Perintah meminta konfirmasi `HAPUS`, lalu menghapus data/runtime/model/launcher Furina dari Termux. Ia tidak menghapus shared Termux packages dan tidak meng-uninstall APK FurinaHub Android.
+Perintah ini menghapus data/runtime/model/launcher Furina dari Termux setelah konfirmasi, tetapi tidak menghapus shared Termux packages atau APK FurinaHub.
 
 Non-interaktif:
 
 ```bash
 hapus furina --yes
-```
-
-## Plugin
-
-```bash
-furina-openconnector status
-furina-openconnector repair
-furina-openconnector logs
 ```
