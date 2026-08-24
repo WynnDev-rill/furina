@@ -62,6 +62,7 @@ jobs:
           bash -n furina-agent-termux/experiments/furina-agent-final/install.sh
           cmp experiments/furina-agent-final/install.sh furina-agent-termux/experiments/furina-agent-final/install.sh
           python3 -m py_compile \
+            experiments/furina-agent-final/release_signer.py \
             experiments/furina-agent-final/overrides/private-1.0.3/apply.py \
             experiments/furina-agent-final/overrides/private-1.0.3/fixup.py \
             experiments/furina-agent-final/overrides/private-1.0.3/chat_fixup.py \
@@ -79,6 +80,16 @@ jobs:
           assert m['update_client_version']=='1.2.0'
           print('FURINA_PRIVATE_1_0_3_MANIFEST_OK')
           PY
+          DIGEST="$(printf 'ab%.0s' {1..32})"
+          COLON_DIGEST="$(printf '%s' "$DIGEST" | sed 's/../&:/g;s/:$//')"
+          printf '{"signer_sha256":"%s"}\n' "$COLON_DIGEST" >/tmp/furina-signer-test.json
+          test "$(python3 experiments/furina-agent-final/release_signer.py /tmp/furina-signer-test.json)" = "$DIGEST"
+          printf '{"signer_sha256":"bad"}\n' >/tmp/furina-signer-bad.json
+          if python3 experiments/furina-agent-final/release_signer.py /tmp/furina-signer-bad.json >/dev/null 2>&1; then
+            echo "Malformed signer metadata was accepted" >&2
+            exit 1
+          fi
+          echo FURINA_PRIVATE_1_0_3_SIGNER_PARSER_OK
           git diff --check
 
       - name: Reconstruct and test private 1.0.3
@@ -157,8 +168,7 @@ jobs:
           rm -rf /tmp/furinahub-prev /tmp/furina-private-103-snapshot
           mkdir -p /tmp/furinahub-prev /tmp/furina-private-103-snapshot
           gh release download furinahub-v1.0.2 -R "$GITHUB_REPOSITORY" -p bridge.json -D /tmp/furinahub-prev
-          OLD_SIGNER="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["signer_sha256"].replace(":","").lower())' /tmp/furinahub-prev/bridge.json)"
-          test -n "$OLD_SIGNER"
+          OLD_SIGNER="$(python3 experiments/furina-agent-final/release_signer.py /tmp/furinahub-prev/bridge.json)"
           test "$OLD_SIGNER" = "$SIGNER"
           echo FURINA_PRIVATE_1_0_3_SIGNER_CONTINUITY_OK
 
