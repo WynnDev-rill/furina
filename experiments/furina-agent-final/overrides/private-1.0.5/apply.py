@@ -23,7 +23,7 @@ if count != 1:
     raise SystemExit("config revision marker missing")
 config.write_text(text, encoding="utf-8")
 
-for script in ("memory_trust_fix.py", "persona_fix.py", "chat_quality_fix.py", "sampling_fix.py"):
+for script in ("memory_trust_fix.py", "query_fix.py", "persona_fix.py", "chat_quality_fix.py", "sampling_fix.py"):
     subprocess.run([sys.executable, str(HERE / script), str(ROOT)], check=True)
 
 hub = CORE / "hub.py"
