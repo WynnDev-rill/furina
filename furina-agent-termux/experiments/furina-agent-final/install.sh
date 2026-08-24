@@ -2,10 +2,10 @@
 set -euo pipefail
 
 FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"
-FURINA_UPDATER_GENERATION="32"
-VERSION="1.0.7"
-DEPENDENCY_REVISION="2026.08.24-r47"
-RUNTIME_CONTRACT="furina-runtime/v13-conversation-quality-gate"
+FURINA_UPDATER_GENERATION="33"
+VERSION="1.0.8"
+DEPENDENCY_REVISION="2026.08.24-r48"
+RUNTIME_CONTRACT="furina-runtime/v14-grounded-dialogue-state"
 UPDATE_PROTOCOL="furina-update/1"
 STABLE_RELEASE="https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable"
 CHANNEL_URL="$STABLE_RELEASE/channel.json"
@@ -25,6 +25,7 @@ trap 'rm -rf "$TMP"' EXIT
 # FURINA_UPDATER_GENERATION="29"
 # FURINA_UPDATER_GENERATION="30"
 # FURINA_UPDATER_GENERATION="31"
+# FURINA_UPDATER_GENERATION="32"
 # VERSION="1.0.0-rc67"
 # VERSION="1.0.0-rc68"
 # VERSION="1.0.0-rc69"
@@ -35,6 +36,7 @@ trap 'rm -rf "$TMP"' EXIT
 # VERSION="1.0.4"
 # VERSION="1.0.5"
 # VERSION="1.0.6"
+# VERSION="1.0.7"
 # DEPENDENCY_REVISION="2026.08.22-r37"
 # DEPENDENCY_REVISION="2026.08.23-r38"
 # DEPENDENCY_REVISION="2026.08.23-r39"
@@ -45,6 +47,7 @@ trap 'rm -rf "$TMP"' EXIT
 # DEPENDENCY_REVISION="2026.08.24-r44"
 # DEPENDENCY_REVISION="2026.08.24-r45"
 # DEPENDENCY_REVISION="2026.08.24-r46"
+# DEPENDENCY_REVISION="2026.08.24-r47"
 # FURINA_RUNTIME_CONTRACT="furina-runtime/v2"
 # FURINA_RUNTIME_CONTRACT="furina-runtime/v3-full-snapshot"
 # FURINA_RUNTIME_CONTRACT="furina-runtime/v4-channel-snapshot"
@@ -55,6 +58,7 @@ trap 'rm -rf "$TMP"' EXIT
 # RUNTIME_CONTRACT="furina-runtime/v10-unified-memory-stream"
 # RUNTIME_CONTRACT="furina-runtime/v11-conversation-quality"
 # RUNTIME_CONTRACT="furina-runtime/v12-session-isolation"
+# RUNTIME_CONTRACT="furina-runtime/v13-conversation-quality-gate"
 # BODY_PATH="overrides/runtime-r37/install-body.sh"
 # BODY_PATH="overrides/runtime-r38/install-body.sh"
 # STATUS_PATH="$ROOT/run/furinahub-update.json"
@@ -69,6 +73,7 @@ trap 'rm -rf "$TMP"' EXIT
 # BUNDLE_ID="furina-2026.08.24-private-1.0.4"
 # BUNDLE_ID="furina-2026.08.24-private-1.0.5"
 # BUNDLE_ID="furina-2026.08.24-private-1.0.6"
+# BUNDLE_ID="furina-2026.08.24-private-1.0.7"
 # Tidak ada pembaruan terbaru
 # Pembaruan berhasil
 # Pembaruan gagal pada tahap
@@ -119,7 +124,7 @@ fetch(){
   local url="$1" out="$2"
   curl -fL --silent --show-error --connect-timeout 12 --max-time 180 \
     --retry 4 --retry-delay 2 --retry-all-errors \
-    -H 'User-Agent: Furina-Bootstrap/32' -H 'Cache-Control: no-cache' \
+    -H 'User-Agent: Furina-Bootstrap/33' -H 'Cache-Control: no-cache' \
     "$url" -o "$out"
 }
 

@@ -1,4 +1,4 @@
-name: Validate FurinaHub 1.0.7 + Core 1.0.7
+name: Validate FurinaHub 1.0.8 + Core 1.0.8
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ on:
       - '.github/workflows/furinahub-rc51-core-rc63.yml'
       - '.github/workflows/rc63-bundle-boundary-regression.yml'
       - '.github/workflows/furina-final-audit.yml'
-      - '.github/workflows/furina-session-isolation.yml'
+      - '.github/workflows/furina-104-diagnostic.yml'
   push:
     branches: [experiment/furina-agent-termux]
     paths:
@@ -18,7 +18,7 @@ on:
       - '.github/workflows/furinahub-rc51-core-rc63.yml'
       - '.github/workflows/rc63-bundle-boundary-regression.yml'
       - '.github/workflows/furina-final-audit.yml'
-      - '.github/workflows/furina-session-isolation.yml'
+      - '.github/workflows/furina-104-diagnostic.yml'
   workflow_dispatch:
 
 permissions:
@@ -30,10 +30,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  HUB_TAG: furinahub-v1.0.7
-  APK_NAME: FurinaHub-v1.0.7.apk
+  HUB_TAG: furinahub-v1.0.8
+  APK_NAME: FurinaHub-v1.0.8.apk
   UPDATE_CHANNEL_TAG: furina-update-stable
-  SNAPSHOT_NAME: furina-core-bridge-private-1.0.7.tar
+  SNAPSHOT_NAME: furina-core-bridge-private-1.0.8.tar
   CLIENT_NAME: furina-update.py
   STAGE_ROOT: /tmp/furina-agent-rc54-validate/termux
 
@@ -52,11 +52,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
-            -f state=pending -f context="furina/release-1.0.7" \
-            -f description="Furina 1.0.7 stable release is running" \
+            -f state=pending -f context="furina/release-1.0.8" \
+            -f description="Furina 1.0.8 stable release is running" \
             -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
-      - name: Validate private 1.0.7 architecture
+      - name: Validate private 1.0.8 architecture
         run: |
           set -euo pipefail
           bash -n experiments/furina-agent-final/install.sh
@@ -64,31 +64,31 @@ jobs:
           cmp experiments/furina-agent-final/install.sh furina-agent-termux/experiments/furina-agent-final/install.sh
           python3 -m py_compile \
             experiments/furina-agent-final/release_signer.py \
-            experiments/furina-agent-final/overrides/private-1.0.7/*.py \
-            experiments/furina-agent-final/overrides/android-private-1.0.7/apply.py \
-            experiments/furina-agent-final/conversation-quality-audit.py \
+            experiments/furina-agent-final/overrides/private-1.0.8/*.py \
+            experiments/furina-agent-final/overrides/android-private-1.0.8/apply.py \
+            experiments/furina-agent-final/dialogue-state-audit.py \
             experiments/furina-agent-final/overrides/runtime-private-1.0.1/build_client.py
           python3 - <<'PY'
           import json
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
-          assert m['version']=='1.0.7' and m['bridge_version']=='1.0.7' and m['bridge_version_code']==10065
-          assert m['dependency_revision']=='2026.08.24-r47'
-          assert m['bundle_id']=='furina-2026.08.24-private-1.0.7'
-          assert m['runtime_contract']=='furina-runtime/v13-conversation-quality-gate'
+          assert m['version']=='1.0.8' and m['bridge_version']=='1.0.8' and m['bridge_version_code']==10066
+          assert m['dependency_revision']=='2026.08.24-r48'
+          assert m['bundle_id']=='furina-2026.08.24-private-1.0.8'
+          assert m['runtime_contract']=='furina-runtime/v14-grounded-dialogue-state'
           assert m['termux_conversation_scope'].startswith('fresh-short-term-thread')
-          assert m['local_model_quality_guard'].startswith('fresh-social-core-fast-path')
-          assert m['local_model_context_router'].startswith('generic-turn-no-unrelated-personal-memory')
+          assert m['local_model_response_policy'].startswith('selected-model-generates-every-conversational-turn')
+          assert m['dialogue_grounding'].startswith('assistant-output-never-becomes')
           assert m['update_client_version']=='1.2.0'
           assert [x['id'] for x in m['local_model_catalog']]==['wifugpt-1.7b-q4km','qwen3-1.7b-heretic-q5km']
-          print('FURINA_PRIVATE_1_0_7_MANIFEST_OK')
+          print('FURINA_PRIVATE_1_0_8_MANIFEST_OK')
           PY
           git diff --check
 
-      - name: Reconstruct and test private 1.0.7
+      - name: Reconstruct and test private 1.0.8
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/private-1.0.7/validate.sh
-          python3 experiments/furina-agent-final/conversation-quality-audit.py "$STAGE_ROOT"
+          bash experiments/furina-agent-final/overrides/private-1.0.8/validate.sh
+          python3 experiments/furina-agent-final/dialogue-state-audit.py "$STAGE_ROOT"
 
       - uses: actions/setup-java@v5
         with:
@@ -103,7 +103,7 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build private 1.0.7 debug
+      - name: Build private 1.0.8 debug
         if: github.event_name == 'pull_request'
         working-directory: ${{ env.STAGE_ROOT }}
         run: gradle --no-daemon --stacktrace :bridge:app:assembleDebug
@@ -119,7 +119,7 @@ jobs:
           printf '%s' "$FURINA_RELEASE_KEYSTORE_B64" | base64 --decode > bridge/app/furina-agent-release.jks
           chmod 600 bridge/app/furina-agent-release.jks
 
-      - name: Build signed private 1.0.7 APK
+      - name: Build signed private 1.0.8 APK
         if: github.event_name != 'pull_request'
         working-directory: ${{ env.STAGE_ROOT }}
         env:
@@ -129,7 +129,7 @@ jobs:
           FURINA_KEY_PASSWORD: ${{ secrets.FURINA_KEY_PASSWORD }}
         run: gradle --no-daemon --stacktrace :bridge:app:assembleRelease
 
-      - name: Build verified private 1.0.7 targets
+      - name: Build verified private 1.0.8 targets
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -145,22 +145,22 @@ jobs:
           APK_SHA="$(sha256sum "$APK_NAME" | awk '{print $1}')"; APK_SIZE="$(stat -c '%s' "$APK_NAME")"
           CERT="$("$APKSIGNER" verify --verbose --print-certs "$APK_NAME")"
           SIGNER="$(printf '%s\n' "$CERT" | sed -n -E 's/^.*certificate SHA-256 digest: ([0-9A-Fa-f:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
-          test "$PACKAGE" = com.wynndev.furinaagentbridge; test "$CODE" = 10065; test "$NAME" = 1.0.7; test -n "$SIGNER"
+          test "$PACKAGE" = com.wynndev.furinaagentbridge; test "$CODE" = 10066; test "$NAME" = 1.0.8; test -n "$SIGNER"
 
-          rm -rf /tmp/furinahub-prev /tmp/furina-private-107-snapshot
-          mkdir -p /tmp/furinahub-prev /tmp/furina-private-107-snapshot
-          gh release download furinahub-v1.0.6 -R "$GITHUB_REPOSITORY" -p bridge.json -D /tmp/furinahub-prev
+          rm -rf /tmp/furinahub-prev /tmp/furina-private-108-snapshot
+          mkdir -p /tmp/furinahub-prev /tmp/furina-private-108-snapshot
+          gh release download furinahub-v1.0.7 -R "$GITHUB_REPOSITORY" -p bridge.json -D /tmp/furinahub-prev
           OLD_SIGNER="$(python3 experiments/furina-agent-final/release_signer.py /tmp/furinahub-prev/bridge.json)"
           test "$OLD_SIGNER" = "$SIGNER"
-          echo FURINA_PRIVATE_1_0_7_SIGNER_CONTINUITY_OK
+          echo FURINA_PRIVATE_1_0_8_SIGNER_CONTINUITY_OK
 
-          cp -a "$STAGE_ROOT/core" "$STAGE_ROOT/bridge" /tmp/furina-private-107-snapshot/
-          rm -f /tmp/furina-private-107-snapshot/bridge/app/furina-agent-release.jks
-          find /tmp/furina-private-107-snapshot -type d -name __pycache__ -prune -exec rm -rf {} +
-          find /tmp/furina-private-107-snapshot -type f -name '*.pyc' -delete
-          rm -rf /tmp/furina-private-107-snapshot/bridge/.gradle /tmp/furina-private-107-snapshot/bridge/app/build
+          cp -a "$STAGE_ROOT/core" "$STAGE_ROOT/bridge" /tmp/furina-private-108-snapshot/
+          rm -f /tmp/furina-private-108-snapshot/bridge/app/furina-agent-release.jks
+          find /tmp/furina-private-108-snapshot -type d -name __pycache__ -prune -exec rm -rf {} +
+          find /tmp/furina-private-108-snapshot -type f -name '*.pyc' -delete
+          rm -rf /tmp/furina-private-108-snapshot/bridge/.gradle /tmp/furina-private-108-snapshot/bridge/app/build
           tar --sort=name --mtime='UTC 2026-08-24 00:00:00' --owner=0 --group=0 --numeric-owner \
-            -cf "$SNAPSHOT_NAME" -C /tmp/furina-private-107-snapshot core bridge
+            -cf "$SNAPSHOT_NAME" -C /tmp/furina-private-108-snapshot core bridge
           SNAPSHOT_SHA="$(sha256sum "$SNAPSHOT_NAME" | awk '{print $1}')"; SNAPSHOT_SIZE="$(stat -c '%s' "$SNAPSHOT_NAME")"
 
           python3 experiments/furina-agent-final/overrides/runtime-private-1.0.1/build_client.py \
@@ -171,30 +171,30 @@ jobs:
           export PACKAGE CODE NAME APK_SHA APK_SIZE SIGNER SNAPSHOT_SHA SNAPSHOT_SIZE CLIENT_SHA CLIENT_SIZE
           python3 - <<'PY'
           import json,os,time
-          apk='https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.7/FurinaHub-v1.0.7.apk'
+          apk='https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.8/FurinaHub-v1.0.8.apk'
           stable='https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable'
           bridge={'version':os.environ['NAME'],'version_code':int(os.environ['CODE']),'package_name':os.environ['PACKAGE'],'sha256':os.environ['APK_SHA'],'signer_sha256':os.environ['SIGNER'],'apk_url':apk}
           json.dump(bridge,open('bridge.json','w'),indent=2); open('bridge.json','a').write('\n')
-          channel={'schema':1,'protocol':'furina-update/1','bundle_id':'furina-2026.08.24-private-1.0.7','published_at':int(time.time()),
-            'core':{'version':'1.0.7','revision':'2026.08.24-r47','url':stable+'/furina-core-bridge-private-1.0.7.tar','sha256':os.environ['SNAPSHOT_SHA'],'size':int(os.environ['SNAPSHOT_SIZE'])},
-            'apk':{'version':'1.0.7','version_code':10065,'package':os.environ['PACKAGE'],'url':apk,'sha256':os.environ['APK_SHA'],'size':int(os.environ['APK_SIZE'])},
+          channel={'schema':1,'protocol':'furina-update/1','bundle_id':'furina-2026.08.24-private-1.0.8','published_at':int(time.time()),
+            'core':{'version':'1.0.8','revision':'2026.08.24-r48','url':stable+'/furina-core-bridge-private-1.0.8.tar','sha256':os.environ['SNAPSHOT_SHA'],'size':int(os.environ['SNAPSHOT_SIZE'])},
+            'apk':{'version':'1.0.8','version_code':10066,'package':os.environ['PACKAGE'],'url':apk,'sha256':os.environ['APK_SHA'],'size':int(os.environ['APK_SIZE'])},
             'client':{'version':'1.2.0','url':stable+'/furina-update.py','sha256':os.environ['CLIENT_SHA'],'size':int(os.environ['CLIENT_SIZE'])}}
           json.dump(channel,open('channel.json','w'),indent=2); open('channel.json','a').write('\n')
           PY
           python3 - <<'PY'
           import json,tarfile
           c=json.load(open('channel.json'))
-          assert c['bundle_id']=='furina-2026.08.24-private-1.0.7'
-          assert c['core']['version']=='1.0.7' and c['core']['revision']=='2026.08.24-r47'
-          assert c['apk']['version']=='1.0.7' and c['apk']['version_code']==10065
-          with tarfile.open('furina-core-bridge-private-1.0.7.tar','r:') as a:
+          assert c['bundle_id']=='furina-2026.08.24-private-1.0.8'
+          assert c['core']['version']=='1.0.8' and c['core']['revision']=='2026.08.24-r48'
+          assert c['apk']['version']=='1.0.8' and c['apk']['version_code']==10066
+          with tarfile.open('furina-core-bridge-private-1.0.8.tar','r:') as a:
             names=set(a.getnames())
-            for required in ('core/furina_agent/version.py','core/furina_agent/memory.py','core/furina_agent/chat.py','core/furina_agent/persona.py','core/furina_agent/tui.py','core/furina_agent/hub.py','bridge/app/build.gradle'):
+            for required in ('core/furina_agent/version.py','core/furina_agent/memory.py','core/furina_agent/chat.py','core/furina_agent/dialogue_state.py','core/furina_agent/persona.py','core/furina_agent/llm.py','core/furina_agent/tui.py','core/furina_agent/hub.py','bridge/app/build.gradle'):
               assert required in names,required
-          print('FURINA_PRIVATE_1_0_7_TARGETS_OK')
+          print('FURINA_PRIVATE_1_0_8_TARGETS_OK')
           PY
 
-      - name: Publish private 1.0.7 and stable update channel
+      - name: Publish private 1.0.8 and stable update channel
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -203,14 +203,14 @@ jobs:
           retry(){ for attempt in 1 2 3 4; do "$@" && return 0; sleep $((attempt*4)); done; return 1; }
           if ! gh release view "$HUB_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             retry gh release create "$HUB_TAG" "$APK_NAME" bridge.json -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-              --title "FurinaHub v1.0.7 — Conversation Quality Guard" \
-              --notes "Private 1.0.7: hardens local conversation quality for roleplay-tuned 1.7B models. Fresh greetings/fillers are instant Core social turns, generic local chat no longer receives unrelated personal memory, the local prompt explicitly enforces direct one-to-one chat rather than screenplay output, a tiny held prefix blocks common script-mode failures before display, and one compact repair pass is used only when necessary. Session isolation, shared trusted memory, models, and streaming remain preserved." --prerelease
+              --title "FurinaHub v1.0.8 — Grounded Dialogue State" \
+              --notes "Private 1.0.8 replaces canned social fast responses and regex repair generations with a grounded dialogue-state composer. Every conversational reply is generated by the selected model. User turns are authoritative; previous Furina output is continuity but not truth until the user confirms it. Trusted long-term memory remains shared, Termux session isolation remains intact, wifuGPT receives roleplay-grounding through state rather than scripted replies, and Qwen3 Heretic uses non-thinking sampling aligned with its model guidance." --prerelease
           else
             retry gh release upload "$HUB_TAG" "$APK_NAME" bridge.json -R "$GITHUB_REPOSITORY" --clobber
           fi
           retry gh release upload "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" "$SNAPSHOT_NAME" "$CLIENT_NAME" furina-install.sh manifest.json --clobber
           retry gh release upload "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" channel.json --clobber
-          echo FURINA_PRIVATE_1_0_7_PUBLISHED
+          echo FURINA_PRIVATE_1_0_8_PUBLISHED
 
       - name: Record stable release result
         if: always() && github.event_name != 'pull_request'
@@ -218,8 +218,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_JOB_STATUS: ${{ job.status }}
         run: |
-          state=failure; description="Furina 1.0.7 stable release failed"
-          if [[ "$RELEASE_JOB_STATUS" == "success" ]]; then state=success; description="Furina 1.0.7 stable release published"; fi
+          state=failure; description="Furina 1.0.8 stable release failed"
+          if [[ "$RELEASE_JOB_STATUS" == "success" ]]; then state=success; description="Furina 1.0.8 stable release published"; fi
           gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
-            -f state="$state" -f context="furina/release-1.0.7" -f description="$description" \
+            -f state="$state" -f context="furina/release-1.0.8" -f description="$description" \
             -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

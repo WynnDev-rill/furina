@@ -1,4 +1,4 @@
-name: Furina Local Conversation Quality Regression
+name: Furina Grounded Dialogue Regression
 
 on:
   pull_request:
@@ -15,9 +15,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Validate local chat quality, session isolation, and shared memory
+      - name: Validate dialogue state, session isolation, shared memory, and model-generated chat
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/private-1.0.7/validate.sh
-          python3 experiments/furina-agent-final/conversation-quality-audit.py /tmp/furina-agent-rc54-validate/termux
+          bash experiments/furina-agent-final/overrides/private-1.0.8/validate.sh
+          python3 experiments/furina-agent-final/dialogue-state-audit.py /tmp/furina-agent-rc54-validate/termux
           git diff --check
