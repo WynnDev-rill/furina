@@ -7,6 +7,7 @@ PROJECT="$(cd "$HERE/../.." && pwd)"
 bash "$PROJECT/overrides/private-1.0.2/validate.sh" "$ROOT"
 python3 "$HERE/apply.py" "$ROOT"
 python3 "$HERE/fixup.py" "$ROOT"
+python3 "$HERE/chat_fixup.py" "$ROOT"
 python3 "$PROJECT/overrides/android-private-1.0.3/apply.py" "$ROOT"
 
 python3 -m py_compile \
@@ -36,6 +37,7 @@ assert 'server_priority: int = 0' in config
 assert 'LOCAL_FAST_PATH_V3_MIGRATION' in config
 assert 'def build_local_system_prompt' in persona
 assert 'LOCAL_FAST_PATH_V3' in chat
+assert 'def _local_relationship_context' in chat
 assert 'char_budget=700' in chat and 'budget = 1100' in chat
 assert 'recent_limit = 6 if profile.name' in chat and 'else 4' in chat
 assert 'idle >= 120.0' in chat and '_background_active' in chat
