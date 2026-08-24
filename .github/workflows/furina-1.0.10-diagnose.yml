@@ -3,6 +3,12 @@ name: Furina 1.0.10 Diagnostic
 on:
   push:
     branches: [fix/personality-hub-1.0.10]
+  pull_request:
+    branches: [experiment/furina-agent-termux]
+    paths:
+      - '.github/workflows/furina-1.0.10-diagnose.yml'
+      - 'experiments/furina-agent-final/overrides/private-1.0.10/**'
+      - 'experiments/furina-agent-final/overrides/android-private-1.0.10/**'
   workflow_dispatch:
 
 jobs:
@@ -36,7 +42,7 @@ jobs:
                   print(f'\n===== {path.name}:{cls+"." if cls else ""}{n.name} =====')
                   print('\n'.join(lines[n.lineno-1:n.end_lineno]))
           print('\n===== CONFIG HEAD =====')
-          print('\n'.join((root/'config.py').read_text().splitlines()[:260]))
+          print('\n'.join((root/'config.py').read_text().splitlines()[:300]))
           methods(root/'tui.py', names=('run_tui','settings','provider_and_model','change_model','chat','main'))
           methods(root/'hub.py','Runtime',('health','public_job','chat','start_chat','settings','change_model','model_catalog','update_settings','get_chat_progress'))
           methods(root/'hub.py','Handler',('do_GET','do_POST'))
