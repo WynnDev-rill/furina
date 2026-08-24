@@ -17,9 +17,9 @@ furina
 
 Fresh install does **not** download a GGUF model. It installs Furina and required runtime code, including `llama-cpp` so Local chat is ready when a model is later downloaded. Local models remain on-demand in **Provider & Model**.
 
-## Conversation sessions and memory — 1.0.6
+## Conversation sessions and memory
 
-Furina now separates short-term conversation history from long-term companion memory.
+Furina separates short-term conversation history from long-term companion memory.
 
 - Every new `furina` process gets a fresh Termux short-term chat thread on the first real message. A visually empty Chat therefore never silently continues the previous Termux conversation.
 - `/back` only leaves the Chat screen; returning to Chat in the same running `furina` process keeps that thread so normal continuity is not lost accidentally.
@@ -27,8 +27,6 @@ Furina now separates short-term conversation history from long-term companion me
 - Trusted personal memory, profile, relationship state, shared moments, provider/model selection, secrets, and local model files remain persistent across sessions.
 - FurinaHub keeps its explicit persistent conversation selection. Creating a Termux session does not rewrite FurinaHub's globally active conversation.
 - Local and Online engines use the same trusted long-term memory; only short-term message history is thread scoped.
-
-This follows the standard agent-memory split: conversation/session history belongs to one thread, while durable user memory can be shared across threads.
 
 ## Provider & Model
 
@@ -46,20 +44,19 @@ The local catalog remains exactly:
 
 States are **Unduh → Pilih → Aktif**. Downloads are resumable and must pass exact-size, GGUF-header, and SHA-256 verification before selection.
 
-## Local conversation quality
+## Local conversation quality — 1.0.7
 
-The Local path preserves the 1.0.3–1.0.5 performance and quality work:
+1.0.7 adds a stricter conversation boundary around roleplay-tuned 1.7B models without changing either model or quantization.
 
-- phone-first `4096` context repair for the old `6144` state;
-- compact local-only Furina persona with shared trusted memory and relationship context;
-- ordinary chat bypasses the hidden device-intent LLM classifier;
-- prompt history is bounded, user-led, and malformed assistant output is quarantined;
-- model-authored legacy personal facts are not promoted to trusted memory without user evidence;
-- deterministic current day/date/time answers do not depend on a 1.7B model guessing;
-- conservative llama.cpp repetition control reduces self-reinforcing phrase loops;
-- Local and Online keep native streaming and FurinaHub updates the live answer in place;
-- background memory work waits for Local idle time and yields to foreground conversation;
-- the selected local model remains warm for a bounded idle window.
+- Fresh greetings/fillers such as `hai` or a new-thread `hmm` use a tiny Core social fast path instead of asking a local roleplay model to invent context.
+- Generic Local turns no longer receive unrelated personal memory. Trusted shared memory is injected on demand for personal-recall questions such as preferences, goals, profile, or relationship facts.
+- The Local system contract explicitly requires direct one-to-one chat: only Furina's utterance, no screenplay, no invented quoted user dialogue, no narration of what the user supposedly thinks or feels.
+- A small prefix is held briefly before visible streaming. Script-mode signatures such as `Saya mohon izin...`, fake `User:`/`Assistant:` blocks, invented fresh-session continuity, or multiple imaginary quoted lines are blocked before display.
+- If that guard triggers, Furina performs one compact low-temperature repair pass using only the latest user message and the correct thread state. Healthy answers keep normal streaming.
+- Short casual Local turns use a lower temperature cap to reduce roleplay drift while deeper questions retain a wider generation budget.
+- Session isolation, trusted shared long-term memory, deterministic time/date answers, anti-loop sampling, keep-warm, prompt cache, and FurinaHub in-place streaming remain intact.
+
+The wifuGPT model card labels the model as a waifu/roleplay conversational fine-tune. 1.0.7 therefore treats roleplay formatting as a model-behavior risk at the inference boundary rather than as memory or conversation truth.
 
 ## Product and memory
 
@@ -93,11 +90,11 @@ This is destructive and requires confirmation. It removes Furina-owned Termux da
 
 ## Current versions
 
-- Core: `1.0.6`
-- FurinaHub Android: `1.0.6` (`versionCode 10064`)
-- Dependency revision: `2026.08.24-r46`
-- Bundle: `furina-2026.08.24-private-1.0.6`
+- Core: `1.0.7`
+- FurinaHub Android: `1.0.7` (`versionCode 10065`)
+- Dependency revision: `2026.08.24-r47`
+- Bundle: `furina-2026.08.24-private-1.0.7`
 - Update client: `1.2.0`
-- Runtime contract: `furina-runtime/v12-session-isolation`
+- Runtime contract: `furina-runtime/v13-conversation-quality-gate`
 
 See [`INSTALL.md`](./INSTALL.md) for the operational install/update flow.
