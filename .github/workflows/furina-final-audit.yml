@@ -17,11 +17,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Reconstruct and validate private 1.0.6 build
+      - name: Reconstruct and validate private 1.0.7 build
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/private-1.0.6/validate.sh
-      - name: Run final 1.0.6 engineering audit
+          bash experiments/furina-agent-final/overrides/private-1.0.7/validate.sh
+      - name: Run final 1.0.7 engineering audit
         run: |
           set -euo pipefail
           python3 experiments/furina-agent-final/conversation-quality-audit.py /tmp/furina-agent-rc54-validate/termux
