@@ -18,12 +18,12 @@ print('=== HUB SETTINGS FULL ===')
 p=core/'hub_settings.py'
 print(p.read_text(encoding='utf-8',errors='replace') if p.exists() else 'MISSING')
 
-for method in ('public_settings','save_settings','_queue_auto_title','change_model','chat','start_chat','public_job','bootstrap','start_core_update','get_update_status'):
+for method in ('__init__','rebuild','public_settings','save_settings','_queue_auto_title','change_model','chat','start_chat','public_chat_progress','public_job','bootstrap','start_core_update','get_update_status'):
     print(f'\n=== HUB Runtime.{method} ===')
     try: print(source(core/'hub.py','Runtime',method))
     except Exception as e: print('ERR',e)
 
-for method in ('_messages','respond','_background_worker_loop'):
+for method in ('__init__','_shared_context','_messages','respond','_schedule_background','_background_worker_loop'):
     print(f'\n=== CHAT FurinaChat.{method} ===')
     try: print(source(core/'chat.py','FurinaChat',method))
     except Exception as e: print('ERR',e)
@@ -37,14 +37,15 @@ if html.exists():
     text=html.read_text(encoding='utf-8',errors='replace')
     def segment(a,b):
         i=text.find(a); j=text.find(b,i+len(a)) if i>=0 else -1
-        print(text[i:j if j>=0 else i+12000] if i>=0 else 'MISSING')
+        print(text[i:j if j>=0 else i+14000] if i>=0 else 'MISSING')
     print('\n=== HUB PERSONALIZATION HTML ==='); segment('<section id="personalization"','<section id="settings"')
     print('\n=== HUB SETTINGS HTML ==='); segment('<section id="settings"','</main>')
     print('\n=== HUB JS MODELS/PERSONALIZATION ==='); segment('function modelRow','function renderAgent')
+    print('\n=== HUB JS CHAT ==='); segment('async function sendMessage','function renderFocus')
     print('\n=== HUB JS UPDATE/INIT ==='); segment('let unifiedCoreUpdate','function renderFocus')
 
 if main.exists():
     text=main.read_text(encoding='utf-8',errors='replace')
-    for token in ('private BridgeUpdater','private void startCoreRecoveryUpdate','private void monitorAppUpdate','@JavascriptInterface public void checkAppUpdate'):
+    for token in ('private BridgeUpdater','private void probeSavedCore','private void beginConnect','private void startCoreConnection','private void ensureBundleSync','private void startCoreRecoveryUpdate','private void monitorAppUpdate','@JavascriptInterface public void checkAppUpdate'):
         print(f'\n=== MAIN {token} ===')
-        i=text.find(token); print(text[i:i+7000] if i>=0 else 'MISSING')
+        i=text.find(token); print(text[i:i+9000] if i>=0 else 'MISSING')
