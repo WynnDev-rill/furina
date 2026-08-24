@@ -31,7 +31,6 @@ assert 'Legacy model-authored sources are deliberately not trusted as facts' in 
 assert 'repeat_penalty' in llm and 'repeat_last_n' in llm and '1.10 if not json_mode' in llm
 assert 'Tsundere adalah warna kepribadian' in persona
 assert 'EXPECTED_DEPENDENCY_REVISION = "2026.08.24-r45"' in hub
-# 1.0.4 in-place Hub stream repair must survive the quality pass.
 start=html.index('async function sendMessage(forcedText)'); end=html.index('\nfunction thinkingArchiveKey()',start); send=html[start:end]
 assert '/api/chat/start' in send and 'state.partial' in send
 assert 'refreshConversation()' not in send and 'renderBoot()' not in send
@@ -40,7 +39,6 @@ PY
 
 TMP_HOME="$(mktemp -d)"; trap 'rm -rf "$TMP_HOME"' EXIT
 
-# Old model-authored memories/beliefs stay stored but must never become facts.
 FURINA_HOME="$TMP_HOME/memory" PYTHONPATH="$ROOT/core" python3 - <<'PY'
 from furina_agent.memory import MemoryStore
 s=MemoryStore()
@@ -61,8 +59,6 @@ assert 'Aku sering mengembangkan aplikasi' in patterns,patterns
 print('FURINA_PRIVATE_1_0_5_PROVENANCE_OK')
 PY
 
-# A malformed previous assistant answer must not be replayed into a new normal
-# turn. Clean assistant history is included only for explicit continuations.
 FURINA_HOME="$TMP_HOME/history" PYTHONPATH="$ROOT/core" python3 - <<'PY'
 from types import SimpleNamespace
 from furina_agent.config import load_config
@@ -77,7 +73,6 @@ s.add_message('user','oke')
 normal=c._messages('hi',p)
 assert all(m['role']!='assistant' for m in normal),normal
 assert bad not in '\n'.join(m['content'] for m in normal)
-# Even an explicit continuation cannot re-ingest a degenerate answer.
 cont=c._messages('lanjut',p)
 assert bad not in '\n'.join(m['content'] for m in cont)
 s.add_message('assistant','Aku tadi cuma bilang bahwa aku senang kamu datang lagi.')
@@ -86,8 +81,6 @@ assert any(m['role']=='assistant' and 'senang kamu datang lagi' in m['content'] 
 print('FURINA_PRIVATE_1_0_5_HISTORY_QUARANTINE_OK')
 PY
 
-# Core answers exact date/day questions deterministically; the 1.7B model is not
-# allowed to improvise a wrong answer or attach unrelated relationship prose.
 FURINA_HOME="$TMP_HOME/time" PYTHONPATH="$ROOT/core" python3 - <<'PY'
 from furina_agent.config import load_config
 from furina_agent.memory import MemoryStore
@@ -103,21 +96,22 @@ assert llm.calls==0
 print('FURINA_PRIVATE_1_0_5_TEMPORAL_FAST_PATH_OK',a)
 PY
 
-# Greetings stay short and low-variance while retaining streaming/model use.
 FURINA_HOME="$TMP_HOME/greeting" PYTHONPATH="$ROOT/core" python3 - <<'PY'
 from furina_agent.config import load_config
 from furina_agent.memory import MemoryStore
 from furina_agent.chat import FurinaChat
 class FakeLLM:
-    def __init__(self): self.kw=None
+    def __init__(self): self.kw=None; self.messages=None
     def prewarm_local(self): pass
-    def chat(self,*a,**k): self.kw=k; return 'Hai, Wynn. Senang lihat kamu lagi.'
+    def chat(self,*a,**k):
+        self.messages=a[0] if a else k.get('messages',[]); self.kw=k
+        return 'Hai, Wynn. Senang lihat kamu lagi.'
 cfg=load_config(); cfg.routing_mode='local'; llm=FakeLLM(); c=FurinaChat(cfg,MemoryStore(),llm)
 a=c.respond('hi')
 assert a.startswith('Hai')
 assert llm.kw['max_tokens']<=96,llm.kw
 assert llm.kw['temperature']<=.68,llm.kw
-sys=llm.kw.get('messages',[])[0]['content'] if llm.kw.get('messages') else ''
+sys=llm.messages[0]['content'] if llm.messages else ''
 assert 'WAKTU LOKAL TERPERCAYA' in sys and 'SHARED PERSONAL CONTEXT' in sys
 print('FURINA_PRIVATE_1_0_5_GREETING_BUDGET_OK')
 PY
