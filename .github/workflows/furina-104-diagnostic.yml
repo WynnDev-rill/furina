@@ -45,7 +45,7 @@ jobs:
           for token in ('BALASAN FURINA LAMA: tidak diperlukan','clarification_target','rejected_or_corrected'):
               assert token in dialogue, token
           assert 'conversation_pacing' in chat
-          assert 'personality_prompt' in chat
+          assert 'personalization_prompt' in chat
           assert 'fast_social' not in chat.lower()
           assert 'repair_generation' not in chat.lower()
           assert 'tsundere/playful sebagai default' not in persona.lower()
