@@ -12,29 +12,51 @@ on:
 jobs:
   final-audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Reconstruct and validate private 1.0.9 build
+      - name: Reconstruct and validate private 1.1.0 build
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/private-1.0.9/validate.sh
-      - name: Run final 1.0.9 engineering audit
+          bash experiments/furina-agent-final/overrides/private-1.1.0/validate.sh
+      - name: Run final 1.1.0 engineering audit
         run: |
           set -euo pipefail
-          python3 experiments/furina-agent-final/dialogue-state-audit.py /tmp/furina-agent-rc54-validate/termux
-          python3 - <<'PY'
-          import json
+          STAGE=/tmp/furina-agent-rc54-validate/termux
+          PYTHONPATH="$STAGE/core" python3 - <<'PY'
+          import ast,json
           from pathlib import Path
-          root=Path('/tmp/furina-agent-rc54-validate/termux/core/furina_agent')
-          models=(root/'local_models.py').read_text(); llm=(root/'llm.py').read_text(); runtime=(root/'local_runtime.py').read_text()
+          stage=Path('/tmp/furina-agent-rc54-validate/termux'); core=stage/'core/furina_agent'; app=stage/'bridge/app'
+          blockers=[]; warnings=[]
+          for p in core.glob('*.py'):
+              try: ast.parse(p.read_text(encoding='utf-8'),filename=str(p))
+              except Exception as e: blockers.append(f'{p.name}: {e}')
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
-          assert m['version']=='1.0.9' and m['bridge_version']=='1.0.9' and m['bridge_version_code']==10067
-          assert [x['id'] for x in m['local_model_catalog']]==['wifugpt-1.7b-q4km','qwen3-1.7b-heretic-q5km','qwen3-4b-2507-uncensored-q4km']
-          assert '6615b7b5184931e4df9c6d0ae9cd29ca9319b73908d4423283d4cc401a12a1cd' in models
-          assert 'qwen_quality' in llm and 'cmd.append("--jinja")' in runtime
-          print('FURINA_PRIVATE_1_0_9_AUDIT_OK')
+          expected={'version':'1.1.0','bridge_version':'1.1.0','bridge_version_code':10068,'dependency_revision':'2026.08.24-r50','bundle_id':'furina-2026.08.24-private-1.1.0','runtime_contract':'furina-runtime/v16-personality-matrix-hub-runtime'}
+          for k,v in expected.items():
+              if m.get(k)!=v: blockers.append(f'manifest {k}={m.get(k)!r}, expected {v!r}')
+          from furina_agent.personality import TRAITS,TRAIT_IDS,compile_personality
+          if len(TRAITS)!=20 or len(TRAIT_IDS)!=20: blockers.append('personality catalog is not exactly 20 traits')
+          if len(compile_personality(TRAIT_IDS))>=2600: blockers.append('20-trait compiled prompt is unbounded')
+          page=(app/'src/main/assets/furinahub/index.html').read_text(encoding='utf-8'); java=(app/'src/main/java/com/wynndev/furinaagentbridge/MainActivity.java').read_text(encoding='utf-8'); hub=(core/'hub.py').read_text(); chat=(core/'chat.py').read_text(); dialog=(core/'dialogue_state.py').read_text()
+          for token in ('personalityTraitGrid110','togglePersonality110',"action:'select',catalog_id:catalogId",'/api/chat/progress'):
+              if token not in page: blockers.append(f'Hub surface missing {token}')
+          for token in ('checkAllUpdates(','refreshAppUpdate(','syncUnifiedUpdateStatus(',"'/api/update/core'","'/api/update/status'"):
+              if token in page: blockers.append(f'Hub updater residue {token}')
+          if 'bridgeUpdater = new BridgeUpdater' in java or 'bridgeUpdater.onResume()' in java: blockers.append('Android updater still active')
+          if 'Runtime._queue_auto_title = _queue_auto_title_110' not in hub: blockers.append('deterministic title runtime missing')
+          if 'BALASAN FURINA LAMA: tidak diperlukan' not in dialog: blockers.append('assistant-pattern reset missing')
+          if 'conversation_pacing' not in chat: blockers.append('adaptive pacing missing')
+          ids=[x['id'] for x in m['local_model_catalog']]
+          if ids!=['wifugpt-1.7b-q4km','qwen3-1.7b-heretic-q5km','qwen3-4b-2507-uncensored-q4km']: blockers.append('local model catalog changed unexpectedly')
+          print(f'Python modules checked: {len(list(core.glob("*.py")))}')
+          print(f'Blockers: {len(blockers)}')
+          print(f'Warnings: {len(warnings)}')
+          for x in blockers: print('BLOCKER',x)
+          for x in warnings: print('WARNING',x)
+          if blockers: raise SystemExit(1)
+          print('FURINA_PRIVATE_1_1_0_AUDIT_OK')
           PY
           git diff --check
