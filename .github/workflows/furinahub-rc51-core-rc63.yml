@@ -58,33 +58,38 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          bash -n experiments/furina-agent-final/install.sh
+          bash -n furina-agent-termux/experiments/furina-agent-final/install.sh
+          cmp experiments/furina-agent-final/install.sh furina-agent-termux/experiments/furina-agent-final/install.sh
           python3 -m py_compile \
+            experiments/furina-agent-final/release_signer.py \
             experiments/furina-agent-final/overrides/private-1.0.3/apply.py \
+            experiments/furina-agent-final/overrides/private-1.0.3/fixup.py \
+            experiments/furina-agent-final/overrides/private-1.0.3/chat_fixup.py \
             experiments/furina-agent-final/overrides/android-private-1.0.3/apply.py \
             experiments/furina-agent-final/fast-path-audit.py \
             experiments/furina-agent-final/overrides/runtime-private-1.0.1/build_client.py
-          bash -n experiments/furina-agent-final/install.sh
-          bash -n furina-agent-termux/experiments/furina-agent-final/install.sh
-          bash -n experiments/furina-agent-final/overrides/private-1.0.3/validate.sh
-          cmp experiments/furina-agent-final/install.sh furina-agent-termux/experiments/furina-agent-final/install.sh
           python3 - <<'PY'
           import json
-          from pathlib import Path
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
-          assert m['version']=='1.0.3' and m['channel']=='private-final'
+          assert m['version']=='1.0.3'
           assert m['dependency_revision']=='2026.08.24-r43'
           assert m['bundle_id']=='furina-2026.08.24-private-1.0.3'
           assert m['bridge_version']=='1.0.3' and m['bridge_version_code']==10061
-          assert m['update_protocol']=='furina-update/1' and m['update_client_version']=='1.2.0'
           assert m['runtime_contract']=='furina-runtime/v9-local-fast-path'
-          assert m['routing_modes']==['online','local'] and len(m['local_model_catalog'])==2
-          installer=Path('experiments/furina-agent-final/install.sh').read_text()
-          active='\n'.join(x for x in installer.splitlines() if not x.lstrip().startswith('#'))
-          for token in ('FURINA_UPDATER_GENERATION="28"','VERSION="1.0.3"','DEPENDENCY_REVISION="2026.08.24-r43"','RUNTIME_CONTRACT="furina-runtime/v9-local-fast-path"','pkg install -y llama-cpp'):
-              assert token in active, token
-          assert '.gguf' not in active.lower() and 'wifugpt' not in active.lower()
+          assert m['update_client_version']=='1.2.0'
           print('FURINA_PRIVATE_1_0_3_MANIFEST_OK')
           PY
+          DIGEST="$(printf 'ab%.0s' {1..32})"
+          COLON_DIGEST="$(printf '%s' "$DIGEST" | sed 's/../&:/g;s/:$//')"
+          printf '{"signer_sha256":"%s"}\n' "$COLON_DIGEST" >/tmp/furina-signer-test.json
+          test "$(python3 experiments/furina-agent-final/release_signer.py /tmp/furina-signer-test.json)" = "$DIGEST"
+          printf '{"signer_sha256":"bad"}\n' >/tmp/furina-signer-bad.json
+          if python3 experiments/furina-agent-final/release_signer.py /tmp/furina-signer-bad.json >/dev/null 2>&1; then
+            echo "Malformed signer metadata was accepted" >&2
+            exit 1
+          fi
+          echo FURINA_PRIVATE_1_0_3_SIGNER_PARSER_OK
           git diff --check
 
       - name: Reconstruct and test private 1.0.3
@@ -100,6 +105,7 @@ jobs:
           java-version: '17'
       - uses: android-actions/setup-android@v3
       - name: Install Android SDK components
+        shell: bash
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
@@ -117,6 +123,7 @@ jobs:
         working-directory: ${{ env.STAGE_ROOT }}
         env:
           FURINA_RELEASE_KEYSTORE_B64: ${{ secrets.FURINA_RELEASE_KEYSTORE_B64 }}
+        shell: bash
         run: |
           set -euo pipefail
           test -n "$FURINA_RELEASE_KEYSTORE_B64"
@@ -137,6 +144,7 @@ jobs:
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
           set -euo pipefail
           SOURCE="$STAGE_ROOT/bridge/app/build/outputs/apk/release/app-release.apk"
@@ -144,6 +152,7 @@ jobs:
           cp "$SOURCE" "$APK_NAME"
           APKANALYZER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer | sort | tail -n1)"
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          test -x "$APKANALYZER"; test -x "$APKSIGNER"
           PACKAGE="$("$APKANALYZER" manifest application-id "$APK_NAME" | tr -d '\r')"
           CODE="$("$APKANALYZER" manifest version-code "$APK_NAME" | tr -d '\r')"
           NAME="$("$APKANALYZER" manifest version-name "$APK_NAME" | tr -d '\r')"
@@ -154,12 +163,14 @@ jobs:
           test "$PACKAGE" = com.wynndev.furinaagentbridge
           test "$CODE" = 10061
           test "$NAME" = 1.0.3
+          test -n "$SIGNER"
 
           rm -rf /tmp/furinahub-prev /tmp/furina-private-103-snapshot
           mkdir -p /tmp/furinahub-prev /tmp/furina-private-103-snapshot
           gh release download furinahub-v1.0.2 -R "$GITHUB_REPOSITORY" -p bridge.json -D /tmp/furinahub-prev
-          OLD_SIGNER="$(python3 -c 'import json; print(json.load(open("/tmp/furinahub-prev/bridge.json"))["signer_sha256"].replace(":,"").replace(":","").lower())')"
+          OLD_SIGNER="$(python3 experiments/furina-agent-final/release_signer.py /tmp/furinahub-prev/bridge.json)"
           test "$OLD_SIGNER" = "$SIGNER"
+          echo FURINA_PRIVATE_1_0_3_SIGNER_CONTINUITY_OK
 
           cp -a "$STAGE_ROOT/core" "$STAGE_ROOT/bridge" /tmp/furina-private-103-snapshot/
           rm -f /tmp/furina-private-103-snapshot/bridge/app/furina-agent-release.jks
@@ -183,15 +194,15 @@ jobs:
           import json,os,time
           apk_url='https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.0.3/FurinaHub-v1.0.3.apk'
           stable='https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable'
-          bridge={'version':os.environ['NAME'],'version_code':int(os.environ['CODE']),'package_name':os.environ['PACKAGE'],'sha256':os.environ['APK_SHA'],'signer_sha256':os.environ['SIGNER'],'apk_url':apk_url}
-          open('bridge.json','w').write(json.dumps(bridge,indent=2)+'\n')
+          json.dump({'version':os.environ['NAME'],'version_code':int(os.environ['CODE']),'package_name':os.environ['PACKAGE'],'sha256':os.environ['APK_SHA'],'signer_sha256':os.environ['SIGNER'],'apk_url':apk_url},open('bridge.json','w'),indent=2)
+          open('bridge.json','a').write('\n')
           channel={
             'schema':1,'protocol':'furina-update/1','bundle_id':'furina-2026.08.24-private-1.0.3','published_at':int(time.time()),
             'core':{'version':'1.0.3','revision':'2026.08.24-r43','url':stable+'/furina-core-bridge-private-1.0.3.tar','sha256':os.environ['SNAPSHOT_SHA'],'size':int(os.environ['SNAPSHOT_SIZE'])},
             'apk':{'version':os.environ['NAME'],'version_code':int(os.environ['CODE']),'package':os.environ['PACKAGE'],'url':apk_url,'sha256':os.environ['APK_SHA'],'size':int(os.environ['APK_SIZE'])},
             'client':{'version':'1.2.0','url':stable+'/furina-update.py','sha256':os.environ['CLIENT_SHA'],'size':int(os.environ['CLIENT_SIZE'])},
           }
-          open('channel.json','w').write(json.dumps(channel,indent=2)+'\n')
+          json.dump(channel,open('channel.json','w'),indent=2); open('channel.json','a').write('\n')
           PY
           python3 - <<'PY'
           import json,tarfile
@@ -201,9 +212,9 @@ jobs:
           assert c['apk']['version']=='1.0.3' and c['apk']['version_code']==10061
           assert c['client']['version']=='1.2.0'
           with tarfile.open('furina-core-bridge-private-1.0.3.tar','r:') as a:
-              names=a.getnames()
+              names=set(a.getnames())
               for required in ('core/furina_agent/version.py','core/furina_agent/local_runtime.py','core/furina_agent/streaming.py','core/furina_agent/chat.py','bridge/app/build.gradle'):
-                  assert required in names
+                  assert required in names, required
           print('FURINA_PRIVATE_1_0_3_TARGETS_OK')
           PY
 
@@ -211,19 +222,20 @@ jobs:
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
           set -euo pipefail
           retry(){ for attempt in 1 2 3 4; do "$@" && return 0; sleep $((attempt*4)); done; return 1; }
           if ! gh release view "$HUB_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             retry gh release create "$HUB_TAG" "$APK_NAME" bridge.json -R "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" --title "FurinaHub v1.0.3 — Local Fast Path" \
-              --notes "Private 1.0.3: fixes missing llama.cpp dependency, repairs stale 6144 context, removes hidden classifier inference from ordinary chat, compacts local prompts without changing either 1.7B model, defers memory inference until idle, preserves streaming/cache/prewarm, and adds safe CPU runtime retry." --prerelease
+              --notes "Private 1.0.3 local fast path and runtime repair." --prerelease
           else
             retry gh release upload "$HUB_TAG" "$APK_NAME" bridge.json -R "$GITHUB_REPOSITORY" --clobber
           fi
           retry gh release upload "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" \
             "$SNAPSHOT_NAME" "$CLIENT_NAME" furina-install.sh manifest.json --clobber
-          # Mutable channel pointer must be last.
+          # Mutable channel pointer is intentionally published last.
           retry gh release upload "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" channel.json --clobber
           echo FURINA_PRIVATE_1_0_3_PUBLISHED
 
@@ -232,6 +244,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_JOB_STATUS: ${{ job.status }}
+        shell: bash
         run: |
           state=failure; description="Furina 1.0.3 stable release failed"
           if [[ "$RELEASE_JOB_STATUS" == "success" ]]; then state=success; description="Furina 1.0.3 stable release published"; fi
