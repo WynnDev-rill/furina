@@ -3,7 +3,7 @@
 Furina is one local-first companion with two surfaces sharing the same Core and user data:
 
 - **Furina Lite** in Termux: Chat, Provider & Model, Pengaturan, Exit.
-- **FurinaHub** on Android: the full multimedia, model/provider, Plugin, personalization, and Android-control surface.
+- **FurinaHub** on Android: full multimedia, provider/model, Plugin, personalization, and Android-control surface.
 
 ## Install
 
@@ -13,62 +13,54 @@ curl -fsSL https://github.com/WynnDev-rill/furina/releases/download/furina-updat
 furina
 ```
 
-Fresh install does **not** download a GGUF model. It installs Furina and required runtime code including `llama-cpp`. Models remain on-demand in **Provider & Model**.
+Fresh install does not download a GGUF. Local models are downloaded only from **Provider & Model**.
 
-## Conversation sessions and memory
+## Conversation architecture
 
-Furina separates short-term conversation history from long-term companion memory.
+1.1.0 keeps Grounded Dialogue State but removes the remaining cause of local pattern anchoring. User statements are authoritative. Furina's previous wording is only carried forward when the next user turn genuinely refers to it (for example a correction or clarification); an unrelated new topic does not inherit old assistant prose or motifs.
 
-- Every new `furina` process gets a fresh Termux short-term chat thread on the first real message.
-- `/back` keeps the current thread while the same `furina` process is running.
-- Old conversations remain stored; they are not silently replayed into a new Termux thread.
-- Trusted personal memory, profile, relationship state, shared moments, providers, model selection, secrets, and local model files persist across sessions.
-- FurinaHub keeps explicit persistent conversations.
-- Local and Online engines use the same trusted long-term Core memory.
+Every conversational response still comes from the selected model. There are no canned social replies, regex content rewrites, or second-pass repair generations. Adaptive pacing only tells the model roughly how much depth a turn needs; it never supplies response text.
+
+Local and Online engines use the same trusted Core memory, relationship state, and personalization.
+
+## Personalization 1.1.0
+
+The old preset/slider/custom-instruction personality surface is replaced by one shared Core-owned system. It is available in **Pengaturan → Personalisasi** in Termux and in **Personalisasi** in FurinaHub.
+
+Twenty independent traits can be toggled in any combination, including all 20: Tsundere, Yandere, Kuudere, Dandere, Deredere, Himedere, Kamidere, Sadodere, Mayadere, Bakadere, Hajidere, Darudere, Shundere, Utsudere, Bodere, Hiyakasudere, Nyandere, Oujodere, Genki girl, and Onee-san type.
+
+The labels are UI shorthand. Core compiles selected traits into a bounded set of behavioral facets such as warmth, reserve, pride, teasing, composure, energy, shyness, elegance, caretaking and maturity. Opposing traits become situational tension instead of one trait deleting another, so large 10–20 trait combinations remain usable without dumping a long trope list into every prompt.
 
 ## Provider & Model
 
-There is no AUTO mode. Chat uses either Online or exactly one selected Local model. The local catalog in 1.0.9 is:
+There is no AUTO mode. Chat uses Online or exactly one selected Local model:
 
 | Model | Role | Quantization | Approx. download |
 | --- | --- | --- | ---: |
 | wifuGPT 1.7B | lightweight roleplay | Q4_K_M | ~1.03 GiB |
 | Qwen3 1.7B Heretic | lightweight multilingual | Q5_K_M | ~1.17 GiB |
-| **Qwen3 4B Instruct 2507 Uncensored** | **Quality** | **Q4_K_M** | **~2.50 GB** |
+| Qwen3 4B Instruct 2507 Uncensored | Quality | Q4_K_M | ~2.50 GB |
 
-States are **Unduh → Pilih → Aktif**. The new 4B model is never downloaded by install/update; download starts only after the user selects **Unduh** in Provider & Model. Downloads support HTTP Range resume, GGUF validation and SHA-256 verification. For the 4B Hugging Face/Xet artifact, Furina discovers the exact remote length during download and stores a verified local size/SHA sidecar after the pinned SHA passes.
+States are **Unduh → Pilih → Aktif**. FurinaHub and Termux now write the same Core model/routing state, so choosing a Local model in either surface changes the same active model. Downloads remain resumable and verified by GGUF structure plus pinned SHA-256.
 
-The 4B Quality model is pinned to SHA-256:
+## FurinaHub runtime ownership
 
-```text
-6615b7b5184931e4df9c6d0ae9cd29ca9319b73908d4423283d4cc401a12a1cd
+FurinaHub no longer owns update checks or update polling. The only supported update entry point is:
+
+```bash
+furina update
 ```
 
-Qwen3 Quality uses non-thinking Qwen3 sampling and capability-gated Jinja chat-template support. If an installed llama.cpp lacks `--jinja`, Furina simply omits that flag instead of breaking startup.
+That single updater coordinates the Core snapshot and FurinaHub APK. FurinaHub only reports a version mismatch and directs the user to Termux.
 
-## Grounded Dialogue State
+The old LLM-based conversation-title worker and periodic Hub update pollers are removed. Conversation titles are deterministic, active chat streaming remains in-place, and Hub status/progress work stays bounded in the existing Core runtime. This avoids repeated background task/process churn while preserving live streaming.
 
-Grounded Dialogue State remains the conversation foundation. Every normal conversational reply is generated by the selected model; there is no canned `hai`/`hmm` response, regex rewrite, or second repair generation.
+## Sessions and memory
 
-Local context separates:
-
-- **Dialogue State** — current thread grounding, with user statements authoritative and previous Furina utterances treated as continuity rather than truth until confirmed.
-- **Trusted Memory** — durable personal facts retrieved from the shared Core store.
-- **Persona** — Furina's voice and relationship style; it controls how she speaks rather than inventing events.
-
-This same architecture is used by all three local models. Moving to the 4B Quality model therefore improves the inference engine without creating another memory/personality silo.
-
-## Local runtime
-
-The phone-first context remains `4096`. Keep-warm, prompt cache, native streaming, foreground-priority scheduling, Flash Attention capability detection, safe CPU fallback and optional local tuning remain intact.
-
-The 4B model requires more RAM and compute than the 1.7B models. It is intended as the Quality choice; the existing 1.7B models remain available when speed is more important.
-
-## Product and memory
-
-Fresh setup starts with Furina's name, the user's chosen name, and the fact that they are partners. Memory/Psyche remains active internally but hidden as a maintenance surface.
-
-Normal updates do not delete conversation, memory, provider secrets, local models, personalization, or shared moments under `~/.furina-agent/`.
+- A new `furina` process gets a fresh Termux short-term chat thread.
+- `/back` keeps the current thread while that process is running.
+- FurinaHub keeps explicit persistent conversations.
+- Trusted long-term memory, profile, relationship state, personality selection, provider secrets, model selection and downloaded models persist across sessions and normal updates.
 
 ## Update / recovery
 
@@ -78,23 +70,15 @@ furina recover
 furina repair
 ```
 
-The updater uses one verified `furina-update/1` channel/client, validates assets, stages a complete Core+bridge snapshot, then swaps Core/bridge atomically while user data stays outside the replacement boundary.
-
-## Uninstall Termux copy
-
-```bash
-hapus furina
-```
-
-This removes Furina-owned Termux data/runtime/models/launchers after confirmation. It does not uninstall FurinaHub Android or shared Termux packages.
+The updater validates the channel and assets, stages a complete Core+bridge snapshot, and swaps Core/bridge atomically while user data remains outside the replacement boundary.
 
 ## Current versions
 
-- Core: `1.0.9`
-- FurinaHub Android: `1.0.9` (`versionCode 10067`)
-- Dependency revision: `2026.08.24-r49`
-- Bundle: `furina-2026.08.24-private-1.0.9`
+- Core: `1.1.0`
+- FurinaHub: `1.1.0` (`versionCode 10068`)
+- Dependency revision: `2026.08.24-r50`
+- Bundle: `furina-2026.08.24-private-1.1.0`
 - Update client: `1.2.0`
-- Runtime contract: `furina-runtime/v15-qwen3-4b-quality`
+- Runtime contract: `furina-runtime/v16-personality-matrix-hub-runtime`
 
 See [`INSTALL.md`](./INSTALL.md) for the operational flow.
