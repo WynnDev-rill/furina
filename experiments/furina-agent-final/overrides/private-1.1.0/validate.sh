@@ -39,7 +39,8 @@ assert 'skenario' in conversation_pacing('p').casefold()
 assert 'jawab inti' in conversation_pacing('apakah daun berwarna merah?').casefold()
 print('FURINA_110_TRAIT_COMPILER_OK')
 
-# Static runtime invariants.
+# Static runtime invariants. Validate removal of old personalization behavior by
+# API/field/function names rather than a harmless reused CSS layout class.
 chat=(core/'chat.py').read_text(); hub=(core/'hub.py').read_text(); tui=(core/'tui.py').read_text(); hs=(core/'hub_settings.py').read_text(); persona=(core/'persona.py').read_text(); dialog=(core/'dialogue_state.py').read_text(); page=html.read_text(); java=main.read_text()
 assert 'FURINA_PERSONALITY_SCHEMA_V3' in hs and 'personality_traits' in hs
 assert 'FURINA_TUI_PERSONALIZATION_110' in tui and 'Personalisasi' in tui
@@ -53,7 +54,7 @@ assert 'llm.chat' not in segment and 'Thread(' not in segment
 assert 'action == "select"' in hub and 'action == "online"' in hub and 'furinahub-local-prewarm' in hub
 assert 'personalityTraitGrid110' in page and 'togglePersonality110' in page
 assert "action:'select',catalog_id:catalogId" in page and "action:'online'" in page
-for forbidden in ('checkAllUpdates(', 'refreshAppUpdate(', 'syncUnifiedUpdateStatus(', "'/api/update/core'", "'/api/update/status'", 'presetGrid', 'customInstructions', 'trait_labels'):
+for forbidden in ('checkAllUpdates(', 'refreshAppUpdate(', 'syncUnifiedUpdateStatus(', "'/api/update/core'", "'/api/update/status'", 'customInstructions', 'trait_labels'):
     assert forbidden not in page, forbidden
 assert 'furina update' in page
 assert 'bridgeUpdater = new BridgeUpdater' not in java
