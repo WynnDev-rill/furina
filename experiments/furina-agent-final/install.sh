@@ -1,13 +1,11 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-# Stable compatibility boundary. Existing devices only need to understand this
-# tiny bootstrap once; normal updates use the local furina-update/1 client.
 FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"
-FURINA_UPDATER_GENERATION="28"
-VERSION="1.0.3"
-DEPENDENCY_REVISION="2026.08.24-r43"
-RUNTIME_CONTRACT="furina-runtime/v9-local-fast-path"
+FURINA_UPDATER_GENERATION="29"
+VERSION="1.0.4"
+DEPENDENCY_REVISION="2026.08.24-r44"
+RUNTIME_CONTRACT="furina-runtime/v10-unified-memory-stream"
 UPDATE_PROTOCOL="furina-update/1"
 STABLE_RELEASE="https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable"
 CHANNEL_URL="$STABLE_RELEASE/channel.json"
@@ -16,32 +14,35 @@ CLIENT="$ROOT/updater/update_client.py"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-# Compatibility ledger for string-contract recovery gates already shipped in
-# Furina Lite. These are inert markers, not additional updater paths.
+# Compatibility ledger for already-shipped recovery contracts. Inert markers.
 # FURINA_UPDATER_GENERATION="22"
 # FURINA_UPDATER_GENERATION="23"
 # FURINA_UPDATER_GENERATION="24"
 # FURINA_UPDATER_GENERATION="25"
 # FURINA_UPDATER_GENERATION="26"
 # FURINA_UPDATER_GENERATION="27"
+# FURINA_UPDATER_GENERATION="28"
 # VERSION="1.0.0-rc67"
 # VERSION="1.0.0-rc68"
 # VERSION="1.0.0-rc69"
 # VERSION="1.0.0"
 # VERSION="1.0.1"
 # VERSION="1.0.2"
+# VERSION="1.0.3"
 # DEPENDENCY_REVISION="2026.08.22-r37"
 # DEPENDENCY_REVISION="2026.08.23-r38"
 # DEPENDENCY_REVISION="2026.08.23-r39"
 # DEPENDENCY_REVISION="2026.08.23-r40"
 # DEPENDENCY_REVISION="2026.08.23-r41"
 # DEPENDENCY_REVISION="2026.08.24-r42"
+# DEPENDENCY_REVISION="2026.08.24-r43"
 # FURINA_RUNTIME_CONTRACT="furina-runtime/v2"
 # FURINA_RUNTIME_CONTRACT="furina-runtime/v3-full-snapshot"
 # FURINA_RUNTIME_CONTRACT="furina-runtime/v4-channel-snapshot"
 # RUNTIME_CONTRACT="furina-runtime/v6-private-final"
 # RUNTIME_CONTRACT="furina-runtime/v7-local-model-on-demand"
 # RUNTIME_CONTRACT="furina-runtime/v8-local-performance-v2"
+# RUNTIME_CONTRACT="furina-runtime/v9-local-fast-path"
 # BODY_PATH="overrides/runtime-r37/install-body.sh"
 # BODY_PATH="overrides/runtime-r38/install-body.sh"
 # STATUS_PATH="$ROOT/run/furinahub-update.json"
@@ -52,6 +53,7 @@ trap 'rm -rf "$TMP"' EXIT
 # BUNDLE_ID="furina-2026.08.23-private-1.0.0"
 # BUNDLE_ID="furina-2026.08.23-private-1.0.1"
 # BUNDLE_ID="furina-2026.08.24-private-1.0.2"
+# BUNDLE_ID="furina-2026.08.24-private-1.0.3"
 # Tidak ada pembaruan terbaru
 # Pembaruan berhasil
 # Pembaruan gagal pada tahap
@@ -93,9 +95,6 @@ command -v curl >/dev/null 2>&1 || pkg install -y curl >/dev/null
 command -v python >/dev/null 2>&1 || pkg install -y python >/dev/null
 mkdir -p "$ROOT/updater" "$ROOT/run"
 
-# llama.cpp is runtime code, not a model. Installing it here never downloads a
-# GGUF. The same guard also repairs devices upgraded from 1.0.2 where the
-# package was accidentally omitted.
 render_step 2 "Memeriksa runtime model lokal"
 if ! command -v llama-server >/dev/null 2>&1 && command -v pkg >/dev/null 2>&1; then
   pkg install -y llama-cpp >/dev/null 2>&1 || true
@@ -105,7 +104,7 @@ fetch(){
   local url="$1" out="$2"
   curl -fL --silent --show-error --connect-timeout 12 --max-time 180 \
     --retry 4 --retry-delay 2 --retry-all-errors \
-    -H 'User-Agent: Furina-Bootstrap/28' -H 'Cache-Control: no-cache' \
+    -H 'User-Agent: Furina-Bootstrap/29' -H 'Cache-Control: no-cache' \
     "$url" -o "$out"
 }
 
@@ -118,10 +117,8 @@ fetch "$CHANNEL_URL?ts=$(date +%s)" "$TMP/channel.json" || {
 
 readarray -t META < <(python - "$TMP/channel.json" <<'PY'
 import json,sys
-p=sys.argv[1]
-d=json.load(open(p,encoding='utf-8'))
-if d.get('schema')!=1 or d.get('protocol')!='furina-update/1':
-    raise SystemExit('channel update tidak kompatibel')
+d=json.load(open(sys.argv[1],encoding='utf-8'))
+if d.get('schema')!=1 or d.get('protocol')!='furina-update/1': raise SystemExit('channel update tidak kompatibel')
 c=d.get('client') or {}
 for k in ('url','sha256','size'):
     if not c.get(k): raise SystemExit('metadata client tidak lengkap')

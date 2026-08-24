@@ -1,0 +1,22 @@
+name: Furina 1.0.4 Diagnostic Snapshot
+
+on:
+  pull_request:
+    branches: [experiment/furina-agent-termux]
+    paths:
+      - '.github/workflows/furina-104-diagnostic.yml'
+      - 'experiments/furina-agent-final/**'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate unified memory and Hub stream repair
+        run: |
+          set -euo pipefail
+          bash experiments/furina-agent-final/overrides/private-1.0.4/validate.sh
+          git diff --check

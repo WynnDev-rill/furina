@@ -12,19 +12,17 @@ on:
 jobs:
   final-audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Reconstruct and validate private 1.0.3 build
-        shell: bash
+      - name: Reconstruct and validate private 1.0.4 build
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/private-1.0.3/validate.sh
-      - name: Run final 1.0.3 engineering audit
-        shell: bash
+          bash experiments/furina-agent-final/overrides/private-1.0.4/validate.sh
+      - name: Run final 1.0.4 engineering audit
         run: |
           set -euo pipefail
-          python3 experiments/furina-agent-final/fast-path-audit.py /tmp/furina-agent-rc54-validate/termux
+          python3 experiments/furina-agent-final/unified-memory-audit.py /tmp/furina-agent-rc54-validate/termux
           git diff --check
