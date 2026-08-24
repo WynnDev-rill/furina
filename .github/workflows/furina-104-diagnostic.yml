@@ -1,4 +1,4 @@
-name: Furina 1.0.4 Diagnostic Snapshot
+name: Furina Session Boundary Diagnostic
 
 on:
   pull_request:
@@ -15,8 +15,25 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Validate unified memory and Hub stream repair
+      - name: Inspect reconstructed 1.0.5 session ownership
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/private-1.0.4/validate.sh
+          bash experiments/furina-agent-final/overrides/private-1.0.5/validate.sh
+          STAGE=/tmp/furina-agent-rc54-validate/termux python3 - <<'PY'
+          import ast, os
+          from pathlib import Path
+          root=Path(os.environ['STAGE']); core=root/'core/furina_agent'
+          def method(path, cls_name, method_name):
+              text=path.read_text(); tree=ast.parse(text)
+              cls=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name==cls_name)
+              node=next(n for n in cls.body if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name==method_name)
+              lines=text.splitlines(); print(f'--- {path.name}:{cls_name}.{method_name} ---'); print('\n'.join(lines[node.lineno-1:node.end_lineno]))
+          method(core/'chat.py','FurinaChat','__init__')
+          method(core/'memory.py','MemoryStore','recent_messages')
+          for file in ('tui.py','hub.py','companion.py'):
+              text=(core/file).read_text(); print(f'--- {file} FurinaChat callsites ---')
+              for i,line in enumerate(text.splitlines(),1):
+                  if 'FurinaChat(' in line:
+                      print(i,line.strip())
+          PY
           git diff --check
