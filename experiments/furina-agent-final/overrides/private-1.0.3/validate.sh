@@ -6,6 +6,7 @@ PROJECT="$(cd "$HERE/../.." && pwd)"
 
 bash "$PROJECT/overrides/private-1.0.2/validate.sh" "$ROOT"
 python3 "$HERE/apply.py" "$ROOT"
+python3 "$HERE/fixup.py" "$ROOT"
 python3 "$PROJECT/overrides/android-private-1.0.3/apply.py" "$ROOT"
 
 python3 -m py_compile \
@@ -48,8 +49,6 @@ assert 'EXPECTED_DEPENDENCY_REVISION = "2026.08.24-r43"' in hub
 print('FURINA_PRIVATE_1_0_3_STATIC_OK')
 PY
 
-# Repair the exact on-device stale state observed after 1.0.2: config revision 6
-# with context 6144 and unprivileged priority 1.
 TMP_HOME="$(mktemp -d)"; trap 'rm -rf "$TMP_HOME"' EXIT
 mkdir -p "$TMP_HOME/data"
 cat >"$TMP_HOME/config.json" <<'JSON'
@@ -65,7 +64,6 @@ assert c.max_tokens==2048 and c.response_continuations==4
 print('FURINA_103_STALE_CONFIG_REPAIRED')
 PY
 
-# Ordinary conversation must not call the model just to classify intent.
 FURINA_HOME="$TMP_HOME" PYTHONPATH="$ROOT/core" python3 - <<'PY'
 from furina_agent.companion import CompanionSession
 from furina_agent.config import load_config
@@ -79,7 +77,6 @@ assert i.mode=='chat' and llm.calls==0
 print('FURINA_103_CHAT_CLASSIFIER_FAST_PATH_OK')
 PY
 
-# The local prompt stays bounded even when history and stored memory are long.
 FURINA_HOME="$TMP_HOME" PYTHONPATH="$ROOT/core" python3 - <<'PY'
 from furina_agent.chat import FurinaChat
 from furina_agent.config import load_config
