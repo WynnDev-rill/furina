@@ -8,23 +8,15 @@ on:
       - 'experiments/furina-agent-final/**'
 
 jobs:
-  snapshot:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Reconstruct current private runtime
+      - name: Validate unified memory and Hub stream repair
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/private-1.0.3/validate.sh
-          mkdir -p /tmp/furina-104-diag/core /tmp/furina-104-diag/hub /tmp/furina-104-diag/android
-          cp /tmp/furina-agent-rc54-validate/termux/core/furina_agent/{chat.py,memory.py,companion.py,persona.py,hub.py,hub_web.py,llm.py,providers.py,routing.py,config.py,version.py} /tmp/furina-104-diag/core/
-          cp /tmp/furina-agent-rc54-validate/termux/bridge/app/src/main/assets/furinahub/index.html /tmp/furina-104-diag/hub/
-          cp /tmp/furina-agent-rc54-validate/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java /tmp/furina-104-diag/android/
-      - uses: actions/upload-artifact@v4
-        with:
-          name: furina-104-diagnostic-runtime
-          path: /tmp/furina-104-diag
-          if-no-files-found: error
+          bash experiments/furina-agent-final/overrides/private-1.0.4/validate.sh
+          git diff --check
