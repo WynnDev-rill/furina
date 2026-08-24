@@ -1,0 +1,19 @@
+name: Furina 1.1.0 Work Validation
+on:
+  pull_request:
+    branches: [experiment/furina-agent-termux]
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reconstruct and validate 1.1.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash experiments/furina-agent-final/overrides/private-1.1.0/validate.sh
+          git diff --check
