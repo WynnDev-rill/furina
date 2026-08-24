@@ -23,17 +23,28 @@ jobs:
           import ast, os
           from pathlib import Path
           root=Path(os.environ['STAGE']); core=root/'core/furina_agent'
-          def method(path, cls_name, method_name):
-              text=path.read_text(); tree=ast.parse(text)
+          def methods(path, cls_name, wanted):
+              text=path.read_text(); tree=ast.parse(text); lines=text.splitlines()
               cls=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name==cls_name)
-              node=next(n for n in cls.body if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name==method_name)
-              lines=text.splitlines(); print(f'--- {path.name}:{cls_name}.{method_name} ---'); print('\n'.join(lines[node.lineno-1:node.end_lineno]))
-          method(core/'chat.py','FurinaChat','__init__')
-          method(core/'memory.py','MemoryStore','recent_messages')
-          for file in ('tui.py','hub.py','companion.py'):
-              text=(core/file).read_text(); print(f'--- {file} FurinaChat callsites ---')
-              for i,line in enumerate(text.splitlines(),1):
-                  if 'FurinaChat(' in line:
-                      print(i,line.strip())
+              for name in wanted:
+                  node=next((n for n in cls.body if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name==name),None)
+                  if node:
+                      print(f'--- {path.name}:{cls_name}.{name} ---'); print('\n'.join(lines[node.lineno-1:node.end_lineno]))
+          methods(core/'memory.py','MemoryStore',['active_conversation_id','set_active_conversation','create_conversation','new_conversation','recent_messages','add_message'])
+          methods(core/'companion.py','CompanionSession',['__init__','chat','reset','new_conversation'])
+          text=(core/'tui.py').read_text(); tree=ast.parse(text); lines=text.splitlines()
+          print('--- tui functions mentioning CompanionSession / conversation ---')
+          for n in ast.walk(tree):
+              if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)):
+                  seg='\n'.join(lines[n.lineno-1:n.end_lineno])
+                  if 'CompanionSession' in seg or 'conversation' in seg.lower() or 'run_chat' in n.name.lower():
+                      print(f'### {n.name}'); print(seg[:7000])
+          print('--- all CompanionSession callsites ---')
+          for file in ('tui.py','hub.py','cli.py','__main__.py'):
+              p=core/file
+              if not p.exists(): continue
+              for i,line in enumerate(p.read_text().splitlines(),1):
+                  if 'CompanionSession(' in line:
+                      print(file,i,line.strip())
           PY
           git diff --check
