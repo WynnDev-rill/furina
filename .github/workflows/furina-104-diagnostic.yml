@@ -19,9 +19,10 @@ jobs:
         run: |
           set -euo pipefail
           bash experiments/furina-agent-final/overrides/private-1.0.3/validate.sh
-          mkdir -p /tmp/furina-104-diag/core /tmp/furina-104-diag/hub
-          cp /tmp/furina-agent-rc54-validate/termux/core/furina_agent/{chat.py,memory.py,companion.py,persona.py,hub.py,llm.py,providers.py,config.py} /tmp/furina-104-diag/core/
+          mkdir -p /tmp/furina-104-diag/core /tmp/furina-104-diag/hub /tmp/furina-104-diag/android
+          cp /tmp/furina-agent-rc54-validate/termux/core/furina_agent/{chat.py,memory.py,companion.py,persona.py,hub.py,hub_web.py,llm.py,providers.py,routing.py,config.py,version.py} /tmp/furina-104-diag/core/
           cp /tmp/furina-agent-rc54-validate/termux/bridge/app/src/main/assets/furinahub/index.html /tmp/furina-104-diag/hub/
+          cp /tmp/furina-agent-rc54-validate/termux/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java /tmp/furina-104-diag/android/
       - uses: actions/upload-artifact@v4
         with:
           name: furina-104-diagnostic-runtime
