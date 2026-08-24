@@ -1,0 +1,27 @@
+name: Furina 1.0.4 Diagnostic Snapshot
+
+on:
+  pull_request:
+    branches: [experiment/furina-agent-termux]
+    paths:
+      - '.github/workflows/furina-104-diagnostic.yml'
+      - 'experiments/furina-agent-final/**'
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct current private runtime
+        run: |
+          set -euo pipefail
+          bash experiments/furina-agent-final/overrides/private-1.0.3/validate.sh
+          mkdir -p /tmp/furina-104-diag/core /tmp/furina-104-diag/hub
+          cp /tmp/furina-agent-rc54-validate/termux/core/furina_agent/{chat.py,memory.py,companion.py,persona.py,hub.py,llm.py,providers.py,config.py} /tmp/furina-104-diag/core/
+          cp /tmp/furina-agent-rc54-validate/termux/bridge/app/src/main/assets/furinahub/index.html /tmp/furina-104-diag/hub/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: furina-104-diagnostic-runtime
+          path: /tmp/furina-104-diag
+          if-no-files-found: error
