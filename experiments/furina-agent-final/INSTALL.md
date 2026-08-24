@@ -1,6 +1,6 @@
 # Instalasi Furina Lite + FurinaHub
 
-Private build saat ini: Core `1.0.6`, FurinaHub `1.0.6` (`versionCode 10064`), dependency revision `2026.08.24-r46`.
+Private build saat ini: Core `1.0.7`, FurinaHub `1.0.7` (`versionCode 10065`), dependency revision `2026.08.24-r47`.
 
 ## Instalasi baru
 
@@ -16,10 +16,10 @@ Menu Furina Lite tetap: **Chat**, **Provider & Model**, **Pengaturan**, **Exit**
 
 ## Perilaku sesi Chat Termux
 
-Mulai 1.0.6, short-term history tidak lagi dianggap sama dengan long-term memory.
+Short-term history terpisah dari long-term memory.
 
 - Menjalankan `furina` dari proses baru memulai thread Chat Termux yang baru saat pesan pertama dikirim.
-- Karena itu Chat yang terlihat kosong tidak akan diam-diam membawa percakapan Termux sebelumnya ke prompt.
+- Chat yang terlihat kosong tidak membawa percakapan Termux sebelumnya ke prompt.
 - `/back` lalu masuk lagi ke Chat selama proses `furina` yang sama tetap melanjutkan thread saat ini.
 - Menutup proses `furina` lalu menjalankannya lagi membuat short-term thread baru; thread lama tetap tersimpan.
 - Memory personal terpercaya, relationship state, profile, provider/API, pilihan model, model lokal, dan shared moments tetap persisten.
@@ -36,7 +36,17 @@ Status model adalah **Unduh → Pilih → Aktif**. Unduhan mendukung resume dan 
 
 Saat Local dipilih atau Chat Local dibuka, Furina menyiapkan model di background. Model yang sehat dipertahankan warm hingga sekitar 10 menit idle.
 
-Local path juga mempertahankan perbaikan kualitas sebelumnya: context phone-first, prompt ringkas, provenance-gated memory, assistant-history quarantine, deterministic date/day/time, repetition control, native streaming, dan background memory yang tunduk pada foreground chat.
+### Conversation Quality Guard 1.0.7
+
+Untuk Local, Core sekarang membedakan jenis konteks yang benar-benar dibutuhkan:
+
+- Sapaan/filler pada thread baru seperti `hai` atau `hmm` dijawab langsung oleh Core agar model roleplay 1.7B tidak mengarang konteks.
+- Obrolan generic tidak menerima memory personal yang tidak relevan. Memory bersama tetap dimasukkan saat user memang menanyakan fakta personal, preferensi, tujuan, profil, atau hubungan.
+- Prompt Local mewajibkan format chat satu-lawan-satu dan melarang screenplay, dialog user imajiner, narasi pikiran user, atau pembukaan formal yang tidak natural.
+- Beberapa kata pertama ditahan sangat singkat sebelum ditampilkan. Jika terdeteksi pola script-mode seperti `Saya mohon izin...`, fake `User:`/`Assistant:`, atau continuity palsu pada thread baru, jawaban tidak ditampilkan dan satu repair pass ringkas dijalankan.
+- Short casual turn memakai temperature cap lebih konservatif, sedangkan pertanyaan mendalam tetap mempunyai budget lebih besar.
+
+Perbaikan ini tidak mengganti wifuGPT/Qwen, quantization, memory database, atau conversation history yang sudah ada.
 
 Jika runtime llama.cpp sengaja terhapus, installer/update atau runtime Local akan mencoba memulihkan paket `llama-cpp` tanpa menyentuh model yang sudah diunduh.
 
