@@ -1,4 +1,4 @@
-name: Furina Session Boundary Diagnostic
+name: Furina Session Isolation Regression
 
 on:
   pull_request:
@@ -15,36 +15,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Inspect reconstructed 1.0.5 session ownership
+      - name: Validate Termux thread isolation and shared long-term memory
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/private-1.0.5/validate.sh
-          STAGE=/tmp/furina-agent-rc54-validate/termux python3 - <<'PY'
-          import ast, os
-          from pathlib import Path
-          root=Path(os.environ['STAGE']); core=root/'core/furina_agent'
-          def methods(path, cls_name, wanted):
-              text=path.read_text(); tree=ast.parse(text); lines=text.splitlines()
-              cls=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name==cls_name)
-              for name in wanted:
-                  node=next((n for n in cls.body if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name==name),None)
-                  if node:
-                      print(f'--- {path.name}:{cls_name}.{name} ---'); print('\n'.join(lines[node.lineno-1:node.end_lineno]))
-          methods(core/'memory.py','MemoryStore',['active_conversation_id','set_active_conversation','create_conversation','new_conversation','recent_messages','add_message'])
-          methods(core/'companion.py','CompanionSession',['__init__','chat','reset','new_conversation'])
-          text=(core/'tui.py').read_text(); tree=ast.parse(text); lines=text.splitlines()
-          print('--- tui functions mentioning CompanionSession / conversation ---')
-          for n in ast.walk(tree):
-              if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)):
-                  seg='\n'.join(lines[n.lineno-1:n.end_lineno])
-                  if 'CompanionSession' in seg or 'conversation' in seg.lower() or 'run_chat' in n.name.lower():
-                      print(f'### {n.name}'); print(seg[:7000])
-          print('--- all CompanionSession callsites ---')
-          for file in ('tui.py','hub.py','cli.py','__main__.py'):
-              p=core/file
-              if not p.exists(): continue
-              for i,line in enumerate(p.read_text().splitlines(),1):
-                  if 'CompanionSession(' in line:
-                      print(file,i,line.strip())
-          PY
+          bash experiments/furina-agent-final/overrides/private-1.0.6/validate.sh
+          python3 experiments/furina-agent-final/conversation-quality-audit.py /tmp/furina-agent-rc54-validate/termux
           git diff --check
