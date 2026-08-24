@@ -49,7 +49,11 @@ jobs:
               assert token in active,token
           for historical in ('FURINA_UPDATER_GENERATION="33"','VERSION="1.0.8"','DEPENDENCY_REVISION="2026.08.24-r48"','RUNTIME_CONTRACT="furina-runtime/v14-grounded-dialogue-state"'):
               assert historical in installer,historical
-          assert '.gguf' not in active.lower() and 'qwen3-4b' not in active.lower()
+          # Runtime contract may mention qwen3-4b; the bootstrap must still never
+          # contain a model artifact URL/file or trigger a GGUF download.
+          assert '.gguf' not in active.lower()
+          assert 'huggingface.co' not in active.lower()
+          assert 'download_model(' not in active
           print('FURINA_PRIVATE_1_0_9_RECOVERY_BOUNDARY_OK')
           PY
           python3 - "$TMP/furina-update.py" <<'PY'
