@@ -1,6 +1,6 @@
 # Instalasi Furina Lite + FurinaHub
 
-Private build saat ini: Core `1.0.3`, FurinaHub `1.0.3` (`versionCode 10061`), dependency revision `2026.08.24-r43`.
+Private build saat ini: Core `1.0.6`, FurinaHub `1.0.6` (`versionCode 10064`), dependency revision `2026.08.24-r46`.
 
 ## Instalasi baru
 
@@ -14,6 +14,17 @@ Bootstrap memverifikasi updater dan menyiapkan runtime yang diperlukan. `llama-c
 
 Menu Furina Lite tetap: **Chat**, **Provider & Model**, **Pengaturan**, **Exit**. Memory/Psyche aktif internal dan tidak menjadi menu pemeliharaan.
 
+## Perilaku sesi Chat Termux
+
+Mulai 1.0.6, short-term history tidak lagi dianggap sama dengan long-term memory.
+
+- Menjalankan `furina` dari proses baru memulai thread Chat Termux yang baru saat pesan pertama dikirim.
+- Karena itu Chat yang terlihat kosong tidak akan diam-diam membawa percakapan Termux sebelumnya ke prompt.
+- `/back` lalu masuk lagi ke Chat selama proses `furina` yang sama tetap melanjutkan thread saat ini.
+- Menutup proses `furina` lalu menjalankannya lagi membuat short-term thread baru; thread lama tetap tersimpan.
+- Memory personal terpercaya, relationship state, profile, provider/API, pilihan model, model lokal, dan shared moments tetap persisten.
+- FurinaHub mempertahankan conversation selection miliknya sendiri; pembuatan sesi Termux tidak mengganti active conversation FurinaHub.
+
 ## Model lokal
 
 Katalog lokal hanya:
@@ -25,13 +36,7 @@ Status model adalah **Unduh → Pilih → Aktif**. Unduhan mendukung resume dan 
 
 Saat Local dipilih atau Chat Local dibuka, Furina menyiapkan model di background. Model yang sehat dipertahankan warm hingga sekitar 10 menit idle.
 
-### Perbaikan Local Fast Path 1.0.3
-
-1.0.3 memperbaiki perangkat 1.0.2 yang masih menyimpan context `6144` menjadi `4096`, menghapus inferensi classifier tersembunyi dari percakapan biasa, memperkecil prompt Local secara adaptif tanpa menghapus memory, dan menunda pekerjaan memory LLM sampai Local idle sekitar dua menit. Jika user kembali saat background work berjalan, foreground chat diprioritaskan dan pekerjaan memory ditunda kembali.
-
-Persona Local tetap membawa identitas Furina, karakter, hubungan pasangan, memory/context relevan, sampling, dan budget jawaban yang sama. Boilerplate Android-agent dan contoh dialog tidak lagi dikirim pada setiap chat kasual Local. Online tetap memakai prompt penuh.
-
-`llama-server` normal menggunakan optimasi yang didukung binary. Jika optimized launch gagal, Furina mencoba ulang CPU baseline yang minimal dan aman. Positive process priority tidak dipaksakan di Termux. Streaming Local maupun Online tetap aktif.
+Local path juga mempertahankan perbaikan kualitas sebelumnya: context phone-first, prompt ringkas, provenance-gated memory, assistant-history quarantine, deterministic date/day/time, repetition control, native streaming, dan background memory yang tunduk pada foreground chat.
 
 Jika runtime llama.cpp sengaja terhapus, installer/update atau runtime Local akan mencoba memulihkan paket `llama-cpp` tanpa menyentuh model yang sudah diunduh.
 
@@ -69,7 +74,7 @@ Update Core/bridge menggunakan snapshot terverifikasi dan atomic swap. Data user
 
 ## FurinaHub
 
-FurinaHub memakai Core, katalog model, runtime, dan state model yang sama dengan Furina Lite. Pemilihan Local juga memicu background preparation. Status tetap **Unduh/Pilih/Aktif**, dan Memory/Psyche tetap internal-hidden.
+FurinaHub memakai Core, katalog model, runtime, dan long-term personal memory yang sama dengan Furina Lite. Message history tetap mengikuti conversation/thread masing-masing surface. Pemilihan Local juga memicu background preparation. Status tetap **Unduh/Pilih/Aktif**, dan Memory/Psyche tetap internal-hidden.
 
 Jika channel berisi APK baru, updater membuka Android Package Installer setelah verifikasi. Bundle baru baru dianggap terpasang setelah FurinaHub versi baru dijalankan dan mengonfirmasi dirinya ke Termux.
 

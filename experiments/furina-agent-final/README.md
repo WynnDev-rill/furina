@@ -17,6 +17,19 @@ furina
 
 Fresh install does **not** download a GGUF model. It installs Furina and required runtime code, including `llama-cpp` so Local chat is ready when a model is later downloaded. Local models remain on-demand in **Provider & Model**.
 
+## Conversation sessions and memory — 1.0.6
+
+Furina now separates short-term conversation history from long-term companion memory.
+
+- Every new `furina` process gets a fresh Termux short-term chat thread on the first real message. A visually empty Chat therefore never silently continues the previous Termux conversation.
+- `/back` only leaves the Chat screen; returning to Chat in the same running `furina` process keeps that thread so normal continuity is not lost accidentally.
+- Closing the process and starting `furina` again creates a new short-term thread. Old conversations are preserved rather than deleted.
+- Trusted personal memory, profile, relationship state, shared moments, provider/model selection, secrets, and local model files remain persistent across sessions.
+- FurinaHub keeps its explicit persistent conversation selection. Creating a Termux session does not rewrite FurinaHub's globally active conversation.
+- Local and Online engines use the same trusted long-term memory; only short-term message history is thread scoped.
+
+This follows the standard agent-memory split: conversation/session history belongs to one thread, while durable user memory can be shared across threads.
+
 ## Provider & Model
 
 There is no AUTO mode. Chat uses either:
@@ -33,25 +46,20 @@ The local catalog remains exactly:
 
 States are **Unduh → Pilih → Aktif**. Downloads are resumable and must pass exact-size, GGUF-header, and SHA-256 verification before selection.
 
-## Local Fast Path 1.0.3
+## Local conversation quality
 
-1.0.3 fixes the multi-minute local first-token delay observed in 1.0.2 without changing either model or quantization.
+The Local path preserves the 1.0.3–1.0.5 performance and quality work:
 
-- Repairs the exact stale `6144` context state from 1.0.2 to the phone-first `4096` context.
-- Uses a compact local-only Furina persona while retaining identity, personality, partner relationship, memory behavior, sampling, and response budget. Online models keep the full prompt.
-- Ordinary conversation such as `hi` bypasses the hidden LLM intent classifier. Only ambiguous device-like requests use the small classifier; explicit Android commands retain the deterministic fast path.
-- Local history is adaptive and shorter; relevant belief/memory/episode retrieval is prompt-budgeted instead of disabling stored memory.
-- Android-agent policy and dialogue examples are no longer carried into ordinary Local chat.
-- The prompt prefix is kept stable so llama.cpp cache reuse can work effectively.
-- Opening Local chat prewarms the selected model while the user types. A healthy model remains warm for a bounded idle window.
-- Background memory consolidation/reflection keeps its full behavior but waits for about two minutes of local idle time. Foreground chat can cancel/defer it so memory work cannot monopolize the only local inference slot.
-- `llama-cpp` is a required/self-healing runtime dependency. Missing runtime is repaired without downloading a model.
-- Termux no longer requests an unprivileged positive llama.cpp process priority.
-- Optimized llama-server startup automatically retries a minimal CPU-safe command if the optimized launch fails.
-- Local and Online responses keep native streaming; the first visible chunk is immediate and later tiny chunks are coalesced briefly for smooth rendering.
-- Existing cache-reuse, capability-gated Flash Attention, keep-warm, 4/5/6-thread tuning, and optional backend-specific acceleration remain available.
-
-The established response-quality budget remains `max_tokens 2048` with up to four explicit continuations. Performance comes from reducing unnecessary prefill/work, not shortening Furina's answers.
+- phone-first `4096` context repair for the old `6144` state;
+- compact local-only Furina persona with shared trusted memory and relationship context;
+- ordinary chat bypasses the hidden device-intent LLM classifier;
+- prompt history is bounded, user-led, and malformed assistant output is quarantined;
+- model-authored legacy personal facts are not promoted to trusted memory without user evidence;
+- deterministic current day/date/time answers do not depend on a 1.7B model guessing;
+- conservative llama.cpp repetition control reduces self-reinforcing phrase loops;
+- Local and Online keep native streaming and FurinaHub updates the live answer in place;
+- background memory work waits for Local idle time and yields to foreground conversation;
+- the selected local model remains warm for a bounded idle window.
 
 ## Product and memory
 
@@ -85,11 +93,11 @@ This is destructive and requires confirmation. It removes Furina-owned Termux da
 
 ## Current versions
 
-- Core: `1.0.3`
-- FurinaHub Android: `1.0.3` (`versionCode 10061`)
-- Dependency revision: `2026.08.24-r43`
-- Bundle: `furina-2026.08.24-private-1.0.3`
+- Core: `1.0.6`
+- FurinaHub Android: `1.0.6` (`versionCode 10064`)
+- Dependency revision: `2026.08.24-r46`
+- Bundle: `furina-2026.08.24-private-1.0.6`
 - Update client: `1.2.0`
-- Runtime contract: `furina-runtime/v9-local-fast-path`
+- Runtime contract: `furina-runtime/v12-session-isolation`
 
 See [`INSTALL.md`](./INSTALL.md) for the operational install/update flow.

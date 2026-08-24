@@ -1,4 +1,4 @@
-name: Furina 1.0.4 Diagnostic Snapshot
+name: Furina Session Isolation Regression
 
 on:
   pull_request:
@@ -15,8 +15,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Validate unified memory and Hub stream repair
+      - name: Validate Termux thread isolation and shared long-term memory
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/private-1.0.4/validate.sh
+          bash experiments/furina-agent-final/overrides/private-1.0.6/validate.sh
+          python3 experiments/furina-agent-final/conversation-quality-audit.py /tmp/furina-agent-rc54-validate/termux
           git diff --check
