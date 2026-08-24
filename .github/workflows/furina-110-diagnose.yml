@@ -1,23 +1,19 @@
-name: Furina 1.1.0 Diagnose
+name: Furina 1.1.0 Work Validation
 on:
   pull_request:
     branches: [experiment/furina-agent-termux]
   workflow_dispatch:
 jobs:
-  diagnose:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Reconstruct current private runtime
+      - name: Reconstruct and validate 1.1.0
         shell: bash
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/private-1.0.9/validate.sh
-      - name: Inspect active runtime surfaces
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 experiments/furina-agent-final/overrides/private-1.1.0/diagnose.py /tmp/furina-agent-rc54-validate/termux
+          bash experiments/furina-agent-final/overrides/private-1.1.0/validate.sh
+          git diff --check
