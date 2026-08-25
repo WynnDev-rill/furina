@@ -17,7 +17,7 @@ version = CORE / "version.py"
 text = version.read_text(encoding="utf-8")
 if 'VERSION = "1.0.9"' not in text:
     raise SystemExit("expected reconstructed Core 1.0.9")
-version.write_text(text.replace('VERSION = "1.0.9"', 'VERSION = "1.1.6"', 1), encoding="utf-8")
+version.write_text(text.replace('VERSION = "1.0.9"', 'VERSION = "1.1.7"', 1), encoding="utf-8")
 shutil.copyfile(HERE / "personality.py", CORE / "personality.py")
 shutil.copyfile(HERE / "dialogue_state.py", CORE / "dialogue_state.py")
 
@@ -278,75 +278,123 @@ def _settings_110(console):
 _settings = _settings_110
 
 # FURINA_TUI_PERSONALIZATION_110
-# FURINA_TUI_PERSONALITY_MENU_116
-# Preview follows the cursor. Read a complete CSI sequence, never a fixed 3-byte arrow.
-def _personality_key_116() -> str:
+# FURINA_TUI_PERSONALITY_MENU_117
+# This screen keeps the original selector's behavior, but updates the white
+# preview above the list whenever the highlighted trait changes.
+def _personality_key_117(fd: int) -> str:
+    import os
     import select
-    import sys
     import time
-    if not sys.stdin.isatty():
-        raw = input("Pilih (u/d/enter/b): ").strip().lower()
-        return {"u": "up", "d": "down", "": "enter", "b": "back", "q": "back"}.get(raw, "noop")
-    import termios
-    import tty
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        first = sys.stdin.read(1)
-        if first in {"\r", "\n", " "}: return "enter"
-        if first.lower() in {"q", "b"}: return "back"
-        if first != "\x1b": return "noop"
-        deadline = time.monotonic() + 0.55
-        sequence = ""
-        while time.monotonic() < deadline and len(sequence) < 16:
-            remaining = max(0.0, deadline - time.monotonic())
-            if not select.select([sys.stdin], [], [], remaining)[0]: break
-            char = sys.stdin.read(1)
-            sequence += char
-            if char in {"A", "B"}: return {"A": "up", "B": "down"}[char]
-        # A bare Esc leaves personalization; malformed escape sequences are ignored.
-        return "back" if not sequence else "noop"
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
-def _private_personalization_116(console):
+    first = os.read(fd, 1)
+    if first in {b"\r", b"\n", b" "}:
+        return "enter"
+    if first in {b"b", b"B", b"q", b"Q"}:
+        return "back"
+    if first in {b"k", b"K"}:
+        return "up"
+    if first in {b"j", b"J"}:
+        return "down"
+    if first != b"\x1b":
+        return "noop"
+
+    # Termux arrows are CSI sequences. Read bytes directly from the terminal
+    # descriptor: TextIO buffering can otherwise consume '[' and make arrows
+    # look like an ESC/back action.
+    sequence = bytearray()
+    deadline = time.monotonic() + 0.16
+    while len(sequence) < 32:
+        timeout = deadline - time.monotonic()
+        if timeout <= 0 or not select.select([fd], [], [], timeout)[0]:
+            break
+        part = os.read(fd, 1)
+        if not part:
+            break
+        sequence.extend(part)
+        if part == b"A":
+            return "up"
+        if part == b"B":
+            return "down"
+    return "back" if not sequence else "noop"
+
+
+def _private_personalization_117(console):
+    import sys
     from textwrap import wrap
     from .hub_settings import load_hub_settings, save_hub_settings
     from .personality import TRAITS, normalize_traits
-    cursor = 0; page_size = 12; notice = ""
-    while True:
-        state = load_hub_settings(); active = normalize_traits(state.get("personality_traits")); trait = TRAITS[cursor]
-        _clear(); _header(console, "Personalisasi")
-        console.print(f"[dim]Sifat aktif[/]  {len(active)}/20")
-        console.print("[dim]↑↓ pilih · Enter aktif/nonaktif · B / ESC kembali[/]")
-        console.print()
-        for line in wrap(trait.description, width=max(30, min(76, console.width - 4))):
-            console.print(f"[white]{line}[/]")
-        if notice: console.print(notice)
-        console.print()
-        start = max(0, min(cursor - page_size // 2, len(TRAITS) - page_size)); end = min(len(TRAITS), start + page_size)
-        if start: console.print("[dim]...[/]")
-        for index in range(start, end):
-            item = TRAITS[index]; pointer = "[bright_cyan]›[/] " if index == cursor else "  "
-            mark = "[green][✓][/] " if item.id in active else "[ ] "
-            label = f"[bright_cyan]{item.label}[/]" if index == cursor else item.label
-            console.print(f"{pointer}{mark}{label}")
-        if end < len(TRAITS): console.print("[dim]...[/]")
-        console.print("[dim]↓↑ navigate • enter submit[/]")
-        key = _personality_key_116()
-        if key == "up": cursor = (cursor - 1) % len(TRAITS); notice = ""; continue
-        if key == "down": cursor = (cursor + 1) % len(TRAITS); notice = ""; continue
-        if key == "back": return
-        if key != "enter": continue
-        selected = list(active); enabled = trait.id not in selected
-        if enabled: selected.append(trait.id)
-        else: selected.remove(trait.id)
-        try:
-            state["personality_traits"] = selected; save_hub_settings(state)
-            notice = f"[green]✓ {'Diaktifkan' if enabled else 'Dinonaktifkan'}: {trait.label}[/]"
-        except Exception as exc:
-            notice = f"[red]Gagal menyimpan {trait.label}: {str(exc)[:100]}[/]"
+
+    # The non-interactive fallback keeps the previously proven Gum selector.
+    if not sys.stdin.isatty():
+        return _private_personalization_115(console)
+
+    import termios
+    import tty
+
+    fd = sys.stdin.fileno()
+    saved_mode = termios.tcgetattr(fd)
+    cursor = 0
+    notice = ""
+    page_size = 16
+    try:
+        tty.setraw(fd)
+        while True:
+            state = load_hub_settings()
+            active = normalize_traits(state.get("personality_traits"))
+            trait = TRAITS[cursor]
+
+            _clear(); _header(console, "Personalisasi")
+            console.print(f"[dim]Sifat aktif[/]  {len(active)}/20")
+            console.print("[dim]Pilih kombinasi bebas. Pilih lagi untuk menonaktifkan.[/]")
+            console.print()
+            for line in wrap(trait.description, width=max(30, min(76, console.width - 4))):
+                console.print(f"[white]{line}[/]")
+            if notice:
+                console.print(notice)
+            console.print()
+
+            start = max(0, min(cursor - page_size // 2, len(TRAITS) - page_size))
+            end = min(len(TRAITS), start + page_size)
+            if start:
+                console.print("[dim]↑ lebih atas[/]")
+            for index in range(start, end):
+                item = TRAITS[index]
+                pointer = "[bright_cyan]›[/] " if index == cursor else "  "
+                mark = "[green][✓][/] " if item.id in active else "[ ] "
+                label = f"[bright_cyan]{item.label}[/]" if index == cursor else item.label
+                console.print(f"{pointer}{mark}{label}")
+            if end < len(TRAITS):
+                console.print("[dim]↓ lebih banyak[/]")
+            console.print("[dim]↑↓ navigate • enter submit • B / ESC kembali[/]")
+
+            key = _personality_key_117(fd)
+            if key == "up":
+                cursor = max(0, cursor - 1)
+                notice = ""
+                continue
+            if key == "down":
+                cursor = min(len(TRAITS) - 1, cursor + 1)
+                notice = ""
+                continue
+            if key == "back":
+                return
+            if key != "enter":
+                continue
+
+            selected = list(active)
+            enabled = trait.id not in selected
+            if enabled:
+                selected.append(trait.id)
+            else:
+                selected.remove(trait.id)
+            try:
+                state["personality_traits"] = selected
+                save_hub_settings(state)
+                notice = f"[green]✓ {'Diaktifkan' if enabled else 'Dinonaktifkan'}: {trait.label}[/]"
+            except Exception as exc:
+                notice = f"[red]Gagal menyimpan {trait.label}: {str(exc)[:100]}[/]"
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, saved_mode)
 
 
 def _main_menu_111(console) -> str:
@@ -405,13 +453,13 @@ def run_tui():
         elif choice == "Provider & Model":
             _providers(console)
         elif choice == "Personalisasi":
-            _private_personalization_116(console)
+            _private_personalization_117(console)
         elif choice == "Pengaturan":
             _settings(console)
 
 
 _main_menu = _main_menu_111
-_private_personalization_110 = _private_personalization_116
+_private_personalization_110 = _private_personalization_117
 _settings = _settings_111
 
 ''')
@@ -422,11 +470,11 @@ _settings = _settings_111
 # ---------------------------------------------------------------------------
 hub = CORE / "hub.py"
 ht = hub.read_text(encoding="utf-8")
-ht, count = re.subn(r'EXPECTED_DEPENDENCY_REVISION = "[^"]+"', 'EXPECTED_DEPENDENCY_REVISION = "2026.08.25-r56"', ht, count=1)
+ht, count = re.subn(r'EXPECTED_DEPENDENCY_REVISION = "[^"]+"', 'EXPECTED_DEPENDENCY_REVISION = "2026.08.25-r57"', ht, count=1)
 if count != 1:
     raise SystemExit("hub dependency revision marker missing")
-ht = ht.replace("furina-2026.08.24-private-1.0.9", "furina-2026.08.25-private-1.1.6")
-ht = ht.replace('"bridge_target": "1.0.9"', '"bridge_target": "1.1.6"')
+ht = ht.replace("furina-2026.08.24-private-1.0.9", "furina-2026.08.25-private-1.1.7")
+ht = ht.replace('"bridge_target": "1.0.9"', '"bridge_target": "1.1.7"')
 hub.write_text(ht, encoding="utf-8")
 with hub.open("a", encoding="utf-8") as f:
     f.write(r'''

@@ -26,22 +26,22 @@ def replace_between(text: str, start: str, end: str, replacement: str, label: st
 build = BUILD.read_text(encoding="utf-8")
 if build.count("versionCode 10067") != 1 or build.count("versionName '1.0.9'") != 1:
     raise SystemExit("expected FurinaHub 1.0.9/10067")
-build = build.replace("versionCode 10067", "versionCode 10074", 1)
-build = build.replace("versionName '1.0.9'", "versionName '1.1.6'", 1)
+build = build.replace("versionCode 10067", "versionCode 10075", 1)
+build = build.replace("versionName '1.0.9'", "versionName '1.1.7'", 1)
 BUILD.write_text(build, encoding="utf-8")
 
 # FurinaHub no longer owns update orchestration. Keep old bridge methods inert so
 # cached HTML cannot start an updater, while `furina update` remains the single
 # owner of Core + APK installation and version confirmation.
 main = MAIN.read_text(encoding="utf-8")
-main = main.replace('EXPECTED_CORE_VERSION = "1.0.9"', 'EXPECTED_CORE_VERSION = "1.1.6"', 1)
-main = main.replace("furina-2026.08.24-private-1.0.9", "furina-2026.08.25-private-1.1.6")
-main, count = re.subn(r'EXPECTED_DEPENDENCY_REVISION = "[^"]+"', 'EXPECTED_DEPENDENCY_REVISION = "2026.08.25-r56"', main, count=1)
+main = main.replace('EXPECTED_CORE_VERSION = "1.0.9"', 'EXPECTED_CORE_VERSION = "1.1.7"', 1)
+main = main.replace("furina-2026.08.24-private-1.0.9", "furina-2026.08.25-private-1.1.7")
+main, count = re.subn(r'EXPECTED_DEPENDENCY_REVISION = "[^"]+"', 'EXPECTED_DEPENDENCY_REVISION = "2026.08.25-r57"', main, count=1)
 if count != 1:
     raise SystemExit("Android dependency revision missing")
 main = main.replace(
     "        bridgeUpdater = new BridgeUpdater(this, hiddenUpdateStatus, hiddenUpdateButton);\n",
-    "        // 1.1.6: update orchestration is Termux-only (`furina update`).\n",
+    "        // 1.1.7: update orchestration is Termux-only (`furina update`).\n",
 )
 main = main.replace("        if (bridgeUpdater != null) bridgeUpdater.onResume();\n", "")
 main = main.replace(
