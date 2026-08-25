@@ -277,10 +277,10 @@ def _settings_110(console):
 
 _settings = _settings_110
 
-# FURINA_TUI_MAIN_PERSONALITY_111
-# Traits live in the first menu now. A focused trait is explained in the same
-# screen, and Enter toggles it immediately—there is no secondary detail page.
-def _main_key_111() -> str:
+# FURINA_TUI_PERSONALITY_MENU_111
+# Personalization is a single top-level menu item. Inside it, selection changes
+# the visible explanation immediately and Enter toggles without opening a detail page.
+def _personality_key_111() -> str:
     import select
     import sys
     if not sys.stdin.isatty():
@@ -294,100 +294,69 @@ def _main_key_111() -> str:
     try:
         tty.setraw(fd)
         first = sys.stdin.read(1)
-        if first in {"\r", "\n"}:
-            return "enter"
-        if first == " ":
+        if first in {"\r", "\n", " "}:
             return "enter"
         if first.lower() in {"q", "b"}:
             return "back"
         if first != "\x1b":
             return first.lower()
-
         if not select.select([sys.stdin], [], [], 0.08)[0]:
             return "back"
-        second = sys.stdin.read(1)
-        if second != "[" or not select.select([sys.stdin], [], [], 0.08)[0]:
+        if sys.stdin.read(1) != "[" or not select.select([sys.stdin], [], [], 0.08)[0]:
             return "back"
-        third = sys.stdin.read(1)
-        return {"A": "up", "B": "down"}.get(third, "back")
+        return {"A": "up", "B": "down"}.get(sys.stdin.read(1), "back")
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
-def _main_menu_111(console) -> str:
+def _private_personalization_111(console):
     from textwrap import wrap
     from .hub_settings import load_hub_settings, save_hub_settings
     from .personality import TRAITS, normalize_traits
 
-    items = [("action", "Chat", None)]
-    items.extend(("trait", item.label, item) for item in TRAITS)
-    items.extend((
-        ("action", "Provider & Model", None),
-        ("action", "Pengaturan", None),
-        ("action", "Exit", None),
-    ))
     cursor = 0
     page_size = 7
-
     while True:
         state = load_hub_settings()
         active = normalize_traits(state.get("personality_traits"))
-        kind, label, trait = items[cursor]
+        trait = TRAITS[cursor]
 
-        _clear()
-        _header(console)
-        console.print(f"[dim]Personalisasi[/]  [bright_cyan]{len(active)}/20 sifat aktif[/]")
+        _clear(); _header(console, "Personalisasi")
+        console.print(f"[dim]Sifat aktif[/]  [bright_cyan]{len(active)}/20[/]")
         console.print("[dim]↑↓ pilih · Enter aktif/nonaktif · B / ESC kembali[/]\n")
 
-        start = max(0, min(cursor - page_size // 2, len(items) - page_size))
-        end = min(len(items), start + page_size)
+        start = max(0, min(cursor - page_size // 2, len(TRAITS) - page_size))
+        end = min(len(TRAITS), start + page_size)
         if start:
             console.print("[dim]  ↑ lebih banyak[/]")
         for index in range(start, end):
-            row_kind, row_label, row_trait = items[index]
-            focused = index == cursor
-            pointer = "[bright_cyan]›[/] " if focused else "  "
-            if row_kind == "trait":
-                mark = "[green][✓][/] " if row_trait.id in active else "[dim][ ][/] "
-                name = f"[bold]{row_label}[/]" if focused else row_label
-                console.print(f"{pointer}{mark}{name}")
-            else:
-                name = f"[bold]{row_label}[/]" if focused else row_label
-                console.print(f"{pointer}{name}")
-        if end < len(items):
+            item = TRAITS[index]
+            pointer = "[bright_cyan]›[/] " if index == cursor else "  "
+            mark = "[green]✓[/] " if item.id in active else "[dim]○[/] "
+            label = f"[bold]{item.label}[/]" if index == cursor else item.label
+            console.print(f"{pointer}{mark}{label}")
+        if end < len(TRAITS):
             console.print("[dim]  ↓ lebih banyak[/]")
 
         console.print()
-        if kind == "trait":
-            enabled = trait.id in active
-            state_label = "[green]AKTIF[/]" if enabled else "[dim]NONAKTIF[/]"
-            console.print(f"[bold bright_cyan]{trait.label}[/]  {state_label}")
-            width = max(30, min(76, console.width - 4))
-            for line in wrap(trait.description, width=width):
-                console.print(f"[dim]{line}[/]")
-            console.print("[dim]Enter untuk mengubah status. Pilihan dibagi dengan FurinaHub.[/]")
-        else:
-            help_text = {
-                "Chat": "Mulai percakapan dengan pasanganmu.",
-                "Provider & Model": "Atur provider online atau model lokal.",
-                "Pengaturan": "Identitas, kontrol perangkat, sistem, backup, dan update.",
-                "Exit": "Keluar dari Furina.",
-            }.get(label, "")
-            console.print(f"[dim]{help_text}[/]")
+        status = "[green]AKTIF[/]" if trait.id in active else "[dim]NONAKTIF[/]"
+        console.print(f"[bold bright_cyan]{trait.label}[/]  {status}")
+        width = max(30, min(76, console.width - 4))
+        for line in wrap(trait.description, width=width):
+            console.print(f"[dim]{line}[/]")
+        console.print("[dim]Enter langsung mengubah status. Pilihan dibagi dengan FurinaHub.[/]")
 
-        key = _main_key_111()
+        key = _personality_key_111()
         if key == "up":
-            cursor = (cursor - 1) % len(items)
+            cursor = (cursor - 1) % len(TRAITS)
             continue
         if key == "down":
-            cursor = (cursor + 1) % len(items)
+            cursor = (cursor + 1) % len(TRAITS)
             continue
         if key == "back":
-            return "Exit"
+            return
         if key != "enter":
             continue
-        if kind != "trait":
-            return label
 
         selected = list(active)
         if trait.id in selected:
@@ -398,6 +367,10 @@ def _main_menu_111(console) -> str:
         save_hub_settings(state)
 
 
+def _main_menu_111(console) -> str:
+    return _choose("", ["Chat", "Provider & Model", "Personalisasi", "Pengaturan", "Exit"], height=7)
+
+
 def _settings_111(console):
     while True:
         cfg = load_config()
@@ -405,7 +378,7 @@ def _settings_111(console):
         personality = load_hub_settings().get("personality_traits") or []
         _clear(); _header(console, "Pengaturan")
         console.print(f"[dim]Identitas[/]      {cfg.persona_name} · {cfg.user_nickname or 'belum diatur'}")
-        console.print(f"[dim]Personalisasi[/] {len(personality)} sifat aktif · di menu utama")
+        console.print(f"[dim]Personalisasi[/] {len(personality)} sifat aktif · tersedia di menu utama")
         console.print(f"[dim]Kontrol[/]       {cfg.device_control_mode.upper()}\n")
         choice = _choose("", ["Identitas", "Kontrol perangkat", "Sistem", "Backup", "Update & Recovery", "Kembali"], height=8)
         if choice in {"", "Kembali"}:
@@ -429,6 +402,7 @@ def _settings_111(console):
 
 
 _main_menu = _main_menu_111
+_private_personalization_110 = _private_personalization_111
 _settings = _settings_111
 
 ''')
