@@ -38,7 +38,7 @@ assert 'confirmInstalledApkIfAllowed();' in text
 assert 'if (granted) confirmInstalledApkIfAllowed();' in text
 print('FURINA_FINAL_114_ANDROID_STATE_OK')
 PY
-tmp_client="$(mktemp)"
+tmp_client="$(mktemp --suffix=.py)"
 python3 "$PROJECT/overrides/runtime-private-1.1.4/build_client.py" "$PROJECT/overrides/runtime-r39/update_client.py" "$tmp_client"
 python3 - "$tmp_client" <<'PY'
 import importlib.util,json,tempfile
