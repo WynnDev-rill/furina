@@ -1,5 +1,5 @@
 {
-  "version": "1.1.12",
+  "version": "1.1.13",
   "channel": "private-final",
   "source_sha256": "6b51c907c8a79ab6af06ef891b5013ce8ed964bdc168cf0e71751eacf4161fea",
   "source_bytes": 48149,
@@ -14,11 +14,11 @@
   "hub_name": "FurinaHub",
   "hub_host": "127.0.0.1",
   "hub_port": 8787,
-  "dependency_revision": "2026.08.25-r62",
-  "bundle_id": "furina-2026.08.25-private-1.1.12",
-  "bridge_version": "1.1.12",
-  "bridge_version_code": 10080,
-  "bridge_release_base": "https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.1.12",
+  "dependency_revision": "2026.08.25-r63",
+  "bundle_id": "furina-2026.08.25-private-1.1.13",
+  "bridge_version": "1.1.13",
+  "bridge_version_code": 10081,
+  "bridge_release_base": "https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.1.13",
   "update_protocol": "furina-update/1",
   "update_client_version": "1.2.0",
   "update_state_schema": 12,
@@ -84,6 +84,7 @@
   "recovery": "single-client-verified-full-snapshot-rollback",
   "update_commit": "atomic-core-bridge-swap-user-data-untouched",
   "runtime_contract": "furina-runtime/v16-personality-matrix-hub-runtime",
-  "apk_update_confirmation": "installed-only-after-1.1.0-app-launch",
+  "bundle_state_source": "installed_bundle.json-authoritative-with-legacy-marker-migration",
+  "apk_update_confirmation": "best-effort-after-app-launch-nonblocking-never-controls-core-connection",
   "ai_work_scheduler": "ordered-bounded-64-local-idle-deferred-no-model-title-worker"
 }
