@@ -11,12 +11,12 @@ python3 "$PROJECT/overrides/android-private-1.1.0/apply.py" "$ROOT"
 
 python3 -m py_compile "$ROOT"/core/furina_agent/*.py
 
-grep -Fq 'VERSION = "1.1.7"' "$ROOT/core/furina_agent/version.py"
-grep -Fq 'versionCode 10075' "$ROOT/bridge/app/build.gradle"
-grep -Fq "versionName '1.1.7'" "$ROOT/bridge/app/build.gradle"
-grep -Fq 'EXPECTED_CORE_VERSION = "1.1.7"' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java"
-grep -Fq '2026.08.25-r57' "$ROOT/core/furina_agent/hub.py"
-grep -Fq 'furina-2026.08.25-private-1.1.7' "$ROOT/core/furina_agent/hub.py"
+grep -Fq 'VERSION = "1.1.8"' "$ROOT/core/furina_agent/version.py"
+grep -Fq 'versionCode 10076' "$ROOT/bridge/app/build.gradle"
+grep -Fq "versionName '1.1.8'" "$ROOT/bridge/app/build.gradle"
+grep -Fq 'EXPECTED_CORE_VERSION = "1.1.8"' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java"
+grep -Fq '2026.08.25-r58' "$ROOT/core/furina_agent/hub.py"
+grep -Fq 'furina-2026.08.25-private-1.1.8' "$ROOT/core/furina_agent/hub.py"
 
 STAGE_ROOT="$ROOT" PYTHONPATH="$ROOT/core" python3 - <<'PY'
 import ast, os
@@ -46,7 +46,7 @@ assert 'FURINA_TUI_TOPLEVEL_PERSONALIZATION_113' in tui
 assert 'elif choice == "Personalisasi":\n            _private_personalization_117(console)' in tui
 assert 'FURINA_TUI_PERSONALITY_MENU_117' in tui and '_personality_key_117' in tui 
 assert 'os.read(fd, 1)' in tui and 'TextIO buffering' in tui
-assert 'time.monotonic() + 0.16' in tui and 'os.read(fd, 1)' in tui
+assert 'time.monotonic() + 0.16' in tui and 'os.read(fd, 1)' in tui and 'tty.setcbreak(fd)' in tui
 assert '[white]{line}[/]' in tui and 'Gagal menyimpan' in tui
 assert 'FURINA_CHAT_110' in chat and 'conversation_pacing' in chat
 assert 'FURINA_PERSONA_110' in persona
