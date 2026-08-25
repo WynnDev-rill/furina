@@ -12,8 +12,8 @@ python3 "$PROJECT/overrides/android-private-1.1.0/apply.py" "$ROOT"
 python3 -m py_compile "$ROOT"/core/furina_agent/*.py
 
 grep -Fq 'VERSION = "1.1.1"' "$ROOT/core/furina_agent/version.py"
-grep -Fq 'versionCode 10068' "$ROOT/bridge/app/build.gradle"
-grep -Fq "versionName '1.1.0'" "$ROOT/bridge/app/build.gradle"
+grep -Fq 'versionCode 10069' "$ROOT/bridge/app/build.gradle"
+grep -Fq "versionName '1.1.1'" "$ROOT/bridge/app/build.gradle"
 grep -Fq 'EXPECTED_CORE_VERSION = "1.1.1"' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java"
 grep -Fq '2026.08.25-r51' "$ROOT/core/furina_agent/hub.py"
 grep -Fq 'furina-2026.08.25-private-1.1.1' "$ROOT/core/furina_agent/hub.py"
