@@ -3,8 +3,8 @@ set -euo pipefail
 
 FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"
 FURINA_UPDATER_GENERATION="35"
-VERSION="1.1.3"
-DEPENDENCY_REVISION="2026.08.25-r53"
+VERSION="1.1.4"
+DEPENDENCY_REVISION="2026.08.25-r54"
 RUNTIME_CONTRACT="furina-runtime/v16-personality-matrix-hub-runtime"
 UPDATE_PROTOCOL="furina-update/1"
 STABLE_RELEASE="https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable"
