@@ -19,7 +19,8 @@ jobs:
       - name: Validate dialogue grounding, session isolation, shared memory and adaptive personality
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/private-1.1.0/validate.sh
+          validation_home="$(mktemp -d)"
+          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.1.1/validate.sh
           STAGE=/tmp/furina-agent-rc54-validate/termux
           PYTHONPATH="$STAGE/core" python3 - <<'PY'
           import json
@@ -29,7 +30,7 @@ jobs:
           stage=Path('/tmp/furina-agent-rc54-validate/termux')
           core=stage/'core/furina_agent'
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
-          assert m['version']=='1.1.0'
+          assert m['version']=='1.1.10'
           assert m['termux_conversation_scope'].startswith('fresh-short-term-thread')
           assert m['shared_workspace'].startswith('single-core-memory-profile-relationship-personality')
           assert m['memory_truth_policy'].startswith('user-evidence-grounded-fail-closed')
