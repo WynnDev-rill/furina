@@ -379,7 +379,7 @@ def _settings_111(console):
                 save_config(cfg)
 
 
-# FURINA_TUI_TOPLEVEL_PERSONALIZATION_112
+# FURINA_TUI_TOPLEVEL_PERSONALIZATION_113
 def run_tui():
     Console, _, _, _, _, _, _ = _rich()
     console = _ThemedConsole(Console(highlight=False))
