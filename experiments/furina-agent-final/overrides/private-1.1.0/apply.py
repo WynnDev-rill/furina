@@ -371,3 +371,158 @@ Runtime.change_model = _change_model_110
 for path in CORE.glob("*.py"):
     compile(path.read_text(encoding="utf-8"), str(path), "exec")
 print("FURINA_PRIVATE_1_1_0_PERSONALITY_CONVERSATION_OK")
+
+
+# FURINA_TUI_MAIN_PERSONALITY_111
+# Traits live in the first menu now. A focused trait is explained in the same
+# screen, and Enter toggles it immediately—there is no secondary detail page.
+def _main_key_111() -> str:
+    import select
+    import sys
+    if not sys.stdin.isatty():
+        raw = input("Pilih (u/d/enter/b): ").strip().lower()
+        return {"u": "up", "d": "down", "": "enter", "b": "back", "q": "back"}.get(raw, raw)
+
+    import termios
+    import tty
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        first = sys.stdin.read(1)
+        if first in {"\r", "\n"}:
+            return "enter"
+        if first == " ":
+            return "enter"
+        if first.lower() in {"q", "b"}:
+            return "back"
+        if first != "\x1b":
+            return first.lower()
+
+        if not select.select([sys.stdin], [], [], 0.08)[0]:
+            return "back"
+        second = sys.stdin.read(1)
+        if second != "[" or not select.select([sys.stdin], [], [], 0.08)[0]:
+            return "back"
+        third = sys.stdin.read(1)
+        return {"A": "up", "B": "down"}.get(third, "back")
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
+def _main_menu_111(console) -> str:
+    from textwrap import wrap
+    from .hub_settings import load_hub_settings, save_hub_settings
+    from .personality import TRAITS, normalize_traits
+
+    items = [("action", "Chat", None)]
+    items.extend(("trait", item.label, item) for item in TRAITS)
+    items.extend((
+        ("action", "Provider & Model", None),
+        ("action", "Pengaturan", None),
+        ("action", "Exit", None),
+    ))
+    cursor = 0
+    page_size = 7
+
+    while True:
+        state = load_hub_settings()
+        active = normalize_traits(state.get("personality_traits"))
+        kind, label, trait = items[cursor]
+
+        _clear()
+        _header(console)
+        console.print(f"[dim]Personalisasi[/]  [bright_cyan]{len(active)}/20 sifat aktif[/]")
+        console.print("[dim]↑↓ pilih · Enter aktif/nonaktif · B / ESC kembali[/]\n")
+
+        start = max(0, min(cursor - page_size // 2, len(items) - page_size))
+        end = min(len(items), start + page_size)
+        if start:
+            console.print("[dim]  ↑ lebih banyak[/]")
+        for index in range(start, end):
+            row_kind, row_label, row_trait = items[index]
+            focused = index == cursor
+            pointer = "[bright_cyan]›[/] " if focused else "  "
+            if row_kind == "trait":
+                mark = "[green][✓][/] " if row_trait.id in active else "[dim][ ][/] "
+                name = f"[bold]{row_label}[/]" if focused else row_label
+                console.print(f"{pointer}{mark}{name}")
+            else:
+                name = f"[bold]{row_label}[/]" if focused else row_label
+                console.print(f"{pointer}{name}")
+        if end < len(items):
+            console.print("[dim]  ↓ lebih banyak[/]")
+
+        console.print()
+        if kind == "trait":
+            enabled = trait.id in active
+            state_label = "[green]AKTIF[/]" if enabled else "[dim]NONAKTIF[/]"
+            console.print(f"[bold bright_cyan]{trait.label}[/]  {state_label}")
+            width = max(30, min(76, console.width - 4))
+            for line in wrap(trait.description, width=width):
+                console.print(f"[dim]{line}[/]")
+            console.print("[dim]Enter untuk mengubah status. Pilihan dibagi dengan FurinaHub.[/]")
+        else:
+            help_text = {
+                "Chat": "Mulai percakapan dengan pasanganmu.",
+                "Provider & Model": "Atur provider online atau model lokal.",
+                "Pengaturan": "Identitas, kontrol perangkat, sistem, backup, dan update.",
+                "Exit": "Keluar dari Furina.",
+            }.get(label, "")
+            console.print(f"[dim]{help_text}[/]")
+
+        key = _main_key_111()
+        if key == "up":
+            cursor = (cursor - 1) % len(items)
+            continue
+        if key == "down":
+            cursor = (cursor + 1) % len(items)
+            continue
+        if key == "back":
+            return "Exit"
+        if key != "enter":
+            continue
+        if kind != "trait":
+            return label
+
+        selected = list(active)
+        if trait.id in selected:
+            selected.remove(trait.id)
+        else:
+            selected.append(trait.id)
+        state["personality_traits"] = selected
+        save_hub_settings(state)
+
+
+def _settings_111(console):
+    while True:
+        cfg = load_config()
+        from .hub_settings import load_hub_settings
+        personality = load_hub_settings().get("personality_traits") or []
+        _clear(); _header(console, "Pengaturan")
+        console.print(f"[dim]Identitas[/]      {cfg.persona_name} · {cfg.user_nickname or 'belum diatur'}")
+        console.print(f"[dim]Personalisasi[/] {len(personality)} sifat aktif · di menu utama")
+        console.print(f"[dim]Kontrol[/]       {cfg.device_control_mode.upper()}\n")
+        choice = _choose("", ["Identitas", "Kontrol perangkat", "Sistem", "Backup", "Update & Recovery", "Kembali"], height=8)
+        if choice in {"", "Kembali"}:
+            return
+        if choice == "Identitas": _private_identity(console); continue
+        if choice == "Sistem": _system(console); continue
+        if choice == "Backup": _lite_backup(console); continue
+        if choice == "Update & Recovery": _update_repair(console); continue
+        if choice == "Kontrol perangkat":
+            mode = _choose("Kontrol perangkat", ["Normal", "Shizuku", "Root", "Kembali"], height=6)
+            if mode in {"Normal", "Shizuku", "Root"}:
+                cfg.device_control_mode = mode.lower(); cfg.auto_start = False
+                if mode in {"Shizuku", "Root"}:
+                    try:
+                        result = AndroidBridge(cfg).control({"type": "prepare_" + mode.lower(), "mode": mode.lower()})
+                        console.print(f"[dim]{result.get('message') or ('Siap' if result.get('ok') else 'Izin belum aktif')}[/]")
+                    except Exception:
+                        console.print("[yellow]Bridge belum siap. Mode tersimpan; aktifkan izinnya nanti.[/]")
+                    _pause()
+                save_config(cfg)
+
+
+_main_menu = _main_menu_111
+_settings = _settings_111
