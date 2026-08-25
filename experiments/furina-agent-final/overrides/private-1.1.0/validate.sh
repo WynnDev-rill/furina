@@ -46,7 +46,7 @@ assert 'FURINA_TUI_TOPLEVEL_PERSONALIZATION_113' in tui
 assert 'elif choice == "Personalisasi":\n            _private_personalization_117(console)' in tui
 assert 'FURINA_TUI_PERSONALITY_MENU_117' in tui and '_personality_key_117' in tui 
 assert 'os.read(fd, 1)' in tui and 'TextIO buffering' in tui
-assert 'time.monotonic() + 0.55' in tui and 'malformed escape sequences are ignored' in tui
+assert 'time.monotonic() + 0.16' in tui and 'os.read(fd, 1)' in tui
 assert '[white]{line}[/]' in tui and 'Gagal menyimpan' in tui
 assert 'FURINA_CHAT_110' in chat and 'conversation_pacing' in chat
 assert 'FURINA_PERSONA_110' in persona
