@@ -277,6 +277,7 @@ def _settings_110(console):
 
 _settings = _settings_110
 
+# FURINA_TUI_PERSONALIZATION_110
 # FURINA_TUI_PERSONALITY_MENU_113
 def _personality_key_113() -> str:
     import select
