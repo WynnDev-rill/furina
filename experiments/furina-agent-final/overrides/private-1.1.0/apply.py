@@ -17,7 +17,7 @@ version = CORE / "version.py"
 text = version.read_text(encoding="utf-8")
 if 'VERSION = "1.0.9"' not in text:
     raise SystemExit("expected reconstructed Core 1.0.9")
-version.write_text(text.replace('VERSION = "1.0.9"', 'VERSION = "1.1.4"', 1), encoding="utf-8")
+version.write_text(text.replace('VERSION = "1.0.9"', 'VERSION = "1.1.5"', 1), encoding="utf-8")
 shutil.copyfile(HERE / "personality.py", CORE / "personality.py")
 shutil.copyfile(HERE / "dialogue_state.py", CORE / "dialogue_state.py")
 
@@ -278,68 +278,50 @@ def _settings_110(console):
 _settings = _settings_110
 
 # FURINA_TUI_PERSONALIZATION_110
-# FURINA_TUI_PERSONALITY_MENU_114
-# Checkbox menu: familiar list/scroll surface with a live explanation footer.
-def _personality_key_114() -> str:
-    import select
-    import sys
-    if not sys.stdin.isatty():
-        raw = input("Pilih (u/d/enter/b): ").strip().lower()
-        return {"u": "up", "d": "down", "": "enter", "b": "back", "q": "back"}.get(raw, raw)
-    import termios
-    import tty
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        first = sys.stdin.read(1)
-        if first in {"\r", "\n", " "}: return "enter"
-        if first.lower() in {"q", "b"}: return "back"
-        if first != "\x1b": return first.lower()
-        if not select.select([sys.stdin], [], [], 0.16)[0]: return "back"
-        second = sys.stdin.read(1)
-        if second not in {"[", "O"}: return "back"
-        if not select.select([sys.stdin], [], [], 0.16)[0]: return "back"
-        return {"A": "up", "B": "down"}.get(sys.stdin.read(1), "noop")
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
-
-def _private_personalization_114(console):
+# FURINA_TUI_PERSONALITY_MENU_115
+# Reuse the proven selector behind the main menu. No raw terminal key parsing.
+def _private_personalization_115(console):
     from textwrap import wrap
     from .hub_settings import load_hub_settings, save_hub_settings
     from .personality import TRAITS, normalize_traits
-    cursor = 0; page_size = 14; notice = ""
+    last_description = ""
+    last_notice = ""
     while True:
-        state = load_hub_settings(); active = normalize_traits(state.get("personality_traits")); trait = TRAITS[cursor]
+        state = load_hub_settings()
+        active = normalize_traits(state.get("personality_traits"))
         _clear(); _header(console, "Personalisasi")
         console.print(f"[dim]Sifat aktif[/]  {len(active)}/20")
-        console.print("[dim]Pilih kombinasi bebas. Enter mengaktifkan atau menonaktifkan.[/]\n")
-        start = max(0, min(cursor - page_size // 2, len(TRAITS) - page_size)); end = min(len(TRAITS), start + page_size)
-        if start: console.print("[dim]...[/]")
-        for index in range(start, end):
-            item = TRAITS[index]; pointer = "[bright_cyan]›[/] " if index == cursor else "  "
-            mark = "[green][✓][/] " if item.id in active else "[ ] "
-            label = f"[bright_cyan]{item.label}[/]" if index == cursor else item.label
-            console.print(f"{pointer}{mark}{label}")
-        if end < len(TRAITS): console.print("[dim]...[/]")
+        console.print("[dim]Pilih kombinasi bebas. Pilih lagi untuk menonaktifkan.[/]")
+        if last_description:
+            console.print()
+            for line in wrap(last_description, width=max(30, min(76, console.width - 4))):
+                console.print(f"[white]{line}[/]")
+            console.print(last_notice)
         console.print()
-        for line in wrap(trait.description, width=max(30, min(76, console.width - 4))):
-            console.print(f"[white]{line}[/]")
-        if notice: console.print(notice)
-        console.print("[dim]↓↑ navigate • enter submit • B / ESC kembali[/]")
-        key = _personality_key_114()
-        if key == "up": cursor = (cursor - 1) % len(TRAITS); notice = ""; continue
-        if key == "down": cursor = (cursor + 1) % len(TRAITS); notice = ""; continue
-        if key == "back": return
-        if key != "enter": notice = "[yellow]Tombol tidak dikenali.[/]"; continue
-        selected = list(active); enabled = trait.id not in selected
-        if enabled: selected.append(trait.id)
-        else: selected.remove(trait.id)
+        options = [("[✓] " if item.id in active else "[ ] ") + item.label for item in TRAITS] + ["Kembali"]
+        choice = _choose("", options, height=16)
+        if choice in {"", "Kembali"}:
+            return
         try:
-            state["personality_traits"] = selected; save_hub_settings(state)
-            notice = f"[green]✓ {'Diaktifkan' if enabled else 'Dinonaktifkan'}: {trait.label}[/]"
+            idx = options.index(choice)
+        except ValueError:
+            continue
+        if idx >= len(TRAITS):
+            return
+        item = TRAITS[idx]
+        selected = list(active)
+        enabled = item.id not in selected
+        if enabled:
+            selected.append(item.id)
+        else:
+            selected.remove(item.id)
+        last_description = item.description
+        try:
+            state["personality_traits"] = selected
+            save_hub_settings(state)
+            last_notice = f"[green]✓ {'Diaktifkan' if enabled else 'Dinonaktifkan'}: {item.label}[/]"
         except Exception as exc:
-            notice = f"[red]Gagal menyimpan {trait.label}: {str(exc)[:100]}[/]"
+            last_notice = f"[red]Gagal menyimpan {item.label}: {str(exc)[:100]}[/]"
 
 
 def _main_menu_111(console) -> str:
@@ -398,13 +380,13 @@ def run_tui():
         elif choice == "Provider & Model":
             _providers(console)
         elif choice == "Personalisasi":
-            _private_personalization_114(console)
+            _private_personalization_115(console)
         elif choice == "Pengaturan":
             _settings(console)
 
 
 _main_menu = _main_menu_111
-_private_personalization_110 = _private_personalization_114
+_private_personalization_110 = _private_personalization_115
 _settings = _settings_111
 
 ''')
@@ -415,11 +397,11 @@ _settings = _settings_111
 # ---------------------------------------------------------------------------
 hub = CORE / "hub.py"
 ht = hub.read_text(encoding="utf-8")
-ht, count = re.subn(r'EXPECTED_DEPENDENCY_REVISION = "[^"]+"', 'EXPECTED_DEPENDENCY_REVISION = "2026.08.25-r54"', ht, count=1)
+ht, count = re.subn(r'EXPECTED_DEPENDENCY_REVISION = "[^"]+"', 'EXPECTED_DEPENDENCY_REVISION = "2026.08.25-r55"', ht, count=1)
 if count != 1:
     raise SystemExit("hub dependency revision marker missing")
-ht = ht.replace("furina-2026.08.24-private-1.0.9", "furina-2026.08.25-private-1.1.4")
-ht = ht.replace('"bridge_target": "1.0.9"', '"bridge_target": "1.1.4"')
+ht = ht.replace("furina-2026.08.24-private-1.0.9", "furina-2026.08.25-private-1.1.5")
+ht = ht.replace('"bridge_target": "1.0.9"', '"bridge_target": "1.1.5"')
 hub.write_text(ht, encoding="utf-8")
 with hub.open("a", encoding="utf-8") as f:
     f.write(r'''
