@@ -1,9 +1,6 @@
-# Furina — private final build
+# Furina — Termux private build
 
-Furina is one local-first companion with two surfaces sharing the same Core and user data:
-
-- **Furina Lite** in Termux: Chat, Provider & Model, Pengaturan, Exit.
-- **FurinaHub** on Android: full multimedia, provider/model, Plugin, personalization, and Android-control surface.
+Furina untuk sementara berfokus pada satu surface: **Termux**. Source dan rilis lama FurinaHub tetap disimpan untuk kemungkinan pengembangan kembali, tetapi instalasi baru dan `furina update` tidak mengunduh atau membuka APK.
 
 ## Install
 
@@ -41,26 +38,25 @@ There is no AUTO mode. Chat uses Online or exactly one selected Local model:
 | Qwen3 1.7B Heretic | lightweight multilingual | Q5_K_M | ~1.17 GiB |
 | Qwen3 4B Instruct 2507 Uncensored | Quality | Q4_K_M | ~2.50 GB |
 
-States are **Unduh → Pilih → Aktif**. FurinaHub and Termux now write the same Core model/routing state, so choosing a Local model in either surface changes the same active model. Downloads remain resumable and verified by GGUF structure plus pinned SHA-256.
+States are **Unduh → Kelola → Aktif**. Model terpasang dapat dipilih atau dihapus dari menu yang sama; menghapus model aktif lebih dulu memindahkan routing ke Online. Downloads remain resumable and verified by GGUF structure plus pinned SHA-256.
 
-## FurinaHub runtime ownership
+## Update ownership
 
-FurinaHub no longer owns update checks or update polling. The only supported update entry point is:
+Satu-satunya jalur update yang didukung adalah:
 
 ```bash
 furina update
 ```
 
-That single updater coordinates the Core snapshot and FurinaHub APK. FurinaHub only reports a version mismatch and directs the user to Termux.
-
-The old LLM-based conversation-title worker and periodic Hub update pollers are removed. Conversation titles are deterministic, active chat streaming remains in-place, and Hub status/progress work stays bounded in the existing Core runtime. This avoids repeated background task/process churn while preserving live streaming.
+Updater hanya mengganti Core Termux secara atomik. Tidak ada sinkronisasi, unduhan, atau installer APK.
 
 ## Sessions and memory
 
 - A new `furina` process gets a fresh Termux short-term chat thread.
 - `/back` keeps the current thread while that process is running.
-- FurinaHub keeps explicit persistent conversations.
-- Trusted long-term memory, profile, relationship state, personality selection, provider secrets, model selection and downloaded models persist across sessions and normal updates.
+- Ucapan user dari percakapan lama diindeks dengan SQLite FTS5 dan hanya potongan relevan yang diambil untuk pesan saat ini.
+- Konsolidasi AI tetap memilih fakta/preferensi/tujuan yang layak menjadi memori jangka panjang; tidak terbatas pada frasa “ingat ini”.
+- Trusted long-term memory, profile, relationship state, personality selection, provider secrets, model selection dan model unduhan tetap persisten saat update.
 
 ## Update / recovery
 
@@ -70,15 +66,15 @@ furina recover
 furina repair
 ```
 
-The updater validates the channel and assets, stages a complete Core+bridge snapshot, and swaps Core/bridge atomically while user data remains outside the replacement boundary.
+Updater memvalidasi channel dan snapshot Core, lalu mengganti Core secara atomik sementara data pengguna tetap di luar batas penggantian.
 
 ## Current versions
 
-- Core: `1.1.0`
-- FurinaHub: `1.1.0` (`versionCode 10068`)
-- Dependency revision: `2026.08.24-r50`
-- Bundle: `furina-2026.08.24-private-1.1.0`
-- Update client: `1.2.0`
-- Runtime contract: `furina-runtime/v16-personality-matrix-hub-runtime`
+- Core: `1.1.16`
+- FurinaHub: tidak didistribusikan (rilis lama dipertahankan)
+- Dependency revision: `2026.08.25-r66`
+- Bundle: `furina-2026.08.25-termux-1.1.16`
+- Update client: `1.3.0`
+- Runtime contract: `furina-runtime/v17-termux-adaptive-memory`
 
 See [`INSTALL.md`](./INSTALL.md) for the operational flow.

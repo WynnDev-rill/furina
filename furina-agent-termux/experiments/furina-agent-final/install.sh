@@ -2,10 +2,10 @@
 set -euo pipefail
 
 FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"
-FURINA_UPDATER_GENERATION="35"
-VERSION="1.1.15"
-DEPENDENCY_REVISION="2026.08.25-r65"
-RUNTIME_CONTRACT="furina-runtime/v16-personality-matrix-hub-runtime"
+FURINA_UPDATER_GENERATION="36"
+VERSION="1.1.16"
+DEPENDENCY_REVISION="2026.08.25-r66"
+RUNTIME_CONTRACT="furina-runtime/v17-termux-adaptive-memory"
 UPDATE_PROTOCOL="furina-update/1"
 STABLE_RELEASE="https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable"
 CHANNEL_URL="$STABLE_RELEASE/channel.json"
@@ -28,6 +28,7 @@ trap 'rm -rf "$TMP"' EXIT
 # FURINA_UPDATER_GENERATION="32"
 # FURINA_UPDATER_GENERATION="33"
 # FURINA_UPDATER_GENERATION="34"
+# FURINA_UPDATER_GENERATION="35"
 # VERSION="1.0.0-rc67"
 # VERSION="1.0.0-rc68"
 # VERSION="1.0.0-rc69"
@@ -41,6 +42,7 @@ trap 'rm -rf "$TMP"' EXIT
 # VERSION="1.0.7"
 # VERSION="1.0.8"
 # VERSION="1.0.9"
+# VERSION="1.1.15"
 # DEPENDENCY_REVISION="2026.08.22-r37"
 # DEPENDENCY_REVISION="2026.08.23-r38"
 # DEPENDENCY_REVISION="2026.08.23-r39"
@@ -67,6 +69,7 @@ trap 'rm -rf "$TMP"' EXIT
 # RUNTIME_CONTRACT="furina-runtime/v13-conversation-quality-gate"
 # RUNTIME_CONTRACT="furina-runtime/v14-grounded-dialogue-state"
 # RUNTIME_CONTRACT="furina-runtime/v15-qwen3-4b-quality"
+# RUNTIME_CONTRACT="furina-runtime/v16-personality-matrix-hub-runtime"
 # BODY_PATH="overrides/runtime-r37/install-body.sh"
 # BODY_PATH="overrides/runtime-r38/install-body.sh"
 # STATUS_PATH="$ROOT/run/furinahub-update.json"
@@ -171,8 +174,6 @@ install -m 700 "$TMP/update_client.py" "$CLIENT"
 render_break
 
 [[ "${1:-}" == "--update" ]] && shift
-if [[ "${1:-}" == "--apk-only" ]]; then shift; exec python "$CLIENT" apk-only "$@"; fi
-if [[ "${1:-}" == "apk-only" ]]; then shift; exec python "$CLIENT" apk-only "$@"; fi
 if [[ "${1:-}" == "repair" ]]; then shift; exec python "$CLIENT" repair "$@"; fi
 [[ "${1:-}" == "update" ]] && shift
 exec python "$CLIENT" update "$@"
