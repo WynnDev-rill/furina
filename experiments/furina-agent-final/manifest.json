@@ -1,23 +1,35 @@
 {
-  "version": "1.1.0",
+  "version": "1.1.1",
   "channel": "private-final",
   "source_sha256": "6b51c907c8a79ab6af06ef891b5013ce8ed964bdc168cf0e71751eacf4161fea",
   "source_bytes": 48149,
-  "source_chunks": ["source-00.b64", "source-01.b64", "source-02.b64", "source-03.b64", "source-04.b64", "source-05.b64"],
+  "source_chunks": [
+    "source-00.b64",
+    "source-01.b64",
+    "source-02.b64",
+    "source-03.b64",
+    "source-04.b64",
+    "source-05.b64"
+  ],
   "hub_name": "FurinaHub",
   "hub_host": "127.0.0.1",
   "hub_port": 8787,
-  "dependency_revision": "2026.08.24-r50",
-  "bundle_id": "furina-2026.08.24-private-1.1.0",
-  "bridge_version": "1.1.0",
-  "bridge_version_code": 10068,
+  "dependency_revision": "2026.08.25-r51",
+  "bundle_id": "furina-2026.08.25-private-1.1.1",
+  "bridge_version": "1.1.1",
+  "bridge_version_code": 10069,
   "bridge_release_base": "https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.1.0",
   "update_protocol": "furina-update/1",
   "update_client_version": "1.2.0",
   "update_state_schema": 12,
   "update_surface": "termux-only-single-channel-single-client-atomic-core-and-apk",
   "hub_update_ownership": "termux-command-only",
-  "termux_menu": ["Chat", "Provider & Model", "Pengaturan", "Exit"],
+  "termux_menu": [
+    "Chat",
+    "Provider & Model",
+    "Pengaturan",
+    "Exit"
+  ],
   "termux_uninstall": "hapus furina",
   "termux_conversation_scope": "fresh-short-term-thread-per-furina-process-reuse-through-back-until-process-exit",
   "shared_workspace": "single-core-memory-profile-relationship-personality-and-thread-history",
@@ -26,7 +38,10 @@
   "personality_schema": 3,
   "personality_surface": "shared-core-20-independent-multi-select-traits-termux-and-furinahub",
   "personality_combination": "bounded-contextual-facet-compiler-no-selection-limit",
-  "routing_modes": ["online", "local"],
+  "routing_modes": [
+    "online",
+    "local"
+  ],
   "online_routing": "automatic-provider-and-api-model-failover-native-streaming",
   "local_routing": "single-selected-model-no-online-fallback-shared-core-model-state",
   "hub_model_selection": "atomic-catalog-id-selection-writes-core-state",
@@ -40,9 +55,28 @@
   "hub_render_policy": "live-chat-never-full-conversation-rerender",
   "hub_task_lifecycle": "deterministic-title-no-title-model-worker-no-update-poller-bounded-chat-progress",
   "local_model_catalog": [
-    {"id":"wifugpt-1.7b-q4km","name":"wifuGPT 1.7B Q4_K_M","file":"wifuGPT-1.7B-Q4_K_M.gguf","size_bytes":1107408480,"sha256":"d256ccbab62bbd80064ecb73be0512b0b8d16bc930d5ae9ac8079216b88b2b54"},
-    {"id":"qwen3-1.7b-heretic-q5km","name":"Qwen3 1.7B Heretic Q5_K_M","file":"Qwen3-1.7B-heretic.i1-Q5_K_M.gguf","size_bytes":1257880480,"sha256":"f2b0b5f7fead5fdcfb79f783b96465fe97f56361b11e8de972afd71b9ba994a2"},
-    {"id":"qwen3-4b-2507-uncensored-q4km","name":"Qwen3 4B Instruct 2507 Uncensored Q4_K_M","file":"Qwen3-4B-2507-Instruct-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf","size_bytes":null,"size_label":"2,50 GB","sha256":"6615b7b5184931e4df9c6d0ae9cd29ca9319b73908d4423283d4cc401a12a1cd"}
+    {
+      "id": "wifugpt-1.7b-q4km",
+      "name": "wifuGPT 1.7B Q4_K_M",
+      "file": "wifuGPT-1.7B-Q4_K_M.gguf",
+      "size_bytes": 1107408480,
+      "sha256": "d256ccbab62bbd80064ecb73be0512b0b8d16bc930d5ae9ac8079216b88b2b54"
+    },
+    {
+      "id": "qwen3-1.7b-heretic-q5km",
+      "name": "Qwen3 1.7B Heretic Q5_K_M",
+      "file": "Qwen3-1.7B-heretic.i1-Q5_K_M.gguf",
+      "size_bytes": 1257880480,
+      "sha256": "f2b0b5f7fead5fdcfb79f783b96465fe97f56361b11e8de972afd71b9ba994a2"
+    },
+    {
+      "id": "qwen3-4b-2507-uncensored-q4km",
+      "name": "Qwen3 4B Instruct 2507 Uncensored Q4_K_M",
+      "file": "Qwen3-4B-2507-Instruct-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
+      "size_bytes": null,
+      "size_label": "2,50 GB",
+      "sha256": "6615b7b5184931e4df9c6d0ae9cd29ca9319b73908d4423283d4cc401a12a1cd"
+    }
   ],
   "recovery": "single-client-verified-full-snapshot-rollback",
   "update_commit": "atomic-core-bridge-swap-user-data-untouched",

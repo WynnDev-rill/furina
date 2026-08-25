@@ -17,7 +17,7 @@ version = CORE / "version.py"
 text = version.read_text(encoding="utf-8")
 if 'VERSION = "1.0.9"' not in text:
     raise SystemExit("expected reconstructed Core 1.0.9")
-version.write_text(text.replace('VERSION = "1.0.9"', 'VERSION = "1.1.0"', 1), encoding="utf-8")
+version.write_text(text.replace('VERSION = "1.0.9"', 'VERSION = "1.1.1"', 1), encoding="utf-8")
 shutil.copyfile(HERE / "personality.py", CORE / "personality.py")
 shutil.copyfile(HERE / "dialogue_state.py", CORE / "dialogue_state.py")
 
@@ -413,11 +413,11 @@ _settings = _settings_111
 # ---------------------------------------------------------------------------
 hub = CORE / "hub.py"
 ht = hub.read_text(encoding="utf-8")
-ht, count = re.subn(r'EXPECTED_DEPENDENCY_REVISION = "[^"]+"', 'EXPECTED_DEPENDENCY_REVISION = "2026.08.24-r50"', ht, count=1)
+ht, count = re.subn(r'EXPECTED_DEPENDENCY_REVISION = "[^"]+"', 'EXPECTED_DEPENDENCY_REVISION = "2026.08.25-r51"', ht, count=1)
 if count != 1:
     raise SystemExit("hub dependency revision marker missing")
-ht = ht.replace("furina-2026.08.24-private-1.0.9", "furina-2026.08.24-private-1.1.0")
-ht = ht.replace('"bridge_target": "1.0.9"', '"bridge_target": "1.1.0"')
+ht = ht.replace("furina-2026.08.24-private-1.0.9", "furina-2026.08.25-private-1.1.1")
+ht = ht.replace('"bridge_target": "1.0.9"', '"bridge_target": "1.1.1"')
 hub.write_text(ht, encoding="utf-8")
 with hub.open("a", encoding="utf-8") as f:
     f.write(r'''
