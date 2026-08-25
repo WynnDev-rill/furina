@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT="${1:-/tmp/furina-final-impl/termux}"
+ROOT="${1:-/tmp/furina-agent-rc54-validate/termux}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PROJECT="$(cd "$HERE/../.." && pwd)"
 bash "$PROJECT/overrides/private-1.1.0/validate.sh" "$ROOT"
