@@ -492,6 +492,7 @@ ht = ht.replace('"bridge_target": "1.0.9"', '"bridge_target": "1.1.9"')
 # The prior main ignored that flag, leaving a stale server on port 8787 with an
 # obsolete token. A new connection could then never pass its health check.
 ht = replace_function(ht, "main", r'''
+# FURINA_HUB_REPLACE_119
 def main():
     global SESSION_TOKEN
     args = list(sys.argv[1:])
