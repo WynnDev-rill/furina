@@ -17,12 +17,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Reconstruct and validate private 1.1.10 build
+      - name: Reconstruct and validate private 1.1.0 build
         run: |
           set -euo pipefail
-          validation_home="$(mktemp -d)"
-          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.1.1/validate.sh
-      - name: Run final 1.1.10 engineering audit
+          bash experiments/furina-agent-final/overrides/private-1.1.0/validate.sh
+      - name: Run final 1.1.0 engineering audit
         run: |
           set -euo pipefail
           STAGE=/tmp/furina-agent-rc54-validate/termux
@@ -35,7 +34,7 @@ jobs:
               try: ast.parse(p.read_text(encoding='utf-8'),filename=str(p))
               except Exception as e: blockers.append(f'{p.name}: {e}')
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
-          expected={'version':'1.1.10','bridge_version':'1.1.10','bridge_version_code':10078,'dependency_revision':'2026.08.25-r60','bundle_id':'furina-2026.08.25-private-1.1.10','runtime_contract':'furina-runtime/v16-personality-matrix-hub-runtime'}
+          expected={'version':'1.1.0','bridge_version':'1.1.0','bridge_version_code':10068,'dependency_revision':'2026.08.24-r50','bundle_id':'furina-2026.08.24-private-1.1.0','runtime_contract':'furina-runtime/v16-personality-matrix-hub-runtime'}
           for k,v in expected.items():
               if m.get(k)!=v: blockers.append(f'manifest {k}={m.get(k)!r}, expected {v!r}')
           from furina_agent.personality import TRAITS,TRAIT_IDS,compile_personality
