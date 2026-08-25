@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import ast
 import re
 import shutil
 import sys
@@ -10,6 +11,17 @@ ROOT = Path(sys.argv[1] if len(sys.argv) > 1 else "/tmp/furina-agent-rc54-valida
 HERE = Path(__file__).resolve().parent
 CORE = ROOT / "core/furina_agent"
 
+def replace_function(text: str, name: str, replacement: str) -> str:
+    tree = ast.parse(text)
+    nodes = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == name]
+    if len(nodes) != 1:
+        raise SystemExit(f"{name}: expected one function, got {len(nodes)}")
+    node = nodes[0]
+    lines = text.splitlines(keepends=True)
+    start = sum(len(line) for line in lines[: node.lineno - 1])
+    end = sum(len(line) for line in lines[: node.end_lineno])
+    return text[:start] + replacement.rstrip() + "\n" + text[end:]
+
 # ---------------------------------------------------------------------------
 # Version + shared runtime modules.
 # ---------------------------------------------------------------------------
@@ -17,7 +29,7 @@ version = CORE / "version.py"
 text = version.read_text(encoding="utf-8")
 if 'VERSION = "1.0.9"' not in text:
     raise SystemExit("expected reconstructed Core 1.0.9")
-version.write_text(text.replace('VERSION = "1.0.9"', 'VERSION = "1.1.8"', 1), encoding="utf-8")
+version.write_text(text.replace('VERSION = "1.0.9"', 'VERSION = "1.1.9"', 1), encoding="utf-8")
 shutil.copyfile(HERE / "personality.py", CORE / "personality.py")
 shutil.copyfile(HERE / "dialogue_state.py", CORE / "dialogue_state.py")
 
@@ -470,11 +482,82 @@ _settings = _settings_111
 # ---------------------------------------------------------------------------
 hub = CORE / "hub.py"
 ht = hub.read_text(encoding="utf-8")
-ht, count = re.subn(r'EXPECTED_DEPENDENCY_REVISION = "[^"]+"', 'EXPECTED_DEPENDENCY_REVISION = "2026.08.25-r58"', ht, count=1)
+ht, count = re.subn(r'EXPECTED_DEPENDENCY_REVISION = "[^"]+"', 'EXPECTED_DEPENDENCY_REVISION = "2026.08.25-r59"', ht, count=1)
 if count != 1:
     raise SystemExit("hub dependency revision marker missing")
-ht = ht.replace("furina-2026.08.24-private-1.0.9", "furina-2026.08.25-private-1.1.8")
-ht = ht.replace('"bridge_target": "1.0.9"', '"bridge_target": "1.1.8"')
+ht = ht.replace("furina-2026.08.24-private-1.0.9", "furina-2026.08.25-private-1.1.9")
+ht = ht.replace('"bridge_target": "1.0.9"', '"bridge_target": "1.1.9"')
+
+# FURINA_HUB_REPLACE_119: Android always starts the hub with --replace.
+# The prior main ignored that flag, leaving a stale server on port 8787 with an
+# obsolete token. A new connection could then never pass its health check.
+ht = replace_function(ht, "main", r'''
+def main():
+    global SESSION_TOKEN
+    args = list(sys.argv[1:])
+    explicit = ""
+    if "--token" in args:
+        idx = args.index("--token")
+        if idx + 1 < len(args):
+            explicit = args[idx + 1]
+
+    if "--replace" in args:
+        import signal
+        try:
+            old_pid = int(PID_PATH.read_text(encoding="utf-8").strip())
+        except Exception:
+            old_pid = 0
+        if old_pid > 1 and old_pid != os.getpid():
+            try:
+                cmdline = Path(f"/proc/{old_pid}/cmdline").read_bytes()
+            except Exception:
+                cmdline = b""
+            if b"furina_agent.hub" in cmdline:
+                try:
+                    os.kill(old_pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                except PermissionError:
+                    pass
+                deadline = time.monotonic() + 4.0
+                while time.monotonic() < deadline:
+                    try:
+                        os.kill(old_pid, 0)
+                    except ProcessLookupError:
+                        break
+                    except PermissionError:
+                        break
+                    time.sleep(0.10)
+        try:
+            PID_PATH.unlink()
+        except OSError:
+            pass
+
+    SESSION_TOKEN = _token(explicit)
+    HOME.joinpath("run").mkdir(parents=True, exist_ok=True)
+    server = None
+    deadline = time.monotonic() + (4.5 if "--replace" in args else 0.0)
+    while True:
+        try:
+            server = ThreadingHTTPServer((HUB_HOST, HUB_PORT), Handler)
+            break
+        except OSError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.15)
+    server.daemon_threads = True
+    PID_PATH.write_text(str(os.getpid()), encoding="utf-8")
+    if not explicit:
+        print(f"FurinaHub: http://{HUB_HOST}:{HUB_PORT}/?access={SESSION_TOKEN}", flush=True)
+    try:
+        server.serve_forever(poll_interval=0.4)
+    finally:
+        try:
+            if PID_PATH.read_text(encoding="utf-8").strip() == str(os.getpid()):
+                PID_PATH.unlink()
+        except OSError:
+            pass
+''')
 hub.write_text(ht, encoding="utf-8")
 with hub.open("a", encoding="utf-8") as f:
     f.write(r'''

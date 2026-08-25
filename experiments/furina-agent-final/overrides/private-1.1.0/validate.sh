@@ -11,12 +11,12 @@ python3 "$PROJECT/overrides/android-private-1.1.0/apply.py" "$ROOT"
 
 python3 -m py_compile "$ROOT"/core/furina_agent/*.py
 
-grep -Fq 'VERSION = "1.1.8"' "$ROOT/core/furina_agent/version.py"
-grep -Fq 'versionCode 10076' "$ROOT/bridge/app/build.gradle"
-grep -Fq "versionName '1.1.8'" "$ROOT/bridge/app/build.gradle"
-grep -Fq 'EXPECTED_CORE_VERSION = "1.1.8"' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java"
-grep -Fq '2026.08.25-r58' "$ROOT/core/furina_agent/hub.py"
-grep -Fq 'furina-2026.08.25-private-1.1.8' "$ROOT/core/furina_agent/hub.py"
+grep -Fq 'VERSION = "1.1.9"' "$ROOT/core/furina_agent/version.py"
+grep -Fq 'versionCode 10077' "$ROOT/bridge/app/build.gradle"
+grep -Fq "versionName '1.1.9'" "$ROOT/bridge/app/build.gradle"
+grep -Fq 'EXPECTED_CORE_VERSION = "1.1.9"' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java"
+grep -Fq '2026.08.25-r59' "$ROOT/core/furina_agent/hub.py"
+grep -Fq 'furina-2026.08.25-private-1.1.9' "$ROOT/core/furina_agent/hub.py"
 
 STAGE_ROOT="$ROOT" PYTHONPATH="$ROOT/core" python3 - <<'PY'
 import ast, os
@@ -48,6 +48,8 @@ assert 'FURINA_TUI_PERSONALITY_MENU_117' in tui and '_personality_key_117' in tu
 assert 'os.read(fd, 1)' in tui and 'TextIO buffering' in tui
 assert 'time.monotonic() + 0.16' in tui and 'os.read(fd, 1)' in tui and 'tty.setcbreak(fd)' in tui
 assert '[white]{line}[/]' in tui and 'Gagal menyimpan' in tui
+assert 'FURINA_HUB_REPLACE_119' in hub and '"--replace" in args' in hub
+assert 'old_pid' in hub and 'furina_agent.hub' in hub and 'ThreadingHTTPServer' in hub
 assert 'FURINA_CHAT_110' in chat and 'conversation_pacing' in chat
 assert 'FURINA_PERSONA_110' in persona
 assert 'assistant_reference' in dialog and 'BALASAN FURINA LAMA: tidak diperlukan' in dialog
@@ -56,7 +58,8 @@ node=next(n for n in ast.parse(hub).body if isinstance(n,ast.FunctionDef) and n.
 segment='\n'.join(hub.splitlines()[node.lineno-1:node.end_lineno])
 assert 'llm.chat' not in segment and 'Thread(' not in segment
 assert 'action == "select"' in hub and 'action == "online"' in hub and 'furinahub-local-prewarm' in hub
-assert 'personalityTraitGrid110' in page and 'togglePersonality110' in page
+assert 'personalityTraitGrid110' in page and 'traitGrid110' in page and 'togglePersonality110' in page
+assert 'window._traitPreview110' in page and 'data-theme-choice' in page and 'settingsConnectionCard' in page
 assert "action:'select',catalog_id:catalogId" in page and "action:'online'" in page
 for forbidden in ('checkAllUpdates(', 'refreshAppUpdate(', 'syncUnifiedUpdateStatus(', "'/api/update/core'", "'/api/update/status'", 'customInstructions', 'trait_labels'):
     assert forbidden not in page, forbidden
