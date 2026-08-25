@@ -276,102 +276,6 @@ def _settings_110(console):
                 save_config(cfg)
 
 _settings = _settings_110
-''')
-
-# ---------------------------------------------------------------------------
-# FurinaHub runtime: deterministic titles, atomic local-model selection, and
-# trait-only saves without rebuilding the whole runtime.
-# ---------------------------------------------------------------------------
-hub = CORE / "hub.py"
-ht = hub.read_text(encoding="utf-8")
-ht, count = re.subn(r'EXPECTED_DEPENDENCY_REVISION = "[^"]+"', 'EXPECTED_DEPENDENCY_REVISION = "2026.08.24-r50"', ht, count=1)
-if count != 1:
-    raise SystemExit("hub dependency revision marker missing")
-ht = ht.replace("furina-2026.08.24-private-1.0.9", "furina-2026.08.24-private-1.1.0")
-ht = ht.replace('"bridge_target": "1.0.9"', '"bridge_target": "1.1.0"')
-hub.write_text(ht, encoding="utf-8")
-with hub.open("a", encoding="utf-8") as f:
-    f.write(r'''
-
-# FURINA_HUB_110_OVERRIDES
-from .personality import public_traits as _personality_public_traits_110
-_Runtime_public_settings_110 = Runtime.public_settings
-_Runtime_save_settings_110 = Runtime.save_settings
-_Runtime_change_model_110 = Runtime.change_model
-
-
-def _public_settings_110(self):
-    out = _Runtime_public_settings_110(self)
-    out["hub"] = load_hub_settings()
-    out["personality_traits"] = _personality_public_traits_110()
-    out.pop("presets", None); out.pop("trait_labels", None)
-    return out
-
-
-def _save_settings_110(self, payload):
-    payload = payload if isinstance(payload, dict) else {}
-    hub_part = payload.get("hub") if isinstance(payload.get("hub"), dict) else {}
-    core_part = payload.get("core") if isinstance(payload.get("core"), dict) else {}
-    if hub_part and not core_part and set(hub_part).issubset({"personality_traits"}):
-        state = load_hub_settings(); state["personality_traits"] = hub_part.get("personality_traits") or []
-        save_hub_settings(state)
-        return self.public_settings()
-    return _Runtime_save_settings_110(self, payload)
-
-
-def _queue_auto_title_110(self, conversation_id, user_text, assistant_text):
-    # Conversation titles are metadata and never consume another model task.
-    try:
-        cid = int(conversation_id); user_text = " ".join(str(user_text or "").split())[:1200]
-        fallback = self._fallback_title(user_text)
-        if fallback == "Percakapan baru": return
-        self._ensure_conversation_schema(); conn = self.store._conn()
-        row = conn.execute("SELECT title_locked,(SELECT COUNT(*) FROM messages WHERE conversation_id=?) FROM conversations WHERE id=?", (cid, cid)).fetchone()
-        if not row or int(row[0] or 0) or int(row[1] or 0) > 2: return
-        conn.execute("UPDATE conversations SET title=? WHERE id=? AND COALESCE(title_locked,0)=0", (fallback[:72], cid)); conn.commit()
-    except Exception:
-        return
-
-
-def _change_model_110(self, payload):
-    payload = payload if isinstance(payload, dict) else {}
-    action = str(payload.get("action") or "").strip().lower()
-    if action == "online":
-        cfg = load_config()
-        try: self.session.llm.cancel()
-        except Exception: pass
-        cfg.routing_mode = "online"; cfg.auto_start = False; save_config(cfg); self.rebuild()
-        return {"state": "done", "message": "Model Online aktif.", "settings": self.public_settings()}
-    if action == "select":
-        catalog_id = str(payload.get("catalog_id") or "").strip()
-        item = next((x for x in MODEL_CATALOG if x.get("id") == catalog_id), None)
-        if not item: raise ValueError("model lokal tidak dikenal")
-        target = (MODELS_DIR / item["file"]).resolve()
-        if not target.is_file(): raise ValueError("model lokal belum diunduh")
-        cfg = load_config()
-        try: self.session.llm.cancel()
-        except Exception: pass
-        cfg.model_path = str(target); cfg.routing_mode = "local"; cfg.auto_start = False
-        save_config(cfg); self.rebuild()
-        threading.Thread(target=lambda: self.session.llm.prewarm_local(), name="furinahub-local-prewarm", daemon=True).start()
-        return {"state": "done", "message": f"{item['name']} aktif.", "settings": self.public_settings()}
-    if action == "prewarm":
-        cfg = load_config()
-        if cfg.routing_mode != "local" or not cfg.model_path: raise ValueError("pilih model lokal terlebih dahulu")
-        threading.Thread(target=lambda: self.session.llm.prewarm_local(), name="furinahub-local-prewarm", daemon=True).start()
-        return {"state": "starting", "message": "Menyiapkan model lokal…"}
-    return _Runtime_change_model_110(self, payload)
-
-Runtime.public_settings = _public_settings_110
-Runtime.save_settings = _save_settings_110
-Runtime._queue_auto_title = _queue_auto_title_110
-Runtime.change_model = _change_model_110
-''')
-
-for path in CORE.glob("*.py"):
-    compile(path.read_text(encoding="utf-8"), str(path), "exec")
-print("FURINA_PRIVATE_1_1_0_PERSONALITY_CONVERSATION_OK")
-
 
 # FURINA_TUI_MAIN_PERSONALITY_111
 # Traits live in the first menu now. A focused trait is explained in the same
@@ -526,3 +430,100 @@ def _settings_111(console):
 
 _main_menu = _main_menu_111
 _settings = _settings_111
+
+''')
+
+# ---------------------------------------------------------------------------
+# FurinaHub runtime: deterministic titles, atomic local-model selection, and
+# trait-only saves without rebuilding the whole runtime.
+# ---------------------------------------------------------------------------
+hub = CORE / "hub.py"
+ht = hub.read_text(encoding="utf-8")
+ht, count = re.subn(r'EXPECTED_DEPENDENCY_REVISION = "[^"]+"', 'EXPECTED_DEPENDENCY_REVISION = "2026.08.24-r50"', ht, count=1)
+if count != 1:
+    raise SystemExit("hub dependency revision marker missing")
+ht = ht.replace("furina-2026.08.24-private-1.0.9", "furina-2026.08.24-private-1.1.0")
+ht = ht.replace('"bridge_target": "1.0.9"', '"bridge_target": "1.1.0"')
+hub.write_text(ht, encoding="utf-8")
+with hub.open("a", encoding="utf-8") as f:
+    f.write(r'''
+
+# FURINA_HUB_110_OVERRIDES
+from .personality import public_traits as _personality_public_traits_110
+_Runtime_public_settings_110 = Runtime.public_settings
+_Runtime_save_settings_110 = Runtime.save_settings
+_Runtime_change_model_110 = Runtime.change_model
+
+
+def _public_settings_110(self):
+    out = _Runtime_public_settings_110(self)
+    out["hub"] = load_hub_settings()
+    out["personality_traits"] = _personality_public_traits_110()
+    out.pop("presets", None); out.pop("trait_labels", None)
+    return out
+
+
+def _save_settings_110(self, payload):
+    payload = payload if isinstance(payload, dict) else {}
+    hub_part = payload.get("hub") if isinstance(payload.get("hub"), dict) else {}
+    core_part = payload.get("core") if isinstance(payload.get("core"), dict) else {}
+    if hub_part and not core_part and set(hub_part).issubset({"personality_traits"}):
+        state = load_hub_settings(); state["personality_traits"] = hub_part.get("personality_traits") or []
+        save_hub_settings(state)
+        return self.public_settings()
+    return _Runtime_save_settings_110(self, payload)
+
+
+def _queue_auto_title_110(self, conversation_id, user_text, assistant_text):
+    # Conversation titles are metadata and never consume another model task.
+    try:
+        cid = int(conversation_id); user_text = " ".join(str(user_text or "").split())[:1200]
+        fallback = self._fallback_title(user_text)
+        if fallback == "Percakapan baru": return
+        self._ensure_conversation_schema(); conn = self.store._conn()
+        row = conn.execute("SELECT title_locked,(SELECT COUNT(*) FROM messages WHERE conversation_id=?) FROM conversations WHERE id=?", (cid, cid)).fetchone()
+        if not row or int(row[0] or 0) or int(row[1] or 0) > 2: return
+        conn.execute("UPDATE conversations SET title=? WHERE id=? AND COALESCE(title_locked,0)=0", (fallback[:72], cid)); conn.commit()
+    except Exception:
+        return
+
+
+def _change_model_110(self, payload):
+    payload = payload if isinstance(payload, dict) else {}
+    action = str(payload.get("action") or "").strip().lower()
+    if action == "online":
+        cfg = load_config()
+        try: self.session.llm.cancel()
+        except Exception: pass
+        cfg.routing_mode = "online"; cfg.auto_start = False; save_config(cfg); self.rebuild()
+        return {"state": "done", "message": "Model Online aktif.", "settings": self.public_settings()}
+    if action == "select":
+        catalog_id = str(payload.get("catalog_id") or "").strip()
+        item = next((x for x in MODEL_CATALOG if x.get("id") == catalog_id), None)
+        if not item: raise ValueError("model lokal tidak dikenal")
+        target = (MODELS_DIR / item["file"]).resolve()
+        if not target.is_file(): raise ValueError("model lokal belum diunduh")
+        cfg = load_config()
+        try: self.session.llm.cancel()
+        except Exception: pass
+        cfg.model_path = str(target); cfg.routing_mode = "local"; cfg.auto_start = False
+        save_config(cfg); self.rebuild()
+        threading.Thread(target=lambda: self.session.llm.prewarm_local(), name="furinahub-local-prewarm", daemon=True).start()
+        return {"state": "done", "message": f"{item['name']} aktif.", "settings": self.public_settings()}
+    if action == "prewarm":
+        cfg = load_config()
+        if cfg.routing_mode != "local" or not cfg.model_path: raise ValueError("pilih model lokal terlebih dahulu")
+        threading.Thread(target=lambda: self.session.llm.prewarm_local(), name="furinahub-local-prewarm", daemon=True).start()
+        return {"state": "starting", "message": "Menyiapkan model lokal…"}
+    return _Runtime_change_model_110(self, payload)
+
+Runtime.public_settings = _public_settings_110
+Runtime.save_settings = _save_settings_110
+Runtime._queue_auto_title = _queue_auto_title_110
+Runtime.change_model = _change_model_110
+''')
+
+for path in CORE.glob("*.py"):
+    compile(path.read_text(encoding="utf-8"), str(path), "exec")
+print("FURINA_PRIVATE_1_1_0_PERSONALITY_CONVERSATION_OK")
+
