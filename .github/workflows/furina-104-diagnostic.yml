@@ -19,7 +19,7 @@ jobs:
       - name: Validate dialogue grounding, session isolation, shared memory and adaptive personality
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/private-1.1.0/validate.sh
+          bash experiments/furina-agent-final/overrides/private-1.1.2/validate.sh
           STAGE=/tmp/furina-agent-rc54-validate/termux
           PYTHONPATH="$STAGE/core" python3 - <<'PY'
           import json

@@ -15,5 +15,5 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/private-1.1.0/validate.sh
+          bash experiments/furina-agent-final/overrides/private-1.1.2/validate.sh
           git diff --check
