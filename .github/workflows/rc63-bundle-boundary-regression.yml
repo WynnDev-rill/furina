@@ -1,4 +1,4 @@
-name: Furina Private 1.1.0 Boundary Regression
+name: Furina Private 1.1.10 Boundary Regression
 
 on:
   pull_request:
@@ -31,20 +31,20 @@ jobs:
           bash -n experiments/furina-agent-final/install.sh
           bash -n furina-agent-termux/experiments/furina-agent-final/install.sh
           cmp experiments/furina-agent-final/install.sh furina-agent-termux/experiments/furina-agent-final/install.sh
-          python3 -m py_compile experiments/furina-agent-final/overrides/private-1.1.0/*.py experiments/furina-agent-final/overrides/android-private-1.1.0/apply.py experiments/furina-agent-final/overrides/runtime-private-1.0.1/build_client.py
+          python3 -m py_compile experiments/furina-agent-final/overrides/private-1.1.0/*.py experiments/furina-agent-final/overrides/private-1.1.1/*.py experiments/furina-agent-final/overrides/android-private-1.1.0/apply.py experiments/furina-agent-final/overrides/android-private-1.1.1/apply.py experiments/furina-agent-final/overrides/runtime-private-1.0.1/build_client.py
           TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
           python3 experiments/furina-agent-final/overrides/runtime-private-1.0.1/build_client.py experiments/furina-agent-final/overrides/runtime-r39/update_client.py "$TMP/furina-update.py"
           python3 - <<'PY'
           import json
           from pathlib import Path
           installer=Path('experiments/furina-agent-final/install.sh').read_text(); active='\n'.join(x for x in installer.splitlines() if not x.lstrip().startswith('#'))
-          for token in ('FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"','FURINA_UPDATER_GENERATION="35"','VERSION="1.1.0"','DEPENDENCY_REVISION="2026.08.24-r50"','RUNTIME_CONTRACT="furina-runtime/v16-personality-matrix-hub-runtime"','UPDATE_PROTOCOL="furina-update/1"'):
+          for token in ('FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"','FURINA_UPDATER_GENERATION="35"','VERSION="1.1.10"','DEPENDENCY_REVISION="2026.08.25-r60"','RUNTIME_CONTRACT="furina-runtime/v16-personality-matrix-hub-runtime"','UPDATE_PROTOCOL="furina-update/1"'):
               assert token in active, token
           for historical in ('FURINA_RUNTIME_CONTRACT="furina-runtime/v2"','FURINA_UPDATER_GENERATION="34"','VERSION="1.0.9"','DEPENDENCY_REVISION="2026.08.24-r49"','RUNTIME_CONTRACT="furina-runtime/v15-qwen3-4b-quality"'):
               assert historical in installer,historical
           assert '.gguf' not in active.lower() and 'huggingface.co' not in active.lower()
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
-          assert m['version']=='1.1.0' and m['bridge_version']=='1.1.0' and m['bridge_version_code']==10068
+          assert m['version']=='1.1.10' and m['bridge_version']=='1.1.10' and m['bridge_version_code']==10078
           assert m['hub_update_ownership']=='termux-command-only'
           assert m['personality_schema']==3 and m['personality_surface'].startswith('shared-core-20')
           print('FURINA_PRIVATE_1_1_0_RECOVERY_BOUNDARY_OK')
@@ -59,10 +59,11 @@ jobs:
           assert 'requests' not in client and 'pip install' not in client
           print('FURINA_PRIVATE_1_1_0_ONE_CLIENT_OK')
           PY
-      - name: Test 1.1.0 reconstruction
+      - name: Test 1.1.10 reconstruction
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/private-1.1.0/validate.sh
+          validation_home="$(mktemp -d)"
+          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.1.1/validate.sh
       - name: Enforce channel-last publication
         run: |
           set -euo pipefail
@@ -70,10 +71,10 @@ jobs:
           import json
           from pathlib import Path
           wf=Path('.github/workflows/furinahub-rc51-core-rc63.yml').read_text(); m=json.load(open('experiments/furina-agent-final/manifest.json'))
-          publish=wf[wf.index('- name: Publish private 1.1.0 and stable update channel'):]
+          publish=wf[wf.index('- name: Publish private 1.1.10 and stable update channel'):]
           last=publish.rfind('channel.json --clobber')
           assert last>publish.rfind('furina-install.sh') and last>publish.rfind('"$CLIENT_NAME"') and last>publish.rfind('"$SNAPSHOT_NAME"')
-          assert m['bundle_id']=='furina-2026.08.24-private-1.1.0' and m['runtime_contract']=='furina-runtime/v16-personality-matrix-hub-runtime'
+          assert m['bundle_id']=='furina-2026.08.25-private-1.1.10' and m['runtime_contract']=='furina-runtime/v16-personality-matrix-hub-runtime'
           ids=[x['id'] for x in m['local_model_catalog']]
           assert ids==['wifugpt-1.7b-q4km','qwen3-1.7b-heretic-q5km','qwen3-4b-2507-uncensored-q4km']
           print('FURINA_PRIVATE_1_1_0_CHANNEL_LAST_OK')
