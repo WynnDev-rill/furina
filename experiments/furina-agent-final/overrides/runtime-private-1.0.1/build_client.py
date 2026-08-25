@@ -89,6 +89,21 @@ def build(base: Path, output: Path) -> None:
     return update(args)''',
     )
 
+    auto_marker = '\nif __name__ == "__main__":'
+    auto_patch = r'''
+# FURINA_AUTO_APK_SYNC_113
+_update_core_113 = update
+def update(args):
+    result = _update_core_113(args)
+    if result != 0 or getattr(args, "command", "") not in {"update", "repair"}: return result
+    apk_args = argparse.Namespace(command="apk-only", channel_file=getattr(args, "channel_file", None), force=getattr(args, "force", False))
+    apk_result = _update_core_113(apk_args)
+    if apk_result != 0: print("Core sudah diperbarui, tetapi APK FurinaHub belum terpasang. Jalankan furina-update-apk lalu izinkan pemasangan Android.", file=sys.stderr)
+    return apk_result
+'''
+    if auto_marker not in text: raise SystemExit("updater main marker missing")
+    text = text.replace(auto_marker, auto_patch + auto_marker, 1)
+
     ast.parse(text, filename=str(output))
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(text, encoding="utf-8")

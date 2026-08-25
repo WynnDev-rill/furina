@@ -11,12 +11,12 @@ python3 "$PROJECT/overrides/android-private-1.1.0/apply.py" "$ROOT"
 
 python3 -m py_compile "$ROOT"/core/furina_agent/*.py
 
-grep -Fq 'VERSION = "1.1.2"' "$ROOT/core/furina_agent/version.py"
-grep -Fq 'versionCode 10070' "$ROOT/bridge/app/build.gradle"
-grep -Fq "versionName '1.1.2'" "$ROOT/bridge/app/build.gradle"
-grep -Fq 'EXPECTED_CORE_VERSION = "1.1.2"' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java"
-grep -Fq '2026.08.25-r52' "$ROOT/core/furina_agent/hub.py"
-grep -Fq 'furina-2026.08.25-private-1.1.2' "$ROOT/core/furina_agent/hub.py"
+grep -Fq 'VERSION = "1.1.3"' "$ROOT/core/furina_agent/version.py"
+grep -Fq 'versionCode 10071' "$ROOT/bridge/app/build.gradle"
+grep -Fq "versionName '1.1.3'" "$ROOT/bridge/app/build.gradle"
+grep -Fq 'EXPECTED_CORE_VERSION = "1.1.3"' "$ROOT/bridge/app/src/main/java/com/wynndev/furinaagentbridge/MainActivity.java"
+grep -Fq '2026.08.25-r53' "$ROOT/core/furina_agent/hub.py"
+grep -Fq 'furina-2026.08.25-private-1.1.3' "$ROOT/core/furina_agent/hub.py"
 
 STAGE_ROOT="$ROOT" PYTHONPATH="$ROOT/core" python3 - <<'PY'
 import ast, os
@@ -42,8 +42,10 @@ print('FURINA_110_TRAIT_COMPILER_OK')
 chat=(core/'chat.py').read_text(); hub=(core/'hub.py').read_text(); tui=(core/'tui.py').read_text(); hs=(core/'hub_settings.py').read_text(); persona=(core/'persona.py').read_text(); dialog=(core/'dialogue_state.py').read_text(); page=html.read_text(); java=main.read_text()
 assert 'FURINA_PERSONALITY_SCHEMA_V3' in hs and 'personality_traits' in hs
 assert 'FURINA_TUI_PERSONALIZATION_110' in tui and 'Personalisasi' in tui
-assert 'FURINA_TUI_TOPLEVEL_PERSONALIZATION_112' in tui
-assert 'elif choice == "Personalisasi":\n            _private_personalization_111(console)' in tui
+assert 'FURINA_TUI_TOPLEVEL_PERSONALIZATION_113' in tui
+assert 'elif choice == "Personalisasi":\n            _private_personalization_113(console)' in tui
+assert 'def _personality_key_113' in tui and 'second not in {"[", "O"}' in tui
+assert '[white]{line}[/]' in tui and 'Gagal menyimpan' in tui
 assert 'FURINA_CHAT_110' in chat and 'conversation_pacing' in chat
 assert 'FURINA_PERSONA_110' in persona
 assert 'assistant_reference' in dialog and 'BALASAN FURINA LAMA: tidak diperlukan' in dialog
