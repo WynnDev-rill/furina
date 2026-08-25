@@ -19,7 +19,8 @@ jobs:
       - name: Validate dialogue grounding, session isolation, shared memory and adaptive personality
         run: |
           set -euo pipefail
-          bash experiments/furina-agent-final/overrides/private-1.1.2/validate.sh
+          validation_home="$(mktemp -d)"
+          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.1.2/validate.sh
           STAGE=/tmp/furina-agent-rc54-validate/termux
           PYTHONPATH="$STAGE/core" python3 - <<'PY'
           import json
