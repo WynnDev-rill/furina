@@ -17,11 +17,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Reconstruct and validate Termux 1.1.20 build
+      - name: Reconstruct and validate Termux 1.1.21 build
         run: |
           set -euo pipefail
           validation_home="$(mktemp -d)"
-          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.2.1/validate.sh
+          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.2.2/validate.sh
       - name: Run final Termux engineering audit
         run: |
           set -euo pipefail
@@ -35,7 +35,7 @@ jobs:
               try: ast.parse(p.read_text(encoding='utf-8'),filename=str(p))
               except Exception as e: blockers.append(f'{p.name}: {e}')
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
-          expected={'version':'1.1.20','dependency_revision':'2026.08.26-r70','bundle_id':'furina-2026.08.26-termux-1.1.20','runtime_contract':'furina-runtime/v21-synthesized-personality-evidence-memory-termux','update_client_version':'1.4.3','hub_update_ownership':'retired-not-distributed'}
+          expected={'version':'1.1.21','dependency_revision':'2026.08.26-r71','bundle_id':'furina-2026.08.26-termux-1.1.21','runtime_contract':'furina-runtime/v22-training-room-preference-sandbox-termux','update_client_version':'1.4.3','hub_update_ownership':'retired-not-distributed'}
           for k,v in expected.items():
               if m.get(k)!=v: blockers.append(f'manifest {k}={m.get(k)!r}, expected {v!r}')
           from furina_agent.personality import TRAITS,TRAIT_IDS,compile_personality
@@ -54,6 +54,10 @@ jobs:
           if 'FURINA_TERMUX_120_SYNTHESIZED_PERSONALITY' not in (core/'personality.py').read_text(): blockers.append('synthesized personality missing')
           if 'FURINA_TERMUX_120_EVIDENCE_MEMORY' not in memory: blockers.append('evidence memory v2 missing')
           if 'FURINA_TERMUX_120_DIALOGUE_DECISION_ENGINE' not in chat: blockers.append('dialogue decision engine missing')
+          if 'FURINA_TERMUX_121_TRAINING_PREFERENCE_RUNTIME' not in chat: blockers.append('Training Room preference runtime missing')
+          if 'FURINA_TERMUX_121_TRAINING_ROOM' not in tui: blockers.append('Training Room TUI missing')
+          training=(core/'training_room.py').read_text()
+          if 'from .memory' in training or 'import furina_agent.memory' in training: blockers.append('Training Room is not isolated from real memory')
           if 'FURINA_TERMUX_116_DELETE_MODEL' not in models: blockers.append('safe local-model delete missing')
           if 'for row in range(10)' not in tui or 'row + 10' not in tui: blockers.append('20-trait two-column render missing')
           if 'BALASAN FURINA LAMA: tidak diperlukan' not in dialog: blockers.append('assistant-pattern reset missing')
@@ -66,6 +70,6 @@ jobs:
           for x in blockers: print('BLOCKER',x)
           for x in warnings: print('WARNING',x)
           if blockers: raise SystemExit(1)
-          print('FURINA_TERMUX_120_AUDIT_OK')
+          print('FURINA_TERMUX_121_AUDIT_OK')
           PY
           git diff --check

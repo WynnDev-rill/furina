@@ -80,11 +80,11 @@ Updater memvalidasi channel dan snapshot Core, lalu mengganti Core secara atomik
 
 ## Current versions
 
-- Core: `1.1.20`
+- Core: `1.1.21`
 - FurinaHub: tidak didistribusikan (rilis lama dipertahankan)
-- Dependency revision: `2026.08.26-r70`
-- Bundle: `furina-2026.08.26-termux-1.1.20`
+- Dependency revision: `2026.08.26-r71`
+- Bundle: `furina-2026.08.26-termux-1.1.21`
 - Update client: `1.4.3`
-- Runtime contract: `furina-runtime/v21-synthesized-personality-evidence-memory-termux`
+- Runtime contract: `furina-runtime/v22-training-room-preference-sandbox-termux`
 
 See [`INSTALL.md`](./INSTALL.md) for the operational flow.
