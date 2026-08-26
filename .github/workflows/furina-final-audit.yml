@@ -17,11 +17,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Reconstruct and validate Termux 1.1.21 build
+      - name: Reconstruct and validate Termux 1.1.22 build
         run: |
           set -euo pipefail
           validation_home="$(mktemp -d)"
-          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.2.2/validate.sh
+          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.2.3/validate.sh
       - name: Run final Termux engineering audit
         run: |
           set -euo pipefail
@@ -35,7 +35,7 @@ jobs:
               try: ast.parse(p.read_text(encoding='utf-8'),filename=str(p))
               except Exception as e: blockers.append(f'{p.name}: {e}')
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
-          expected={'version':'1.1.21','dependency_revision':'2026.08.26-r71','bundle_id':'furina-2026.08.26-termux-1.1.21','runtime_contract':'furina-runtime/v22-training-room-preference-sandbox-termux','update_client_version':'1.4.3','hub_update_ownership':'retired-not-distributed'}
+          expected={'version':'1.1.22','dependency_revision':'2026.08.26-r72','bundle_id':'furina-2026.08.26-termux-1.1.22','runtime_contract':'furina-runtime/v23-adaptive-training-identity-neutral-termux','update_client_version':'1.4.3','hub_update_ownership':'retired-not-distributed'}
           for k,v in expected.items():
               if m.get(k)!=v: blockers.append(f'manifest {k}={m.get(k)!r}, expected {v!r}')
           from furina_agent.personality import TRAITS,TRAIT_IDS,compile_personality
