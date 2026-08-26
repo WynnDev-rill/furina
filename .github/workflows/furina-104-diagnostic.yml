@@ -20,7 +20,7 @@ jobs:
         run: |
           set -euo pipefail
           validation_home="$(mktemp -d)"
-          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.1.9/validate.sh
+          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.2.0/validate.sh
           STAGE=/tmp/furina-agent-rc54-validate/termux
           PYTHONPATH="$STAGE/core" python3 - <<'PY'
           import json
@@ -30,7 +30,7 @@ jobs:
           stage=Path('/tmp/furina-agent-rc54-validate/termux')
           core=stage/'core/furina_agent'
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
-          assert m['version']=='1.1.18'
+          assert m['version']=='1.1.19'
           assert m['termux_conversation_scope'].startswith('fresh-short-term-thread')
           assert m['shared_workspace'].startswith('single-local-core')
           assert m['memory_truth_policy'].startswith('explicit-direct')
@@ -52,6 +52,9 @@ jobs:
           assert 'search_conversation_context' in memory
           assert 'FURINA_TERMUX_118_EVIDENCE_LINKED_MEMORY' in memory
           assert 'FURINA_TERMUX_118_RESPONSE_RHYTHM' in (core/'response.py').read_text(encoding='utf-8')
+          assert 'FURINA_TERMUX_119_COMPANION_ENGINE' in chat
+          assert 'FURINA_TERMUX_119_FULL_LOCAL_ARCHIVE' in memory
+          assert 'FURINA_TERMUX_119_BEHAVIORAL_TRAIT_ENGINE' in (core/'personality.py').read_text(encoding='utf-8')
           assert 'fast_social' not in chat.lower()
           assert 'repair_generation' not in chat.lower()
           assert 'tsundere/playful sebagai default' not in persona.lower()

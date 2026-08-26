@@ -1,6 +1,6 @@
 # Instalasi Furina Termux
 
-Private build saat ini: Core `1.1.18`, dependency revision `2026.08.26-r68`. FurinaHub tidak didistribusikan oleh installer/updater untuk sementara; source dan rilis lamanya tidak dihapus.
+Private build saat ini: Core `1.1.19`, dependency revision `2026.08.26-r69`. FurinaHub tidak didistribusikan oleh installer/updater untuk sementara; source dan rilis lamanya tidak dihapus.
 
 ## Instalasi baru
 
@@ -18,7 +18,16 @@ Buka **Personalisasi** di menu utama Termux.
 
 Ada 20 toggle independen: Tsundere, Yandere, Kuudere, Dandere, Deredere, Himedere, Kamidere, Sadodere, Mayadere, Bakadere, Hajidere, Darudere, Shundere, Utsudere, Bodere, Hiyakasudere, Nyandere, Oujodere, Genki girl, dan Onee-san type. Klik untuk aktif, klik lagi untuk nonaktif. Tidak ada batas jumlah kombinasi. Fresh install tidak memaksa trait apa pun; Identity Kernel Furina tetap aktif.
 
-Core memilih satu sampai empat facet dari intent, emosi, hubungan, mode respons, dan state facet sebelumnya; nama trope tidak dilempar sebagai daftar panjang ke model. Hysteresis mencegah gaya berubah mendadak tanpa perubahan konteks.
+Setiap sifat memiliki kartu tindakan untuk situasi santai, dekat, bercanda, dan konflik. Jika dua sifat dipilih, keduanya tetap membentuk respons. Jika banyak sifat dipilih, Core menjaga satu anchor lalu memilih tindakan situasional dan sifat yang lama tidak muncul; hasilnya 1–4 tindakan konkret, bukan sekadar nama trope atau rata-rata vektor.
+
+## Lanjutan
+
+Buka **Pengaturan → Lanjutan**:
+
+- **Mode pasangan** — nonaktif secara default. Saat aktif, status dan tindakan romantis menjadi bagian dari respons; saat nonaktif, Furina tetap companion personal dan trait tidak dapat mengaktifkan hubungan romantis sendiri.
+- **Memori penuh lokal** — nonaktif secara default. Saat aktif, seluruh teks percakapan baru diarsipkan lokal. FTS5 dan embedding multilingual opsional memilih maksimal enam potongan relevan; isi arsip tidak dikirim seluruhnya ke model.
+
+Menonaktifkan Memori penuh lokal menghentikan arsip dan pencarian baru tetapi tidak menghapus data lama secara diam-diam.
 
 ## Model lokal
 
@@ -32,13 +41,13 @@ Status model: **Unduh → Kelola → Aktif**. Model yang sudah diunduh dapat dip
 
 Download mendukung resume dan wajib lolos verifikasi GGUF + SHA-256. Model 4B tidak pernah diunduh otomatis oleh install/update.
 
-## Percakapan dan memori 1.1.18
+## Percakapan dan memori 1.1.19
 
 Grounded Dialogue State memisahkan ucapan user yang faktual dari wording Furina sendiri. Balasan Furina sebelumnya hanya dibawa ke turn baru jika user memang merujuknya untuk koreksi, klarifikasi, atau acknowledgement. Pergantian topik tidak membawa motif/kalimat balasan lama ke prompt Local.
 
 Semua balasan conversational tetap dibuat oleh model yang dipilih. Response Rhythm Controller memberi target 1–6 gagasan: opini kasual biasanya dua, sedangkan audit nyata lima atau enam. Preferensi seperti “jawab ringkas” atau “jelaskan rinci” mengalahkan keputusan otomatis. Tidak ada canned social response atau rewrite isi jawaban.
 
-Setiap proses Termux memulai thread jangka pendek baru. Core mengambil maksimal empat kutipan relevan memakai FTS5 dan, bila dikonfigurasi, reranking embedding multilingual lokal. Bukti lemah tidak memicu fallback pesan terbaru. Fakta eksplisit disimpan bersama `source_message_id`; inferensi AI yang lemah menjadi kandidat sampai mendapat bukti lain. Koreksi menautkan versi lama dan baru melalui relasi `replaces`, sedangkan relasi `evidence` dan `related` menjaga provenance tanpa database/framework berat.
+Setiap proses Termux memulai thread jangka pendek baru. Memori terstruktur dasar tetap bekerja, tetapi pencarian teks lintas sesi hanya aktif saat **Memori penuh lokal** dinyalakan. Bukti lemah tidak memicu fallback pesan terbaru. Fakta eksplisit disimpan bersama `source_message_id`; inferensi AI yang lemah menjadi kandidat sampai mendapat bukti lain. Koreksi menautkan versi lama dan baru melalui relasi `replaces`, sedangkan relasi `evidence` dan `related` menjaga provenance tanpa database/framework berat.
 
 ## Update Termux
 
