@@ -1,6 +1,6 @@
 # Instalasi Furina Termux
 
-Private build saat ini: Core `1.1.16`, dependency revision `2026.08.25-r66`. FurinaHub tidak didistribusikan oleh installer/updater untuk sementara; source dan rilis lamanya tidak dihapus.
+Private build saat ini: Core `1.1.17`, dependency revision `2026.08.26-r67`. FurinaHub tidak didistribusikan oleh installer/updater untuk sementara; source dan rilis lamanya tidak dihapus.
 
 ## Instalasi baru
 
@@ -18,7 +18,7 @@ Buka **Personalisasi** di menu utama Termux.
 
 Ada 20 toggle independen: Tsundere, Yandere, Kuudere, Dandere, Deredere, Himedere, Kamidere, Sadodere, Mayadere, Bakadere, Hajidere, Darudere, Shundere, Utsudere, Bodere, Hiyakasudere, Nyandere, Oujodere, Genki girl, dan Onee-san type. Klik untuk aktif, klik lagi untuk nonaktif. Tidak ada batas jumlah kombinasi.
 
-Core mengompilasi kombinasi ke facet perilaku yang ringkas; nama trope tidak dilempar sebagai daftar panjang ke model. Kombinasi besar tetap dipakai secara kontekstual.
+Core memilih dua sampai empat facet yang paling relevan untuk situasi saat ini; nama trope tidak dilempar sebagai daftar panjang ke model. Facet lain tetap tersedia untuk momen lain.
 
 ## Model lokal
 
@@ -28,17 +28,17 @@ Tiga pilihan tetap tersedia:
 - **Qwen3 1.7B Heretic Q5_K_M** — ~1.17 GiB.
 - **Qwen3 4B Instruct 2507 Uncensored Q4_K_M** — ~2.50 GB, Quality.
 
-Status model: **Unduh → Kelola → Aktif**. Model yang sudah diunduh dapat dipilih atau dihapus dari menu yang sama. Menghapus model aktif menghentikan runtime lalu memindahkan routing ke Online sebelum file dihapus. Local tidak memiliki fallback diam-diam ke Online saat inferensi.
+Status model: **Unduh → Kelola → Aktif**. Model yang sudah diunduh dapat dipilih atau dihapus dari menu yang sama. Jika model aktif adalah satu-satunya mesin chat yang siap, Furina memberi peringatan tegas sebelum penghapusan. Local tidak memiliki fallback diam-diam ke Online saat inferensi.
 
 Download mendukung resume dan wajib lolos verifikasi GGUF + SHA-256. Model 4B tidak pernah diunduh otomatis oleh install/update.
 
-## Percakapan dan memori 1.1.16
+## Percakapan dan memori 1.1.17
 
 Grounded Dialogue State memisahkan ucapan user yang faktual dari wording Furina sendiri. Balasan Furina sebelumnya hanya dibawa ke turn baru jika user memang merujuknya untuk koreksi, klarifikasi, atau acknowledgement. Pergantian topik tidak membawa motif/kalimat balasan lama ke prompt Local.
 
 Semua balasan conversational tetap dibuat oleh model yang dipilih. Adaptive pacing hanya memberi target kedalaman/panjang secara abstrak; tidak ada canned social response atau rewrite isi jawaban.
 
-Setiap proses Termux memulai thread jangka pendek baru, tetapi ucapan user dari thread lama langsung masuk indeks SQLite FTS5. Saat pesan baru membutuhkan konteks lama, Core mencari indeks dan memasukkan maksimal empat kutipan relevan—bukan seluruh riwayat. Konsolidasi AI tetap memutuskan fakta, preferensi, tujuan, atau pola mana yang layak menjadi memori terstruktur.
+Setiap proses Termux memulai thread jangka pendek baru. Core mengambil maksimal empat kutipan relevan memakai FTS5 dan, bila dikonfigurasi, reranking embedding multilingual lokal. Bukti lemah tidak memicu fallback pesan terbaru. Koreksi preferensi disimpan sebagai versi baru dan versi lama ditandai usang; konsolidasi AI tetap memutuskan fakta, preferensi, tujuan, atau pola mana yang layak menjadi memori terstruktur.
 
 ## Update Termux
 
@@ -52,7 +52,6 @@ Recovery tetap tersedia:
 
 ```bash
 furina recover
-furina repair
 ```
 
 Conversation, memory, provider secrets, pilihan sifat, local models, dan personalisasi lain di `~/.furina-agent/` tidak diganti oleh update normal.
