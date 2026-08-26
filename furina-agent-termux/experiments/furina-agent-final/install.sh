@@ -3,9 +3,9 @@ set -euo pipefail
 
 FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"
 FURINA_UPDATER_GENERATION="39"
-VERSION="1.1.21"
-DEPENDENCY_REVISION="2026.08.26-r71"
-RUNTIME_CONTRACT="furina-runtime/v22-training-room-preference-sandbox-termux"
+VERSION="1.1.22"
+DEPENDENCY_REVISION="2026.08.26-r72"
+RUNTIME_CONTRACT="furina-runtime/v23-adaptive-training-identity-neutral-termux"
 UPDATE_PROTOCOL="furina-update/1"
 STABLE_RELEASE="https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable"
 CHANNEL_URL="$STABLE_RELEASE/channel.json"
