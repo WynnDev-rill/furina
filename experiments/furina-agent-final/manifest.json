@@ -40,6 +40,7 @@
   "personality_schema": 4,
   "personality_surface": "termux-20-independent-multi-select-expression-traits-with-empty-fresh-default",
   "personality_combination": "all selected traits are fused into one order-independent stable profile; context changes a single unified action without rotating archetypes; v2 cards cover core, close, play, conflict and romance",
+  "identity_policy": "editable assistant name is a conversation label only; no fictional canon, biography, world, role, power or plot is inherited from a matching character name",
   "advanced_settings": "Pengaturan/Lanjutan: Training Room, opt-in partner_mode and opt-in full_local_memory",
   "training_room": "six-category continuous simulated-conversation preference sandbox with arrow navigation, Enter selection, reroll and ESC exit",
   "training_isolation": "simulated user text never enters message history, structured memory, evidence episodes, relationship ledger or graph; only abstract preference counts and a bounded training dataset are stored separately",
