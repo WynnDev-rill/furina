@@ -1,4 +1,4 @@
-name: Furina Termux 1.1.17 Boundary Regression
+name: Furina Termux 1.1.18 Boundary Regression
 
 on:
   pull_request:
@@ -31,7 +31,7 @@ jobs:
           bash -n experiments/furina-agent-final/install.sh
           cmp experiments/furina-agent-final/install.sh furina-agent-termux/experiments/furina-agent-final/install.sh
           TMP="$(mktemp -d)"
-          python3 experiments/furina-agent-final/overrides/runtime-private-1.1.8/build_client.py experiments/furina-agent-final/overrides/runtime-r39/update_client.py "$TMP/furina-update.py"
+          python3 experiments/furina-agent-final/overrides/runtime-private-1.1.9/build_client.py experiments/furina-agent-final/overrides/runtime-r39/update_client.py "$TMP/furina-update.py"
           python3 - "$TMP/furina-update.py" <<'PY'
           import ast,sys
           from pathlib import Path
@@ -42,7 +42,7 @@ jobs:
           assert 'install_core(' in update
           assert 'sync_apk(' not in update and 'changed_apk' not in update
           assert 'ensure_termux_properties' not in update and 'ensure_openconnector' not in update
-          assert 'CLIENT_VERSION = "1.4.0"' in client
+          assert 'CLIENT_VERSION = "1.4.1"' in client
           assert 'FURINA_TERMUX_ONLY_UPDATER_116' in client
           launchers=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='launcher_texts')
           launcher_text='\n'.join(client.splitlines()[launchers.lineno-1:launchers.end_lineno])
@@ -50,13 +50,13 @@ jobs:
           parser_fn=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='build_parser')
           parser_text='\n'.join(client.splitlines()[parser_fn.lineno-1:parser_fn.end_lineno])
           assert 'confirm-apk' not in parser_text
-          print('FURINA_TERMUX_117_ONE_CLIENT_OK')
+          print('FURINA_TERMUX_118_ONE_CLIENT_OK')
           PY
           python3 - <<'PY'
           import json
           from pathlib import Path
           installer=Path('experiments/furina-agent-final/install.sh').read_text(); active='\n'.join(x for x in installer.splitlines() if not x.lstrip().startswith('#'))
-          for token in ('FURINA_UPDATER_GENERATION="37"','VERSION="1.1.17"','DEPENDENCY_REVISION="2026.08.26-r67"','RUNTIME_CONTRACT="furina-runtime/v18-hybrid-memory-termux"'):
+          for token in ('FURINA_UPDATER_GENERATION="37"','VERSION="1.1.18"','DEPENDENCY_REVISION="2026.08.26-r68"','RUNTIME_CONTRACT="furina-runtime/v19-natural-dialogue-memory-termux"'):
               assert token in active,token
           assert 'apk-only' not in active
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
@@ -64,8 +64,8 @@ jobs:
           workflow=Path('.github/workflows/furinahub-rc51-core-rc63.yml').read_text()
           assert 'assembleRelease' not in workflow and 'APK_NAME' not in workflow
           assert 'No APK is built or uploaded' in workflow
-          print('FURINA_TERMUX_117_NO_APK_DISTRIBUTION_OK')
+          print('FURINA_TERMUX_118_NO_APK_DISTRIBUTION_OK')
           PY
           validation_home="$(mktemp -d)"
-          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.1.8/validate.sh
+          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.1.9/validate.sh
           git diff --check

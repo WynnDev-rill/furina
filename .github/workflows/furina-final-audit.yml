@@ -17,11 +17,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Reconstruct and validate Termux 1.1.17 build
+      - name: Reconstruct and validate Termux 1.1.18 build
         run: |
           set -euo pipefail
           validation_home="$(mktemp -d)"
-          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.1.8/validate.sh
+          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.1.9/validate.sh
       - name: Run final Termux engineering audit
         run: |
           set -euo pipefail
@@ -35,7 +35,7 @@ jobs:
               try: ast.parse(p.read_text(encoding='utf-8'),filename=str(p))
               except Exception as e: blockers.append(f'{p.name}: {e}')
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
-          expected={'version':'1.1.17','dependency_revision':'2026.08.26-r67','bundle_id':'furina-2026.08.26-termux-1.1.17','runtime_contract':'furina-runtime/v18-hybrid-memory-termux','update_client_version':'1.4.0','hub_update_ownership':'retired-not-distributed'}
+          expected={'version':'1.1.18','dependency_revision':'2026.08.26-r68','bundle_id':'furina-2026.08.26-termux-1.1.18','runtime_contract':'furina-runtime/v19-natural-dialogue-memory-termux','update_client_version':'1.4.1','hub_update_ownership':'retired-not-distributed'}
           for k,v in expected.items():
               if m.get(k)!=v: blockers.append(f'manifest {k}={m.get(k)!r}, expected {v!r}')
           from furina_agent.personality import TRAITS,TRAIT_IDS,compile_personality
@@ -44,8 +44,10 @@ jobs:
           memory=(core/'memory.py').read_text(); chat=(core/'chat.py').read_text(); dialog=(core/'dialogue_state.py').read_text(); tui=(core/'tui.py').read_text(); models=(core/'local_models.py').read_text()
           for token in ('user_message_fts','search_conversation_context','bm25(user_message_fts)'):
               if token not in memory: blockers.append(f'indexed recall missing {token}')
-          if 'FURINA_TERMUX_117_ADAPTIVE_CONSOLIDATION' not in chat: blockers.append('adaptive cross-session recall missing')
-          if 'FURINA_TERMUX_117_HYBRID_VERSIONED_MEMORY' not in memory: blockers.append('hybrid versioned memory missing')
+          if 'FURINA_TERMUX_118_DIALOGUE_STATE' not in chat: blockers.append('natural dialogue state missing')
+          if 'FURINA_TERMUX_118_EVIDENCE_LINKED_MEMORY' not in memory: blockers.append('evidence-linked memory missing')
+          if 'FURINA_TERMUX_118_RESPONSE_RHYTHM' not in (core/'response.py').read_text(): blockers.append('response rhythm controller missing')
+          if 'FURINA_TERMUX_118_TRAIT_STATE_CONTROLLER' not in (core/'personality.py').read_text(): blockers.append('trait state controller missing')
           if 'FURINA_TERMUX_116_DELETE_MODEL' not in models: blockers.append('safe local-model delete missing')
           if 'for row in range(10)' not in tui or 'row + 10' not in tui: blockers.append('20-trait two-column render missing')
           if 'BALASAN FURINA LAMA: tidak diperlukan' not in dialog: blockers.append('assistant-pattern reset missing')
@@ -58,6 +60,6 @@ jobs:
           for x in blockers: print('BLOCKER',x)
           for x in warnings: print('WARNING',x)
           if blockers: raise SystemExit(1)
-          print('FURINA_TERMUX_117_AUDIT_OK')
+          print('FURINA_TERMUX_118_AUDIT_OK')
           PY
           git diff --check

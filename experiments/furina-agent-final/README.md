@@ -16,7 +16,7 @@ Fresh install does not download a GGUF. Local models are downloaded only from **
 
 1.1.0 keeps Grounded Dialogue State but removes the remaining cause of local pattern anchoring. User statements are authoritative. Furina's previous wording is only carried forward when the next user turn genuinely refers to it (for example a correction or clarification); an unrelated new topic does not inherit old assistant prose or motifs.
 
-Every conversational response still comes from the selected model. There are no canned social replies, regex content rewrites, or second-pass repair generations. Adaptive pacing only tells the model roughly how much depth a turn needs; it never supplies response text.
+Every conversational response still comes from the selected model. There are no canned social replies, regex content rewrites, or second-pass repair generations. The response-rhythm controller assigns 1–6 semantic beats: a casual opinion normally gets two beats, while a real audit can receive five or six. A stored request for concise or detailed answers overrides the automatic length choice.
 
 Local and Online engines use the same trusted Core memory, relationship state, and personalization.
 
@@ -24,9 +24,9 @@ Local and Online engines use the same trusted Core memory, relationship state, a
 
 The old preset/slider/custom-instruction personality surface is replaced by one Core-owned system. It is available through **Personalisasi** in the Termux main menu.
 
-Twenty independent traits can be toggled in any combination, including all 20: Tsundere, Yandere, Kuudere, Dandere, Deredere, Himedere, Kamidere, Sadodere, Mayadere, Bakadere, Hajidere, Darudere, Shundere, Utsudere, Bodere, Hiyakasudere, Nyandere, Oujodere, Genki girl, and Onee-san type.
+Twenty independent traits can be toggled in any combination, including all 20: Tsundere, Yandere, Kuudere, Dandere, Deredere, Himedere, Kamidere, Sadodere, Mayadere, Bakadere, Hajidere, Darudere, Shundere, Utsudere, Bodere, Hiyakasudere, Nyandere, Oujodere, Genki girl, and Onee-san type. Fresh installs start with no optional trait selected; Furina's stable Identity Kernel remains active.
 
-The labels are UI shorthand. Core selects two to four relevant facets for the current situation, then compiles those into a bounded expression bias. Opposing traits remain available for other moments instead of being averaged into a flat personality or dumped into every prompt.
+The labels are UI shorthand. Core selects one to four relevant facets from intent, emotion, relationship state, response mode, and the previous facet state. Hysteresis keeps part of the prior expression stable when the conversational mode has not changed. Opposing traits remain available for other moments instead of being averaged or dumped into every prompt.
 
 ## Provider & Model
 
@@ -55,8 +55,9 @@ Updater hanya mengganti Core Termux secara atomik. Tidak ada sinkronisasi, unduh
 - A new `furina` process gets a fresh Termux short-term chat thread.
 - `/back` keeps the current thread while that process is running.
 - Ucapan user dari percakapan lama dicari dengan FTS5, lalu dapat direrank oleh embedding multilingual lokal bila model embedding dikonfigurasi. Bukti lemah menghasilkan nol kutipan, bukan fallback pesan terbaru.
-- Konsolidasi AI tetap memilih fakta/preferensi/tujuan yang layak menjadi memori jangka panjang; tidak terbatas pada frasa “ingat ini”.
-- Koreksi disimpan sebagai versi baru dan versi lama ditandai usang agar dua preferensi yang bertentangan tidak sama-sama masuk prompt.
+- Fakta eksplisit masuk langsung bersama `source_message_id`. Inferensi konsolidator yang lemah menjadi kandidat sampai didukung ucapan user lain; inferensi yang sangat dekat dengan bukti dapat masuk langsung.
+- Koreksi disimpan sebagai versi baru dan versi lama ditandai usang. Link ringan `evidence`, `related`, dan `replaces` menjaga asal serta konflik tanpa framework memory eksternal.
+- Backfill embedding berjalan dalam batch kecil ketika worker memory idle, bukan di jalur balasan.
 - Trusted long-term memory, profile, relationship state, personality selection, provider secrets, model selection dan model unduhan tetap persisten saat update.
 
 ## Update / recovery
@@ -70,11 +71,11 @@ Updater memvalidasi channel dan snapshot Core, lalu mengganti Core secara atomik
 
 ## Current versions
 
-- Core: `1.1.17`
+- Core: `1.1.18`
 - FurinaHub: tidak didistribusikan (rilis lama dipertahankan)
-- Dependency revision: `2026.08.26-r67`
-- Bundle: `furina-2026.08.26-termux-1.1.17`
-- Update client: `1.4.0`
-- Runtime contract: `furina-runtime/v18-hybrid-memory-termux`
+- Dependency revision: `2026.08.26-r68`
+- Bundle: `furina-2026.08.26-termux-1.1.18`
+- Update client: `1.4.1`
+- Runtime contract: `furina-runtime/v19-natural-dialogue-memory-termux`
 
 See [`INSTALL.md`](./INSTALL.md) for the operational flow.
