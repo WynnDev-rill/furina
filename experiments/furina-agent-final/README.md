@@ -87,4 +87,6 @@ Updater memvalidasi channel dan snapshot Core, lalu mengganti Core secara atomik
 - Update client: `1.4.3`
 - Runtime contract: `furina-runtime/v23-adaptive-training-identity-neutral-termux`
 
+Training Room 1.1.22 memakai navigasi panah + Enter, mengikuti status Mode pasangan, dan menerapkan pola preferensi tersimpan pada kandidat latihan berikutnya tanpa membawa skenario simulasi ke memori nyata.
+
 See [`INSTALL.md`](./INSTALL.md) for the operational flow.
