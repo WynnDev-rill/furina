@@ -80,13 +80,13 @@ Updater memvalidasi channel dan snapshot Core, lalu mengganti Core secara atomik
 
 ## Current versions
 
-- Core: `1.1.24`
+- Core: `1.1.25`
 - FurinaHub: tidak didistribusikan (rilis lama dipertahankan)
-- Dependency revision: `2026.08.27-r74`
-- Bundle: `furina-2026.08.27-termux-1.1.24`
+- Dependency revision: `2026.08.27-r75`
+- Bundle: `furina-2026.08.27-termux-1.1.25`
 - Update client: `1.4.3`
-- Runtime contract: `furina-runtime/v25-social-judgment-curriculum-termux`
+- Runtime contract: `furina-runtime/v26-neutral-live-training-termux`
 
-Training Room 1.1.24 memakai navigasi panah + Enter, mengikuti status Mode pasangan, dan menerapkan pola preferensi tersimpan pada kandidat latihan berikutnya tanpa membawa skenario simulasi ke memori nyata.
+Training Room 1.1.25 memakai 90 kontrol percakapan Indonesia yang dikurasi dan netral dari personalisasi, bukan menyalin chat publik mentah. Pilihan A/B serta `Lewati` memakai carousel panah kiri/kanan; prompt yang dijawab atau dilewati dipensiunkan permanen. Setelah kontrol kategori habis, prompt baru diturunkan secara netral dari kontrak kualitas. `Saran latihan di chat` tersedia sebagai satu toggle opt-in dengan batas otomatis yang tidak memerlukan pengaturan frekuensi.
 
 See [`INSTALL.md`](./INSTALL.md) for the operational flow.

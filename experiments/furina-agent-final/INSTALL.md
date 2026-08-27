@@ -1,6 +1,6 @@
 # Instalasi Furina Termux
 
-Private build saat ini: Core `1.1.21`, dependency revision `2026.08.26-r71`. FurinaHub tidak didistribusikan oleh installer/updater untuk sementara; source dan rilis lamanya tidak dihapus.
+Private build saat ini: Core `1.1.25`, dependency revision `2026.08.27-r75`. FurinaHub tidak didistribusikan oleh installer/updater untuk sementara; source dan rilis lamanya tidak dihapus.
 
 ## Instalasi baru
 
@@ -24,11 +24,12 @@ Semua sifat yang dipilih dilebur menjadi satu profil gabungan yang stabil dan ti
 
 Buka **Pengaturan → Lanjutan**:
 
-- **Training Room** — pilih Respons natural, Respons emosional, Mode pasangan, Bercanda dan menggoda, Panjang jawaban, atau Bahasa dan kosakata. Model aktif membuat dua respons untuk alur percakapan simulasi. Tekan `A`/`B` untuk memilih, `R` untuk membuat ulang tanpa menyimpan, dan `ESC` untuk keluar.
+- **Training Room** — sembilan materi memakai prompt-only corpus percakapan Indonesia yang telah difilter. Panah kiri/kanan menggeser kartu `A`, `B`, `Lewati`, `R`, atau `Selesai`; Enter mengonfirmasi. Prompt yang dijawab atau dilewati dipensiunkan permanen di seluruh materi, sedangkan `R` mempertahankan prompt yang sama.
+- **Saran latihan di chat** — nonaktif secara default. Saat aktif, sistem sesekali menawarkan carousel `A`, `B`, atau `Lewati` pada momen percakapan yang bernilai. Batas dan jedanya otomatis, maksimal dua tawaran per sesi; tidak ada pengaturan frekuensi. `Lewati` membuat satu jawaban normal baru dan chat langsung berlanjut.
 - **Mode pasangan** — nonaktif secara default. Saat aktif, status dan tindakan romantis menjadi bagian dari respons; saat nonaktif, Furina tetap companion personal dan trait tidak dapat mengaktifkan hubungan romantis sendiri.
 - **Memori penuh lokal** — nonaktif secara default. Saat aktif, seluruh teks percakapan baru diarsipkan lokal. FTS5 dan embedding multilingual opsional memilih maksimal enam potongan relevan; isi arsip tidak dikirim seluruhnya ke model.
 
-Training Room adalah sandbox terpisah. User simulasi dan isi skenario tidak masuk ke chat, fakta, episode, relationship ledger, atau graph. Hanya pola pilihan abstrak dan dataset preferensi terbatas yang disimpan lokal; chat nyata tidak menerima transkrip skenario.
+Training Room adalah sandbox terpisah. Prompt korpus tidak menerima nama, sifat, mode pasangan, memori, atau preferensi user. Personalisasi baru diterapkan ketika model membuat kandidat A/B. Isi prompt tidak masuk ke chat, fakta, episode, relationship ledger, atau graph; hanya pola pilihan abstrak, ID prompt yang dipensiunkan, dan alasan reroll yang disimpan lokal. Dalam saran chat, data latihan hanya menyimpan hash pesan dan kutub preferensi—bukan salinan kedua isi percakapan.
 
 Menonaktifkan Memori penuh lokal menghentikan arsip dan pencarian baru tetapi tidak menghapus data lama secara diam-diam.
 
