@@ -1,4 +1,4 @@
-name: Furina Termux 1.1.24 Boundary Regression
+name: Furina Termux 1.1.25 Boundary Regression
 
 on:
   pull_request:
@@ -56,7 +56,7 @@ jobs:
           import json
           from pathlib import Path
           installer=Path('experiments/furina-agent-final/install.sh').read_text(); active='\n'.join(x for x in installer.splitlines() if not x.lstrip().startswith('#'))
-          for token in ('FURINA_UPDATER_GENERATION="39"','VERSION="1.1.24"','DEPENDENCY_REVISION="2026.08.27-r74"','RUNTIME_CONTRACT="furina-runtime/v25-social-judgment-curriculum-termux"'):
+          for token in ('FURINA_UPDATER_GENERATION="40"','VERSION="1.1.25"','DEPENDENCY_REVISION="2026.08.27-r75"','RUNTIME_CONTRACT="furina-runtime/v26-neutral-live-training-termux"'):
               assert token in active,token
           assert 'apk-only' not in active
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
@@ -64,8 +64,8 @@ jobs:
           workflow=Path('.github/workflows/furinahub-rc51-core-rc63.yml').read_text()
           assert 'assembleRelease' not in workflow and 'APK_NAME' not in workflow
           assert 'No APK is built or uploaded' in workflow
-          print('FURINA_TERMUX_124_NO_APK_DISTRIBUTION_OK')
+          print('FURINA_TERMUX_125_NO_APK_DISTRIBUTION_OK')
           PY
           validation_home="$(mktemp -d)"
-          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.2.5/validate.sh
+          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.2.6/validate.sh
           git diff --check

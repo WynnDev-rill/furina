@@ -17,11 +17,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Reconstruct and validate Termux 1.1.24 build
+      - name: Reconstruct and validate Termux 1.1.25 build
         run: |
           set -euo pipefail
           validation_home="$(mktemp -d)"
-          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.2.5/validate.sh
+          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.2.6/validate.sh
       - name: Run final Termux engineering audit
         run: |
           set -euo pipefail
@@ -35,7 +35,7 @@ jobs:
               try: ast.parse(p.read_text(encoding='utf-8'),filename=str(p))
               except Exception as e: blockers.append(f'{p.name}: {e}')
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
-          expected={'version':'1.1.24','dependency_revision':'2026.08.27-r74','bundle_id':'furina-2026.08.27-termux-1.1.24','runtime_contract':'furina-runtime/v25-social-judgment-curriculum-termux','update_client_version':'1.4.3','hub_update_ownership':'retired-not-distributed'}
+          expected={'version':'1.1.25','dependency_revision':'2026.08.27-r75','bundle_id':'furina-2026.08.27-termux-1.1.25','runtime_contract':'furina-runtime/v26-neutral-live-training-termux','update_client_version':'1.4.3','hub_update_ownership':'retired-not-distributed'}
           for k,v in expected.items():
               if m.get(k)!=v: blockers.append(f'manifest {k}={m.get(k)!r}, expected {v!r}')
           from furina_agent.personality import TRAITS,TRAIT_IDS,compile_personality
@@ -58,6 +58,13 @@ jobs:
           if 'FURINA_TERMUX_121_TRAINING_ROOM' not in tui: blockers.append('Training Room TUI missing')
           training=(core/'training_room.py').read_text()
           if 'from .memory' in training or 'import furina_agent.memory' in training: blockers.append('Training Room is not isolated from real memory')
+          if 'FURINA_TERMUX_125_NEUTRAL_CORPUS' not in training: blockers.append('neutral corpus Training Room missing')
+          if 'FURINA_TERMUX_125_LIVE_TRAINING_COMMIT' not in chat: blockers.append('single-commit live preference path missing')
+          if 'FURINA_TERMUX_125_NEUTRAL_TRAINING_TUI' not in tui: blockers.append('horizontal neutral Training Room TUI missing')
+          corpus=core/'training_corpus.py'
+          if not corpus.is_file() or 'CorpusItem("c090"' not in corpus.read_text(encoding='utf-8'): blockers.append('curated conversation corpus too small')
+          surface=(core/'chat_surface.py').read_text()
+          if 'class LiveChoiceScreen' not in surface or 'self._live_offers = 0' not in surface: blockers.append('bounded live choice carousel missing')
           if 'FURINA_TERMUX_116_DELETE_MODEL' not in models: blockers.append('safe local-model delete missing')
           if 'for row in range(10)' not in tui or 'row + 10' not in tui: blockers.append('20-trait two-column render missing')
           if 'BALASAN FURINA LAMA: tidak diperlukan' not in dialog: blockers.append('assistant-pattern reset missing')
