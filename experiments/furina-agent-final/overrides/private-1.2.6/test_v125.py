@@ -164,9 +164,10 @@ surface = (package / "chat_surface.py").read_text(encoding="utf-8")
 tui = (package / "tui_v125.py").read_text(encoding="utf-8")
 training = (package / "training_v125.py").read_text(encoding="utf-8")
 assert "class LiveChoiceScreen" in surface and '("a", "b", "skip")' in surface
-assert "← → pilih" in surface and 'self._live_offers = 0' in surface
+assert "Respons A[/]" in surface and "Respons B[/]" in surface
+assert "← → pilih  ·  Enter konfirmasi  ·  Esc lewati" not in surface and 'self._live_offers = 0' in surface
 assert "Saran latihan di chat" in tui and "Frekuensi" not in tui
-assert 'actions = ("Respons A", "Respons B", "Lewati"' in tui and "← → pilih" in tui
+assert 'actions = ("Respons A", "Respons B", "Lewati"' in tui and "← → pilih  ·  Enter konfirmasi  ·  Esc selesai" not in tui
 imports = "\n".join(ast.get_source_segment(training, node) or "" for node in ast.walk(ast.parse(training)) if isinstance(node, (ast.Import, ast.ImportFrom)))
 assert "MemoryStore" not in imports and "FurinaChat" not in imports
 
