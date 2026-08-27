@@ -80,13 +80,13 @@ Updater memvalidasi channel dan snapshot Core, lalu mengganti Core secara atomik
 
 ## Current versions
 
-- Core: `1.1.23`
+- Core: `1.1.24`
 - FurinaHub: tidak didistribusikan (rilis lama dipertahankan)
-- Dependency revision: `2026.08.26-r73`
-- Bundle: `furina-2026.08.26-termux-1.1.23`
+- Dependency revision: `2026.08.27-r74`
+- Bundle: `furina-2026.08.26-termux-1.1.24`
 - Update client: `1.4.3`
-- Runtime contract: `furina-runtime/v24-directed-story-curriculum-termux`
+- Runtime contract: `furina-runtime/v25-social-judgment-curriculum-termux`
 
-Training Room 1.1.23 memakai navigasi panah + Enter, mengikuti status Mode pasangan, dan menerapkan pola preferensi tersimpan pada kandidat latihan berikutnya tanpa membawa skenario simulasi ke memori nyata.
+Training Room 1.1.24 memakai navigasi panah + Enter, mengikuti status Mode pasangan, dan menerapkan pola preferensi tersimpan pada kandidat latihan berikutnya tanpa membawa skenario simulasi ke memori nyata.
 
 See [`INSTALL.md`](./INSTALL.md) for the operational flow.
