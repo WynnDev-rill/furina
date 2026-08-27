@@ -3,9 +3,9 @@ set -euo pipefail
 
 FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"
 FURINA_UPDATER_GENERATION="39"
-VERSION="1.1.23"
-DEPENDENCY_REVISION="2026.08.26-r73"
-RUNTIME_CONTRACT="furina-runtime/v24-directed-story-curriculum-termux"
+VERSION="1.1.24"
+DEPENDENCY_REVISION="2026.08.27-r74"
+RUNTIME_CONTRACT="furina-runtime/v25-social-judgment-curriculum-termux"
 UPDATE_PROTOCOL="furina-update/1"
 STABLE_RELEASE="https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable"
 CHANNEL_URL="$STABLE_RELEASE/channel.json"

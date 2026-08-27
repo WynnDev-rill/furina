@@ -4,7 +4,7 @@ ROOT="${1:-/tmp/furina-agent-rc54-validate/termux}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PROJECT="$(cd "$HERE/../.." && pwd)"
 
-bash "$PROJECT/overrides/private-1.2.2/validate.sh"
+bash "$PROJECT/overrides/private-1.2.2/validate.sh" "$ROOT"
 python3 "$HERE/apply.py" "$ROOT"
 python3 -m py_compile "$ROOT"/core/furina_agent/*.py
 
