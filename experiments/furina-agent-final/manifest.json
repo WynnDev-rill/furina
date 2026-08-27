@@ -15,7 +15,7 @@
   "hub_host": "127.0.0.1",
   "hub_port": 8787,
   "dependency_revision": "2026.08.27-r74",
-  "bundle_id": "furina-2026.08.26-termux-1.1.24",
+  "bundle_id": "furina-2026.08.27-termux-1.1.24",
   "bridge_version": "1.1.15",
   "bridge_version_code": 10083,
   "bridge_release_base": "https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.1.15",

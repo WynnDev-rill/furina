@@ -83,7 +83,7 @@ Updater memvalidasi channel dan snapshot Core, lalu mengganti Core secara atomik
 - Core: `1.1.24`
 - FurinaHub: tidak didistribusikan (rilis lama dipertahankan)
 - Dependency revision: `2026.08.27-r74`
-- Bundle: `furina-2026.08.26-termux-1.1.24`
+- Bundle: `furina-2026.08.27-termux-1.1.24`
 - Update client: `1.4.3`
 - Runtime contract: `furina-runtime/v25-social-judgment-curriculum-termux`
 

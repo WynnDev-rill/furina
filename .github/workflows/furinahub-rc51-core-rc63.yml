@@ -59,13 +59,13 @@ jobs:
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
           assert m['version']=='1.1.24'
           assert m['dependency_revision']=='2026.08.27-r74'
-          assert m['bundle_id']=='furina-2026.08.26-termux-1.1.24'
+          assert m['bundle_id']=='furina-2026.08.27-termux-1.1.24'
           assert m['runtime_contract']=='furina-runtime/v25-social-judgment-curriculum-termux'
           assert m['update_client_version']=='1.4.3'
           assert m['hub_update_ownership']=='retired-not-distributed'
           assert len(m['local_model_catalog'])==3
           assert m['personality_schema']==4
-          assert m['training_room'].startswith('six-category')
+          assert m['training_room'].startswith('nine-category')
           print('FURINA_TERMUX_124_MANIFEST_OK')
           PY
           git diff --check
@@ -98,7 +98,7 @@ jobs:
           if not legacy_apk: raise SystemExit('legacy APK compatibility metadata missing')
           stable='https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable'
           channel={
-            'schema':1,'protocol':'furina-update/1','bundle_id':'furina-2026.08.26-termux-1.1.24','published_at':int(time.time()),
+            'schema':1,'protocol':'furina-update/1','bundle_id':'furina-2026.08.27-termux-1.1.24','published_at':int(time.time()),
             'surface':'termux','apk_distribution':'retired',
             'core':{'version':'1.1.24','revision':'2026.08.27-r74','url':stable+'/furina-core-termux-private-1.1.24.tar','sha256':os.environ['SNAPSHOT_SHA'],'size':int(os.environ['SNAPSHOT_SIZE'])},
             'client':{'version':'1.4.3','url':stable+'/furina-update.py','sha256':os.environ['CLIENT_SHA'],'size':int(os.environ['CLIENT_SIZE'])},
