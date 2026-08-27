@@ -106,13 +106,12 @@ def install_tui_v125(ns: dict) -> None:
                 console.print("\n[bold]Pesan user[/]")
                 console.print(pair.user_text, markup=False)
 
-                if selected == 0:
-                    console.print("\n[bold cyan]Respons A · 1/2[/]")
-                    console.print(pair.response_a, markup=False)
-                elif selected == 1:
-                    console.print("\n[bold cyan]Respons B · 2/2[/]")
-                    console.print(pair.response_b, markup=False)
-                elif selected == 2:
+                console.print("\n[bold cyan]Respons A[/]")
+                console.print(pair.response_a, markup=False)
+                console.print("\n[bold cyan]Respons B[/]")
+                console.print(pair.response_b, markup=False)
+
+                if selected == 2:
                     console.print("\n[yellow]Lewati[/]")
                     console.print("Prompt ini dipensiunkan permanen tanpa menyimpan preferensi.")
                 elif selected == 3:
@@ -128,7 +127,6 @@ def install_tui_v125(ns: dict) -> None:
                 for index, label in enumerate(("A", "B", "Lewati", "R", "Selesai")):
                     rendered.append(f"[bold #9efce7]› {label} ‹[/]" if index == selected else f"[#3d6b5e]{label}[/]")
                 console.print("\n" + "  [#1f6e5a]│[/]  ".join(rendered))
-                console.print("[#3d6b5e]← → pilih  ·  Enter konfirmasi  ·  Esc selesai[/]")
                 key = _horizontal_key()
                 if key == "left":
                     selected = (selected - 1) % len(actions); continue

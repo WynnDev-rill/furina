@@ -99,14 +99,15 @@ replace_once(surface, '''    class ChatApp(App[None]):''', r'''    @dataclass
                 f"[bold #9efce7]› {label} ‹[/]" if i == self._selected else f"[#3d6b5e]{label}[/]"
                 for i, label in enumerate(labels)
             )
-            if self._selected < 2:
-                card = f"[bold cyan]Respons {labels[self._selected]} · {self._selected + 1}/2[/]\n\n{self._responses[self._selected]}"
-            else:
-                card = "[bold #e8b86d]Lewati[/]\n\nBuat satu jawaban baru tanpa menyimpan preferensi."
+            card = (
+                f"[bold cyan]Respons A[/]\n\n{self._responses[0]}\n\n"
+                f"[bold cyan]Respons B[/]\n\n{self._responses[1]}"
+            )
+            if self._selected == 2:
+                card += "\n\n[bold #e8b86d]Lewati: buat satu jawaban baru tanpa menyimpan preferensi.[/]"
             return (
                 "[bold #9efce7]Saran latihan[/]  [dim]Pilih jawaban yang lebih cocok[/]\n"
                 "[#1f6e5a]────────────────────────────────[/]\n\n" + card + "\n\n" + strip
-                + "\n\n[#3d6b5e]← → pilih  ·  Enter konfirmasi  ·  Esc lewati[/]"
             )
         def compose(self) -> ComposeResult:
             yield VerticalScroll(Static(self._body(), id="live-choice-box", markup=True), id="live-choice-scroll")
