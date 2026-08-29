@@ -2,10 +2,10 @@
 set -euo pipefail
 
 FURINA_INSTALLER_ID="furinahub-core-bootstrap-v2"
-FURINA_UPDATER_GENERATION="41"
-VERSION="1.1.26"
-DEPENDENCY_REVISION="2026.08.27-r76"
-RUNTIME_CONTRACT="furina-runtime/v27-stable-behavior-continuity-termux"
+FURINA_UPDATER_GENERATION="42"
+VERSION="1.1.27"
+DEPENDENCY_REVISION="2026.08.29-r77"
+RUNTIME_CONTRACT="furina-runtime/v28-output-personality-guard-termux"
 UPDATE_PROTOCOL="furina-update/1"
 STABLE_RELEASE="https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable"
 CHANNEL_URL="$STABLE_RELEASE/channel.json"
