@@ -17,11 +17,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Reconstruct and validate Termux 1.1.25 build
+      - name: Reconstruct and validate Termux 1.1.26 build
         run: |
           set -euo pipefail
           validation_home="$(mktemp -d)"
-          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.2.6/validate.sh
+          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.2.7/validate.sh
       - name: Run final Termux engineering audit
         run: |
           set -euo pipefail
@@ -35,7 +35,7 @@ jobs:
               try: ast.parse(p.read_text(encoding='utf-8'),filename=str(p))
               except Exception as e: blockers.append(f'{p.name}: {e}')
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
-          expected={'version':'1.1.25','dependency_revision':'2026.08.27-r75','bundle_id':'furina-2026.08.27-termux-1.1.25','runtime_contract':'furina-runtime/v26-neutral-live-training-termux','update_client_version':'1.4.3','hub_update_ownership':'retired-not-distributed'}
+          expected={'version':'1.1.26','dependency_revision':'2026.08.27-r76','bundle_id':'furina-2026.08.27-termux-1.1.26','runtime_contract':'furina-runtime/v27-stable-behavior-continuity-termux','update_client_version':'1.4.3','hub_update_ownership':'retired-not-distributed'}
           for k,v in expected.items():
               if m.get(k)!=v: blockers.append(f'manifest {k}={m.get(k)!r}, expected {v!r}')
           from furina_agent.personality import TRAITS,TRAIT_IDS,compile_personality
@@ -66,7 +66,10 @@ jobs:
           surface=(core/'chat_surface.py').read_text()
           if 'class LiveChoiceScreen' not in surface or 'self._live_offers = 0' not in surface: blockers.append('bounded live choice carousel missing')
           if 'FURINA_TERMUX_116_DELETE_MODEL' not in models: blockers.append('safe local-model delete missing')
-          if 'for row in range(10)' not in tui or 'row + 10' not in tui: blockers.append('20-trait two-column render missing')
+          if 'FURINA_TERMUX_126_ROLEPLAY_CUSTOM_TRAITS_UI' not in tui: blockers.append('roleplay and custom-trait UI missing')
+          if 'FURINA_TERMUX_126_WHOLE_TRAIT_ENGINE' not in (core/'personality.py').read_text(): blockers.append('whole-trait personality engine missing')
+          if 'FURINA_TERMUX_126_CONTINUITY_CAPSULE' not in memory: blockers.append('cross-session continuity capsule missing')
+          if 'FURINA_TERMUX_126_PRIVATE_REASONING' not in (core/'providers.py').read_text(): blockers.append('online reasoning boundary missing')
           if 'BALASAN FURINA LAMA: tidak diperlukan' not in dialog: blockers.append('assistant-pattern reset missing')
           if 'conversation_pacing' not in chat: blockers.append('adaptive pacing missing')
           ids=[x['id'] for x in m['local_model_catalog']]
