@@ -20,7 +20,7 @@ jobs:
         run: |
           set -euo pipefail
           validation_home="$(mktemp -d)"
-          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.2.6/validate.sh
+          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.2.7/validate.sh
           STAGE=/tmp/furina-agent-rc54-validate/termux
           PYTHONPATH="$STAGE/core" python3 - <<'PY'
           import json
@@ -30,7 +30,7 @@ jobs:
           stage=Path('/tmp/furina-agent-rc54-validate/termux')
           core=stage/'core/furina_agent'
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
-          assert m['version']=='1.1.25'
+          assert m['version']=='1.1.26'
           assert m['termux_conversation_scope'].startswith('fresh-short-term-thread')
           assert m['shared_workspace'].startswith('single-local-core')
           assert m['memory_truth_policy'].startswith('explicit-direct')
@@ -62,6 +62,9 @@ jobs:
           assert (core/'training_room.py').is_file()
           assert 'FURINA_TERMUX_125_NEUTRAL_CORPUS' in (core/'training_room.py').read_text(encoding='utf-8')
           assert 'class LiveChoiceScreen' in (core/'chat_surface.py').read_text(encoding='utf-8')
+          assert 'FURINA_TERMUX_126_FINAL_BEHAVIOR_KERNEL' in chat
+          assert 'FURINA_TERMUX_126_CONTINUITY_CAPSULE' in memory
+          assert 'FURINA_TERMUX_126_PRIVATE_REASONING' in (core/'providers.py').read_text(encoding='utf-8')
           assert (core/'training_corpus.py').is_file()
           assert 'fast_social' not in chat.lower()
           assert 'repair_generation' not in chat.lower()
