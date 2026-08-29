@@ -80,15 +80,15 @@ Updater memvalidasi channel dan snapshot Core, lalu mengganti Core secara atomik
 
 ## Current versions
 
-- Core: `1.1.27`
+- Core: `1.1.28`
 - FurinaHub: tidak didistribusikan (rilis lama dipertahankan)
-- Dependency revision: `2026.08.29-r77`
-- Bundle: `furina-2026.08.29-termux-1.1.27`
+- Dependency revision: `2026.08.29-r78`
+- Bundle: `furina-2026.08.29-termux-1.1.28`
 - Update client: `1.4.3`
-- Runtime contract: `furina-runtime/v28-output-personality-guard-termux`
+- Runtime contract: `furina-runtime/v29-adaptive-human-dialogue-termux`
 
 Training Room memakai 90 kontrol percakapan Indonesia yang dikurasi dan netral dari personalisasi, bukan menyalin chat publik mentah. Pilihan A/B serta `Lewati` memakai carousel panah kiri/kanan; prompt yang dijawab atau dilewati dipensiunkan permanen. Setelah kontrol kategori habis, prompt baru diturunkan secara netral dari kontrak kualitas. `Saran latihan di chat` tersedia sebagai satu toggle opt-in dengan batas otomatis yang tidak memerlukan pengaturan frekuensi.
 
-Core 1.1.27 mengembalikan UI asli 20 sifat tanpa sifat kustom sambil mempertahankan penggabungan sifat kontekstual. Output model online kini ditahan sampai lolos pemeriksaan reasoning dan RolePlay; satu regenerasi aman dilakukan sebelum failover, dan respons lama yang bocor dikarantina dari konteks baru.
+Core 1.1.28 memakai identitas manusia netral dengan nama yang dapat diganti, tanpa watak Furina/Genshin bawaan. Turn planner menggabungkan konteks, tingkat kesulitan, ketidakpastian, ritme lintas percakapan, kosakata personal, dan hasil Training Room menjadi sasaran panjang yang lunak—kalimat tidak dipotong. RolePlay nonaktif dijaga di output model online. `Pikiran dalam hati` tersedia sebagai fitur opt-in terpisah dari reasoning model dan tidak disimpan sebagai memori percakapan.
 
 See [`INSTALL.md`](./INSTALL.md) for the operational flow.
