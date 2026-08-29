@@ -1,6 +1,6 @@
 # Instalasi Furina Termux
 
-Private build saat ini: Core `1.1.27`, dependency revision `2026.08.29-r77`. FurinaHub tidak didistribusikan oleh installer/updater untuk sementara; source dan rilis lamanya tidak dihapus.
+Private build saat ini: Core `1.1.28`, dependency revision `2026.08.29-r78`. FurinaHub tidak didistribusikan oleh installer/updater untuk sementara; source dan rilis lamanya tidak dihapus.
 
 ## Instalasi baru
 
@@ -16,7 +16,7 @@ Bootstrap memverifikasi updater dan memastikan `llama-cpp` tersedia, tetapi tida
 
 Buka **Personalisasi** di menu utama Termux.
 
-Ada 20 toggle independen: Tsundere, Yandere, Kuudere, Dandere, Deredere, Himedere, Kamidere, Sadodere, Mayadere, Bakadere, Hajidere, Darudere, Shundere, Utsudere, Bodere, Hiyakasudere, Nyandere, Oujodere, Genki girl, dan Onee-san type. Klik untuk aktif, klik lagi untuk nonaktif. Tidak ada batas jumlah kombinasi. Fresh install tidak memaksa trait apa pun; Identity Kernel Furina tetap aktif.
+Ada 20 toggle independen: Tsundere, Yandere, Kuudere, Dandere, Deredere, Himedere, Kamidere, Sadodere, Mayadere, Bakadere, Hajidere, Darudere, Shundere, Utsudere, Bodere, Hiyakasudere, Nyandere, Oujodere, Genki girl, dan Onee-san type. Klik untuk aktif, klik lagi untuk nonaktif. Tidak ada batas jumlah kombinasi. Fresh install tidak memaksa trait apa pun; nama companion dapat diganti dan tidak mewarisi karakter fiksi dengan nama yang sama.
 
 Semua sifat yang dipilih dilebur menjadi satu profil gabungan yang stabil dan tidak bergantung pada urutan klik. Core tidak bergantian menjadi sifat A lalu B. Konteks hanya mengubah tindakan dari watak gabungan yang sama. Kartu tindakan v2 mencakup situasi santai, dekat, bercanda, konflik, dan romantis; konflik atau batas user selalu mengalahkan teasing.
 
@@ -27,6 +27,7 @@ Buka **Pengaturan → Lanjutan**:
 - **Training Room** — sembilan materi memakai prompt-only corpus percakapan Indonesia yang telah difilter. Panah kiri/kanan menggeser kartu `A`, `B`, `Lewati`, `R`, atau `Selesai`; Enter mengonfirmasi. Prompt yang dijawab atau dilewati dipensiunkan permanen di seluruh materi, sedangkan `R` mempertahankan prompt yang sama.
 - **Saran latihan di chat** — nonaktif secara default. Saat aktif, sistem sesekali menawarkan carousel `A`, `B`, atau `Lewati` pada momen percakapan yang bernilai. Batas dan jedanya otomatis, maksimal dua tawaran per sesi; tidak ada pengaturan frekuensi. `Lewati` membuat satu jawaban normal baru dan chat langsung berlanjut.
 - **Mode pasangan** — nonaktif secara default. Saat aktif, status dan tindakan romantis menjadi bagian dari respons; saat nonaktif, Furina tetap companion personal dan trait tidak dapat mengaktifkan hubungan romantis sendiri.
+- **Pikiran dalam hati** — nonaktif secara default. Saat aktif, satu subteks emosi karakter yang singkat muncul terpisah dari ucapan. Ini bukan reasoning model, tidak berisi proses penyusunan jawaban, dan tidak disimpan sebagai percakapan atau pengalaman nyata.
 - **Memori penuh lokal** — nonaktif secara default. Saat aktif, seluruh teks percakapan baru diarsipkan lokal. FTS5 dan embedding multilingual opsional memilih maksimal enam potongan relevan; isi arsip tidak dikirim seluruhnya ke model.
 
 Training Room adalah sandbox terpisah. Prompt korpus tidak menerima nama, sifat, mode pasangan, memori, atau preferensi user. Personalisasi baru diterapkan ketika model membuat kandidat A/B. Isi prompt tidak masuk ke chat, fakta, episode, relationship ledger, atau graph; hanya pola pilihan abstrak, ID prompt yang dipensiunkan, dan alasan reroll yang disimpan lokal. Dalam saran chat, data latihan hanya menyimpan hash pesan dan kutub preferensi—bukan salinan kedua isi percakapan.
