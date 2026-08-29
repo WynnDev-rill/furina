@@ -64,7 +64,7 @@ jobs:
           assert m['update_client_version']=='1.4.3'
           assert m['hub_update_ownership']=='retired-not-distributed'
           assert len(m['local_model_catalog'])==3
-          assert m['personality_schema']==5
+          assert m['personality_schema']==6
           assert m['training_room'].startswith('nine-category')
           print('FURINA_TERMUX_126_MANIFEST_OK')
           PY
