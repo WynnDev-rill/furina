@@ -20,7 +20,7 @@ jobs:
         run: |
           set -euo pipefail
           validation_home="$(mktemp -d)"
-          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.2.7/validate.sh
+          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.2.8/validate.sh
           STAGE=/tmp/furina-agent-rc54-validate/termux
           PYTHONPATH="$STAGE/core" python3 - <<'PY'
           import json
@@ -30,7 +30,7 @@ jobs:
           stage=Path('/tmp/furina-agent-rc54-validate/termux')
           core=stage/'core/furina_agent'
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
-          assert m['version']=='1.1.26'
+          assert m['version']=='1.1.27'
           assert m['termux_conversation_scope'].startswith('fresh-short-term-thread')
           assert m['shared_workspace'].startswith('single-local-core')
           assert m['memory_truth_policy'].startswith('explicit-direct')

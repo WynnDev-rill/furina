@@ -1,4 +1,4 @@
-name: Validate and publish Furina Termux 1.1.26
+name: Validate and publish Furina Termux 1.1.27
 
 on:
   pull_request:
@@ -32,7 +32,7 @@ concurrency:
 
 env:
   UPDATE_CHANNEL_TAG: furina-update-stable
-  SNAPSHOT_NAME: furina-core-termux-private-1.1.26.tar
+  SNAPSHOT_NAME: furina-core-termux-private-1.1.27.tar
   CLIENT_NAME: furina-update.py
   STAGE_ROOT: /tmp/furina-agent-rc54-validate/termux
 
@@ -51,16 +51,16 @@ jobs:
           bash -n experiments/furina-agent-final/install.sh
           bash -n furina-agent-termux/experiments/furina-agent-final/install.sh
           cmp experiments/furina-agent-final/install.sh furina-agent-termux/experiments/furina-agent-final/install.sh
-          python3 -m py_compile experiments/furina-agent-final/overrides/private-1.2.7/apply.py experiments/furina-agent-final/overrides/runtime-private-1.2.1/build_client.py
+          python3 -m py_compile experiments/furina-agent-final/overrides/private-1.2.8/apply.py experiments/furina-agent-final/overrides/runtime-private-1.2.1/build_client.py
           validation_home="$(mktemp -d)"
-          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.2.7/validate.sh
+          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.2.8/validate.sh
           python3 - <<'PY'
           import json
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
-          assert m['version']=='1.1.26'
-          assert m['dependency_revision']=='2026.08.27-r76'
-          assert m['bundle_id']=='furina-2026.08.27-termux-1.1.26'
-          assert m['runtime_contract']=='furina-runtime/v27-stable-behavior-continuity-termux'
+          assert m['version']=='1.1.27'
+          assert m['dependency_revision']=='2026.08.29-r77'
+          assert m['bundle_id']=='furina-2026.08.29-termux-1.1.27'
+          assert m['runtime_contract']=='furina-runtime/v28-output-personality-guard-termux'
           assert m['update_client_version']=='1.4.3'
           assert m['hub_update_ownership']=='retired-not-distributed'
           assert len(m['local_model_catalog'])==3
@@ -98,9 +98,9 @@ jobs:
           if not legacy_apk: raise SystemExit('legacy APK compatibility metadata missing')
           stable='https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable'
           channel={
-            'schema':1,'protocol':'furina-update/1','bundle_id':'furina-2026.08.27-termux-1.1.26','published_at':int(time.time()),
+            'schema':1,'protocol':'furina-update/1','bundle_id':'furina-2026.08.29-termux-1.1.27','published_at':int(time.time()),
             'surface':'termux','apk_distribution':'retired',
-            'core':{'version':'1.1.26','revision':'2026.08.27-r76','url':stable+'/furina-core-termux-private-1.1.26.tar','sha256':os.environ['SNAPSHOT_SHA'],'size':int(os.environ['SNAPSHOT_SIZE'])},
+            'core':{'version':'1.1.27','revision':'2026.08.29-r77','url':stable+'/furina-core-termux-private-1.1.27.tar','sha256':os.environ['SNAPSHOT_SHA'],'size':int(os.environ['SNAPSHOT_SIZE'])},
             'client':{'version':'1.4.3','url':stable+'/furina-update.py','sha256':os.environ['CLIENT_SHA'],'size':int(os.environ['CLIENT_SIZE'])},
             'apk':legacy_apk,
           }
@@ -110,7 +110,7 @@ jobs:
           import json,tarfile
           c=json.load(open('channel.json'))
           assert c['surface']=='termux' and c['apk_distribution']=='retired'
-          with tarfile.open('furina-core-termux-private-1.1.26.tar','r:') as archive:
+          with tarfile.open('furina-core-termux-private-1.1.27.tar','r:') as archive:
             names=set(archive.getnames())
             assert 'core/furina_agent/version.py' in names
             assert not any(name.startswith('bridge/') for name in names)

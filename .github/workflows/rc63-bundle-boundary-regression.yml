@@ -1,4 +1,4 @@
-name: Furina Termux 1.1.26 Boundary Regression
+name: Furina Termux 1.1.27 Boundary Regression
 
 on:
   pull_request:
@@ -56,7 +56,7 @@ jobs:
           import json
           from pathlib import Path
           installer=Path('experiments/furina-agent-final/install.sh').read_text(); active='\n'.join(x for x in installer.splitlines() if not x.lstrip().startswith('#'))
-          for token in ('FURINA_UPDATER_GENERATION="41"','VERSION="1.1.26"','DEPENDENCY_REVISION="2026.08.27-r76"','RUNTIME_CONTRACT="furina-runtime/v27-stable-behavior-continuity-termux"'):
+          for token in ('FURINA_UPDATER_GENERATION="42"','VERSION="1.1.27"','DEPENDENCY_REVISION="2026.08.29-r77"','RUNTIME_CONTRACT="furina-runtime/v28-output-personality-guard-termux"'):
               assert token in active,token
           assert 'apk-only' not in active
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
@@ -67,5 +67,5 @@ jobs:
           print('FURINA_TERMUX_126_NO_APK_DISTRIBUTION_OK')
           PY
           validation_home="$(mktemp -d)"
-          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.2.7/validate.sh
+          HOME="$validation_home" FURINA_HOME="$validation_home" bash experiments/furina-agent-final/overrides/private-1.2.8/validate.sh
           git diff --check
