@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build Core 1.1.29: grounded interleaved private asides and character self-state."""
+"""Build Core 1.1.30: adaptive romantic dialogue and reliable private asides."""
 from __future__ import annotations
 
 import shutil
@@ -26,13 +26,13 @@ def append_once(path: Path, marker: str, payload: str) -> None:
     path.write_text(text.rstrip() + "\n\n" + payload.strip() + "\n", encoding="utf-8")
 
 
-for name in ("character_state_v129.py", "chat_v129.py", "surface_v129.py"):
+for name in ("character_state_v129.py", "chat_v129.py", "surface_v129.py", "chat_v130.py", "surface_v130.py"):
     shutil.copy2(HERE / name, CORE / name)
 
-replace_once(CORE / "version.py", 'VERSION = "1.1.28"', 'VERSION = "1.1.29"', "Core 1.1.28")
-replace_once(CORE / "hub.py", 'EXPECTED_DEPENDENCY_REVISION = "2026.08.29-r78"', 'EXPECTED_DEPENDENCY_REVISION = "2026.08.30-r79"', "dependency r78")
-replace_once(CORE / "hub.py", "furina-2026.08.29-termux-1.1.28", "furina-2026.08.30-termux-1.1.29", "bundle 1.1.28")
-replace_once(CORE / "hub.py", 'expected_revision = "2026.08.29-r78"', 'expected_revision = "2026.08.30-r79"', "expected revision r78")
+replace_once(CORE / "version.py", 'VERSION = "1.1.28"', 'VERSION = "1.1.30"', "Core 1.1.28")
+replace_once(CORE / "hub.py", 'EXPECTED_DEPENDENCY_REVISION = "2026.08.29-r78"', 'EXPECTED_DEPENDENCY_REVISION = "2026.08.30-r80"', "dependency r78")
+replace_once(CORE / "hub.py", "furina-2026.08.29-termux-1.1.28", "furina-2026.08.30-termux-1.1.30", "bundle 1.1.28")
+replace_once(CORE / "hub.py", 'expected_revision = "2026.08.29-r78"', 'expected_revision = "2026.08.30-r80"', "expected revision r78")
 
 append_once(CORE / "chat.py", "FURINA_TERMUX_129_INTERLEAVED_PRIVATE_ASIDES", r'''
 # FURINA_TERMUX_129_INTERLEAVED_PRIVATE_ASIDES
@@ -45,5 +45,15 @@ from .surface_v129 import install_surface_v129
 install_surface_v129(globals())
 ''')
 
-print("FURINA_TERMUX_129_PRIVATE_ASIDE_SYSTEM_OK")
+append_once(CORE / "chat.py", "FURINA_TERMUX_130_ADAPTIVE_ROMANCE_ASIDES", r'''
+# FURINA_TERMUX_130_ADAPTIVE_ROMANCE_ASIDES
+from .chat_v130 import install_chat_v130
+install_chat_v130(globals())
+''')
+append_once(CORE / "chat_surface.py", "FURINA_TERMUX_130_RESTORED_LABEL_BLUE_ASIDES", r'''
+# FURINA_TERMUX_130_RESTORED_LABEL_BLUE_ASIDES
+from .surface_v130 import install_surface_v130
+install_surface_v130(globals())
+''')
 
+print("FURINA_TERMUX_130_ADAPTIVE_ROMANCE_SYSTEM_OK")

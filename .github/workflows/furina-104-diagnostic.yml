@@ -30,7 +30,7 @@ jobs:
           stage=Path('/tmp/furina-agent-rc54-validate/termux')
           core=stage/'core/furina_agent'
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
-          assert m['version']=='1.1.29'
+          assert m['version']=='1.1.30'
           assert m['termux_conversation_scope'].startswith('fresh-short-term-thread')
           assert m['shared_workspace'].startswith('single-local-core')
           assert m['memory_truth_policy'].startswith('explicit-direct')

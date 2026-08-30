@@ -1,4 +1,4 @@
-name: Validate and publish Furina Termux 1.1.29
+name: Validate and publish Furina Termux 1.1.30
 
 on:
   pull_request:
@@ -32,7 +32,7 @@ concurrency:
 
 env:
   UPDATE_CHANNEL_TAG: furina-update-stable
-  SNAPSHOT_NAME: furina-core-termux-private-1.1.29.tar
+  SNAPSHOT_NAME: furina-core-termux-private-1.1.30.tar
   CLIENT_NAME: furina-update.py
   STAGE_ROOT: /tmp/furina-agent-rc54-validate/termux
 
@@ -57,16 +57,16 @@ jobs:
           python3 - <<'PY'
           import json
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
-          assert m['version']=='1.1.29'
-          assert m['dependency_revision']=='2026.08.30-r79'
-          assert m['bundle_id']=='furina-2026.08.30-termux-1.1.29'
-          assert m['runtime_contract']=='furina-runtime/v30-grounded-private-asides-termux'
+          assert m['version']=='1.1.30'
+          assert m['dependency_revision']=='2026.08.30-r80'
+          assert m['bundle_id']=='furina-2026.08.30-termux-1.1.30'
+          assert m['runtime_contract']=='furina-runtime/v31-adaptive-romance-reliable-private-asides-termux'
           assert m['update_client_version']=='1.4.3'
           assert m['hub_update_ownership']=='retired-not-distributed'
           assert len(m['local_model_catalog'])==3
           assert m['personality_schema']==7
           assert m['training_room'].startswith('nine-category')
-          print('FURINA_TERMUX_129_MANIFEST_OK')
+          print('FURINA_TERMUX_130_MANIFEST_OK')
           PY
           git diff --check
 
@@ -98,9 +98,9 @@ jobs:
           if not legacy_apk: raise SystemExit('legacy APK compatibility metadata missing')
           stable='https://github.com/WynnDev-rill/furina/releases/download/furina-update-stable'
           channel={
-            'schema':1,'protocol':'furina-update/1','bundle_id':'furina-2026.08.30-termux-1.1.29','published_at':int(time.time()),
+            'schema':1,'protocol':'furina-update/1','bundle_id':'furina-2026.08.30-termux-1.1.30','published_at':int(time.time()),
             'surface':'termux','apk_distribution':'retired',
-            'core':{'version':'1.1.29','revision':'2026.08.30-r79','url':stable+'/furina-core-termux-private-1.1.29.tar','sha256':os.environ['SNAPSHOT_SHA'],'size':int(os.environ['SNAPSHOT_SIZE'])},
+            'core':{'version':'1.1.30','revision':'2026.08.30-r80','url':stable+'/furina-core-termux-private-1.1.30.tar','sha256':os.environ['SNAPSHOT_SHA'],'size':int(os.environ['SNAPSHOT_SIZE'])},
             'client':{'version':'1.4.3','url':stable+'/furina-update.py','sha256':os.environ['CLIENT_SHA'],'size':int(os.environ['CLIENT_SIZE'])},
             'apk':legacy_apk,
           }
@@ -110,11 +110,11 @@ jobs:
           import json,tarfile
           c=json.load(open('channel.json'))
           assert c['surface']=='termux' and c['apk_distribution']=='retired'
-          with tarfile.open('furina-core-termux-private-1.1.29.tar','r:') as archive:
+          with tarfile.open('furina-core-termux-private-1.1.30.tar','r:') as archive:
             names=set(archive.getnames())
             assert 'core/furina_agent/version.py' in names
             assert not any(name.startswith('bridge/') for name in names)
-          print('FURINA_TERMUX_129_TARGETS_OK')
+          print('FURINA_TERMUX_130_TARGETS_OK')
           PY
 
       - name: Publish stable Termux update channel
@@ -127,4 +127,4 @@ jobs:
           retry gh release upload "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" "$SNAPSHOT_NAME" "$CLIENT_NAME" furina-install.sh manifest.json --clobber
           # Mutable pointer last. No APK is built or uploaded.
           retry gh release upload "$UPDATE_CHANNEL_TAG" -R "$GITHUB_REPOSITORY" channel.json --clobber
-          echo FURINA_TERMUX_129_PUBLISHED
+          echo FURINA_TERMUX_130_PUBLISHED

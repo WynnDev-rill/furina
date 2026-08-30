@@ -1,6 +1,6 @@
 # Instalasi Furina Termux
 
-Private build saat ini: Core `1.1.29`, dependency revision `2026.08.30-r79`. FurinaHub tidak didistribusikan oleh installer/updater untuk sementara; source dan rilis lamanya tidak dihapus.
+Private build saat ini: Core `1.1.30`, dependency revision `2026.08.30-r80`. FurinaHub tidak didistribusikan oleh installer/updater untuk sementara; source dan rilis lamanya tidak dihapus.
 
 ## Instalasi baru
 
