@@ -1,4 +1,4 @@
-name: Furina Termux 1.1.30 Work Validation
+name: Furina Termux 1.1.31 Work Validation
 on:
   pull_request:
     branches: [experiment/furina-agent-termux]
@@ -11,7 +11,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Reconstruct and validate 1.1.30
+      - name: Reconstruct and validate 1.1.31
         shell: bash
         run: |
           set -euo pipefail

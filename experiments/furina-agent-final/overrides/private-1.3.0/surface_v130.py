@@ -30,8 +30,8 @@ def install_surface_v130(ns: dict) -> None:
         table = Table.grid(padding=(0, 1))
         table.add_column(no_wrap=True)
         table.add_column(ratio=1, overflow="fold")
-        # Restore the original turquoise label for both sides. Blue is reserved for private asides.
-        label = Text(f"[{name}] :", style="bold bright_cyan")
+        # Preserve the original dialogue hierarchy. Blue belongs only to silent utterances.
+        label = Text(f"[{name}] :", style="bold #5de4c7" if assistant else "bold #e8b86d")
         table.add_row(label, _body_renderable(body) if assistant else Text(str(body or " ")))
         return table
 

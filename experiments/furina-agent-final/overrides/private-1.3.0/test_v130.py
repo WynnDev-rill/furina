@@ -27,7 +27,7 @@ state.update({"inner_thoughts": True, "roleplay_mode": False, "partner_mode": Tr
 hub_settings.save_hub_settings(state)
 
 policy = romantic_turn_policy_v130("Aku capek hari ini", partner_mode=True, roleplay_mode=False, nickname="Sayang")
-assert "responsiveness" in policy and "Panggilan eksplisit user adalah Sayang" in policy
+assert "responsiveness" in policy and "Panggilan yang user ajarkan adalah Sayang" in policy
 assert "romantis lewat ucapan langsung" in policy and "kalian berpacaran" in policy
 assert likely_ungrounded_scene_v130("Cuaca cerah. Ayo kita jogging di taman dekat sini.", "hari ini bagaimana?", roleplay_mode=False)
 assert not likely_ungrounded_scene_v130("Aku senang kamu mengabariku, Sayang.", "halo", roleplay_mode=False)
@@ -37,7 +37,7 @@ assert not likely_ungrounded_scene_v130("*Aku memelukmu.*", "peluk aku", rolepla
 address_chat = FurinaChat(cfg, store, FakeLLM(["Baik, Sayang. Aku ingat."]))
 address_chat.respond("Mulai sekarang panggil aku Sayang")
 assert store.get_state("partner_address_v130", {})["value"] == "Sayang"
-assert "Panggilan eksplisit user adalah Sayang" in address_chat._messages("lanjut", __import__("furina_agent.response", fromlist=["choose_profile"]).choose_profile("lanjut", store))[0]["content"]
+assert "Panggilan yang user ajarkan adalah Sayang" in address_chat._messages("lanjut", __import__("furina_agent.response", fromlist=["choose_profile"]).choose_profile("lanjut", store))[0]["content"]
 
 shown = format_private_reply_v130("Jangan senyum begitu. Aku jadi sulit mempertahankan gengsiku.", "Sial, aku memang senang.", 1)
 assert shown == "Jangan senyum begitu.\n\n> Sial, aku memang senang.\n\nAku jadi sulit mempertahankan gengsiku."
@@ -66,6 +66,6 @@ repaired = FurinaChat(cfg, store, repair_llm).respond("pagi lagi")
 assert repaired == fixed and len(repair_llm.calls) == 2
 
 surface = (Path(__import__("furina_agent.chat", fromlist=["x"]).__file__).parent / "surface_v130.py").read_text(encoding="utf-8")
-assert 'style="bold bright_cyan"' in surface and "bright_magenta" not in surface and "#60a5fa" in surface
+assert '"bold #5de4c7" if assistant else "bold #e8b86d"' in surface and "bright_magenta" not in surface and "#60a5fa" in surface
 
 print("FURINA_TERMUX_130_ADAPTIVE_ROMANCE_RUNTIME_OK")

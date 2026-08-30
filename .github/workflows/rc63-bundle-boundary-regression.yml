@@ -1,4 +1,4 @@
-name: Furina Termux 1.1.30 Boundary Regression
+name: Furina Termux 1.1.31 Boundary Regression
 
 on:
   pull_request:
@@ -56,7 +56,7 @@ jobs:
           import json
           from pathlib import Path
           installer=Path('experiments/furina-agent-final/install.sh').read_text(); active='\n'.join(x for x in installer.splitlines() if not x.lstrip().startswith('#'))
-          for token in ('FURINA_UPDATER_GENERATION="45"','VERSION="1.1.30"','DEPENDENCY_REVISION="2026.08.30-r80"','RUNTIME_CONTRACT="furina-runtime/v31-adaptive-romance-reliable-private-asides-termux"'):
+          for token in ('FURINA_UPDATER_GENERATION="46"','VERSION="1.1.31"','DEPENDENCY_REVISION="2026.08.30-r81"','RUNTIME_CONTRACT="furina-runtime/v32-adaptive-voice-live-training-parity-termux"'):
               assert token in active,token
           assert 'apk-only' not in active
           m=json.load(open('experiments/furina-agent-final/manifest.json'))
