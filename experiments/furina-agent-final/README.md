@@ -80,15 +80,15 @@ Updater memvalidasi channel dan snapshot Core, lalu mengganti Core secara atomik
 
 ## Current versions
 
-- Core: `1.1.30`
+- Core: `1.1.31`
 - FurinaHub: tidak didistribusikan (rilis lama dipertahankan)
-- Dependency revision: `2026.08.30-r80`
-- Bundle: `furina-2026.08.30-termux-1.1.30`
+- Dependency revision: `2026.08.30-r81`
+- Bundle: `furina-2026.08.30-termux-1.1.31`
 - Update client: `1.4.3`
-- Runtime contract: `furina-runtime/v31-adaptive-romance-reliable-private-asides-termux`
+- Runtime contract: `furina-runtime/v32-adaptive-voice-live-training-parity-termux`
 
 Training Room memakai 90 kontrol percakapan Indonesia yang dikurasi dan netral dari personalisasi, bukan menyalin chat publik mentah. Pilihan A/B serta `Lewati` memakai carousel panah kiri/kanan; prompt yang dijawab atau dilewati dipensiunkan permanen. Setelah kontrol kategori habis, prompt baru diturunkan secara netral dari kontrak kualitas. `Saran latihan di chat` tersedia sebagai satu toggle opt-in dengan batas otomatis yang tidak memerlukan pengaturan frekuensi.
 
-Core 1.1.30 memakai identitas manusia netral dengan nama yang dapat diganti, tanpa watak Furina/Genshin bawaan. Mode pasangan memilih gerak romantis secara adaptif—responsivitas, afeksi timbal balik, keterbukaan kecil, candaan, perhatian praktis, atau repair—serta memakai panggilan eksplisit pengguna secara natural. RolePlay nonaktif tetap menjaga romansa sebagai ucapan langsung tanpa mengarang kehadiran fisik. Fitur `Pikiran dalam hati` memakai penentu relevansi, cooldown, dan pemulihan dari giliran relevan yang terlewat agar sisipan biru muncul pada momen bermakna tanpa dipaksa setiap giliran. State dan teks sisipan tetap terpisah dari memori percakapan.
+Core 1.1.31 mengembalikan warna identitas dialog asli: user emas muda, companion turquoise, dan hanya ujaran batin yang berwarna biru. Nama tetap identitas tampilan; panggilan yang diajarkan user dipilih menurut konteks serta ditekan saat baru sering dipakai. Acknowledgement pendek membaca momentum percakapan dan tidak otomatis menutup dengan bahasa chatbot. `Pikiran dalam hati` kini wajib berupa kata-kata privat kepada diri sendiri, bukan caption keadaan tubuh. Saran latihan di chat menghasilkan A/B secara terpisah melalui riwayat, persona, memori, panjang adaptif, dan quality gate yang sama dengan chat normal.
 
 See [`INSTALL.md`](./INSTALL.md) for the operational flow.

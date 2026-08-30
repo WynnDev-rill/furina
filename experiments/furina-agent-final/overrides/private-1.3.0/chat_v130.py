@@ -15,6 +15,9 @@ _CONFLICT = re.compile(r"\b(?:kesal|marah|jangan begitu|berhenti|stop|nggak suka
 _PRACTICAL = re.compile(r"\b(?:cara|kenapa|error|kode|teknis|jelaskan|analisis|langkah|bagaimana membuat)\b", re.I)
 _QUESTION = re.compile(r"[?]|\b(?:kenapa|mengapa|bagaimana|gimana|apa|siapa|kapan|dimana|di mana)\b", re.I)
 _TRIVIAL = re.compile(r"^(?:hai+|halo+|pagi|siang|sore|malam|iya+|ya+|oke+|ok|hm+|oh+|sip|makasih|terima kasih)[.!?~ ]*$", re.I)
+_ACK = re.compile(r"^(?:iya+|ya+|oke+|ok|hm+|hmm+|oh+|sip|baik)[.!?~\"' ]*$", re.I)
+_EXPLICIT_END = re.compile(r"\b(?:udah dulu|cukup dulu|sampai nanti|selamat tinggal|bye|mau tidur|aku pergi dulu)\b", re.I)
+_BOT_CLOSURE = re.compile(r"\b(?:kalau ada lagi|jika ada lagi|yang bisa kubantu|aku siap mendengarkan|ada yang mau dibahas)\b", re.I)
 _ADDRESS_PATTERNS = (
     re.compile(r"\b(?:panggil|sebut)(?:lah)?\s+(?:aku|saya)(?:\s+dengan)?(?:\s+panggilan)?\s+[\"']?([A-Za-zÀ-ÖØ-öø-ÿ-]{2,24})", re.I),
     re.compile(r"\b(?:pakai|gunakan)\s+(?:panggilan\s+)?[\"']?([A-Za-zÀ-ÖØ-öø-ÿ-]{2,24})[\"']?\s+(?:daripada|alih-alih)\s+(?:nama|namaku)", re.I),
@@ -31,7 +34,7 @@ _SCENE_RISK = re.compile(
 )
 
 
-def romantic_turn_policy(user_text: str, *, partner_mode: bool, roleplay_mode: bool, nickname: str = "") -> str:
+def romantic_turn_policy(user_text: str, *, partner_mode: bool, roleplay_mode: bool, nickname: str = "", address_recent: int = 0) -> str:
     if not partner_mode:
         return "MODE PASANGAN NONAKTIF: gunakan kedekatan companion non-romantis; jangan mengklaim hubungan romantis."
     text = " ".join(str(user_text or "").split())
@@ -50,7 +53,9 @@ def romantic_turn_policy(user_text: str, *, partner_mode: bool, roleplay_mode: b
     else:
         move = "everyday intimacy: reaksi singkat, akrab, dan punya pendapat; boleh hangat atau menggoda sesuai momentum"
     address = (
-        f"Panggilan eksplisit user adalah {nickname}; boleh dipakai bila memberi tekanan emosional yang natural, bukan di setiap respons."
+        f"Panggilan yang user ajarkan adalah {nickname}. Itu pilihan kontekstual, bukan pengganti nama atau kata ganti. "
+        + ("Sudah cukup sering muncul belakangan; hindari pada giliran ini kecuali momen emosionalnya benar-benar membutuhkan."
+           if address_recent >= 2 else "Pakai hanya bila momen afeksi, kerentanan, atau repair membuatnya terasa spontan; boleh sama sekali tidak dipakai.")
         if nickname else
         "Jangan mengarang panggilan romantis baru; kedekatan tetap dapat terasa lewat responsivitas dan pilihan kata."
     )
@@ -87,7 +92,33 @@ def _remembered_address(store, fallback: str = "") -> str:
                 value = match.group(1).strip().title()
                 store.set_state("partner_address_v130", {"value": value, "source": "explicit_memory"})
                 return value
-    return " ".join(str(fallback or "").split())[:24]
+    # Display name is identity, not automatically a romantic term of address.
+    return ""
+
+
+def _recent_address_count(store, address: str) -> int:
+    if not address:
+        return 0
+    pattern = re.compile(rf"\b{re.escape(address)}\b", re.I)
+    try:
+        return sum(1 for row in store.recent_messages(12)
+                   if row.get("role") == "assistant" and pattern.search(str(row.get("content") or "")))
+    except Exception:
+        return 0
+
+
+def continuation_policy(user_text: str, recent: list[dict]) -> str:
+    text = " ".join(str(user_text or "").split())
+    if not _ACK.fullmatch(text) or _EXPLICIT_END.search(text):
+        return ""
+    previous = next((str(row.get("content") or "") for row in reversed(recent or []) if row.get("role") == "assistant"), "")
+    if _AFFECTION.search(previous) or _PLAYFUL.search(previous):
+        momentum = "Momentum sebelumnya akrab/playful: balas pendek dengan satu beat relasional yang hidup; jangan menutup seperti layanan pelanggan."
+    elif _VULNERABLE.search(previous):
+        momentum = "Momentum sebelumnya rentan/serius: akui detail terakhir dengan ringkas, beri ruang, dan bertanya hanya bila memang ada hal belum dipahami."
+    else:
+        momentum = "Baca apakah topik sebelumnya selesai. Jika selesai, cukup reaksi natural; jika masih menggantung, lanjutkan satu langkah kecil tanpa memaksakan topik baru."
+    return "ACK ADAPTIF: pesan pendek bukan otomatis tanda percakapan selesai. " + momentum + " Jangan memakai kalimat seperti 'kalau ada lagi aku siap membantu/mendengarkan'."
 
 
 def _observe_address(store, user_text: str) -> str:
@@ -144,6 +175,8 @@ def _valid_aside(text: str, *, partner_mode: bool) -> bool:
         return False
     if _FORBIDDEN_ASIDE.search(text) or re.search(r"[*\[\]{}<>]", text):
         return False
+    if re.search(r"\b(?:dadaku|jantungku|pipiku|wajahku|tanganku|tubuhku|napasku|berdebar|memanas|memerah|gemetar|aku merasa|aku sedang merasa)\b", text, re.I):
+        return False
     if not partner_mode and re.search(r"\b(?:cinta|pacar|pasangan|milikku|mencintai)\b", text, re.I):
         return False
     return True
@@ -167,13 +200,18 @@ def install_chat_v130(ns: dict) -> None:
         if rows and rows[0].get("role") == "system":
             settings = load_hub_settings()
             observed = _observe_address(self.store, user_text)
-            address = observed or _remembered_address(self.store, str(settings.get("user_nickname") or getattr(self.cfg, "user_nickname", "") or ""))
+            address = observed or _remembered_address(self.store)
+            recent = self.store.recent_messages(12)
             rows[0] = {**rows[0], "content": str(rows[0].get("content") or "") + "\n\n" + romantic_turn_policy(
                 user_text,
                 partner_mode=bool(settings.get("partner_mode")),
                 roleplay_mode=bool(settings.get("roleplay_mode")),
                 nickname=address,
+                address_recent=_recent_address_count(self.store, address),
             )}
+            continuation = continuation_policy(user_text, recent)
+            if continuation:
+                rows[0]["content"] += "\n" + continuation
         return rows
 
     def compose_private_aside(self, user_text: str, answer: str, *, source_message_id: int | None, turn: int) -> tuple[str, int]:
@@ -202,7 +240,7 @@ def install_chat_v130(ns: dict) -> None:
         roleplay_mode = bool(settings.get("roleplay_mode"))
         indexed = "\n".join(f"{i + 1}. {part}" for i, part in enumerate(parts))
         prompt = f"""
-Tulis satu subteks batin karakter untuk disisipkan di antara dua bagian ucapan. Ini bukan reasoning, analisis, atau penjelasan teknis.
+Tulis satu kalimat yang karakter UCAPKAN DI DALAM PIKIRANNYA kepada diri sendiri, lalu sisipkan di antara dua bagian ucapan. Ini bukan reasoning, analisis, atau penjelasan teknis.
 
 Pesan user:
 {str(user_text)[:1200]}
@@ -214,8 +252,8 @@ Keadaan ekspresi:
 {state_context}
 
 Momen ini sudah dipilih penentu relevansi (salience={score:.2f}); output show=true kecuali tidak mungkin menulis subteks yang aman.
-- Aside adalah hal kecil yang karakter rasakan tetapi tidak ia ucapkan: malu, senang diam-diam, ragu, geli, khawatir, atau kesal ringan.
-- Tulis orang pertama 3-12 kata. Jangan menyapa user, bertanya, mengulang ucapan, atau menjelaskan niat menjawab.
+- Bentuknya kata-kata batin yang sengaja tidak diucapkan, misalnya penilaian, keraguan, keinginan kecil, atau kontradiksi. Bukan laporan keadaan tubuh/perasaan seperti "dadaku berdebar", "pipiku memerah", atau "aku merasa gugup".
+- Tulis 3-12 kata sebagai ujaran privat yang alami. Boleh merujuk dia secara orang ketiga, tetapi jangan menyapanya, bertanya kepadanya, mengulang ucapan, atau menjelaskan proses menjawab.
 - Jangan buat fakta, rahasia besar, ingatan, aktivitas, tubuh, tempat, masa lalu, atau rencana baru.
 - Jangan berisi AI, sistem, prompt, reasoning, instruksi, atau proses kerja.
 - RolePlay={'aktif' if roleplay_mode else 'nonaktif'}; saat nonaktif tidak ada aksi/adegan.
@@ -291,9 +329,10 @@ Output JSON saja:
             settings = load_hub_settings()
             overlong = plan.target_words < 220 and _words(answer) > plan.soft_upper_words
             chatbot = bool(_CHATBOT.search(answer)) and plan.complexity < .70
+            closure = bool(_ACK.fullmatch(user_text) and _BOT_CLOSURE.search(answer))
             scene = likely_ungrounded_scene(answer, user_text, roleplay_mode=bool(settings.get("roleplay_mode")))
-            if overlong or chatbot or scene:
-                reason = "mengarang adegan/kehadiran fisik" if scene else "terlalu panjang untuk momentum giliran" if overlong else "terdengar seperti chatbot"
+            if overlong or chatbot or scene or closure:
+                reason = "menutup momentum seperti chatbot" if closure else "mengarang adegan/kehadiran fisik" if scene else "terlalu panjang untuk momentum giliran" if overlong else "terdengar seperti chatbot"
                 repaired = [dict(row) for row in messages_for_turn]
                 repaired[0]["content"] = str(repaired[0].get("content") or "") + "\n\n" + (
                     f"REPAIR FINAL: Kandidat pertama {reason}. Tulis ulang dari awal, tetap tuntas dan tetap romantis bila Mode pasangan aktif. "
