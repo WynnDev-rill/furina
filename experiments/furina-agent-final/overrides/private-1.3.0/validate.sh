@@ -17,13 +17,13 @@ fi
 python3 "$HERE/apply.py" "$ROOT"
 python3 -m py_compile "$ROOT"/core/furina_agent/*.py "$HERE"/*.py
 
-grep -Fq 'VERSION = "1.1.29"' "$ROOT/core/furina_agent/version.py"
-grep -Fq 'EXPECTED_DEPENDENCY_REVISION = "2026.08.30-r79"' "$ROOT/core/furina_agent/hub.py"
+grep -Fq 'VERSION = "1.1.30"' "$ROOT/core/furina_agent/version.py"
+grep -Fq 'EXPECTED_DEPENDENCY_REVISION = "2026.08.30-r80"' "$ROOT/core/furina_agent/hub.py"
 grep -Fq 'FURINA_TERMUX_129_INTERLEAVED_PRIVATE_ASIDES' "$ROOT/core/furina_agent/chat.py"
 grep -Fq 'FURINA_TERMUX_129_BLUE_ASIDE_RENDERER' "$ROOT/core/furina_agent/chat_surface.py"
 
 TEST_HOME="$(mktemp -d)"
 HOME="$TEST_HOME" FURINA_HOME="$TEST_HOME" PYTHONPATH="$ROOT/core" python3 "$HERE/test_v129.py"
+HOME="$TEST_HOME" FURINA_HOME="$TEST_HOME" PYTHONPATH="$ROOT/core" python3 "$HERE/test_v130.py"
 
-echo FURINA_TERMUX_129_VALIDATION_OK
-
+echo FURINA_TERMUX_130_VALIDATION_OK

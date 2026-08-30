@@ -80,15 +80,15 @@ Updater memvalidasi channel dan snapshot Core, lalu mengganti Core secara atomik
 
 ## Current versions
 
-- Core: `1.1.29`
+- Core: `1.1.30`
 - FurinaHub: tidak didistribusikan (rilis lama dipertahankan)
-- Dependency revision: `2026.08.30-r79`
-- Bundle: `furina-2026.08.30-termux-1.1.29`
+- Dependency revision: `2026.08.30-r80`
+- Bundle: `furina-2026.08.30-termux-1.1.30`
 - Update client: `1.4.3`
-- Runtime contract: `furina-runtime/v30-grounded-private-asides-termux`
+- Runtime contract: `furina-runtime/v31-adaptive-romance-reliable-private-asides-termux`
 
 Training Room memakai 90 kontrol percakapan Indonesia yang dikurasi dan netral dari personalisasi, bukan menyalin chat publik mentah. Pilihan A/B serta `Lewati` memakai carousel panah kiri/kanan; prompt yang dijawab atau dilewati dipensiunkan permanen. Setelah kontrol kategori habis, prompt baru diturunkan secara netral dari kontrak kualitas. `Saran latihan di chat` tersedia sebagai satu toggle opt-in dengan batas otomatis yang tidak memerlukan pengaturan frekuensi.
 
-Core 1.1.29 memakai identitas manusia netral dengan nama yang dapat diganti, tanpa watak Furina/Genshin bawaan. Turn planner menggabungkan konteks, tingkat kesulitan, ketidakpastian, ritme lintas percakapan, kosakata personal, dan hasil Training Room menjadi sasaran panjang yang lunak—kalimat tidak dipotong. RolePlay nonaktif dijaga di output model online. Saat fitur `Pikiran dalam hati` aktif, subteks hanya dapat muncul sebagai sisipan biru tanpa label di antara dua bagian ucapan. Sapaan dan giliran tanpa subteks tidak memaksanya. State karakter disimpan terpisah sebagai emosi/sikap singkat yang memiliki sumber dan kedaluwarsa; teks sisipan tidak menjadi memori.
+Core 1.1.30 memakai identitas manusia netral dengan nama yang dapat diganti, tanpa watak Furina/Genshin bawaan. Mode pasangan memilih gerak romantis secara adaptif—responsivitas, afeksi timbal balik, keterbukaan kecil, candaan, perhatian praktis, atau repair—serta memakai panggilan eksplisit pengguna secara natural. RolePlay nonaktif tetap menjaga romansa sebagai ucapan langsung tanpa mengarang kehadiran fisik. Fitur `Pikiran dalam hati` memakai penentu relevansi, cooldown, dan pemulihan dari giliran relevan yang terlewat agar sisipan biru muncul pada momen bermakna tanpa dipaksa setiap giliran. State dan teks sisipan tetap terpisah dari memori percakapan.
 
 See [`INSTALL.md`](./INSTALL.md) for the operational flow.
