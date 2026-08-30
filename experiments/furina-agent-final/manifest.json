@@ -1,5 +1,5 @@
 {
-  "version": "1.1.28",
+  "version": "1.1.29",
   "channel": "termux-private",
   "source_sha256": "6b51c907c8a79ab6af06ef891b5013ce8ed964bdc168cf0e71751eacf4161fea",
   "source_bytes": 48149,
@@ -14,8 +14,8 @@
   "hub_name": "FurinaHub",
   "hub_host": "127.0.0.1",
   "hub_port": 8787,
-  "dependency_revision": "2026.08.29-r78",
-  "bundle_id": "furina-2026.08.29-termux-1.1.28",
+  "dependency_revision": "2026.08.30-r79",
+  "bundle_id": "furina-2026.08.30-termux-1.1.29",
   "bridge_version": "1.1.15",
   "bridge_version_code": 10083,
   "bridge_release_base": "https://github.com/WynnDev-rill/furina/releases/download/furinahub-v1.1.15",
@@ -94,7 +94,7 @@
   ],
   "recovery": "single-client-verified-core-snapshot-rollback",
   "update_commit": "atomic-core-swap-user-data-and-historical-bridge-untouched",
-  "runtime_contract": "furina-runtime/v29-adaptive-human-dialogue-termux",
+  "runtime_contract": "furina-runtime/v30-grounded-private-asides-termux",
   "bundle_state_source": "installed_bundle.json-authoritative-with-legacy-marker-migration",
   "apk_update_confirmation": "retired; legacy channel metadata exists only to migrate updater 1.2 clients",
   "ai_work_scheduler": "ordered-bounded-64-local-idle-deferred-no-model-title-worker",
@@ -108,5 +108,7 @@
   "response_adaptation": "continuous turn planner blends message complexity, emotion, uncertainty, learned user rhythm and Training Room length evidence into soft targets; complete sentences and important content are never hard-truncated",
   "human_identity_policy": "editable companion name roleplays a human conversational identity without inherited Furina or Genshin characterization and without visible AI, chatbot, model or system self-reference",
   "style_memory": "cross-conversation EWMA learns user message rhythm and casuality without retaining message text; PersonalLexicon is active in runtime prompts and applies 1-2 context-fit learned words without copying typos",
-  "character_inner_thoughts": "disabled-by-default Advanced toggle; separate short fictional emotional subtext generated after the spoken answer, explicitly isolated from model reasoning and never stored as dialogue memory"
+  "character_inner_thoughts": "disabled-by-default Advanced toggle; an unlabeled blue private aside may appear only between two spoken segments when emotional subtext is grounded; never model reasoning and never stored as dialogue memory",
+  "character_self_state": "separate bounded emotion-and-stance state with source-message provenance, confidence gate, turn TTL and time decay; contains no raw aside or second copy of user memory",
+  "private_aside_fail_closed": "trivial turns skip composition; invalid, unsafe, roleplay-leaking, romantic-overreach or edge-position candidates are discarded while the complete spoken reply remains intact"
 }
