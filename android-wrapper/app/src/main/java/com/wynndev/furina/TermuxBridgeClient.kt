@@ -46,14 +46,13 @@ class TermuxBridgeClient(context: Context) {
             .let { Base64.encodeToString(it, Base64.NO_WRAP or Base64.URL_SAFE).trimEnd('=') }
         val intent = Intent(ACTION_RUN_COMMAND).apply {
             component = ComponentName(TERMUX_PACKAGE, TERMUX_RUN_SERVICE)
-            putExtra(EXTRA_COMMAND_PATH, TERMUX_PYTHON)
+            putExtra(EXTRA_COMMAND_PATH, TERMUX_BASH)
             putExtra(
                 EXTRA_ARGUMENTS,
                 arrayOf(
-                    "-c",
-                    "import furina_agent.hub as hub; hub.main()",
-                    "--replace",
-                    "--token",
+                    "-lc",
+                    "ROOT=\"\$HOME/.furina-agent\"; export FURINA_HOME=\"\$ROOT\"; export PYTHONPATH=\"\$ROOT/core\${PYTHONPATH:+:\$PYTHONPATH}\"; exec python -c 'import furina_agent.hub as hub; hub.main()' --replace --token \"\$1\"",
+                    "furinahub-native",
                     nextToken,
                 ),
             )
@@ -140,7 +139,7 @@ class TermuxBridgeClient(context: Context) {
         private const val BASE_URL = "http://127.0.0.1:8787/"
         private const val TERMUX_PACKAGE = "com.termux"
         private const val TERMUX_RUN_SERVICE = "com.termux.app.RunCommandService"
-        private const val TERMUX_PYTHON = "/data/data/com.termux/files/usr/bin/python"
+        private const val TERMUX_BASH = "/data/data/com.termux/files/usr/bin/bash"
         private const val TERMUX_HOME = "/data/data/com.termux/files/home"
         private const val ACTION_RUN_COMMAND = "com.termux.RUN_COMMAND"
         private const val EXTRA_COMMAND_PATH = "com.termux.RUN_COMMAND_PATH"
