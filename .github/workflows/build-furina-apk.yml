@@ -280,20 +280,20 @@ jobs:
           grep -q '69b11ec474d557c92de2bc329cccbaaac488d0dcb99c9b1ba78f6c5e1d9cd1a7' apk-signing.txt
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | tee apk-badging.txt
           grep -q "package: name='com.wynndev.furina'" apk-badging.txt
-          grep -q "application-label:'Furina'" apk-badging.txt
+          grep -q "application-label:'FurinaHub'" apk-badging.txt
           grep -Eq "application-icon-[0-9]+:'res/.+\\.png'" apk-badging.txt
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump permissions "$APK" | tee apk-permissions.txt
           grep -q 'android.permission.INTERNET' apk-permissions.txt
           grep -q 'android.permission.FOREGROUND_SERVICE_DATA_SYNC' apk-permissions.txt
-          cp "$APK" Furina-Stable.apk
-          ls -lh Furina-Stable.apk
+          cp "$APK" FurinaHub-Native.apk
+          ls -lh FurinaHub-Native.apk
 
       - name: Upload Furina stable APK
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/upload-artifact@v4
         with:
-          name: Furina-Stable-${{ github.run_number }}
-          path: Furina-Stable.apk
+          name: FurinaHub-Native-${{ github.run_number }}
+          path: FurinaHub-Native.apk
           if-no-files-found: error
           retention-days: 90
 
