@@ -66,6 +66,8 @@ data class HubUiState(
     val androidModels: List<AndroidModelState> = emptyList(),
     val providers: List<ProviderState> = emptyList(),
     val selectedProvider: String = "openrouter",
+    val chatAppearance: ChatAppearance = ChatAppearance(),
+    val wallpaperBusy: Boolean = false,
 )
 
 val FurinaTraits = listOf(

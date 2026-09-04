@@ -1,17 +1,21 @@
 package com.wynndev.furina
 
 import android.Manifest
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Bundle
+import android.widget.VideoView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -53,14 +57,16 @@ import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.Movie
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -81,6 +87,7 @@ import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -89,6 +96,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -101,6 +109,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -108,21 +117,32 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.findViewTreeLifecycleOwner
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class NativeHubActivity : ComponentActivity() {
     private lateinit var controller: NativeHubController
@@ -191,6 +211,19 @@ private val DarkColors = darkColorScheme(
     background = Color(0xFF111016),
 )
 
+private val BaseTypography = Typography()
+private val HubTypography = Typography(
+    headlineSmall = BaseTypography.headlineSmall.copy(fontFamily = FontFamily.SansSerif),
+    titleLarge = BaseTypography.titleLarge.copy(fontFamily = FontFamily.SansSerif),
+    titleMedium = BaseTypography.titleMedium.copy(fontFamily = FontFamily.SansSerif),
+    bodyLarge = BaseTypography.bodyLarge.copy(fontFamily = FontFamily.SansSerif),
+    bodyMedium = BaseTypography.bodyMedium.copy(fontFamily = FontFamily.SansSerif),
+    bodySmall = BaseTypography.bodySmall.copy(fontFamily = FontFamily.SansSerif),
+    labelLarge = BaseTypography.labelLarge.copy(fontFamily = FontFamily.SansSerif),
+    labelMedium = BaseTypography.labelMedium.copy(fontFamily = FontFamily.SansSerif),
+    labelSmall = BaseTypography.labelSmall.copy(fontFamily = FontFamily.SansSerif),
+)
+
 @Composable
 private fun FurinaHubTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
@@ -209,7 +242,7 @@ private fun FurinaHubTheme(content: @Composable () -> Unit) {
         }
         onDispose { }
     }
-    MaterialTheme(colorScheme = colors, content = content)
+    MaterialTheme(colorScheme = colors, typography = HubTypography, content = content)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -257,19 +290,17 @@ private fun FurinaHubApp(
             topBar = {
                 TopAppBar(
                     title = {
-                        Column {
-                            Text(
-                                when (state.destination) {
-                                    HubDestination.CHAT -> state.assistantName
-                                    HubDestination.PERSONA -> "Persona"
-                                    HubDestination.MEMORY -> "Memori"
-                                    HubDestination.SETTINGS -> "Pengaturan"
-                                },
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            if (state.destination == HubDestination.CHAT) Text(state.activeSource, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        Text(
+                            when (state.destination) {
+                                HubDestination.CHAT -> state.assistantName
+                                HubDestination.PERSONA -> "Persona"
+                                HubDestination.MEMORY -> "Memori"
+                                HubDestination.SETTINGS -> "Pengaturan"
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontWeight = FontWeight.SemiBold,
+                        )
                     },
                     navigationIcon = {
                         if (state.destination == HubDestination.CHAT) IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) {
@@ -277,7 +308,9 @@ private fun FurinaHubApp(
                         }
                     },
                     actions = {
-                        ConnectionPill(state.connected, state.busy, onConnect)
+                        ConnectionPill(state.connected, state.connectionState == "checking" || state.connectionState == "connecting") {
+                            if (state.connected) controller.setDestination(HubDestination.SETTINGS) else onConnect()
+                        }
                         if (state.destination == HubDestination.CHAT) IconButton(onClick = controller::newConversation) {
                             Icon(Icons.Outlined.Add, "Percakapan baru")
                         }
@@ -321,16 +354,25 @@ private fun RowScope.DestinationItem(
 }
 
 @Composable
-private fun ConnectionPill(connected: Boolean, busy: Boolean, onConnect: () -> Unit) {
-    AssistChip(
-        onClick = onConnect,
-        label = { Text(if (busy) "Menghubungkan" else if (connected) "Core aktif" else "Hubungkan") },
-        leadingIcon = {
-            if (busy) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-            else Box(Modifier.size(9.dp).clip(CircleShape).background(if (connected) Color(0xFF2BA56B) else MaterialTheme.colorScheme.outline))
-        },
+private fun ConnectionPill(connected: Boolean, busy: Boolean, onClick: () -> Unit) {
+    val container = if (connected) Color(0xFF2BA56B).copy(alpha = .14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .7f)
+    val content = if (connected) Color(0xFF54C98D) else MaterialTheme.colorScheme.onSurfaceVariant
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = container,
         modifier = Modifier.padding(end = 4.dp),
-    )
+    ) {
+        Row(
+            Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            if (busy) CircularProgressIndicator(Modifier.size(13.dp), strokeWidth = 1.8.dp, color = content)
+            else Box(Modifier.size(7.dp).clip(CircleShape).background(content))
+            Text(if (connected) "Core" else "Sambungkan", style = MaterialTheme.typography.labelMedium, color = content, fontWeight = FontWeight.Medium)
+        }
+    }
 }
 
 @Composable
@@ -397,57 +439,69 @@ private fun ChatScreen(
     LaunchedEffect(state.messages.size, state.messages.lastOrNull()?.content) {
         if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
     }
-    Column(modifier.fillMaxSize().imePadding()) {
-        if (state.connectionState == "checking") LinearProgressIndicator(Modifier.fillMaxWidth())
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            if (state.messages.isEmpty()) item { WelcomeCard(state) }
-            items(state.messages, key = { it.id }) { message -> MessageBubble(message) }
-        }
-        Text(
-            state.status,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 3.dp),
-        )
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
-            OutlinedTextField(
-                value = input,
-                onValueChange = { input = it.take(12_000) },
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("Kirim pesan…") },
-                minLines = 1,
-                maxLines = 6,
-                shape = RoundedCornerShape(24.dp),
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = {
-                    if (input.isNotBlank() && !state.busy) {
-                        val value = input
-                        input = ""
-                        keyboard?.hide()
-                        send(value)
-                    }
-                }),
-            )
-            Spacer(Modifier.width(8.dp))
-            FilledIconButton(
-                onClick = {
-                    if (state.busy) stop()
-                    else if (input.isNotBlank()) {
-                        val value = input
-                        input = ""
-                        keyboard?.hide()
-                        send(value)
-                    }
-                },
-                enabled = state.busy || input.isNotBlank(),
-                modifier = Modifier.size(52.dp),
+    Box(modifier.fillMaxSize()) {
+        ChatWallpaper(state.chatAppearance, Modifier.fillMaxSize())
+        Column(Modifier.fillMaxSize().imePadding()) {
+            if (state.connectionState == "checking") LinearProgressIndicator(Modifier.fillMaxWidth())
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Icon(if (state.busy) Icons.Outlined.Stop else Icons.AutoMirrored.Outlined.Send, if (state.busy) "Hentikan" else "Kirim")
+                if (state.messages.isEmpty()) item { WelcomeCard(state) }
+                items(state.messages, key = { it.id }) { message -> MessageBubble(message) }
+            }
+            Surface(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = .93f),
+                tonalElevation = 2.dp,
+            ) {
+                Column {
+                    AnimatedVisibility(state.busy) {
+                        Text(
+                            state.status.takeUnless { it.startsWith("Core ") } ?: "Menyiapkan respons…",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 20.dp, top = 7.dp),
+                        )
+                    }
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
+                        OutlinedTextField(
+                            value = input,
+                            onValueChange = { input = it.take(12_000) },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("Kirim pesan…") },
+                            minLines = 1,
+                            maxLines = 6,
+                            shape = RoundedCornerShape(26.dp),
+                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(onSend = {
+                                if (input.isNotBlank() && !state.busy) {
+                                    val value = input
+                                    input = ""
+                                    keyboard?.hide()
+                                    send(value)
+                                }
+                            }),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        FilledIconButton(
+                            onClick = {
+                                if (state.busy) stop()
+                                else if (input.isNotBlank()) {
+                                    val value = input
+                                    input = ""
+                                    keyboard?.hide()
+                                    send(value)
+                                }
+                            },
+                            enabled = state.busy || input.isNotBlank(),
+                            modifier = Modifier.size(52.dp),
+                        ) {
+                            Icon(if (state.busy) Icons.Outlined.Stop else Icons.AutoMirrored.Outlined.Send, if (state.busy) "Hentikan" else "Kirim")
+                        }
+                    }
+                }
             }
         }
     }
@@ -455,23 +509,30 @@ private fun ChatScreen(
 
 @Composable
 private fun WelcomeCard(state: HubUiState) {
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(top = 36.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .55f)),
+    Box(
+        modifier = Modifier.fillMaxWidth().padding(top = 34.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.primary) {
-                Icon(Icons.Outlined.AutoAwesome, null, Modifier.padding(15.dp).size(28.dp), tint = MaterialTheme.colorScheme.onPrimary)
+        Surface(
+            modifier = Modifier.widthIn(max = 360.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = .88f),
+            tonalElevation = 3.dp,
+        ) {
+            Column(Modifier.padding(horizontal = 22.dp, vertical = 19.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                    Icon(Icons.Outlined.AutoAwesome, null, Modifier.padding(10.dp).size(22.dp), tint = MaterialTheme.colorScheme.primary)
+                }
+                Spacer(Modifier.height(11.dp))
+                Text("${state.assistantName} siap", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    if (state.connected) "Core tersambung. Mulai percakapan kapan saja."
+                    else "Mulai lewat Android atau sambungkan Termux dari Setelan.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            Spacer(Modifier.height(16.dp))
-            Text("${state.assistantName} siap", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(7.dp))
-            Text(
-                if (state.connected) "Terhubung ke memori dan hubungan Furina Lite di Termux."
-                else "Gunakan mesin Android mandiri, atau hubungkan Termux untuk memakai Core dan memori yang sama.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
@@ -488,8 +549,8 @@ private fun MessageBubble(message: HubMessage) {
                 bottomStart = 20.dp,
                 bottomEnd = 20.dp,
             ),
-            color = if (user) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .58f),
-            tonalElevation = if (user) 0.dp else 1.dp,
+            color = if (user) MaterialTheme.colorScheme.primaryContainer.copy(alpha = .94f) else MaterialTheme.colorScheme.surface.copy(alpha = .91f),
+            tonalElevation = 2.dp,
         ) {
             Column(Modifier.padding(horizontal = 15.dp, vertical = 12.dp)) {
                 if (message.content.isBlank() && message.pending) {
@@ -502,6 +563,101 @@ private fun MessageBubble(message: HubMessage) {
             }
         }
     }
+}
+
+@Composable
+private fun ChatWallpaper(appearance: ChatAppearance, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val fallback = Brush.verticalGradient(
+        colors = listOf(Color(0xFF111827), Color(0xFF17233A), Color(0xFF101116)),
+    )
+    Box(modifier.background(fallback)) {
+        when (appearance.kind) {
+            ChatWallpaperKind.PRESET -> PresetWallpaper(appearance.value, Modifier.fillMaxSize())
+            ChatWallpaperKind.IMAGE -> {
+                val file = remember(appearance.value) { ChatAppearanceStore.resolveMedia(context, appearance.value) }
+                val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, file) {
+                    value = withContext(Dispatchers.IO) { file?.let(::decodeWallpaperBitmap)?.asImageBitmap() }
+                }
+                bitmap?.let {
+                    Image(
+                        bitmap = it,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+            ChatWallpaperKind.VIDEO -> {
+                val file = remember(appearance.value) { ChatAppearanceStore.resolveMedia(context, appearance.value) }
+                if (file?.isFile == true) VideoWallpaper(file.absolutePath, appearance.motionEnabled, Modifier.fillMaxSize())
+            }
+        }
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = appearance.dimAmount)))
+    }
+}
+
+@Composable
+private fun PresetWallpaper(id: String, modifier: Modifier = Modifier) {
+    val colors = when (id) {
+        "ocean" -> listOf(Color(0xFF102A43), Color(0xFF164E63), Color(0xFF0B1324))
+        "aurora" -> listOf(Color(0xFF15243B), Color(0xFF174B50), Color(0xFF332A55))
+        "rose" -> listOf(Color(0xFF3D2437), Color(0xFF332A4F), Color(0xFF17131F))
+        else -> listOf(Color(0xFF111827), Color(0xFF1C2942), Color(0xFF101116))
+    }
+    Box(modifier.background(Brush.verticalGradient(colors)))
+}
+
+@Composable
+private fun VideoWallpaper(path: String, motionEnabled: Boolean, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val lifecycleOwner: LifecycleOwner? = LocalView.current.findViewTreeLifecycleOwner()
+    val view = remember(path, motionEnabled) {
+        VideoView(context).apply {
+            setOnPreparedListener { player ->
+                player.isLooping = true
+                player.setVolume(0f, 0f)
+                if (motionEnabled) start() else {
+                    seekTo(1)
+                    pause()
+                }
+            }
+            setVideoPath(path)
+        }
+    }
+
+    AndroidView(
+        factory = { view },
+        update = { video ->
+            if (motionEnabled && !video.isPlaying) video.start()
+            if (!motionEnabled && video.isPlaying) video.pause()
+        },
+        modifier = modifier,
+    )
+
+    DisposableEffect(view, lifecycleOwner, motionEnabled) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> if (motionEnabled) view.start()
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> view.pause()
+                else -> Unit
+            }
+        }
+        lifecycleOwner?.lifecycle?.addObserver(observer)
+        onDispose {
+            lifecycleOwner?.lifecycle?.removeObserver(observer)
+            view.stopPlayback()
+        }
+    }
+}
+
+private fun decodeWallpaperBitmap(file: java.io.File): android.graphics.Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(file.absolutePath, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    var sample = 1
+    while (bounds.outWidth / sample > 1_440 || bounds.outHeight / sample > 2_560) sample *= 2
+    return BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -614,7 +770,21 @@ private fun SettingsScreen(
     modifier: Modifier = Modifier,
 ) {
     var providerDialog by remember { mutableStateOf<ProviderState?>(null) }
+    val imagePicker = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let { controller.importChatWallpaper(it, ChatWallpaperKind.IMAGE) }
+    }
+    val videoPicker = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let { controller.importChatWallpaper(it, ChatWallpaperKind.VIDEO) }
+    }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        SectionHeader("Tampilan chat", "Wallpaper privat di perangkat, terpisah dari Core dan percakapan.")
+        WallpaperSettingsCard(
+            state = state,
+            controller = controller,
+            chooseImage = { imagePicker.launch("image/*") },
+            chooseVideo = { videoPicker.launch("video/*") },
+        )
+
         SectionHeader("Sumber mesin", "Otomatis memakai Termux saat tersedia dan berpindah ke Android saat Core mati.")
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -692,6 +862,102 @@ private fun SettingsScreen(
             controller.selectProvider(provider.id)
             controller.saveAndTestProvider(provider.id, key)
             providerDialog = null
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun WallpaperSettingsCard(
+    state: HubUiState,
+    controller: NativeHubController,
+    chooseImage: () -> Unit,
+    chooseVideo: () -> Unit,
+) {
+    val appearance = state.chatAppearance
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+            Box(
+                Modifier.fillMaxWidth().aspectRatio(16f / 7f).clip(RoundedCornerShape(18.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                ChatWallpaper(appearance, Modifier.fillMaxSize())
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surface.copy(alpha = .86f)) {
+                    Text(
+                        when (appearance.kind) {
+                            ChatWallpaperKind.PRESET -> "Pratinjau wallpaper"
+                            ChatWallpaperKind.IMAGE -> "Foto pribadi"
+                            ChatWallpaperKind.VIDEO -> if (appearance.motionEnabled) "Video berulang · tanpa suara" else "Gerakan dijeda"
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                    )
+                }
+            }
+
+            Text("Preset", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    "midnight" to "Midnight",
+                    "ocean" to "Ocean",
+                    "aurora" to "Aurora",
+                    "rose" to "Rose",
+                ).forEach { (id, label) ->
+                    FilterChip(
+                        selected = appearance.kind == ChatWallpaperKind.PRESET && appearance.value == id,
+                        onClick = { controller.selectWallpaperPreset(id) },
+                        label = { Text(label) },
+                    )
+                }
+            }
+
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                OutlinedButton(onClick = chooseImage, enabled = !state.wallpaperBusy, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Outlined.PhotoLibrary, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(7.dp))
+                    Text("Pilih foto")
+                }
+                OutlinedButton(onClick = chooseVideo, enabled = !state.wallpaperBusy, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Outlined.Movie, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(7.dp))
+                    Text("Pilih video")
+                }
+            }
+
+            if (state.wallpaperBusy) {
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+                Text("Memeriksa dan menyimpan wallpaper…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                Text("Foto maks. 12 MB. Video MP4/WebM maks. 20 MB, 30 detik, dan 1080p.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            Column {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Kegelapan latar", fontWeight = FontWeight.Medium)
+                        Text("${(appearance.dimAmount * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(Icons.Outlined.Palette, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Slider(
+                    value = appearance.dimAmount,
+                    onValueChange = controller::setWallpaperDim,
+                    valueRange = 0f..0.72f,
+                )
+            }
+
+            SettingSwitch(
+                title = "Gerakan latar",
+                description = "Video dijeda otomatis saat aplikasi tidak terlihat.",
+                checked = appearance.motionEnabled,
+                onChecked = controller::setWallpaperMotion,
+            )
+
+            if (appearance.kind != ChatWallpaperKind.PRESET || appearance.value != ChatAppearanceStore.DEFAULT_PRESET) {
+                TextButton(onClick = controller::resetChatWallpaper, modifier = Modifier.align(Alignment.End)) {
+                    Text("Kembalikan ke bawaan")
+                }
+            }
         }
     }
 }

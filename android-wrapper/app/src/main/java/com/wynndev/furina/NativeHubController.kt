@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.ComponentName
+import android.net.Uri
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -68,7 +69,47 @@ class NativeHubController(context: Context) {
             customInstructions = prefs.getString("custom_instructions", "").orEmpty(),
             androidAiMode = runtime.config.mode(),
             selectedProvider = runtime.config.selectedProvider(),
+            chatAppearance = ChatAppearanceStore.load(appContext),
         )
+    }
+
+    fun selectWallpaperPreset(id: String) {
+        runCatching { ChatAppearanceStore.selectPreset(appContext, id) }
+            .onSuccess { appearance ->
+                _state.update { it.copy(chatAppearance = appearance, error = null) }
+            }
+            .onFailure { error ->
+                _state.update { it.copy(error = friendly(error)) }
+            }
+    }
+
+    fun importChatWallpaper(uri: Uri, kind: ChatWallpaperKind) {
+        if (_state.value.wallpaperBusy) return
+        scope.launch {
+            _state.update { it.copy(wallpaperBusy = true, error = null) }
+            ChatAppearanceStore.import(appContext, uri, kind)
+                .onSuccess { appearance ->
+                    _state.update { it.copy(chatAppearance = appearance, wallpaperBusy = false, error = null) }
+                }
+                .onFailure { error ->
+                    _state.update { it.copy(wallpaperBusy = false, error = friendly(error)) }
+                }
+        }
+    }
+
+    fun setWallpaperDim(amount: Float) {
+        val appearance = ChatAppearanceStore.setDimAmount(appContext, amount)
+        _state.update { it.copy(chatAppearance = appearance) }
+    }
+
+    fun setWallpaperMotion(enabled: Boolean) {
+        val appearance = ChatAppearanceStore.setMotionEnabled(appContext, enabled)
+        _state.update { it.copy(chatAppearance = appearance) }
+    }
+
+    fun resetChatWallpaper() {
+        val appearance = ChatAppearanceStore.reset(appContext)
+        _state.update { it.copy(chatAppearance = appearance, error = null) }
     }
 
     fun setDestination(destination: HubDestination) {

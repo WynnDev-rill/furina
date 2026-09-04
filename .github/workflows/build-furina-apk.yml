@@ -14,6 +14,7 @@ on:
       - 'scripts/normalize-*.py'
       - 'scripts/fix-*.py'
       - 'scripts/public-repo-safety-gate.py'
+      - 'scripts/furinahub-v2-gate.py'
       - '.agents/**'
       - 'package.json'
       - 'package-lock.json'
@@ -27,6 +28,7 @@ on:
       - 'scripts/normalize-*.py'
       - 'scripts/fix-*.py'
       - 'scripts/public-repo-safety-gate.py'
+      - 'scripts/furinahub-v2-gate.py'
       - '.agents/**'
       - 'package.json'
       - 'package-lock.json'
@@ -54,7 +56,9 @@ jobs:
           fetch-depth: 1
 
       - name: Validate public repository safety
-        run: python3 scripts/public-repo-safety-gate.py
+        run: |
+          python3 scripts/public-repo-safety-gate.py
+          python3 scripts/furinahub-v2-gate.py
 
       - name: Set up Node 22
         uses: actions/setup-node@v4
@@ -285,15 +289,15 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump permissions "$APK" | tee apk-permissions.txt
           grep -q 'android.permission.INTERNET' apk-permissions.txt
           grep -q 'android.permission.FOREGROUND_SERVICE_DATA_SYNC' apk-permissions.txt
-          cp "$APK" FurinaHub-Native.apk
-          ls -lh FurinaHub-Native.apk
+          cp "$APK" FurinaHub-V2.apk
+          ls -lh FurinaHub-V2.apk
 
       - name: Upload Furina stable APK
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/upload-artifact@v4
         with:
-          name: FurinaHub-Native-${{ github.run_number }}
-          path: FurinaHub-Native.apk
+          name: FurinaHub-V2-${{ github.run_number }}
+          path: FurinaHub-V2.apk
           if-no-files-found: error
           retention-days: 90
 
