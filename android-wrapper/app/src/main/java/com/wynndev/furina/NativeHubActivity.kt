@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -304,7 +305,7 @@ private fun FurinaHubApp(
 }
 
 @Composable
-private fun DestinationItem(
+private fun RowScope.DestinationItem(
     destination: HubDestination,
     selected: HubDestination,
     icon: ImageVector,
