@@ -68,7 +68,8 @@ class ContextEngine(context: Context, private val store: MemoryStore) {
                 budget.memoryItems,
             ).bounded(budget.memoryChars)
         }
-        val olderHistory = if (!useContinuity) "" else {
+        val fullArchive = runCatching { org.json.JSONObject(store.hubValue("persona") ?: "{}").optBoolean("full_local_memory", true) }.getOrDefault(true)
+        val olderHistory = if (!useContinuity || !fullArchive) "" else {
             // Historical assistant prose is not a style authority. Pull extra candidates so
             // assistant rows cannot consume the small-model retrieval budget, then keep USER only.
             store.relevantOldContext(retrievalQuery, sessionId, budget.historyItems * 3)

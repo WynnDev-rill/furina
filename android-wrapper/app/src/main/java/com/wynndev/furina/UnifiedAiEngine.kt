@@ -72,6 +72,11 @@ class UnifiedAiEngine(
         val startedAt = SystemClock.elapsedRealtime()
         var firstTokenAt = 0L
         var tokenCount = 0
+        var lastCheckpoint = 0L
+        val reply = StringBuilder()
+        var committed = false
+        store.beginTurn(requestId, sessionId, userText)
+        try {
 
         val context = contextEngine.build(
             sessionId = sessionId,
@@ -84,8 +89,6 @@ class UnifiedAiEngine(
         val warmStart = activeProvider.isWarm(model, context)
         activeProvider.prepare(model, context)
 
-        val userId = store.addMessage(sessionId, "user", userText)
-        val reply = StringBuilder()
         val request = AiGenerationRequest(
             requestId = requestId,
             sessionId = sessionId,
@@ -94,20 +97,22 @@ class UnifiedAiEngine(
             userMessage = userText,
             predictLength = model.maxOutputTokens,
         )
-        try {
-            activeProvider.stream(request).collect { token ->
-                if (firstTokenAt == 0L) firstTokenAt = SystemClock.elapsedRealtime()
-                tokenCount += 1
-                reply.append(token)
-                onToken(token)
+        activeProvider.stream(request).collect { token ->
+            val now = SystemClock.elapsedRealtime()
+            if (firstTokenAt == 0L) firstTokenAt = now
+            tokenCount += 1
+            reply.append(token)
+            if (lastCheckpoint == 0L || now - lastCheckpoint >= 400L) {
+                store.checkpointTurn(requestId, reply.toString())
+                lastCheckpoint = now
             }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
+            onToken(token)
         }
 
         val finalText = reply.toString().trim()
         check(finalText.isNotBlank()) { "Model tidak menghasilkan jawaban" }
-        val assistantId = store.addMessage(sessionId, "assistant", finalText)
+        val (userId, assistantId) = store.finishTurn(requestId, finalText)
+        committed = true
         scheduleMaintenance(sessionId, userText)
 
         val finishedAt = SystemClock.elapsedRealtime()
@@ -117,12 +122,21 @@ class UnifiedAiEngine(
             .put("firstTokenMs", firstTokenMs)
             .put("tokensPerSecond", tokenCount * 1000.0 / decodeMs)
             .put("tokenCount", tokenCount)
+            .put("tokenCountIsEstimate", true)
+            .put("durationMs", finishedAt - startedAt)
+            .put("outputCharacters", finalText.length)
             .put("warmStart", warmStart)
             .put("provider", activeProvider.id)
             .put("model", activeProvider.resolvedModelId() ?: model.id)
             .put("continuity", "companion-v4-role-safe-rehydration")
             .put("qualityFlags", qualityFlags(userText, finalText))
         return UnifiedGenerationResult(userId, assistantId, metrics)
+        } catch (error: Exception) {
+            if (!committed) try {
+                if (reply.isNotBlank()) store.finishTurn(requestId, reply.toString()) else store.discardTurn(requestId)
+            } catch (storageError: Exception) { error.addSuppressed(storageError) }
+            throw error
+        }
     }
 
     suspend fun unload() {

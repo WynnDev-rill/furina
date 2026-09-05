@@ -6,6 +6,8 @@ Repository utama proyek Furina Android.
 
 Furina adalah companion AI *relationship-first* untuk percakapan kasual dan romantis. **Furina Lite** berjalan mandiri di Termux; **FurinaHub** menambahkan pengalaman Android lengkap, multimedia, dan pengaturan visual. Keduanya memakai Core, memori, serta hubungan lokal yang sama.
 
+FurinaHub V2 memakai integrasi selektif dari dua fondasi Android terbuka: arah companion, memori, dan wallpaper privat dari LianYu; serta struktur chat native, pengaturan terkelompok, dan batas provider dari EchoFlow. Wallpaper chat dapat berupa preset, foto, atau video lokal berulang tanpa suara. Detail teknis dan batas media ada di [docs/furinahub-v2.md](docs/furinahub-v2.md).
+
 Pada instalasi baru, setup hanya meminta nama pengguna. Furina langsung mengenali pengguna sebagai pasangannya; memori awal lain tetap kosong sampai berkembang dari percakapan atau disimpan secara eksplisit.
 
 ### Instalasi cepat
