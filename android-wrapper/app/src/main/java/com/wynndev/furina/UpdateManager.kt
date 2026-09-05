@@ -39,7 +39,7 @@ data class FurinaUpdateInfo(
 )
 
 /** Native APK updater for Furina's direct-distribution builds. */
-class UpdateManager(private val activity: MainActivity) {
+class UpdateManager(private val activity: android.app.Activity) {
     private val executor = Executors.newSingleThreadExecutor()
     private val preferences = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private val downloadManager = activity.getSystemService(DownloadManager::class.java)

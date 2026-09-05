@@ -4,10 +4,12 @@ import android.Manifest
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Bundle
-import android.widget.VideoView
+import android.graphics.ImageDecoder
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
@@ -39,6 +41,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -113,6 +116,8 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.key
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -124,6 +129,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
@@ -141,15 +148,22 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.findViewTreeLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class NativeHubActivity : ComponentActivity() {
     private lateinit var controller: NativeHubController
+    private val model: HubViewModel by viewModels()
+    private var pendingTraining = false
 
     private val runCommandPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) controller.connectTermux(this) else controller.permissionDenied()
+        if (granted) {
+            if (pendingTraining) controller.openTrainingRoom(this) else controller.connectTermux(this)
+        } else controller.permissionDenied()
+        pendingTraining = false
     }
 
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -157,16 +171,19 @@ class NativeHubActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        controller = NativeHubController(applicationContext)
+        controller = model.controller
+        pendingTraining = savedInstanceState?.getBoolean("pending_training", false) ?: false
         setContent {
             FurinaHubTheme {
                 FurinaHubApp(
                     controller = controller,
                     onConnect = {
+                        pendingTraining = false
                         if (controller.canRunTermux()) controller.connectTermux(this)
                         else runCommandPermission.launch(TermuxBridgeClient.RUN_COMMAND_PERMISSION)
                     },
                     onTraining = {
+                        pendingTraining = true
                         if (controller.canRunTermux()) controller.openTrainingRoom(this)
                         else runCommandPermission.launch(TermuxBridgeClient.RUN_COMMAND_PERMISSION)
                     },
@@ -184,9 +201,9 @@ class NativeHubActivity : ComponentActivity() {
         if (::controller.isInitialized) controller.refresh()
     }
 
-    override fun onDestroy() {
-        if (::controller.isInitialized) controller.close()
-        super.onDestroy()
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("pending_training", pendingTraining)
+        super.onSaveInstanceState(outState)
     }
 }
 
@@ -254,16 +271,21 @@ private fun FurinaHubApp(
     onTraining: () -> Unit,
     onDownload: (String) -> Unit,
 ) {
-    val state by controller.state.collectAsState()
+    val state by controller.state.collectAsStateWithLifecycle()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
+    BackHandler(enabled = state.destination != HubDestination.CHAT && !drawerState.isOpen) { controller.setDestination(HubDestination.CHAT) }
+    BackHandler(enabled = drawerState.isOpen) { coroutineScope.launch { drawerState.close() } }
 
     LaunchedEffect(state.error) {
         state.error?.let {
             snackbar.showSnackbar(it)
             controller.clearError()
         }
+    }
+    LaunchedEffect(state.notice) {
+        state.notice?.let { snackbar.showSnackbar(it); controller.clearNotice() }
     }
 
     ModalNavigationDrawer(
@@ -282,6 +304,8 @@ private fun FurinaHubApp(
                         coroutineScope.launch { drawerState.close() }
                     },
                     onDelete = controller::deleteConversation,
+                    onRename = controller::renameConversation,
+                    onPin = controller::pinConversation,
                 )
             }
         },
@@ -329,7 +353,7 @@ private fun FurinaHubApp(
             },
         ) { padding ->
             when (state.destination) {
-                HubDestination.CHAT -> ChatScreen(state, controller::send, controller::stopGeneration, Modifier.padding(padding))
+                HubDestination.CHAT -> ChatScreen(state, controller, Modifier.padding(padding))
                 HubDestination.PERSONA -> PersonaScreen(state, controller, onTraining, Modifier.padding(padding))
                 HubDestination.MEMORY -> MemoryScreen(state, controller, Modifier.padding(padding))
                 HubDestination.SETTINGS -> SettingsScreen(state, controller, onConnect, onDownload, Modifier.padding(padding))
@@ -382,7 +406,22 @@ private fun DrawerContent(
     onNew: () -> Unit,
     onSwitch: (String) -> Unit,
     onDelete: (String) -> Unit,
+    onRename: (String, String) -> Unit,
+    onPin: (String, Boolean) -> Unit,
 ) {
+    var search by rememberSaveable { mutableStateOf("") }
+    var selected by remember { mutableStateOf<HubConversation?>(null) }
+    var rename by remember { mutableStateOf("") }
+    var deleteConfirm by remember { mutableStateOf(false) }
+    selected?.let { row ->
+        AlertDialog(onDismissRequest = { selected = null; deleteConfirm = false }, title = { Text(if (deleteConfirm) "Hapus percakapan?" else "Kelola percakapan") },
+            text = { if (deleteConfirm) Text("Riwayat ini akan dihapus dari sumber ${state.activeSource}. Tindakan ini tidak dapat dibatalkan.") else OutlinedTextField(rename, { rename = it.take(72) }, label = { Text("Judul") }) },
+            confirmButton = { TextButton(enabled = !state.busy, onClick = { if (deleteConfirm) onDelete(row.id) else onRename(row.id, rename); selected = null; deleteConfirm = false }) { Text(if (deleteConfirm) "Hapus" else "Simpan") } },
+            dismissButton = { Row {
+                if (!deleteConfirm) TextButton(enabled = !state.busy, onClick = { onPin(row.id, !row.pinned); selected = null }) { Text(if (row.pinned) "Lepas pin" else "Pin") }
+                TextButton(onClick = { if (deleteConfirm) { selected = null; deleteConfirm = false } else deleteConfirm = true }) { Text(if (deleteConfirm) "Batal" else "Hapus…") }
+            } })
+    }
     Column(Modifier.fillMaxHeight().statusBarsPadding().navigationBarsPadding().padding(horizontal = 12.dp)) {
         Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.primaryContainer) {
@@ -394,26 +433,27 @@ private fun DrawerContent(
                 Text(state.activeSource, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        Button(onClick = onNew, modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = onNew, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Outlined.Add, null)
             Spacer(Modifier.width(8.dp))
             Text("Percakapan baru")
         }
         Spacer(Modifier.height(12.dp))
         Text("Percakapan", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(10.dp))
+        OutlinedTextField(search, { search = it }, Modifier.fillMaxWidth(), placeholder = { Text("Cari judul percakapan…") }, singleLine = true)
         LazyColumn(Modifier.weight(1f)) {
-            items(state.conversations, key = { it.id }) { conversation ->
+            items(state.conversations.filter { it.title.contains(search, true) }, key = { it.id }) { conversation ->
                 NavigationDrawerItem(
                     label = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(conversation.title, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            IconButton(onClick = { onDelete(conversation.id) }, modifier = Modifier.size(34.dp)) {
-                                Icon(Icons.Outlined.DeleteOutline, "Hapus", Modifier.size(18.dp))
+                            Text((if (conversation.pinned) "📌 " else "") + conversation.title, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            IconButton(onClick = { selected = conversation; rename = conversation.title }, enabled = !state.busy) {
+                                Icon(Icons.Outlined.MoreHoriz, "Kelola percakapan", Modifier.size(18.dp))
                             }
                         }
                     },
                     selected = conversation.id == state.activeConversationId,
-                    onClick = { onSwitch(conversation.id) },
+                    onClick = { if (!state.busy) onSwitch(conversation.id) },
                     icon = { Icon(Icons.Outlined.History, null) },
                 )
             }
@@ -430,29 +470,41 @@ private fun DrawerContent(
 @Composable
 private fun ChatScreen(
     state: HubUiState,
-    send: (String) -> Unit,
-    stop: () -> Unit,
+    controller: NativeHubController,
     modifier: Modifier = Modifier,
 ) {
-    var input by rememberSaveable { mutableStateOf("") }
+    val input = state.draft
     val listState = rememberLazyListState()
     val keyboard = LocalSoftwareKeyboardController.current
+    val atBottom by remember { derivedStateOf { !listState.canScrollForward } }
+    val chatScope = rememberCoroutineScope()
+    LaunchedEffect(state.source, state.activeConversationId) {
+        if (state.messages.isNotEmpty()) listState.scrollToItem(state.messages.lastIndex + if (state.historyLimited) 1 else 0)
+    }
     LaunchedEffect(state.messages.size, state.messages.lastOrNull()?.content) {
-        if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
+        if (state.messages.isNotEmpty() && atBottom) listState.scrollToItem(state.messages.lastIndex + if (state.historyLimited) 1 else 0)
     }
     Box(modifier.fillMaxSize()) {
         ChatWallpaper(state.chatAppearance, Modifier.fillMaxSize())
         Column(Modifier.fillMaxSize().imePadding()) {
             if (state.connectionState == "checking") LinearProgressIndicator(Modifier.fillMaxWidth())
+            Surface(color = MaterialTheme.colorScheme.surface.copy(alpha = .92f)) {
+                Text(state.activeSource + (state.activeModel.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""), Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                if (state.historyLimited) item(key = "history-limit") {
+                    if (state.source == HubSource.ANDROID) TextButton(enabled = !state.busy, onClick = controller::loadOlderMessages) { Text("Muat 200 pesan sebelumnya") }
+                    else Text("Jendela riwayat terbaru dari Core. Arsip lengkap tetap di Termux.", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = .8f))
+                }
                 if (state.messages.isEmpty()) item { WelcomeCard(state) }
-                items(state.messages, key = { it.id }) { message -> MessageBubble(message) }
+                items(state.messages, key = { it.id }) { message -> MessageBubble(message, if (!state.busy && state.source == HubSource.ANDROID && message.role == "user") ({ controller.editInBranch(message) }) else null) }
             }
+            if (!atBottom && state.messages.isNotEmpty()) TextButton(onClick = { chatScope.launch { listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1) } }) { Text("Ke pesan terbaru ↓") }
             Surface(
                 color = MaterialTheme.colorScheme.surface.copy(alpha = .93f),
                 tonalElevation = 2.dp,
@@ -469,7 +521,7 @@ private fun ChatScreen(
                     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
                         OutlinedTextField(
                             value = input,
-                            onValueChange = { input = it.take(12_000) },
+                            onValueChange = controller::setDraft,
                             modifier = Modifier.weight(1f),
                             placeholder = { Text("Kirim pesan…") },
                             minLines = 1,
@@ -478,28 +530,22 @@ private fun ChatScreen(
                             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
                             keyboardActions = KeyboardActions(onSend = {
                                 if (input.isNotBlank() && !state.busy) {
-                                    val value = input
-                                    input = ""
-                                    keyboard?.hide()
-                                    send(value)
+                                    if (controller.send(input)) keyboard?.hide()
                                 }
                             }),
                         )
                         Spacer(Modifier.width(8.dp))
                         FilledIconButton(
                             onClick = {
-                                if (state.busy) stop()
+                                if (state.generating) controller.stopGeneration()
                                 else if (input.isNotBlank()) {
-                                    val value = input
-                                    input = ""
-                                    keyboard?.hide()
-                                    send(value)
+                                    if (controller.send(input)) keyboard?.hide()
                                 }
                             },
-                            enabled = state.busy || input.isNotBlank(),
+                            enabled = state.generating || (!state.busy && !state.loading && input.isNotBlank()),
                             modifier = Modifier.size(52.dp),
                         ) {
-                            Icon(if (state.busy) Icons.Outlined.Stop else Icons.AutoMirrored.Outlined.Send, if (state.busy) "Hentikan" else "Kirim")
+                            Icon(if (state.generating) Icons.Outlined.Stop else Icons.AutoMirrored.Outlined.Send, if (state.generating) "Hentikan" else "Kirim")
                         }
                     }
                 }
@@ -539,7 +585,8 @@ private fun WelcomeCard(state: HubUiState) {
 }
 
 @Composable
-private fun MessageBubble(message: HubMessage) {
+private fun MessageBubble(message: HubMessage, onBranch: (() -> Unit)? = null) {
+    val clipboard = LocalClipboardManager.current
     val user = message.role == "user"
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
         Surface(
@@ -560,7 +607,11 @@ private fun MessageBubble(message: HubMessage) {
                         Spacer(Modifier.width(9.dp))
                         Text("Sedang berpikir…", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                } else Text(message.content, style = MaterialTheme.typography.bodyLarge, lineHeight = 24.sp)
+                } else SelectionContainer { HubMessageText(message.content) }
+                if (!message.pending && message.content.isNotBlank()) Row {
+                    TextButton(onClick = { clipboard.setText(AnnotatedString(message.content)) }) { Text("Salin", style = MaterialTheme.typography.labelSmall) }
+                    if (onBranch != null) TextButton(onClick = onBranch) { Text("Edit di cabang", style = MaterialTheme.typography.labelSmall) }
+                }
             }
         }
     }
@@ -611,56 +662,35 @@ private fun PresetWallpaper(id: String, modifier: Modifier = Modifier) {
 
 @Composable
 private fun VideoWallpaper(path: String, motionEnabled: Boolean, modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val lifecycleOwner: LifecycleOwner? = LocalView.current.findViewTreeLifecycleOwner()
-    val motionAllowed by rememberUpdatedState(motionEnabled)
-    val view = remember(path) {
-        VideoView(context).apply {
-            setOnPreparedListener { player ->
-                player.isLooping = true
-                player.setVolume(0f, 0f)
-                if (motionEnabled) start() else {
-                    seekTo(1)
-                    pause()
-                }
-            }
-            setVideoPath(path)
-        }
+    val owner = LocalLifecycleOwner.current
+    var foreground by remember(owner) { mutableStateOf(owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
+    var failed by remember(path) { mutableStateOf(false) }
+    DisposableEffect(owner) {
+        val observer = LifecycleEventObserver { _, _ -> foreground = owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) }
+        owner.lifecycle.addObserver(observer)
+        onDispose { owner.lifecycle.removeObserver(observer) }
     }
-
-    AndroidView(
-        factory = { view },
-        update = { video ->
-            if (motionEnabled && !video.isPlaying) video.start()
-            if (!motionEnabled && video.isPlaying) video.pause()
-        },
-        modifier = modifier,
-    )
-
-    DisposableEffect(view, lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_RESUME -> if (motionAllowed) view.start()
-                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> view.pause()
-                else -> Unit
-            }
-        }
-        lifecycleOwner?.lifecycle?.addObserver(observer)
-        onDispose {
-            lifecycleOwner?.lifecycle?.removeObserver(observer)
-            view.stopPlayback()
+    key(path) {
+        if (!failed) AndroidView(
+            factory = { context -> WallpaperVideoView(context).apply { onFailure = { failed = true } } },
+            update = { it.configure(path, motionEnabled, foreground) },
+            onRelease = { it.releasePlayer() },
+            modifier = modifier,
+        )
+        else Box(modifier, contentAlignment = Alignment.Center) {
+            Text("Video tidak dapat diputar. Pilih video lain di Setelan.", color = Color.White, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
 
-private fun decodeWallpaperBitmap(file: java.io.File): android.graphics.Bitmap? {
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeFile(file.absolutePath, bounds)
-    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-    var sample = 1
-    while (bounds.outWidth / sample > 1_440 || bounds.outHeight / sample > 2_560) sample *= 2
-    return BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
-}
+private fun decodeWallpaperBitmap(file: java.io.File): android.graphics.Bitmap? = runCatching {
+    ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
+        var sample = 1
+        while (info.size.width / sample > 1_440 || info.size.height / sample > 2_560) sample *= 2
+        decoder.setTargetSampleSize(sample)
+        decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+    }
+}.getOrNull()
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -669,13 +699,13 @@ private fun PersonaScreen(state: HubUiState, controller: NativeHubController, on
     var nickname by rememberSaveable(state.userNickname) { mutableStateOf(state.userNickname) }
     var instructions by rememberSaveable(state.customInstructions) { mutableStateOf(state.customInstructions) }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        SectionHeader("Identitas", "Satu identitas yang dipakai di Android dan Termux.")
+        SectionHeader("Identitas", if (state.personaPending) "Perubahan lokal menunggu sinkronisasi Core." else "Satu identitas untuk Android dan Termux.")
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Nama companion") }, singleLine = true)
                 OutlinedTextField(nickname, { nickname = it }, Modifier.fillMaxWidth(), label = { Text("Nama panggilanmu") }, singleLine = true)
                 OutlinedTextField(instructions, { instructions = it }, Modifier.fillMaxWidth(), label = { Text("Instruksi personal") }, minLines = 3, maxLines = 7)
-                Button(onClick = { controller.saveIdentity(name, nickname, instructions) }, modifier = Modifier.align(Alignment.End)) { Text("Simpan identitas") }
+                Button(onClick = { controller.saveIdentity(name, nickname, instructions) }, enabled = !state.busy, modifier = Modifier.align(Alignment.End)) { Text("Simpan identitas") }
             }
         }
 
@@ -685,6 +715,7 @@ private fun PersonaScreen(state: HubUiState, controller: NativeHubController, on
                 FilterChip(
                     selected = trait.id in state.selectedTraits,
                     onClick = { controller.toggleTrait(trait.id) },
+                    enabled = !state.busy,
                     label = { Text(trait.label) },
                     leadingIcon = if (trait.id in state.selectedTraits) ({ Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(17.dp)) }) else null,
                 )
@@ -703,8 +734,8 @@ private fun PersonaScreen(state: HubUiState, controller: NativeHubController, on
             Column(Modifier.padding(horizontal = 16.dp)) {
                 SettingSwitch("Mode pasangan", "Hubungan romantis eksplisit dengan batas sehat.", state.partnerMode) { controller.setAdvanced("partner_mode", it) }
                 SettingSwitch("Roleplay", "Izinkan Furina mengikuti adegan fiksional saat diminta.", state.roleplayMode) { controller.setAdvanced("roleplay_mode", it) }
-                SettingSwitch("Memori lokal penuh", "Arsipkan percakapan baru secara lokal untuk kontinuitas.", state.fullLocalMemory) { controller.setAdvanced("full_local_memory", it) }
-                SettingSwitch("Saran latihan", "Tawarkan A/B ketika gaya respons perlu dipelajari.", state.trainingSuggestions) { controller.setAdvanced("training_suggestions", it) }
+                SettingSwitch("Memori lokal penuh", "Android: gunakan arsip lintas percakapan untuk konteks. Riwayat chat tetap tersimpan.", state.fullLocalMemory) { controller.setAdvanced("full_local_memory", it) }
+                SettingSwitch("Saran latihan di Core", "Preferensi A/B digunakan oleh Training Room Termux; tidak membuat data latihan kedua di Android.", state.trainingSuggestions) { controller.setAdvanced("training_suggestions", it) }
                 SettingSwitch("Suara batin fiksional", "Tambahkan pikiran karakter singkat bila cocok; bukan reasoning.", state.innerThoughts) { controller.setAdvanced("inner_thoughts", it) }
             }
         }
@@ -721,7 +752,7 @@ private fun PersonaScreen(state: HubUiState, controller: NativeHubController, on
                 OutlinedButton(onClick = onTraining) {
                     Icon(Icons.Outlined.Terminal, null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Buka Training Room di Termux")
+                    Text("Buka Furina Lite → Lanjutan → Training Room")
                 }
             }
         }
@@ -732,13 +763,19 @@ private fun PersonaScreen(state: HubUiState, controller: NativeHubController, on
 @Composable
 private fun MemoryScreen(state: HubUiState, controller: NativeHubController, modifier: Modifier = Modifier) {
     var input by rememberSaveable { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf("") }
+    var deleteTarget by remember { mutableStateOf<HubMemory?>(null) }
+    deleteTarget?.let { row -> AlertDialog(onDismissRequest = { deleteTarget = null }, title = { Text("Hapus memori?") },
+        text = { Text(row.text) }, confirmButton = { TextButton(enabled = !state.busy, onClick = { controller.deleteMemory(row.id); deleteTarget = null }) { Text("Hapus") } },
+        dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Batal") } }) }
     Column(modifier.fillMaxSize().padding(16.dp)) {
-        SectionHeader("Memori bersama", if (state.activeSource.startsWith("Termux")) "Disimpan oleh Core dan terlihat di Furina Lite." else "Disimpan privat di database Android.")
+        SectionHeader("Memori", if (state.source == HubSource.TERMUX) "Memori terbaru dari Core; arsip lengkap tetap di Furina Lite." else "Privat di Android; dipakai bersama oleh semua provider Android.")
+        OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(vertical = 8.dp), placeholder = { Text("Cari memori…") }, singleLine = true)
         Card(Modifier.fillMaxWidth()) {
             Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(input, { input = it.take(600) }, Modifier.weight(1f), placeholder = { Text("Tambahkan hal yang perlu diingat…") }, minLines = 1, maxLines = 4)
+                OutlinedTextField(input, { input = it.take(500) }, Modifier.weight(1f), placeholder = { Text("Tambahkan hal yang perlu diingat…") }, minLines = 1, maxLines = 4)
                 Spacer(Modifier.width(8.dp))
-                FilledIconButton(onClick = { controller.addMemory(input); input = "" }, enabled = input.trim().length >= 3) { Icon(Icons.Outlined.Add, "Tambah") }
+                FilledIconButton(onClick = { if (controller.addMemory(input)) input = "" }, enabled = !state.busy && input.trim().length >= 4) { Icon(Icons.Outlined.Add, "Tambah") }
             }
         }
         Spacer(Modifier.height(12.dp))
@@ -746,14 +783,14 @@ private fun MemoryScreen(state: HubUiState, controller: NativeHubController, mod
             EmptyState(Icons.Outlined.Memory, "Belum ada memori", "Fakta penting dari percakapan akan muncul di sini.", Modifier.weight(1f))
         } else {
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(state.memories, key = { it.id }) { memory ->
+                items(state.memories.filter { it.text.contains(query, true) || it.kind.contains(query, true) }, key = { it.id }) { memory ->
                     Card(Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(start = 15.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(memory.text, style = MaterialTheme.typography.bodyMedium)
                                 Text(memory.kind.replace('_', ' '), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            IconButton(onClick = { controller.deleteMemory(memory.id) }) { Icon(Icons.Outlined.DeleteOutline, "Hapus memori") }
+                            IconButton(onClick = { deleteTarget = memory }, enabled = !state.busy) { Icon(Icons.Outlined.DeleteOutline, "Hapus memori") }
                         }
                     }
                 }
@@ -787,7 +824,7 @@ private fun SettingsScreen(
             chooseVideo = { videoPicker.launch("video/*") },
         )
 
-        SectionHeader("Sumber mesin", "Otomatis memakai Termux saat tersedia dan berpindah ke Android saat Core mati.")
+        SectionHeader("Sumber mesin", "Otomatis memilih Core saat tersedia. Sumber tidak berubah di tengah jawaban; riwayat tiap sumber tetap terpisah.")
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -795,6 +832,7 @@ private fun SettingsScreen(
                         FilterChip(
                             selected = state.enginePreference == preference,
                             onClick = { controller.setEnginePreference(preference) },
+                            enabled = !state.busy,
                             label = { Text(when (preference) { EnginePreference.AUTO -> "Otomatis"; EnginePreference.TERMUX -> "Termux"; EnginePreference.ANDROID -> "Android" }) },
                         )
                     }
@@ -816,7 +854,8 @@ private fun SettingsScreen(
             }
         }
 
-        SectionHeader("Mesin Android mandiri", "Dari fondasi Furina lama: llama.cpp lokal dan provider online tetap tersedia tanpa Termux.")
+        CoreSettingsCard(state, controller)
+        SectionHeader("Mesin Android mandiri", "llama.cpp lokal dan provider online tersedia tanpa Termux.")
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -849,6 +888,8 @@ private fun SettingsScreen(
             }
         }
 
+        OnlineModelsCard(state, controller)
+        HubDataCard(state, controller)
         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .38f))) {
             Column(Modifier.padding(16.dp)) {
                 Text("Privasi & batas integrasi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -990,8 +1031,8 @@ private fun ModelRow(model: AndroidModelState, select: () -> Unit, download: () 
 }
 
 @Composable
-private fun ProviderDialog(provider: ProviderState, busy: Boolean, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
-    var key by rememberSaveable { mutableStateOf("") }
+internal fun ProviderDialog(provider: ProviderState, busy: Boolean, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var key by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(provider.name) },

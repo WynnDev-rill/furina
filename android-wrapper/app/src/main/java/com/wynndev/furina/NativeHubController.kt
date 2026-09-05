@@ -10,648 +10,390 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import org.json.JSONArray
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 
+/** UI orchestration only. HubDataRepository owns persistence and source-specific identifiers. */
 class NativeHubController(context: Context) {
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val prefs = appContext.getSharedPreferences("furinahub_native", Context.MODE_PRIVATE)
     private val bridge = TermuxBridgeClient(appContext)
     private val store = MemoryStore(appContext)
-    private val downloads = ModelDownloadManager(appContext)
+    private val repository = HubDataRepository(appContext, store, bridge)
+    private val backups = BackupManager(appContext, store)
     private val contextEngine = ContextEngine(appContext, store)
     private val runtime = AiRuntimeController(appContext)
+    private val downloads = ModelDownloadManager(appContext)
     private val _state = MutableStateFlow(initialState())
-    private val localProvider = LocalLlamaProvider(appContext, downloads) { status, _, _ ->
-        _state.update { it.copy(status = status.replace('_', ' ').replaceFirstChar { char -> char.uppercase() }, error = null) }
-        refreshAndroidModels()
-    }
-    private val providers: Map<String, AiProvider> = buildMap {
-        put(localProvider.id, localProvider)
-        putAll(runtime.onlineProviders)
-    }
-    private val aiEngine = UnifiedAiEngine(store, contextEngine, providers)
-    private val aiMutex = Mutex()
+    private val localProvider = LocalLlamaProvider(appContext, downloads) { status, _, _ -> _state.update { it.copy(status = status.replace('_', ' ')) } }
+    private val aiEngine = UnifiedAiEngine(store, contextEngine, buildMap { put(localProvider.id, localProvider); putAll(runtime.onlineProviders) })
     private var generationJob: Job? = null
-
+    private var operationJob: Job? = null
+    private var draftJob: Job? = null
+    private val downloadJobs = mutableMapOf<String, Job>()
+    private var activeRequestId: String? = null
+    private var activeRequestSource: HubSource? = null
+    private var messageLimit = 200
     val state: StateFlow<HubUiState> = _state.asStateFlow()
 
-    init {
-        refresh()
+    init { refresh() }
+
+    private fun initialState(): HubUiState = repository.persona().applyTo(HubUiState(
+        termuxInstalled = bridge.isTermuxInstalled(),
+        enginePreference = runCatching { EnginePreference.valueOf(prefs.getString("engine_preference", "AUTO").orEmpty()) }.getOrDefault(EnginePreference.AUTO),
+        androidAiMode = runtime.config.mode(), selectedProvider = runtime.config.selectedProvider(),
+        autoFallback = runtime.config.autoFallback(), chatAppearance = ChatAppearanceStore.load(appContext), personaPending = repository.personaPending(),
+    ))
+
+    /** Synchronous admission on Main prevents competing session mutations from rapid taps. */
+    private fun operation(label: String, block: suspend () -> Unit): Boolean {
+        if (_state.value.busy || operationJob?.isActive == true) return false
+        _state.update { it.copy(busy = true, status = label, error = null) }
+        operationJob = scope.launch {
+            try { block() }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { showError(e) }
+            finally { _state.update { it.copy(busy = false, loading = false) } }
+        }
+        return true
     }
 
-    private fun initialState(): HubUiState {
-        val preference = runCatching {
-            EnginePreference.valueOf(prefs.getString("engine_preference", EnginePreference.AUTO.name).orEmpty())
-        }.getOrDefault(EnginePreference.AUTO)
-        return HubUiState(
-            termuxInstalled = bridge.isTermuxInstalled(),
-            enginePreference = preference,
-            assistantName = prefs.getString("assistant_name", "Furina") ?: "Furina",
-            userNickname = prefs.getString("user_nickname", "").orEmpty(),
-            selectedTraits = prefs.getStringSet("traits", emptySet()).orEmpty(),
-            partnerMode = prefs.getBoolean("partner_mode", false),
-            roleplayMode = prefs.getBoolean("roleplay_mode", false),
-            fullLocalMemory = prefs.getBoolean("full_local_memory", false),
-            trainingSuggestions = prefs.getBoolean("training_suggestions", false),
-            innerThoughts = prefs.getBoolean("inner_thoughts", false),
-            customInstructions = prefs.getString("custom_instructions", "").orEmpty(),
-            androidAiMode = runtime.config.mode(),
-            selectedProvider = runtime.config.selectedProvider(),
-            chatAppearance = ChatAppearanceStore.load(appContext),
-        )
+    private fun desiredSource(): HubSource = if (_state.value.enginePreference != EnginePreference.ANDROID && _state.value.connected) HubSource.TERMUX else HubSource.ANDROID
+    private suspend fun apply(snapshot: HubSnapshot) {
+        val draft = repository.draft(snapshot.source, snapshot.id)
+        _state.update { old -> snapshot.persona.applyTo(old).copy(
+            source = snapshot.source, activeConversationId = snapshot.id, messages = snapshot.messages, conversations = snapshot.conversations,
+            activeSource = if (snapshot.source == HubSource.TERMUX) "Termux Core" else "Android ${if (runtime.config.mode() == OnlineAiConfigStore.MODE_ONLINE) "Online" else "Lokal"}",
+            coreVersion = snapshot.coreVersion.ifBlank { old.coreVersion }, historyLimited = snapshot.historyLimited,
+            draft = draft, loading = false, personaPending = repository.personaPending(),
+        ) }
+    }
+    private suspend fun saveDraftNow() {
+        draftJob?.cancelAndJoin()
+        val current = _state.value
+        repository.saveDraft(current.source, current.activeConversationId, current.draft)
+    }
+    fun setDraft(value: String) {
+        _state.update { it.copy(draft = value.take(12_000)) }
+        val current = _state.value
+        draftJob?.cancel()
+        draftJob = scope.launch { delay(250); repository.saveDraft(current.source, current.activeConversationId, current.draft) }
     }
 
-    fun selectWallpaperPreset(id: String) {
-        runCatching { ChatAppearanceStore.selectPreset(appContext, id) }
-            .onSuccess { appearance ->
-                _state.update { it.copy(chatAppearance = appearance, error = null) }
-            }
-            .onFailure { error ->
-                _state.update { it.copy(error = friendly(error)) }
-            }
-    }
-
-    fun importChatWallpaper(uri: Uri, kind: ChatWallpaperKind) {
-        if (_state.value.wallpaperBusy) return
-        scope.launch {
-            _state.update { it.copy(wallpaperBusy = true, error = null) }
-            ChatAppearanceStore.import(appContext, uri, kind)
-                .onSuccess { appearance ->
-                    _state.update { it.copy(chatAppearance = appearance, wallpaperBusy = false, error = null) }
-                }
-                .onFailure { error ->
-                    _state.update { it.copy(wallpaperBusy = false, error = friendly(error)) }
-                }
+    fun refresh() { operation("Memeriksa koneksi…") {
+        saveDraftNow()
+        _state.update { it.copy(connectionState = "checking", termuxInstalled = bridge.isTermuxInstalled()) }
+        val health = try { bridge.health() } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
+        _state.update { it.copy(connected = health != null, connectionState = if (health != null) "connected" else "disconnected",
+            connectionMessage = if (health != null) "Furina Core terhubung" else if (it.termuxInstalled) "Core belum aktif" else "Termux belum terpasang",
+            coreVersion = health?.optString("version").orEmpty()) }
+        loadSource(); refreshAndroidModels(); refreshProviders()
+    } }
+    private suspend fun loadSource() {
+        val target = desiredSource()
+        try {
+            apply(repository.snapshot(target, messageLimit)); refreshMemoriesNow()
+            if (target == HubSource.TERMUX) loadCoreSettings()
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) {
+            if (target != HubSource.TERMUX) throw e
+            _state.update { it.copy(connected = false, connectionState = "error", connectionMessage = "Core tidak dapat dibaca") }
+            if (_state.value.enginePreference == EnginePreference.AUTO) {
+                apply(repository.snapshot(HubSource.ANDROID, messageLimit)); refreshMemoriesNow()
+                _state.update { it.copy(notice = "Core terputus. Sumber berpindah ke Android; riwayat Termux tetap tersimpan di Core.") }
+            } else throw e
         }
     }
-
-    fun setWallpaperDim(amount: Float) {
-        val appearance = ChatAppearanceStore.setDimAmount(appContext, amount)
-        _state.update { it.copy(chatAppearance = appearance) }
-    }
-
-    fun setWallpaperMotion(enabled: Boolean) {
-        val appearance = ChatAppearanceStore.setMotionEnabled(appContext, enabled)
-        _state.update { it.copy(chatAppearance = appearance) }
-    }
-
-    fun resetChatWallpaper() {
-        val appearance = ChatAppearanceStore.reset(appContext)
-        _state.update { it.copy(chatAppearance = appearance, error = null) }
-    }
-
     fun setDestination(destination: HubDestination) {
-        _state.update { it.copy(destination = destination, error = null) }
-        if (destination == HubDestination.MEMORY) refreshMemories()
+        _state.update { it.copy(destination = destination) }
+        if (destination == HubDestination.MEMORY && !_state.value.busy) refreshMemories()
     }
-
     fun canRunTermux(): Boolean = bridge.hasRunCommandPermission()
+    fun connectTermux(activity: Activity) { operation("Menyalakan Furina Core…") {
+        saveDraftNow(); _state.update { it.copy(connectionState = "connecting", connected = false) }
+        try {
+            val health = bridge.waitUntilHealthy(bridge.startCore(activity))
+            _state.update { it.copy(connected = true, connectionState = "connected", coreVersion = health.optString("version"), connectionMessage = "Core terhubung") }
+            loadSource()
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) { _state.update { it.copy(connected = false, connectionState = "error", connectionMessage = "Koneksi gagal") }; throw e }
+    } }
+    fun disconnectTermux() { operation("Melepas koneksi…") {
+        saveDraftNow(); bridge.forget()
+        _state.update { it.copy(connected = false, connectionState = "disconnected", connectionMessage = "Sesi Core dilepas") }; loadSource()
+    } }
+    fun setEnginePreference(preference: EnginePreference) { operation("Mengganti sumber…") {
+        saveDraftNow(); prefs.edit().putString("engine_preference", preference.name).apply()
+        _state.update { it.copy(enginePreference = preference) }; messageLimit = 200; loadSource()
+    } }
 
-    fun refresh() {
-        scope.launch {
-            _state.update { it.copy(connectionState = "checking", connectionMessage = "Memeriksa Furina Core…") }
-            val connected = runCatching { bridge.health() }.getOrNull()
-            if (connected != null) {
-                _state.update {
-                    it.copy(
-                        connected = true,
-                        connectionState = "connected",
-                        connectionMessage = "Furina Core terhubung",
-                        coreVersion = connected.optString("version"),
-                    )
-                }
-            } else {
-                _state.update {
-                    it.copy(
-                        connected = false,
-                        connectionState = "disconnected",
-                        connectionMessage = if (it.termuxInstalled) "Core belum aktif" else "Termux belum terpasang",
-                    )
-                }
-            }
-            loadActiveSource()
-            refreshAndroidModels()
-            refreshProviders()
+    private fun conversation(action: String, id: String = "", title: String = "", pinned: Boolean = false) { operation("Memperbarui percakapan…") {
+        saveDraftNow(); val current = _state.value
+        check(current.source != HubSource.TERMUX || current.connected) { "Hubungkan Core untuk mengubah percakapan Termux" }
+        apply(repository.conversation(current.source, action, id, title, pinned)); _state.update { it.copy(destination = HubDestination.CHAT) }
+    } }
+    fun newConversation() = conversation("create")
+    fun switchConversation(id: String) = conversation("switch", id)
+    fun deleteConversation(id: String) = conversation("delete", id)
+    fun renameConversation(id: String, title: String) = conversation("rename", id, title)
+    fun pinConversation(id: String, pinned: Boolean) = conversation("pin", id, pinned = pinned)
+    fun loadOlderMessages() { operation("Memuat riwayat…") {
+        saveDraftNow()
+        check(_state.value.source == HubSource.ANDROID) { "Core menyediakan jendela riwayat terbaru. Arsip lengkap tetap ada di Termux." }
+        messageLimit += 200; apply(repository.snapshot(HubSource.ANDROID, messageLimit))
+    } }
+    fun editInBranch(message: HubMessage) { operation("Membuat cabang aman…") {
+        check(_state.value.source == HubSource.ANDROID) { "Cabang non-destruktif belum didukung API Core ini" }
+        saveDraftNow(); apply(repository.branchBefore(_state.value.activeConversationId, message.id)); setDraft(message.content)
+        _state.update { it.copy(notice = "Cabang baru dibuat. Percakapan asli tetap utuh.") }
+    } }
+
+    /** False leaves the draft intact. Accepted sends capture their source/session until finally. */
+    fun send(text: String): Boolean {
+        val clean = text.trim(); val current = _state.value
+        if (clean.isBlank() || current.busy || current.loading || current.activeConversationId.isBlank()) return false
+        if (current.enginePreference == EnginePreference.TERMUX && !current.connected) {
+            showError(IllegalStateException("Hubungkan Termux terlebih dahulu, atau pilih Android.")); return false
         }
-    }
-
-    fun connectTermux(activity: Activity) {
-        if (_state.value.busy) return
-        scope.launch {
-            try {
-                _state.update { it.copy(busy = true, connectionState = "connecting", connectionMessage = "Menyalakan Furina Core…", error = null) }
-                val candidate = bridge.startCore(activity)
-                val health = bridge.waitUntilHealthy(candidate)
-                _state.update {
-                    it.copy(
-                        busy = false,
-                        connected = true,
-                        connectionState = "connected",
-                        connectionMessage = "Core dan APK memakai memori yang sama",
-                        coreVersion = health.optString("version"),
-                    )
-                }
-                if (_state.value.enginePreference != EnginePreference.ANDROID) loadRemote()
-            } catch (error: Throwable) {
-                _state.update { it.copy(busy = false, connected = false, connectionState = "error", connectionMessage = "Koneksi gagal", error = friendly(error)) }
+        if (current.source == HubSource.ANDROID) {
+            if (runtime.config.mode() == OnlineAiConfigStore.MODE_LOCAL && downloads.status(selectedModel()).optString("state") != "ready") {
+                showError(IllegalStateException("Unduh model lokal di Setelan atau pilih provider online.")); return false
             }
-        }
-    }
-
-    fun disconnectTermux() {
-        bridge.forget()
-        _state.update { it.copy(connected = false, connectionState = "disconnected", connectionMessage = "Sesi Core dilepas") }
-        loadLocal()
-    }
-
-    fun setEnginePreference(preference: EnginePreference) {
-        prefs.edit().putString("engine_preference", preference.name).apply()
-        _state.update { it.copy(enginePreference = preference, error = null) }
-        loadActiveSource()
-    }
-
-    private fun usesTermux(): Boolean = when (_state.value.enginePreference) {
-        EnginePreference.AUTO -> _state.value.connected
-        EnginePreference.TERMUX -> true
-        EnginePreference.ANDROID -> false
-    }
-
-    private fun loadActiveSource() {
-        if (usesTermux() && _state.value.connected) loadRemote() else loadLocal()
-    }
-
-    private fun loadRemote() {
-        scope.launch {
-            try {
-                val boot = bridge.get("/api/bootstrap")
-                applyRemoteBootstrap(boot)
-                refreshMemories()
-            } catch (error: Throwable) {
-                onBridgeFailure(error)
+            if (runtime.config.mode() == OnlineAiConfigStore.MODE_ONLINE && !runtime.config.isValidated(runtime.config.selectedProvider(), runtime.keys.fingerprint(runtime.config.selectedProvider()))) {
+                showError(IllegalStateException("Atur dan tes API key di Setelan terlebih dahulu.")); return false
             }
         }
-    }
-
-    private fun applyRemoteBootstrap(boot: JSONObject) {
-        val settings = boot.optJSONObject("settings") ?: JSONObject()
-        _state.update { current ->
-            current.copy(
-                activeSource = "Termux Core",
-                coreVersion = boot.optString("core_version", current.coreVersion),
-                assistantName = boot.optString("assistant_name", settings.optString("assistant_name", current.assistantName)),
-                userNickname = boot.optString("user_nickname", settings.optString("user_nickname", current.userNickname)),
-                selectedTraits = settings.optJSONArray("personality_traits").stringSet(),
-                partnerMode = settings.optBoolean("partner_mode"),
-                roleplayMode = settings.optBoolean("roleplay_mode"),
-                fullLocalMemory = settings.optBoolean("full_local_memory"),
-                trainingSuggestions = settings.optBoolean("training_suggestions"),
-                innerThoughts = settings.optBoolean("inner_thoughts"),
-                customInstructions = settings.optString("custom_instructions"),
-                activeConversationId = boot.opt("active_conversation_id")?.toString().orEmpty(),
-                messages = boot.optJSONArray("history").messages(),
-                conversations = boot.optJSONArray("conversations").conversations(),
-                status = "Core ${boot.optString("core_version", "aktif")}",
-                error = null,
-            )
-        }
-    }
-
-    private fun loadLocal() {
-        scope.launch(Dispatchers.IO) {
-            try {
-                var sessionId = prefs.getString("local_session", "").orEmpty()
-                if (sessionId.isBlank()) {
-                    sessionId = store.createSession()
-                    prefs.edit().putString("local_session", sessionId).apply()
-                } else store.ensureSession(sessionId)
-                val messages = JSONArray(store.loadSessionJson(sessionId)).messages()
-                val conversations = JSONArray(store.sessionsJson()).conversations()
-                _state.update {
-                    it.copy(
-                        activeSource = "Android ${if (runtime.config.mode() == OnlineAiConfigStore.MODE_ONLINE) "Online" else "Lokal"}",
-                        activeConversationId = sessionId,
-                        messages = messages,
-                        conversations = conversations,
-                        androidAiMode = runtime.config.mode(),
-                        error = null,
-                    )
-                }
-                refreshMemories()
-            } catch (error: Throwable) {
-                _state.update { it.copy(error = friendly(error)) }
-            }
-        }
-    }
-
-    fun newConversation() {
-        if (_state.value.busy) return
-        scope.launch {
-            try {
-                if (usesTermux() && _state.value.connected) {
-                    applyRemoteBootstrap(bridge.post("/api/conversations", JSONObject().put("action", "create")))
-                } else {
-                    val id = store.createSession()
-                    prefs.edit().putString("local_session", id).apply()
-                    loadLocal()
-                }
-            } catch (error: Throwable) { showError(error) }
-        }
-    }
-
-    fun switchConversation(id: String) {
-        if (_state.value.busy || id == _state.value.activeConversationId) return
-        scope.launch {
-            try {
-                if (usesTermux() && _state.value.connected) {
-                    applyRemoteBootstrap(bridge.post("/api/conversations", JSONObject().put("action", "switch").put("id", id.toInt())))
-                } else {
-                    store.ensureSession(id)
-                    prefs.edit().putString("local_session", id).apply()
-                    loadLocal()
-                }
-                _state.update { it.copy(destination = HubDestination.CHAT) }
-            } catch (error: Throwable) { showError(error) }
-        }
-    }
-
-    fun deleteConversation(id: String) {
-        scope.launch {
-            try {
-                if (usesTermux() && _state.value.connected) {
-                    applyRemoteBootstrap(bridge.post("/api/conversations", JSONObject().put("action", "delete").put("id", id.toInt())))
-                } else {
-                    store.deleteSession(id)
-                    if (id == _state.value.activeConversationId) prefs.edit().remove("local_session").apply()
-                    loadLocal()
-                }
-            } catch (error: Throwable) { showError(error) }
-        }
-    }
-
-    fun send(text: String) {
-        val clean = text.trim()
-        if (clean.isBlank() || _state.value.busy) return
-        if (_state.value.enginePreference == EnginePreference.TERMUX && !_state.value.connected) {
-            _state.update { it.copy(error = "Hubungkan Termux terlebih dahulu, atau pilih mode Otomatis/Android.") }
-            return
-        }
+        val source = current.source; val session = current.activeConversationId
+        val request = "hub-${UUID.randomUUID()}"; val pending = "assistant-$request"
+        activeRequestSource = source; activeRequestId = request
+        _state.update { it.copy(busy = true, generating = true, draft = "", error = null, status = "Menyiapkan jawaban…",
+            messages = it.messages + HubMessage("user-$request", "user", clean) + HubMessage(pending, "assistant", "", true)) }
         generationJob = scope.launch {
-            val requestId = "hub-${UUID.randomUUID()}"
-            val user = HubMessage("user-$requestId", "user", clean)
-            val pending = HubMessage("assistant-$requestId", "assistant", "", pending = true)
-            _state.update { it.copy(busy = true, status = "Menyiapkan jawaban…", error = null, messages = it.messages + user + pending) }
+            var status = "Siap"
             try {
-                if (usesTermux() && _state.value.connected) sendRemote(clean, requestId, pending.id)
-                else sendAndroid(clean, requestId, pending.id)
-            } catch (cancelled: CancellationException) {
-                _state.update { it.copy(busy = false, status = "Dihentikan", messages = it.messages.filterNot { row -> row.id == pending.id && row.content.isBlank() }) }
-                throw cancelled
-            } catch (error: Throwable) {
-                _state.update { current ->
-                    current.copy(
-                        busy = false,
-                        status = "Gagal",
-                        error = friendly(error),
-                        messages = current.messages.map { row -> if (row.id == pending.id) row.copy(content = "Jawaban gagal dibuat.", pending = false) else row },
-                    )
+                draftJob?.cancelAndJoin(); repository.saveDraft(source, session, "")
+                if (source == HubSource.TERMUX) sendRemote(clean, request, pending)
+                else {
+                    val (providerId, model) = runtime.resolve(selectedModel())
+                    val persona = withContext(Dispatchers.IO) { repository.persona() }
+                    val result = withContext(Dispatchers.IO) {
+                        aiEngine.generate(request, providerId, model, session, clean, persona.name, personaPrompt(persona)) { token ->
+                            updatePending(pending) { it.copy(content = it.content + token) }
+                        }
+                    }
+                    _state.update { it.copy(activeModel = result.metrics.optString("model", model.displayName)) }
+                }
+            } catch (e: TimeoutCancellationException) { status = "Gagal"; showError(IllegalStateException("Core melewati batas waktu jawaban. Periksa koneksi sebelum mencoba lagi.")) }
+            catch (e: CancellationException) { status = "Dihentikan" }
+            catch (e: Exception) { status = "Gagal"; showError(e) }
+            finally {
+                withContext(NonCancellable) {
+                    if (source == HubSource.TERMUX && status != "Siap") {
+                        try { bridge.post("/api/chat/cancel", JSONObject().put("request_id", activeRequestId ?: request)) } catch (_: Exception) { }
+                    }
+                    // The user may already be typing the next turn. Flush it before reloading.
+                    saveDraftNow()
+                    try { apply(repository.snapshot(source, messageLimit)); refreshMemoriesNow() }
+                    catch (_: Exception) { _state.update { it.copy(messages = it.messages.filterNot { row -> row.id == pending && row.content.isBlank() }.map { row -> row.copy(pending = false) }) } }
+                    if (status == "Gagal" && _state.value.draft.isBlank() && _state.value.activeConversationId == session) {
+                        _state.update { it.copy(draft = clean) }; repository.saveDraft(source, session, clean)
+                    }
+                    _state.update { it.copy(busy = false, generating = false, status = status) }
+                    activeRequestId = null; activeRequestSource = null
                 }
             }
         }
+        return true
     }
-
-    private suspend fun sendRemote(text: String, requestId: String, pendingId: String) {
-        val accepted = bridge.post("/api/chat/start", JSONObject().put("message", text).put("request_id", requestId))
-        val id = accepted.optString("request_id", requestId)
+    private fun updatePending(id: String, change: (HubMessage) -> HubMessage) {
+        _state.update { it.copy(status = "Menjawab…", messages = it.messages.map { row -> if (row.id == id) change(row) else row }) }
+    }
+    private suspend fun sendRemote(text: String, request: String, pending: String) = withTimeout(300_000L) {
+        val accepted = bridge.post("/api/chat/start", JSONObject().put("message", text).put("request_id", request))
+        check(accepted.optBoolean("accepted")) { "Core tidak menerima pesan" }
+        val id = accepted.optString("request_id", request)
+        require(Regex("[a-zA-Z0-9_-]{1,80}").matches(id)) { "ID respons Core tidak valid" }; activeRequestId = id
         while (true) {
-            delay(110L)
-            val progress = bridge.get("/api/chat/progress/$id")
-            val partial = progress.optString("partial")
-            _state.update { current ->
-                current.copy(
-                    status = progress.optString("label", "Menjawab…"),
-                    messages = current.messages.map { row -> if (row.id == pendingId) row.copy(content = partial, pending = !progress.optBoolean("done")) else row },
-                )
-            }
+            delay(160L); val progress = bridge.get("/api/chat/progress/$id")
+            val partial = progress.optString("partial").ifBlank { progress.optJSONObject("result")?.optString("answer").orEmpty() }
+            updatePending(pending) { it.copy(content = partial, pending = !progress.optBoolean("done")) }
             if (progress.optBoolean("done")) {
                 if (progress.optBoolean("cancelled")) throw CancellationException("Dihentikan")
-                val error = progress.optString("error")
-                if (error.isNotBlank()) throw IllegalStateException(error)
-                _state.update { it.copy(busy = false, status = "Siap") }
-                loadRemote()
-                return
+                check(progress.optString("error").isBlank()) { progress.optString("error") }
+                check(partial.isNotBlank()) { "Core tidak menghasilkan jawaban akhir" }; break
             }
         }
     }
-
-    private suspend fun sendAndroid(text: String, requestId: String, pendingId: String) {
-        aiMutex.withLock {
-            val selected = selectedModel()
-            if (runtime.config.mode() != OnlineAiConfigStore.MODE_ONLINE) {
-                check(downloads.status(selected).optString("state") == "ready") { "Unduh ${selected.displayName} dahulu di Pengaturan." }
-            }
-            val (providerId, model) = runtime.resolve(selected)
-            val persona = personaPrompt(_state.value)
-            val session = _state.value.activeConversationId.ifBlank { store.createSession() }
-            aiEngine.generate(requestId, providerId, model, session, text, _state.value.assistantName, persona) { token ->
-                _state.update { current ->
-                    current.copy(
-                        status = "Menjawab…",
-                        messages = current.messages.map { row -> if (row.id == pendingId) row.copy(content = row.content + token) else row },
-                    )
-                }
-            }
-        }
-        _state.update { it.copy(busy = false, status = "Siap") }
-        loadLocal()
-    }
-
     fun stopGeneration() {
-        val active = generationJob ?: return
-        if (usesTermux() && _state.value.connected) {
-            val request = _state.value.messages.lastOrNull { it.pending }?.id?.removePrefix("assistant-")
-            if (!request.isNullOrBlank()) scope.launch { runCatching { bridge.post("/api/chat/cancel", JSONObject().put("request_id", request)) } }
+        val request = activeRequestId ?: return; val source = activeRequestSource
+        _state.update { it.copy(status = "Menghentikan…") }
+        scope.launch {
+            if (source == HubSource.TERMUX) try { bridge.post("/api/chat/cancel", JSONObject().put("request_id", request)) } catch (e: Exception) { showError(e) }
+            if (activeRequestId == request) generationJob?.cancel()
         }
-        active.cancel()
-        generationJob = null
     }
 
-    fun saveIdentity(name: String, nickname: String, instructions: String) {
-        val cleanName = name.trim().take(48).ifBlank { "Furina" }
-        val cleanNickname = nickname.trim().take(48)
-        val cleanInstructions = instructions.trim().take(2_000)
-        prefs.edit().putString("assistant_name", cleanName).putString("user_nickname", cleanNickname).putString("custom_instructions", cleanInstructions).apply()
-        _state.update { it.copy(assistantName = cleanName, userNickname = cleanNickname, customInstructions = cleanInstructions, status = "Personalisasi disimpan") }
-        syncPersona()
+    private fun changePersona(change: (HubPersona) -> HubPersona) { operation("Menyimpan persona…") {
+        val next = withContext(Dispatchers.IO) { change(repository.persona()).also { repository.savePersona(it, true) } }
+        _state.update { next.applyTo(it).copy(personaPending = true) }
+        if (_state.value.connected) { repository.syncPersona(); _state.update { it.copy(personaPending = false) } }
+        _state.update { it.copy(notice = if (it.personaPending) "Persona disimpan di Android; sinkron saat Core terhubung." else "Persona disimpan dan tersinkron.") }
+    } }
+    fun saveIdentity(name: String, nickname: String, instructions: String) = changePersona {
+        it.copy(name = name.trim().take(48).ifBlank { "Furina" }, nickname = nickname.trim().take(48), instructions = instructions.trim().take(2_000))
     }
-
-    fun toggleTrait(id: String) {
-        val next = _state.value.selectedTraits.toMutableSet().apply { if (!add(id)) remove(id) }.toSet()
-        prefs.edit().putStringSet("traits", next).apply()
-        _state.update { it.copy(selectedTraits = next) }
-        syncPersona()
+    fun toggleTrait(id: String) = changePersona { p ->
+        require(FurinaTraits.any { it.id == id }); p.copy(traits = p.traits.toMutableSet().apply { if (!add(id)) remove(id) }.toSet())
     }
-
-    fun setAdvanced(key: String, enabled: Boolean) {
+    fun setAdvanced(key: String, enabled: Boolean) = changePersona {
         when (key) {
-            "partner_mode" -> _state.update { it.copy(partnerMode = enabled) }
-            "roleplay_mode" -> _state.update { it.copy(roleplayMode = enabled) }
-            "full_local_memory" -> _state.update { it.copy(fullLocalMemory = enabled) }
-            "training_suggestions" -> _state.update { it.copy(trainingSuggestions = enabled) }
-            "inner_thoughts" -> _state.update { it.copy(innerThoughts = enabled) }
-            else -> return
-        }
-        prefs.edit().putBoolean(key, enabled).apply()
-        syncPersona()
-    }
-
-    private fun syncPersona() {
-        if (!_state.value.connected) return
-        scope.launch {
-            try {
-                val current = _state.value
-                val hub = JSONObject()
-                    .put("assistant_name", current.assistantName)
-                    .put("user_nickname", current.userNickname)
-                    .put("personality_traits", JSONArray(current.selectedTraits.toList()))
-                    .put("partner_mode", current.partnerMode)
-                    .put("roleplay_mode", current.roleplayMode)
-                    .put("full_local_memory", current.fullLocalMemory)
-                    .put("training_suggestions", current.trainingSuggestions)
-                    .put("inner_thoughts", current.innerThoughts)
-                    .put("custom_instructions", current.customInstructions)
-                bridge.post("/api/settings", JSONObject().put("hub", hub).put("core", JSONObject().put("persona_name", current.assistantName).put("user_nickname", current.userNickname)))
-                _state.update { it.copy(status = "Tersinkron ke Termux", error = null) }
-            } catch (error: Throwable) { showError(error) }
+            "partner_mode" -> it.copy(partner = enabled)
+            "roleplay_mode" -> it.copy(roleplay = enabled)
+            "full_local_memory" -> it.copy(fullMemory = enabled)
+            "training_suggestions" -> it.copy(training = enabled)
+            "inner_thoughts" -> it.copy(innerThoughts = enabled)
+            else -> error("Pengaturan tidak dikenal")
         }
     }
-
-    fun refreshMemories() {
-        scope.launch(Dispatchers.IO) {
-            try {
-                val rows = if (usesTermux() && _state.value.connected) {
-                    bridge.get("/api/memory").optJSONArray("memories").memories()
-                } else JSONArray(store.memoriesJson()).memories()
-                _state.update { it.copy(memories = rows, error = null) }
-            } catch (error: Throwable) { showError(error) }
-        }
+    private fun personaPrompt(p: HubPersona): String = buildString {
+        append("Kamu adalah ${p.name}, companion pribadi. Gunakan bahasa Indonesia natural; ikuti bahasa pengguna bila berubah. ")
+        append("Tidak memiliki latar atau cerita Genshin. Nama dan kepribadian bukan identitas provider AI. ")
+        if (p.traits.isNotEmpty()) append("Satukan sifat sebagai satu watak kontekstual: ${FurinaTraits.filter { it.id in p.traits }.joinToString { "${it.label}: ${it.description}" }}. ")
+        append(if (p.partner) "Mode pasangan aktif, romantis sesuai konteks dan batas sehat. " else "Mode pasangan nonaktif; jangan mengasumsikan hubungan romantis. ")
+        append(if (p.roleplay) "Roleplay fiksional diizinkan saat diminta. " else "Roleplay nonaktif; jangan menambahkan narasi aksi atau adegan fiksional. ")
+        append(if (p.innerThoughts) "Suara batin karakter boleh berupa kata-kata singkat bila relevan, bukan proses penalaran model. " else "Jangan tampilkan suara batin, tag think, atau proses penalaran model. ")
+        if (p.nickname.isNotBlank()) append("Panggilan pengguna: ${p.nickname}; gunakan sewajarnya, tidak wajib setiap jawaban. ")
+        append("Panjang jawaban adaptif: percakapan santai ringkas, pembahasan rumit cukup terperinci. "); append(p.instructions)
     }
 
-    fun addMemory(text: String) {
-        val clean = text.trim()
-        if (clean.isBlank()) return
-        scope.launch(Dispatchers.IO) {
-            try {
-                if (usesTermux() && _state.value.connected) bridge.post("/api/memory", JSONObject().put("action", "add").put("text", clean))
-                else store.addMemory(clean)
-                refreshMemories()
-            } catch (error: Throwable) { showError(error) }
-        }
+    private suspend fun refreshMemoriesNow() { val rows = repository.memories(_state.value.source); _state.update { it.copy(memories = rows) } }
+    fun refreshMemories() { operation("Memuat memori…") { refreshMemoriesNow() } }
+    fun addMemory(text: String): Boolean {
+        if (text.trim().length !in 4..500) { showError(IllegalArgumentException("Memori harus 4–500 karakter")); return false }
+        return operation("Menyimpan memori…") { repository.changeMemory(_state.value.source, text = text); refreshMemoriesNow() }
     }
+    fun deleteMemory(id: String) { operation("Menghapus memori…") { repository.changeMemory(_state.value.source, id = id); refreshMemoriesNow() } }
 
-    fun deleteMemory(id: String) {
-        scope.launch(Dispatchers.IO) {
-            try {
-                if (usesTermux() && _state.value.connected) bridge.post("/api/memory", JSONObject().put("action", "delete").put("id", id.toInt()))
-                else store.deleteMemory(id)
-                refreshMemories()
-            } catch (error: Throwable) { showError(error) }
-        }
+    fun setAndroidAiMode(mode: String) { operation("Mengganti mesin Android…") {
+        saveDraftNow(); aiEngine.unload(); runtime.setMode(mode); _state.update { it.copy(androidAiMode = runtime.config.mode()) }; loadSource()
+    } }
+    fun selectProvider(id: String) { if (!_state.value.busy) { runtime.setProvider(id); refreshProviders() } }
+    fun selectOnlineModel(provider: String, model: String) {
+        if (!_state.value.busy) try { runtime.setModel(provider, model); refreshProviders() } catch (e: Exception) { showError(e) }
     }
-
-    fun setAndroidAiMode(mode: String) {
-        runtime.setMode(mode)
-        _state.update { it.copy(androidAiMode = runtime.config.mode()) }
-        scope.launch { aiMutex.withLock { aiEngine.unload() } }
-        loadActiveSource()
+    fun setAutoFallback(enabled: Boolean) { if (!_state.value.busy) { runtime.setAutoFallback(enabled); _state.update { it.copy(autoFallback = enabled) } } }
+    fun removeProviderKey(id: String) { if (!_state.value.busy) { runtime.removeKey(id); refreshProviders() } }
+    fun saveAndTestProvider(id: String, key: String) { operation("Menguji provider…") {
+        _state.update { it.copy(providerBusy = true) }
+        try {
+            if (key.isNotBlank()) runtime.saveKey(id, key)
+            val result = runtime.test(id); check(result.success) { result.message }; _state.update { it.copy(notice = result.message) }
+        } finally { refreshProviders(); _state.update { it.copy(providerBusy = false) } }
+    } }
+    private fun refreshProviders() { _state.update { it.copy(selectedProvider = runtime.config.selectedProvider(), providers = OnlineProviderCatalog.providers.map { p ->
+        ProviderState(p.id, p.displayName, runtime.keys.has(p.id), p.id == runtime.config.selectedProvider(),
+            runtime.onlineProviders[p.id]?.cachedModels().orEmpty(), runtime.config.selectedModel(p.id).orEmpty())
+    }) } }
+    private suspend fun loadCoreSettings() {
+        val root = bridge.get("/api/settings"); val core = root.optJSONObject("core") ?: JSONObject()
+        val models = root.optJSONArray("models"); val providers = root.optJSONArray("providers")
+        _state.update { it.copy(coreRoutingMode = core.optString("routing_mode", "local"),
+            coreModels = (0 until (models?.length() ?: 0)).mapNotNull { i -> models?.optJSONObject(i)?.takeIf { row -> row.optString("category") == "chat" }?.let { row -> CoreModelState(row.optString("path"), row.optString("name"), row.optBoolean("active")) },
+            coreProviders = (0 until (providers?.length() ?: 0)).mapNotNull { i -> providers?.optJSONObject(i)?.let { p -> ProviderState(p.optString("id"), p.optString("label"), p.optBoolean("configured"), false) } }) }
     }
+    fun setCoreMode(mode: String, modelPath: String? = null) { operation("Mengatur Core…") {
+        check(_state.value.connected); require(mode in setOf("local", "online"))
+        val core = JSONObject().put("routing_mode", mode)
+        if (modelPath != null) { require(_state.value.coreModels.any { it.path == modelPath }); core.put("model_path", modelPath) }
+        bridge.post("/api/settings", JSONObject().put("core", core)); loadCoreSettings()
+    } }
+    fun testCoreProvider(id: String, key: String) { operation("Menguji provider Core…") {
+        check(_state.value.connected); require(_state.value.coreProviders.any { it.id == id })
+        if (key.isNotBlank()) bridge.post("/api/provider", JSONObject().put("provider", id).put("key", key))
+        val result = bridge.post("/api/provider/test", JSONObject().put("provider", id))
+        check(result.optBoolean("ok")) { result.optString("message", "Tes provider Core gagal") }
+        loadCoreSettings(); _state.update { it.copy(notice = result.optString("message", "Provider Core siap")) }
+    } }
 
-    fun selectProvider(id: String) {
-        runtime.setProvider(id)
-        refreshProviders()
-    }
-
-    fun saveAndTestProvider(id: String, key: String) {
-        scope.launch {
-            try {
-                if (key.isNotBlank()) runtime.saveKey(id, key)
-                _state.update { it.copy(busy = true, status = "Menguji ${OnlineProviderCatalog.byId(id)?.displayName ?: id}…", error = null) }
-                val result = runtime.test(id)
-                _state.update { it.copy(busy = false, status = result.message, error = if (result.success) null else result.message) }
-                refreshProviders()
-            } catch (error: Throwable) { _state.update { it.copy(busy = false, error = friendly(error)) } }
-        }
-    }
-
-    fun selectAndroidModel(id: String) {
-        require(ModelCatalog.byId(id) != null)
-        prefs.edit().putString("selected_model", id).apply()
-        refreshAndroidModels()
-    }
-
+    fun selectAndroidModel(id: String) { if (!_state.value.busy && ModelCatalog.byId(id) != null) { prefs.edit().putString("selected_model", id).apply(); refreshAndroidModels() } }
+    private fun selectedModel(): ModelSpec = ModelCatalog.byId(prefs.getString("selected_model", ModelCatalog.models.first().id)) ?: ModelCatalog.models.first()
+    private fun refreshAndroidModels() { _state.update { it.copy(androidModels = ModelCatalog.models.map { m ->
+        val s = downloads.status(m)
+        AndroidModelState(m.id, m.displayName, m.subtitle, s.optString("state", "missing"), s.optDouble("progress", 0.0).toFloat().coerceIn(0f, 1f), m.id == selectedModel().id)
+    }) } }
     fun downloadAndroidModel(id: String) {
-        val model = ModelCatalog.byId(id) ?: return
-        downloads.start(model)
+        val model = ModelCatalog.byId(id) ?: return; downloads.start(model); downloadJobs.remove(id)?.cancel()
+        downloadJobs[id] = scope.launch { repeat(7_200) { refreshAndroidModels(); if (downloads.status(model).optString("state") in setOf("ready", "failed", "cancelled")) return@launch; delay(1_000) } }
+    }
+    fun deleteAndroidModel(id: String) { operation("Melepas model…") { aiEngine.unload(); ModelCatalog.byId(id)?.let(downloads::delete); refreshAndroidModels() } }
+
+    fun selectWallpaperPreset(id: String) {
+        if (!_state.value.wallpaperBusy) try { val next = ChatAppearanceStore.selectPreset(appContext, id); _state.update { it.copy(chatAppearance = next) } } catch (e: Exception) { showError(e) }
+    }
+    fun importChatWallpaper(uri: Uri, kind: ChatWallpaperKind) {
+        if (_state.value.wallpaperBusy) return; _state.update { it.copy(wallpaperBusy = true) }
         scope.launch {
-            repeat(7_200) {
-                refreshAndroidModels()
-                val status = downloads.status(model).optString("state")
-                if (status in setOf("ready", "failed", "cancelled")) return@launch
-                delay(1_000L)
-            }
+            try { val appearance = ChatAppearanceStore.import(appContext, uri, kind).getOrThrow(); _state.update { it.copy(chatAppearance = appearance) } }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { showError(e) }
+            finally { _state.update { it.copy(wallpaperBusy = false) } }
         }
     }
+    fun setWallpaperDim(amount: Float) { if (!_state.value.wallpaperBusy) { val next = ChatAppearanceStore.setDimAmount(appContext, amount); _state.update { it.copy(chatAppearance = next) } } }
+    fun setWallpaperMotion(enabled: Boolean) { if (!_state.value.wallpaperBusy) { val next = ChatAppearanceStore.setMotionEnabled(appContext, enabled); _state.update { it.copy(chatAppearance = next) } } }
+    fun resetChatWallpaper() { if (!_state.value.wallpaperBusy) { val next = ChatAppearanceStore.reset(appContext); _state.update { it.copy(chatAppearance = next) } } }
 
-    fun deleteAndroidModel(id: String) {
-        ModelCatalog.byId(id)?.let(downloads::delete)
-        refreshAndroidModels()
-    }
-
-    private fun selectedModel(): ModelSpec {
-        val fallback = ModelCatalog.models.first()
-        return ModelCatalog.byId(prefs.getString("selected_model", fallback.id)) ?: fallback
-    }
-
-    private fun refreshAndroidModels() {
-        val selected = selectedModel().id
-        val rows = ModelCatalog.models.map { model ->
-            val status = downloads.status(model)
-            AndroidModelState(
-                id = model.id,
-                name = model.displayName,
-                subtitle = model.subtitle,
-                state = status.optString("state", "missing"),
-                progress = status.optDouble("progress", 0.0).toFloat().coerceIn(0f, 1f),
-                selected = selected == model.id,
-            )
+    fun exportConversation(uri: Uri) { operation("Mengekspor percakapan…") {
+        val current = _state.value; val text = repository.exportConversation(current.source, current.activeConversationId)
+        withContext(Dispatchers.IO) { appContext.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(text) } ?: error("Berkas tidak dapat ditulis") }
+        _state.update { it.copy(notice = "Percakapan diekspor. Berkas berisi teks pribadi tanpa enkripsi.") }
+    } }
+    fun recoveryKey(): String = backups.getOrCreateRecoveryKey()
+    fun exportBackup(uri: Uri) { operation("Mencadangkan data Android…") {
+        saveDraftNow()
+        withContext(Dispatchers.IO) {
+            val bytes = backups.createEncryptedSnapshotBytes(64L * 1024 * 1024)
+            appContext.contentResolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error("Berkas tidak dapat ditulis")
         }
-        _state.update { it.copy(androidModels = rows) }
-    }
-
-    private fun refreshProviders() {
-        val selected = runtime.config.selectedProvider()
-        _state.update { current ->
-            current.copy(
-                selectedProvider = selected,
-                providers = OnlineProviderCatalog.providers.map {
-                    ProviderState(it.id, it.displayName, runtime.keys.has(it.id), it.id == selected)
-                },
-            )
-        }
-    }
-
+        _state.update { it.copy(notice = "Backup Android terenkripsi dibuat. Simpan kunci pemulihan terpisah. Data Core dan media wallpaper tidak disertakan.") }
+    } }
+    fun restoreBackup(uri: Uri, key: String) { operation("Memulihkan data Android…") {
+        saveDraftNow(); aiEngine.unload()
+        withContext(Dispatchers.IO) { backups.restoreFrom(uri, key) }
+        _state.update { it.copy(enginePreference = EnginePreference.ANDROID) }; prefs.edit().putString("engine_preference", "ANDROID").apply()
+        apply(repository.snapshot(HubSource.ANDROID)); refreshMemoriesNow(); _state.update { it.copy(notice = "Backup Android dipulihkan. API key tidak diimpor.") }
+    } }
     fun openTrainingRoom(activity: Activity) {
         try {
-            check(bridge.isTermuxInstalled()) { "Termux belum terpasang" }
-            check(bridge.hasRunCommandPermission()) { "Izin RUN_COMMAND Termux diperlukan" }
+            check(bridge.isTermuxInstalled()) { "Termux belum terpasang" }; check(bridge.hasRunCommandPermission()) { "Izin RUN_COMMAND Termux diperlukan" }
             val intent = Intent("com.termux.RUN_COMMAND").apply {
                 component = ComponentName("com.termux", "com.termux.app.RunCommandService")
                 putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/furina")
                 putExtra("com.termux.RUN_COMMAND_ARGUMENTS", emptyArray<String>())
                 putExtra("com.termux.RUN_COMMAND_WORKDIR", "/data/data/com.termux/files/home")
-                putExtra("com.termux.RUN_COMMAND_BACKGROUND", false)
-                putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0")
-            }
-            activity.startService(intent)
-        } catch (error: Throwable) { showError(error) }
+                putExtra("com.termux.RUN_COMMAND_BACKGROUND", false); putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0")
+            }; activity.startService(intent)
+        } catch (e: Exception) { showError(e) }
     }
-
     fun clearError() = _state.update { it.copy(error = null) }
-
-    fun permissionDenied() = _state.update {
-        it.copy(error = "Izin ‘Run commands in Termux environment’ diperlukan untuk menyalakan Core dari FurinaHub.")
-    }
-
-    private fun personaPrompt(state: HubUiState): String {
-        val traits = FurinaTraits.filter { it.id in state.selectedTraits }.joinToString { "${it.label}: ${it.description}" }
-        return buildString {
-            append("Kamu adalah ${state.assistantName}, companion pribadi yang berbicara natural dalam bahasa pengguna. ")
-            if (traits.isNotBlank()) append("Kepribadian aktif menyatu sebagai satu watak: $traits. ")
-            append(if (state.partnerMode) "Mode pasangan romantis aktif dengan batas sehat. " else "Hubungan companion non-romantis kecuali konteks berkembang secara eksplisit. ")
-            if (state.roleplayMode) append("Roleplay fiksional boleh diikuti saat diminta. ")
-            if (state.innerThoughts) append("Boleh tampilkan satu suara batin fiksional singkat bila cocok, bukan reasoning model. ")
-            if (state.userNickname.isNotBlank()) append("Nama panggilan user: ${state.userNickname}. ")
-            if (state.customInstructions.isNotBlank()) append(state.customInstructions)
-        }
-    }
-
-    private fun onBridgeFailure(error: Throwable) {
-        if (error is CoreBridgeException && error.status in setOf(401, 403)) bridge.forget()
-        _state.update { it.copy(connected = false, connectionState = "disconnected", connectionMessage = "Core terputus", error = friendly(error)) }
-        if (_state.value.enginePreference == EnginePreference.AUTO) loadLocal()
-    }
-
-    private fun showError(error: Throwable) = _state.update { it.copy(error = friendly(error)) }
-
-    private fun friendly(error: Throwable): String {
-        val raw = error.message.orEmpty()
-        return when {
-            raw.contains("permission", true) || raw.contains("izin", true) -> "Izinkan ‘Run commands in Termux environment’ pada info aplikasi FurinaHub."
-            raw.contains("Connection refused", true) -> "Furina Core belum aktif. Tekan Hubungkan Termux."
-            raw.isNotBlank() -> raw.take(500)
-            else -> "Terjadi kesalahan yang tidak diketahui."
-        }
-    }
-
-    fun close() {
-        generationJob?.cancel()
-        aiEngine.destroy()
-        scope.cancel()
-        store.close()
-    }
-}
-
-private fun JSONArray?.stringSet(): Set<String> = buildSet {
-    val array = this@stringSet ?: return@buildSet
-    for (index in 0 until array.length()) array.optString(index).takeIf(String::isNotBlank)?.let(::add)
-}
-
-private fun JSONArray?.messages(): List<HubMessage> {
-    val array = this ?: return emptyList()
-    return buildList {
-        for (index in 0 until array.length()) {
-            val row = array.optJSONObject(index) ?: continue
-            add(HubMessage(row.opt("id")?.toString() ?: "message-$index", row.optString("role", "assistant"), row.optString("content", row.optString("text"))))
-        }
-    }
-}
-
-private fun JSONArray?.conversations(): List<HubConversation> {
-    val array = this ?: return emptyList()
-    return buildList {
-        for (index in 0 until array.length()) {
-            val row = array.optJSONObject(index) ?: continue
-            val id = row.opt("id")?.toString() ?: continue
-            add(
-                HubConversation(
-                    id = id,
-                    title = row.optString("title", "Percakapan baru"),
-                    messageCount = row.optInt("messageCount", row.optInt("message_count")),
-                    pinned = row.optBoolean("pinned"),
-                ),
-            )
-        }
-    }
-}
-
-private fun JSONArray?.memories(): List<HubMemory> {
-    val array = this ?: return emptyList()
-    return buildList {
-        for (index in 0 until array.length()) {
-            val row = array.optJSONObject(index) ?: continue
-            val id = row.opt("id")?.toString() ?: continue
-            add(HubMemory(id, row.optString("text", row.optString("content")), row.optString("kind", "memory")))
-        }
-    }
+    fun clearNotice() = _state.update { it.copy(notice = null) }
+    fun permissionDenied() = showError(IllegalStateException("Izinkan ‘Run commands in Termux environment’ pada info aplikasi FurinaHub; Termux juga harus mengaktifkan allow-external-apps."))
+    private fun showError(error: Throwable) = _state.update { it.copy(error = error.message?.take(500)?.ifBlank { null } ?: "Terjadi kesalahan; silakan coba lagi.") }
+    fun close() { scope.launch {
+        operationJob?.cancelAndJoin(); generationJob?.cancelAndJoin(); saveDraftNow()
+        try { aiEngine.unload() } finally { aiEngine.destroy(); store.close(); scope.cancel() }
+    } }
 }

@@ -1,6 +1,7 @@
 package com.wynndev.furina
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.withContext
@@ -66,6 +67,8 @@ class OpenAiCompatibleProvider(
             } else {
                 ProviderProbeResult(true, "API key aktif · ${models.size} model gratis tersedia", models)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: OnlineProviderException) {
             ProviderProbeResult(false, e.message ?: "Provider menolak API key")
         } catch (e: Throwable) {
@@ -93,6 +96,8 @@ class OpenAiCompatibleProvider(
         val key = keyStore.get(id) ?: throw IllegalStateException("API key ${spec.displayName} belum disimpan")
         val discovered = try {
             discoverFreeModels(force = false)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Throwable) {
             if (modelCache.isNotEmpty()) modelCache else throw e
         }
@@ -162,6 +167,7 @@ class OpenAiCompatibleProvider(
             doOutput = true
             setRequestProperty("Accept", "text/event-stream, application/json")
         }
+        connection.cancellableRead {
         connection.outputStream.use { it.write(payload.toString().toByteArray(StandardCharsets.UTF_8)) }
         val code = connection.responseCode
         if (code !in 200..299) {
@@ -187,7 +193,8 @@ class OpenAiCompatibleProvider(
                         val line = reader.readLine() ?: break
                         if (!line.startsWith("data:")) continue
                         val data = line.removePrefix("data:").trim()
-                        if (data.isBlank() || data == "[DONE]") continue
+                        if (data == "[DONE]") break
+                        if (data.isBlank()) continue
                         val chunk = parseStreamChunk(data)
                         if (chunk.isNotEmpty()) emitVisible(chunk)
                     }
@@ -206,6 +213,7 @@ class OpenAiCompatibleProvider(
             connection.disconnect()
         }
         if (!emitted) throw OnlineProviderException(502, "${model.displayName} tidak menghasilkan jawaban akhir", true)
+        }
     }
 
     private fun applyReasoningPolicy(payload: JSONObject, modelId: String) {
@@ -226,12 +234,12 @@ class OpenAiCompatibleProvider(
 
     private fun parseModels(raw: String): List<OnlineModel> {
         val root = JSONObject(raw)
-        val data = root.optJSONArray("data") ?: JSONArray()
+        val data = root.optJSONArray("data") ?: root.optJSONArray("models") ?: JSONArray()
         val out = mutableListOf<OnlineModel>()
         for (i in 0 until data.length()) {
-            val item = data.optJSONObject(i) ?: continue
-            val modelId = item.optString("id").trim()
-            if (modelId.isBlank()) continue
+            val rawItem = data.opt(i)
+            val modelId = ProviderProtocol.modelId(rawItem) ?: continue
+            val item = rawItem as? JSONObject ?: JSONObject().put("id", modelId)
             val free = when (id) {
                 "openrouter" -> {
                     val pricing = item.optJSONObject("pricing")
@@ -279,7 +287,7 @@ class OpenAiCompatibleProvider(
         }
         val choice = root.optJSONArray("choices")?.optJSONObject(0) ?: return ""
         val delta = choice.optJSONObject("delta")
-        return contentText(delta?.opt("content"))
+        return ProviderProtocol.contentText(delta?.opt("content"))
     }
 
     private fun parseCompletion(raw: String): String {
@@ -288,30 +296,17 @@ class OpenAiCompatibleProvider(
             throw OnlineProviderException(502, it.optString("message", "Provider gagal menghasilkan jawaban"), true)
         }
         val message = root.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message") ?: return ""
-        return contentText(message.opt("content"))
-    }
-
-    private fun contentText(value: Any?): String = when (value) {
-        is String -> value
-        is JSONArray -> buildString {
-            for (i in 0 until value.length()) {
-                val part = value.optJSONObject(i) ?: continue
-                if (part.optString("type") == "text") append(part.optString("text"))
-            }
-        }
-        else -> ""
+        return ProviderProtocol.contentText(message.opt("content"))
     }
 
     private data class SimpleResponse(val code: Int, val body: String)
 
-    private fun request(url: String, method: String, key: String): SimpleResponse {
+    private suspend fun request(url: String, method: String, key: String): SimpleResponse {
         val connection = openConnection(url, method, key)
-        return try {
+        return connection.cancellableRead {
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
             SimpleResponse(code, readAll(stream))
-        } finally {
-            connection.disconnect()
         }
     }
 
@@ -320,6 +315,7 @@ class OpenAiCompatibleProvider(
             requestMethod = method
             connectTimeout = 15_000
             readTimeout = 120_000
+            instanceFollowRedirects = false
             useCaches = false
             setRequestProperty("Authorization", "Bearer $key")
             setRequestProperty("Content-Type", "application/json")
@@ -331,15 +327,6 @@ class OpenAiCompatibleProvider(
         }
 
     private fun httpError(status: Int, raw: String): OnlineProviderException {
-        val message = try {
-            val root = JSONObject(raw)
-            root.optJSONObject("error")?.optString("message")
-                ?.takeIf { it.isNotBlank() }
-                ?: root.optString("message").takeIf { it.isNotBlank() }
-                ?: "HTTP $status"
-        } catch (_: Throwable) {
-            raw.take(240).ifBlank { "HTTP $status" }
-        }
         val lower = raw.lowercase(Locale.US)
         val retryable = status in setOf(402, 403, 404, 408, 409, 429, 500, 502, 503, 504) ||
             (status == 400 && listOf("context_length", "max_tokens", "token_limit", "model").any { lower.contains(it) })
@@ -348,14 +335,24 @@ class OpenAiCompatibleProvider(
             402 -> "Kuota/kredit untuk model ini habis"
             403 -> "Model ini tidak diizinkan oleh akun ${spec.displayName}"
             429 -> "Model sedang mencapai batas kuota/rate limit"
-            else -> message
+            else -> ProviderProtocol.errorMessage(spec.displayName, status, raw)
         }
         return OnlineProviderException(status, friendly, retryable)
     }
 
     private fun readAll(stream: InputStream?): String {
         if (stream == null) return ""
-        return stream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
+        return stream.bufferedReader(StandardCharsets.UTF_8).use { reader ->
+            val text = StringBuilder()
+            val buffer = CharArray(8192)
+            while (true) {
+                val count = reader.read(buffer)
+                if (count < 0) break
+                require(text.length + count <= 8_000_000) { "Respons provider terlalu besar" }
+                text.append(buffer, 0, count)
+            }
+            text.toString()
+        }
     }
 
     private class HiddenReasoningFilter {

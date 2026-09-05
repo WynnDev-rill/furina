@@ -7,7 +7,7 @@ import java.util.WeakHashMap
 
 /** Keeps update checks outside MainActivity so the native shell stays focused on Furina UI/runtime. */
 class FurinaApplication : Application(), Application.ActivityLifecycleCallbacks {
-    private val updateManagers = WeakHashMap<MainActivity, UpdateManager>()
+    private val updateManagers = WeakHashMap<Activity, UpdateManager>()
 
     override fun onCreate() {
         super.onCreate()
@@ -15,7 +15,7 @@ class FurinaApplication : Application(), Application.ActivityLifecycleCallbacks 
     }
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
-        if (activity !is MainActivity) return
+        if (activity !is MainActivity && activity !is NativeHubActivity) return
         val manager = UpdateManager(activity)
         updateManagers[activity] = manager
         manager.register()
@@ -24,14 +24,15 @@ class FurinaApplication : Application(), Application.ActivityLifecycleCallbacks 
     }
 
     override fun onActivityResumed(activity: Activity) {
-        if (activity is MainActivity) updateManagers[activity]?.tryInstallPending()
+        updateManagers[activity]?.tryInstallPending()
     }
 
     override fun onActivityDestroyed(activity: Activity) {
-        if (activity is MainActivity) updateManagers.remove(activity)?.unregister()
+        updateManagers.remove(activity)?.unregister()
     }
 
     override fun onActivityStarted(activity: Activity) = Unit
+    fun checkUpdate(activity: Activity) { updateManagers[activity]?.checkForUpdate() }
     override fun onActivityPaused(activity: Activity) = Unit
     override fun onActivityStopped(activity: Activity) = Unit
     override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit

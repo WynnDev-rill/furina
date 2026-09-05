@@ -11,12 +11,14 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.SecureRandom
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /** Token-authenticated localhost bridge to the Furina Core installed in Termux. */
-class TermuxBridgeClient(context: Context) {
+class TermuxBridgeClient(context: Context, private val port: Int = 8787) {
+    init { require(port in 1..65535) }
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -75,6 +77,7 @@ class TermuxBridgeClient(context: Context) {
                 token = candidate
                 return health
             } catch (error: Throwable) {
+                if (error is CancellationException) throw error
                 lastError = error
                 delay(650L)
             }
@@ -84,7 +87,9 @@ class TermuxBridgeClient(context: Context) {
 
     suspend fun health(candidate: String = token): JSONObject = withContext(Dispatchers.IO) {
         require(candidate.length >= 24) { "Token Core belum tersedia" }
-        requestRaw("GET", "/health?access=${candidate}", null, candidate, api = false)
+        requestRaw("GET", "/health?access=${candidate}", null, candidate, api = false).also {
+            check(it.optBoolean("ok") && it.optString("app") == "FurinaHub") { "Layanan lokal bukan Furina Core yang valid" }
+        }
     }
 
     suspend fun get(path: String): JSONObject = withContext(Dispatchers.IO) {
@@ -99,13 +104,14 @@ class TermuxBridgeClient(context: Context) {
         token = ""
     }
 
-    private fun requestRaw(method: String, path: String, body: String?, authToken: String, api: Boolean): JSONObject {
+    private suspend fun requestRaw(method: String, path: String, body: String?, authToken: String, api: Boolean): JSONObject {
         if (api) require(path.startsWith("/api/")) { "Endpoint Core tidak valid" }
-        val connection = URL(BASE_URL + path.removePrefix("/")).openConnection() as HttpURLConnection
-        return try {
+        val connection = URL("http://127.0.0.1:$port/" + path.removePrefix("/")).openConnection() as HttpURLConnection
+        return connection.cancellableRead {
             connection.requestMethod = method
             connection.connectTimeout = if (api) 2_500 else 900
-            connection.readTimeout = if (api) 300_000 else 900
+            connection.readTimeout = if (path == "/api/provider/test") 30_000 else if (api) 10_000 else 900
+            connection.instanceFollowRedirects = false
             connection.useCaches = false
             connection.setRequestProperty("Accept", "application/json")
             if (api) connection.setRequestProperty("X-FurinaHub-Token", authToken)
@@ -119,16 +125,25 @@ class TermuxBridgeClient(context: Context) {
             }
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val raw = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            val raw = stream?.bufferedReader(Charsets.UTF_8)?.use { reader ->
+                val out = StringBuilder()
+                val buffer = CharArray(8_192)
+                while (true) {
+                    val count = reader.read(buffer)
+                    if (count < 0) break
+                    require(out.length + count <= 4_000_000) { "Respons Core terlalu besar" }
+                    out.append(buffer, 0, count)
+                }
+                out.toString()
+            }.orEmpty()
             val payload = runCatching { JSONObject(raw.ifBlank { "{}" }) }.getOrElse {
                 JSONObject().put("error", raw.take(500).ifBlank { "HTTP $status" })
             }
             if (status !in 200..299) {
                 throw CoreBridgeException(status, payload.optString("error", "HTTP $status"))
             }
+            check(payload.isNull("error") || payload.optString("error").isBlank()) { payload.optString("error", "Respons Core tidak valid") }
             payload
-        } finally {
-            connection.disconnect()
         }
     }
 
@@ -136,7 +151,6 @@ class TermuxBridgeClient(context: Context) {
         const val RUN_COMMAND_PERMISSION = "com.termux.permission.RUN_COMMAND"
         private const val PREFS = "furinahub_termux"
         private const val KEY_TOKEN = "hub_token"
-        private const val BASE_URL = "http://127.0.0.1:8787/"
         private const val TERMUX_PACKAGE = "com.termux"
         private const val TERMUX_RUN_SERVICE = "com.termux.app.RunCommandService"
         private const val TERMUX_BASH = "/data/data/com.termux/files/usr/bin/bash"

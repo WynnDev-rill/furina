@@ -2,6 +2,7 @@ package com.wynndev.furina
 
 enum class HubDestination { CHAT, PERSONA, MEMORY, SETTINGS }
 enum class EnginePreference { AUTO, TERMUX, ANDROID }
+enum class HubSource { ANDROID, TERMUX }
 
 data class HubMessage(
     val id: String,
@@ -18,6 +19,7 @@ data class HubConversation(
 )
 
 data class HubMemory(val id: String, val text: String, val kind: String = "memory")
+data class CoreModelState(val path: String, val name: String, val selected: Boolean)
 
 data class PersonalityTrait(val id: String, val label: String, val description: String)
 
@@ -35,6 +37,8 @@ data class ProviderState(
     val name: String,
     val configured: Boolean,
     val selected: Boolean,
+    val models: List<OnlineModel> = emptyList(),
+    val selectedModel: String = "",
 )
 
 data class HubUiState(
@@ -68,6 +72,19 @@ data class HubUiState(
     val selectedProvider: String = "openrouter",
     val chatAppearance: ChatAppearance = ChatAppearance(),
     val wallpaperBusy: Boolean = false,
+    val source: HubSource = HubSource.ANDROID,
+    val loading: Boolean = true,
+    val generating: Boolean = false,
+    val providerBusy: Boolean = false,
+    val notice: String? = null,
+    val draft: String = "",
+    val activeModel: String = "",
+    val autoFallback: Boolean = true,
+    val coreModels: List<CoreModelState> = emptyList(),
+    val coreProviders: List<ProviderState> = emptyList(),
+    val coreRoutingMode: String = "local",
+    val historyLimited: Boolean = false,
+    val personaPending: Boolean = false,
 )
 
 val FurinaTraits = listOf(

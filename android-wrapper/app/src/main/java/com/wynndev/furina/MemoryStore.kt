@@ -26,7 +26,7 @@ data class CompanionEmotionalState(
 class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
     companion object {
         private const val DB_NAME = "furina_memory.db"
-        private const val DB_VERSION = 4
+        private const val DB_VERSION = 5
         private val CORE_MEMORY_KINDS = setOf(
             "profile_name",
             "profile_location",
@@ -43,12 +43,7 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
         val singleton: Boolean = false,
     )
 
-    private data class ScoredMemory(
-        val score: Int,
-        val importance: Int,
-        val updatedAt: Long,
-        val content: String,
-    )
+    private var retrievalIndex: MemoryRetrievalIndex? = null
 
     override fun onConfigure(db: SQLiteDatabase) {
         super.onConfigure(db)
@@ -94,12 +89,14 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
         }
         createSettingsTable(db)
         createSummaryTable(db)
+        db.execSQL("ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) createSettingsTable(db)
         if (oldVersion < 3) createSummaryTable(db)
         if (oldVersion < 4) compactLegacyAutoMemories(db)
+        if (oldVersion < 5) db.execSQL("ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
     }
 
     private fun createSettingsTable(db: SQLiteDatabase) {
@@ -142,7 +139,7 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
     }
 
     @Synchronized
-    fun addMessage(sessionId: String, role: String, content: String, createdAt: Long = System.currentTimeMillis()): String {
+    fun addMessage(sessionId: String, role: String, content: String, createdAt: Long = System.currentTimeMillis(), rememberFacts: Boolean = true): String {
         ensureSession(sessionId)
         val id = UUID.randomUUID().toString()
         val db = writableDatabase
@@ -169,7 +166,7 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
         } finally {
             db.endTransaction()
         }
-        if (role == "user") maybeRemember(content)
+        if (role == "user" && rememberFacts) maybeRemember(content)
         return id
     }
 
@@ -198,22 +195,22 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
     fun sessionsJson(): String {
         val out = JSONArray()
         readableDatabase.rawQuery(
-            "SELECT id,title,created_at,updated_at,(SELECT COUNT(*) FROM messages m WHERE m.session_id=s.id) FROM sessions s ORDER BY updated_at DESC",
+            "SELECT id,title,created_at,updated_at,(SELECT COUNT(*) FROM messages m WHERE m.session_id=s.id),pinned FROM sessions s ORDER BY pinned DESC,updated_at DESC",
             null,
         ).use { c ->
             while (c.moveToNext()) out.put(JSONObject()
                 .put("id", c.getString(0)).put("title", c.getString(1))
-                .put("createdAt", c.getLong(2)).put("updatedAt", c.getLong(3)).put("messageCount", c.getInt(4)))
+                .put("createdAt", c.getLong(2)).put("updatedAt", c.getLong(3)).put("messageCount", c.getInt(4)).put("pinned", c.getInt(5) != 0))
         }
         return out.toString()
     }
 
     @Synchronized
-    fun loadSessionJson(sessionId: String): String {
+    fun loadSessionJson(sessionId: String, limit: Int = Int.MAX_VALUE): String {
         val out = JSONArray()
         readableDatabase.rawQuery(
-            "SELECT id,role,content,created_at FROM messages WHERE session_id=? ORDER BY created_at ASC",
-            arrayOf(sessionId),
+            "SELECT id,role,content,created_at FROM (SELECT rowid AS sequence,id,role,content,created_at FROM messages WHERE session_id=? ORDER BY created_at DESC,rowid DESC LIMIT ?) ORDER BY created_at ASC,sequence ASC",
+            arrayOf(sessionId, limit.coerceAtLeast(1).toString()),
         ).use { c ->
             while (c.moveToNext()) out.put(JSONObject()
                 .put("id", c.getString(0)).put("role", c.getString(1)).put("content", c.getString(2)).put("createdAt", c.getLong(3)))
@@ -313,34 +310,12 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
 
     @Synchronized
     fun relevantMemories(query: String, limit: Int = 6): String {
-        val terms = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+"))
-            .filter { it.length >= 3 }.toSet()
-        val candidates = mutableListOf<ScoredMemory>()
-        readableDatabase.rawQuery(
-            "SELECT content,importance,kind,updated_at FROM memories ORDER BY updated_at DESC LIMIT 300",
-            null,
-        ).use { c ->
-            while (c.moveToNext()) {
-                val content = c.getString(0)
-                val importance = c.getInt(1)
-                val kind = c.getString(2)
-                val updatedAt = c.getLong(3)
-                val words = content.lowercase().split(Regex("[^\\p{L}\\p{N}]+"))
-                val overlap = if (terms.isEmpty()) 0 else words.count { it in terms }
-                val core = kind in CORE_MEMORY_KINDS || importance >= 9
-                if (core || overlap > 0) {
-                    val score = overlap * 20 + importance + if (core) 14 else 0
-                    candidates += ScoredMemory(score, importance, updatedAt, content)
-                }
+        val index = retrievalIndex ?: MemoryRetrievalIndex(buildList {
+            readableDatabase.rawQuery("SELECT id,content,importance,kind,updated_at FROM memories", null).use { c ->
+                while (c.moveToNext()) add(IndexedMemory(c.getString(0), c.getString(1), c.getInt(2), c.getLong(4), c.getString(3) in CORE_MEMORY_KINDS || c.getInt(2) >= 9))
             }
-        }
-        return candidates
-            .sortedWith(compareByDescending<ScoredMemory> { it.score }
-                .thenByDescending { it.importance }
-                .thenByDescending { it.updatedAt })
-            .distinctBy { it.content.lowercase() }
-            .take(limit)
-            .joinToString("\n") { "- ${it.content}" }
+        }).also { retrievalIndex = it }
+        return index.search(query, limit).joinToString("\n") { "- $it" }
     }
 
     @Synchronized
@@ -407,11 +382,13 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
 
     @Synchronized
     fun deleteMemory(id: String) {
+        retrievalIndex = null
         writableDatabase.delete("memories", "id=?", arrayOf(id))
     }
 
     @Synchronized
     fun clearMemories() {
+        retrievalIndex = null
         writableDatabase.delete("memories", null, null)
     }
 
@@ -647,6 +624,7 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
         .take(180)
 
     private fun upsertMemory(db: SQLiteDatabase, candidate: MemoryCandidate): String {
+        retrievalIndex = null
         val content = normalizeText(candidate.content).take(500)
         if (content.length < 3) return ""
         val now = System.currentTimeMillis()
@@ -724,6 +702,7 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
 
     @Synchronized
     fun restoreFrom(file: File) {
+        retrievalIndex = null
         checkpoint()
         val target = databaseFile()
         val safety = File(context.cacheDir, "furina-before-restore-${System.currentTimeMillis()}.db")
@@ -747,5 +726,56 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
         } finally {
             safety.delete()
         }
+    }
+
+    @Synchronized
+    fun hubValue(key: String): String? = readableDatabase.rawQuery(
+        "SELECT value FROM app_settings WHERE key=?", arrayOf("hub:$key"),
+    ).use { if (it.moveToFirst()) it.getString(0) else null }
+
+    @Synchronized
+    fun putHubValue(key: String, value: String) {
+        writableDatabase.insertWithOnConflict("app_settings", null, ContentValues().apply {
+            put("key", "hub:$key"); put("value", value); put("updated_at", System.currentTimeMillis())
+        }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    @Synchronized
+    fun putHubValues(values: Map<String, String>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try { values.forEach { (key, value) -> putHubValue(key, value) }; db.setTransactionSuccessful() }
+        finally { db.endTransaction() }
+    }
+
+    @Synchronized
+    fun renameSession(id: String, title: String) {
+        val clean = title.replace(Regex("\\s+"), " ").trim().take(72)
+        require(clean.isNotBlank()) { "Judul tidak boleh kosong" }
+        require(writableDatabase.update("sessions", ContentValues().apply { put("title", clean) }, "id=?", arrayOf(id)) == 1) { "Percakapan tidak ditemukan" }
+    }
+
+    @Synchronized
+    fun pinSession(id: String, pinned: Boolean) {
+        require(writableDatabase.update("sessions", ContentValues().apply { put("pinned", if (pinned) 1 else 0) }, "id=?", arrayOf(id)) == 1) { "Percakapan tidak ditemukan" }
+    }
+
+    /** A non-destructive branch: preserve the old conversation and copy only the selected prefix. */
+    @Synchronized
+    fun branchBefore(sessionId: String, messageId: String): String {
+        val messages = JSONArray(loadSessionJson(sessionId))
+        val index = (0 until messages.length()).firstOrNull { messages.getJSONObject(it).getString("id") == messageId }
+            ?: error("Pesan tidak ditemukan")
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val next = createSession("Cabang percakapan")
+            for (i in 0 until index) {
+                val row = messages.getJSONObject(i)
+                addMessage(next, row.getString("role"), row.getString("content"), row.optLong("createdAt"), rememberFacts = false)
+            }
+            db.setTransactionSuccessful()
+            return next
+        } finally { db.endTransaction() }
     }
 }

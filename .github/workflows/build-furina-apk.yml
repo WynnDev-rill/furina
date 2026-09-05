@@ -76,7 +76,7 @@ jobs:
           ! grep -q 'Qwen3.5 9B' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
           ! grep -qi 'gemma' android-wrapper/app/src/main/java/com/wynndev/furina/ModelCatalog.kt
           grep -q 'generationJob = null' android-wrapper/app/src/main/java/com/wynndev/furina/FurinaBridge.kt
-          grep -q 'DB_VERSION = 4' android-wrapper/app/src/main/java/com/wynndev/furina/MemoryStore.kt
+          grep -q 'DB_VERSION = 5' android-wrapper/app/src/main/java/com/wynndev/furina/MemoryStore.kt
           grep -q 'class UnifiedAiEngine' android-wrapper/app/src/main/java/com/wynndev/furina/UnifiedAiEngine.kt
           grep -q 'interface AiProvider' android-wrapper/app/src/main/java/com/wynndev/furina/AiContracts.kt
           grep -q 'data class AiModelRef' android-wrapper/app/src/main/java/com/wynndev/furina/AiContracts.kt
@@ -244,7 +244,7 @@ jobs:
           set -o pipefail
           mkdir -p app/src/main/res/drawable
           cp ../public/icon-192.png app/src/main/res/drawable/furina_icon.png
-          gradle --no-daemon --stacktrace --build-cache lintRelease assembleDebug 2>&1 | tee ../gradle-build.log
+          gradle --no-daemon --stacktrace --build-cache testDebugUnitTest lintRelease assembleDebug 2>&1 | tee ../gradle-build.log
 
       - name: Build stable signed Furina APK
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -264,7 +264,19 @@ jobs:
           set -o pipefail
           mkdir -p app/src/main/res/drawable
           cp ../public/icon-192.png app/src/main/res/drawable/furina_icon.png
-          gradle --no-daemon --stacktrace --build-cache lintRelease assembleRelease 2>&1 | tee ../gradle-build.log
+          gradle --no-daemon --stacktrace --build-cache testDebugUnitTest lintRelease assembleRelease 2>&1 | tee ../gradle-build.log
+
+      - name: Upload Android test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FurinaHub-Tests-${{ github.run_number }}
+          path: |
+            android-wrapper/app/build/test-results/
+            android-wrapper/app/build/reports/tests/
+            android-wrapper/app/build/reports/lint-results-release.*
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload Gradle diagnostic log
         if: always()

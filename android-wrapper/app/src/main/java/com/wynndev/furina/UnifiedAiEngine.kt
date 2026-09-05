@@ -102,7 +102,12 @@ class UnifiedAiEngine(
                 onToken(token)
             }
         } catch (cancelled: CancellationException) {
+            // Keep the visible prefix after Stop/recreation; never invent a completed reply.
+            if (reply.isNotBlank()) store.addMessage(sessionId, "assistant", reply.toString().trim())
             throw cancelled
+        } catch (error: Exception) {
+            if (reply.isNotBlank()) store.addMessage(sessionId, "assistant", reply.toString().trim())
+            throw error
         }
 
         val finalText = reply.toString().trim()
