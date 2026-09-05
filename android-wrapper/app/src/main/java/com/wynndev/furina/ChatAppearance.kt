@@ -64,8 +64,10 @@ object ChatAppearanceStore {
 
     fun selectPreset(context: Context, id: String): ChatAppearance {
         require(id in presetIds) { "Preset wallpaper tidak dikenal" }
-        val next = load(context).copy(kind = ChatWallpaperKind.PRESET, value = id)
+        val previous = load(context)
+        val next = previous.copy(kind = ChatWallpaperKind.PRESET, value = id)
         persist(context, next)
+        deleteIfOwned(context, previous)
         return next
     }
 
