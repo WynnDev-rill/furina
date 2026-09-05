@@ -775,7 +775,7 @@ private fun MemoryScreen(state: HubUiState, controller: NativeHubController, mod
             Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(input, { input = it.take(500) }, Modifier.weight(1f), placeholder = { Text("Tambahkan hal yang perlu diingat…") }, minLines = 1, maxLines = 4)
                 Spacer(Modifier.width(8.dp))
-                FilledIconButton(onClick = { if (controller.addMemory(input)) input = "" }, enabled = !state.busy && input.trim().length >= 4) { Icon(Icons.Outlined.Add, "Tambah") }
+                FilledIconButton(onClick = { val submitted = input; controller.addMemory(submitted) { if (input == submitted) input = "" } }, enabled = !state.busy && input.trim().length >= 4) { Icon(Icons.Outlined.Add, "Tambah") }
             }
         }
         Spacer(Modifier.height(12.dp))

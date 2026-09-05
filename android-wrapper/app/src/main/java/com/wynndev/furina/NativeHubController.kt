@@ -79,6 +79,7 @@ class NativeHubController(context: Context) {
             activeSource = if (snapshot.source == HubSource.TERMUX) "Termux Core" else "Android ${if (runtime.config.mode() == OnlineAiConfigStore.MODE_ONLINE) "Online" else "Lokal"}",
             coreVersion = snapshot.coreVersion.ifBlank { old.coreVersion }, historyLimited = snapshot.historyLimited,
             draft = draft, loading = false, personaPending = repository.personaPending(),
+            activeModel = if (snapshot.source != old.source) "" else old.activeModel,
         ) }
     }
     private suspend fun saveDraftNow() {
@@ -281,9 +282,9 @@ class NativeHubController(context: Context) {
 
     private suspend fun refreshMemoriesNow() { val rows = repository.memories(_state.value.source); _state.update { it.copy(memories = rows) } }
     fun refreshMemories() { operation("Memuat memori…") { refreshMemoriesNow() } }
-    fun addMemory(text: String): Boolean {
+    fun addMemory(text: String, onSaved: () -> Unit = {}): Boolean {
         if (text.trim().length !in 4..500) { showError(IllegalArgumentException("Memori harus 4–500 karakter")); return false }
-        return operation("Menyimpan memori…") { repository.changeMemory(_state.value.source, text = text); refreshMemoriesNow() }
+        return operation("Menyimpan memori…") { repository.changeMemory(_state.value.source, text = text); onSaved(); refreshMemoriesNow() }
     }
     fun deleteMemory(id: String) { operation("Menghapus memori…") { repository.changeMemory(_state.value.source, id = id); refreshMemoriesNow() } }
 
@@ -310,9 +311,16 @@ class NativeHubController(context: Context) {
     private suspend fun loadCoreSettings() {
         val root = bridge.get("/api/settings"); val core = root.optJSONObject("core") ?: JSONObject()
         val models = root.optJSONArray("models"); val providers = root.optJSONArray("providers")
-        _state.update { it.copy(coreRoutingMode = core.optString("routing_mode", "local"),
-            coreModels = (0 until (models?.length() ?: 0)).mapNotNull { i -> models?.optJSONObject(i)?.takeIf { row -> row.optString("category") == "chat" }?.let { row -> CoreModelState(row.optString("path"), row.optString("name"), row.optBoolean("active")) },
-            coreProviders = (0 until (providers?.length() ?: 0)).mapNotNull { i -> providers?.optJSONObject(i)?.let { p -> ProviderState(p.optString("id"), p.optString("label"), p.optBoolean("configured"), false) } }) }
+        val modelRows = (0 until (models?.length() ?: 0)).mapNotNull { i ->
+            val row = models?.optJSONObject(i) ?: return@mapNotNull null
+            if (row.optString("category") != "chat") return@mapNotNull null
+            CoreModelState(row.optString("path"), row.optString("name"), row.optBoolean("active"))
+        }
+        val providerRows = (0 until (providers?.length() ?: 0)).mapNotNull { i ->
+            val row = providers?.optJSONObject(i) ?: return@mapNotNull null
+            ProviderState(row.optString("id"), row.optString("label"), row.optBoolean("configured"), false)
+        }
+        _state.update { it.copy(coreRoutingMode = core.optString("routing_mode", "local"), coreModels = modelRows, coreProviders = providerRows) }
     }
     fun setCoreMode(mode: String, modelPath: String? = null) { operation("Mengatur Core…") {
         check(_state.value.connected); require(mode in setOf("local", "online"))
@@ -328,17 +336,38 @@ class NativeHubController(context: Context) {
         loadCoreSettings(); _state.update { it.copy(notice = result.optString("message", "Provider Core siap")) }
     } }
 
-    fun selectAndroidModel(id: String) { if (!_state.value.busy && ModelCatalog.byId(id) != null) { prefs.edit().putString("selected_model", id).apply(); refreshAndroidModels() } }
+    fun selectAndroidModel(id: String) { operation("Memilih model…") {
+        require(ModelCatalog.byId(id) != null); aiEngine.unload()
+        prefs.edit().putString("selected_model", id).apply(); refreshAndroidModels(); _state.update { it.copy(activeModel = "") }
+    } }
     private fun selectedModel(): ModelSpec = ModelCatalog.byId(prefs.getString("selected_model", ModelCatalog.models.first().id)) ?: ModelCatalog.models.first()
-    private fun refreshAndroidModels() { _state.update { it.copy(androidModels = ModelCatalog.models.map { m ->
-        val s = downloads.status(m)
-        AndroidModelState(m.id, m.displayName, m.subtitle, s.optString("state", "missing"), s.optDouble("progress", 0.0).toFloat().coerceIn(0f, 1f), m.id == selectedModel().id)
-    }) } }
-    fun downloadAndroidModel(id: String) {
-        val model = ModelCatalog.byId(id) ?: return; downloads.start(model); downloadJobs.remove(id)?.cancel()
-        downloadJobs[id] = scope.launch { repeat(7_200) { refreshAndroidModels(); if (downloads.status(model).optString("state") in setOf("ready", "failed", "cancelled")) return@launch; delay(1_000) } }
+    private suspend fun refreshAndroidModels() {
+        val selected = selectedModel().id
+        val rows = withContext(Dispatchers.IO) { ModelCatalog.models.map { m ->
+            val s = downloads.status(m)
+            AndroidModelState(m.id, m.displayName, m.subtitle, s.optString("state", "missing"), s.optDouble("progress", 0.0).toFloat().coerceIn(0f, 1f), m.id == selected)
+        } }
+        _state.update { it.copy(androidModels = rows) }
     }
-    fun deleteAndroidModel(id: String) { operation("Melepas model…") { aiEngine.unload(); ModelCatalog.byId(id)?.let(downloads::delete); refreshAndroidModels() } }
+    fun downloadAndroidModel(id: String) {
+        val model = ModelCatalog.byId(id) ?: return
+        if (downloadJobs[id]?.isActive == true) return
+        downloadJobs[id] = scope.launch {
+            try {
+                withContext(Dispatchers.IO) { downloads.start(model) }
+                repeat(7_200) {
+                    refreshAndroidModels()
+                    if (_state.value.androidModels.firstOrNull { it.id == id }?.state in setOf("ready", "failed", "cancelled")) return@launch
+                    delay(1_000)
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { showError(e); refreshAndroidModels() }
+        }
+    }
+    fun deleteAndroidModel(id: String) { operation("Melepas model…") {
+        downloadJobs.remove(id)?.cancelAndJoin(); aiEngine.unload()
+        withContext(Dispatchers.IO) { ModelCatalog.byId(id)?.let(downloads::delete) }; refreshAndroidModels()
+    } }
 
     fun selectWallpaperPreset(id: String) {
         if (!_state.value.wallpaperBusy) try { val next = ChatAppearanceStore.selectPreset(appContext, id); _state.update { it.copy(chatAppearance = next) } } catch (e: Exception) { showError(e) }
