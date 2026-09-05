@@ -50,8 +50,6 @@ jobs:
   device-qa:
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    env:
-      ANDROID_AVD_HOME: ${{ runner.temp }}/furina-avd
     permissions:
       contents: read
       actions: read
@@ -68,6 +66,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/furina-avd"
           mkdir -p device-evidence/baseline "$ANDROID_AVD_HOME"
           test -e /dev/kvm
           sudo chmod a+rw /dev/kvm
