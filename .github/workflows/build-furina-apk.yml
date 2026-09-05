@@ -50,6 +50,8 @@ jobs:
   device-qa:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      ANDROID_AVD_HOME: ${{ runner.temp }}/furina-avd
     permissions:
       contents: read
       actions: read
@@ -66,13 +68,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p device-evidence/baseline
+          mkdir -p device-evidence/baseline "$ANDROID_AVD_HOME"
           test -e /dev/kvm
           sudo chmod a+rw /dev/kvm
           sdkmanager 'emulator' 'system-images;android-35;google_apis;x86_64'
-          echo no | avdmanager create avd --name furina-qa --package 'system-images;android-35;google_apis;x86_64' --device pixel_6 --force
+          echo no | avdmanager create avd --name furina-qa --path "$ANDROID_AVD_HOME/furina-qa.avd" --package 'system-images;android-35;google_apis;x86_64' --device pixel_6 --force
+          "$ANDROID_HOME/emulator/emulator" -list-avds
+          test -s "$ANDROID_AVD_HOME/furina-qa.ini"
           "$ANDROID_HOME/emulator/emulator" -avd furina-qa -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -memory 2048 -cores 2 -no-snapshot > device-evidence/emulator.log 2>&1 &
-          adb wait-for-device
+          timeout 90 adb wait-for-device
           for attempt in $(seq 1 150); do
             if adb shell getprop sys.boot_completed | tr -d '\r' | grep -q '^1$'; then break; fi
             sleep 2
