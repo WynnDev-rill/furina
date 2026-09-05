@@ -15,6 +15,7 @@ on:
       - 'scripts/fix-*.py'
       - 'scripts/public-repo-safety-gate.py'
       - 'scripts/furinahub-v2-gate.py'
+      - 'scripts/qa/**'
       - '.agents/**'
       - 'package.json'
       - 'package-lock.json'
@@ -29,6 +30,7 @@ on:
       - 'scripts/fix-*.py'
       - 'scripts/public-repo-safety-gate.py'
       - 'scripts/furinahub-v2-gate.py'
+      - 'scripts/qa/**'
       - '.agents/**'
       - 'package.json'
       - 'package-lock.json'
@@ -45,6 +47,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  device-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: android-actions/setup-android@v3
+      - uses: actions/download-artifact@v4
+        with:
+          name: FurinaHub-V2-365
+          run-id: 33956902964
+          github-token: ${{ github.token }}
+          path: qa-baseline
+      - name: Run baseline release APK on Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p device-evidence/baseline
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+          sdkmanager 'emulator' 'system-images;android-35;google_apis;x86_64'
+          echo no | avdmanager create avd --name furina-qa --package 'system-images;android-35;google_apis;x86_64' --device pixel_6 --force
+          "$ANDROID_HOME/emulator/emulator" -avd furina-qa -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -memory 2048 -cores 2 -no-snapshot > device-evidence/emulator.log 2>&1 &
+          adb wait-for-device
+          for attempt in $(seq 1 150); do
+            if adb shell getprop sys.boot_completed | tr -d '\r' | grep -q '^1$'; then break; fi
+            sleep 2
+          done
+          adb shell getprop sys.boot_completed | tr -d '\r' | grep -q '^1$'
+          python3 scripts/qa/android_blackbox.py --apk qa-baseline/FurinaHub-V2.apk --output device-evidence/baseline
+      - name: Upload black-box evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FurinaHub-Device-QA-${{ github.run_number }}
+          path: device-evidence/
+          retention-days: 30
+
   build-apk:
     runs-on: ubuntu-latest
     timeout-minutes: 60
