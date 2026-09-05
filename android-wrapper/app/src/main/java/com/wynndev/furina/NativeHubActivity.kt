@@ -112,6 +112,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -612,7 +613,8 @@ private fun PresetWallpaper(id: String, modifier: Modifier = Modifier) {
 private fun VideoWallpaper(path: String, motionEnabled: Boolean, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val lifecycleOwner: LifecycleOwner? = LocalView.current.findViewTreeLifecycleOwner()
-    val view = remember(path, motionEnabled) {
+    val motionAllowed by rememberUpdatedState(motionEnabled)
+    val view = remember(path) {
         VideoView(context).apply {
             setOnPreparedListener { player ->
                 player.isLooping = true
@@ -635,10 +637,10 @@ private fun VideoWallpaper(path: String, motionEnabled: Boolean, modifier: Modif
         modifier = modifier,
     )
 
-    DisposableEffect(view, lifecycleOwner, motionEnabled) {
+    DisposableEffect(view, lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> if (motionEnabled) view.start()
+                Lifecycle.Event.ON_RESUME -> if (motionAllowed) view.start()
                 Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> view.pause()
                 else -> Unit
             }
