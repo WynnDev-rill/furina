@@ -163,9 +163,9 @@ class BackupManager(
     }
 
     private fun writeEncryptedSnapshot(rawOut: OutputStream) {
-        store.checkpoint()
-        val dbFile = store.databaseFile()
-        require(dbFile.isFile) { "Database Furina belum tersedia" }
+        val dbFile = File.createTempFile("furina-backup-snapshot-", ".db", context.cacheDir)
+        try {
+        store.writeSnapshot(dbFile)
 
         val key = decodeKey(getOrCreateRecoveryKey())
         val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
@@ -185,6 +185,7 @@ class BackupManager(
                 zip.closeEntry()
             }
         }
+        } finally { dbFile.delete() }
     }
 
     private fun restoreEncryptedSnapshot(rawIn: InputStream) {
@@ -276,7 +277,10 @@ class BackupManager(
         }
         android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READONLY).use { db ->
             require(db.version in 1..5) { "Versi database backup belum didukung" }
-            db.rawQuery("PRAGMA quick_check", null).use { c -> require(c.moveToFirst() && c.getString(0) == "ok") { "Database backup rusak" } }
+            db.rawQuery("PRAGMA integrity_check", null).use { c ->
+                val result = if (c.moveToFirst()) c.getString(0) else "hasil pemeriksaan kosong"
+                require(result.equals("ok", ignoreCase = true)) { "Database backup tidak valid: ${result.take(200)}" }
+            }
             for (table in listOf("sessions", "messages", "memories")) {
                 db.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name=?", arrayOf(table)).use { c ->
                     require(c.moveToFirst()) { "Struktur database backup tidak sesuai" }

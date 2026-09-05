@@ -700,13 +700,20 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
 
     fun databaseFile(): File = context.getDatabasePath(DB_NAME)
 
+    /** SQLite produces a consistent standalone file, including committed WAL pages. */
+    @Synchronized
+    fun writeSnapshot(target: File) {
+        require(!target.exists() || target.length() == 0L) { "Tujuan snapshot sudah berisi data" }
+        writableDatabase.execSQL("VACUUM INTO ?", arrayOf(target.absolutePath))
+    }
+
     @Synchronized
     fun restoreFrom(file: File) {
         retrievalIndex = null
         checkpoint()
         val target = databaseFile()
         val safety = File(context.cacheDir, "furina-before-restore-${System.currentTimeMillis()}.db")
-        if (target.exists()) target.copyTo(safety, overwrite = true)
+        if (target.exists()) writeSnapshot(safety)
         close()
         target.parentFile?.mkdirs()
         File(target.absolutePath + "-wal").delete()

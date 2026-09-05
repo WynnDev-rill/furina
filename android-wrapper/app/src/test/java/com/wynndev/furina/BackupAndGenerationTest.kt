@@ -18,9 +18,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.SQLiteMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
+@SQLiteMode(SQLiteMode.Mode.NATIVE)
 class BackupAndGenerationTest {
     private lateinit var context: Context
     private lateinit var store: MemoryStore
@@ -36,6 +38,10 @@ class BackupAndGenerationTest {
         store.addMessage(id, "user", "Percakapan tersimpan")
         store.putHubValue("persona", HubPersona(name = "Nara").json().toString())
         store.addMemory("Kode proyek zefir")
+        store.readableDatabase.rawQuery("PRAGMA integrity_check", null).use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("Database sebelum backup harus utuh", "ok", c.getString(0))
+        }
         val backup = BackupManager(context, store)
         val bytes = backup.createEncryptedSnapshotBytes()
         assertThrows(IllegalArgumentException::class.java) { backup.createEncryptedSnapshotBytes(64) }
