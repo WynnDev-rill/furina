@@ -165,26 +165,26 @@ class BackupManager(
     private fun writeEncryptedSnapshot(rawOut: OutputStream) {
         val dbFile = File.createTempFile("furina-backup-snapshot-", ".db", context.cacheDir)
         try {
-        store.writeSnapshot(dbFile)
+            store.writeSnapshot(dbFile)
 
-        val key = decodeKey(getOrCreateRecoveryKey())
-        val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
-        rawOut.write(MAGIC_V2)
-        rawOut.write(iv)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
+            val key = decodeKey(getOrCreateRecoveryKey())
+            val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
+            rawOut.write(MAGIC_V2)
+            rawOut.write(iv)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
 
-        CipherOutputStream(rawOut, cipher).use { encrypted ->
-            ZipOutputStream(encrypted.buffered()).use { zip ->
-                zip.putNextEntry(ZipEntry(DB_ENTRY))
-                dbFile.inputStream().use { it.copyTo(zip, 1024 * 1024) }
-                zip.closeEntry()
+            CipherOutputStream(rawOut, cipher).use { encrypted ->
+                ZipOutputStream(encrypted.buffered()).use { zip ->
+                    zip.putNextEntry(ZipEntry(DB_ENTRY))
+                    dbFile.inputStream().use { it.copyTo(zip, 1024 * 1024) }
+                    zip.closeEntry()
 
-                zip.putNextEntry(ZipEntry(COMPANION_ENTRY))
-                zip.write(companionSnapshot().toString().toByteArray(Charsets.UTF_8))
-                zip.closeEntry()
+                    zip.putNextEntry(ZipEntry(COMPANION_ENTRY))
+                    zip.write(companionSnapshot().toString().toByteArray(Charsets.UTF_8))
+                    zip.closeEntry()
+                }
             }
-        }
         } finally { dbFile.delete() }
     }
 
@@ -275,7 +275,9 @@ class BackupManager(
                 "Recovery key salah atau backup tidak valid"
             }
         }
-        android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READONLY).use { db ->
+        // This is the disposable, authenticated restore copy. FTS4 integrity checking needs a
+        // writable connection; opening it read-only incorrectly rejects a healthy search index.
+        android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE).use { db ->
             require(db.version in 1..5) { "Versi database backup belum didukung" }
             db.rawQuery("PRAGMA integrity_check", null).use { c ->
                 val result = if (c.moveToFirst()) c.getString(0) else "hasil pemeriksaan kosong"
