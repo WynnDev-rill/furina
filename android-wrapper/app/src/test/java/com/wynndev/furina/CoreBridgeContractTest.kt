@@ -3,8 +3,10 @@ package com.wynndev.furina
 import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
-import com.sun.net.httpserver.HttpServer
-import java.net.InetSocketAddress
+import java.net.ServerSocket
+import java.net.InetAddress
+import java.io.InputStream
+import java.io.IOException
 import java.util.concurrent.Executors
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
@@ -22,7 +24,7 @@ import org.robolectric.annotation.Config
 class CoreBridgeContractTest {
     private lateinit var context: Context
     private lateinit var bridge: TermuxBridgeClient
-    private lateinit var server: HttpServer
+    private lateinit var server: ServerSocket
     private val executor = Executors.newCachedThreadPool()
     @Volatile private var response = "{}"
     @Volatile private var code = 200
@@ -32,21 +34,42 @@ class CoreBridgeContractTest {
     @Before fun setup() {
         context = ApplicationProvider.getApplicationContext()
         context.getSharedPreferences("furinahub_termux", 0).edit().putString("hub_token", "fixture-token-for-local-contract-tests").commit()
-        server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-        server.executor = executor
-        server.createContext("/") { exchange ->
-            observedToken = exchange.requestHeaders.getFirst("X-FurinaHub-Token").orEmpty()
-            observedPath = exchange.requestURI.toString()
-            exchange.requestBody.use { it.readBytes() }
-            val bytes = response.toByteArray()
-            exchange.responseHeaders.add("Content-Type", "application/json")
-            exchange.sendResponseHeaders(code, bytes.size.toLong())
-            exchange.responseBody.use { it.write(bytes) }
+        server = ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"))
+        executor.execute {
+            while (!server.isClosed) {
+                val socket = try { server.accept() } catch (_: IOException) { break }
+                socket.use {
+                    socket.soTimeout = 5_000
+                    val input = socket.getInputStream().buffered()
+                    observedPath = line(input).split(' ').getOrElse(1) { "" }
+                    val headers = mutableMapOf<String, String>()
+                    while (true) {
+                        val header = line(input)
+                        if (header.isEmpty()) break
+                        headers[header.substringBefore(':').lowercase()] = header.substringAfter(':').trim()
+                    }
+                    observedToken = headers["x-furinahub-token"].orEmpty()
+                    repeat(headers["content-length"]?.toIntOrNull() ?: 0) { input.read() }
+                    val bytes = response.toByteArray(Charsets.UTF_8)
+                    socket.getOutputStream().use { output ->
+                        output.write("HTTP/1.1 $code Fixture\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII))
+                        output.write(bytes)
+                    }
+                }
+            }
         }
-        server.start()
-        bridge = TermuxBridgeClient(context, server.address.port)
+        bridge = TermuxBridgeClient(context, server.localPort)
     }
-    @After fun tearDown() { server.stop(0); executor.shutdownNow() }
+    @After fun tearDown() { server.close(); executor.shutdownNow() }
+
+    private fun line(input: InputStream): String = buildString {
+        while (true) {
+            val next = input.read()
+            if (next < 0 || next == 10) break
+            if (next != 13) append(next.toChar())
+            check(length <= 8_192) { "Fixture header too long" }
+        }
+    }
 
     @Test fun progressWithEmptyErrorIsSuccessfulAndTokenStaysInHeader() = runBlocking {
         response = """{"done":true,"error":"","partial":"Halo Wynn"}"""

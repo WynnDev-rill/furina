@@ -38,6 +38,7 @@ class BackupAndGenerationTest {
         store.addMemory("Kode proyek zefir")
         val backup = BackupManager(context, store)
         val bytes = backup.createEncryptedSnapshotBytes()
+        assertThrows(IllegalArgumentException::class.java) { backup.createEncryptedSnapshotBytes(64) }
         assertFalse(String(bytes, Charsets.ISO_8859_1).contains("Percakapan tersimpan"))
         store.clearSession(id)
         store.clearMemories()

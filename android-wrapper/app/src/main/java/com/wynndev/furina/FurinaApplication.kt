@@ -32,7 +32,7 @@ class FurinaApplication : Application(), Application.ActivityLifecycleCallbacks 
     }
 
     override fun onActivityStarted(activity: Activity) = Unit
-    fun checkUpdate(activity: Activity) { updateManagers[activity]?.checkForUpdate() }
+    fun checkUpdate(activity: Activity) { updateManagers[activity]?.checkForUpdate(manual = true) }
     override fun onActivityPaused(activity: Activity) = Unit
     override fun onActivityStopped(activity: Activity) = Unit
     override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit

@@ -70,7 +70,9 @@ class UpdateManager(private val activity: android.app.Activity) {
         executor.shutdownNow()
     }
 
-    fun checkForUpdate() {
+    fun checkForUpdate(manual: Boolean = false) {
+        if (executor.isShutdown) return
+        if (manual) Toast.makeText(activity, "Memeriksa pembaruan…", Toast.LENGTH_SHORT).show()
         executor.execute {
             val current = currentVersionCode()
             val fetched = runCatching { fetchManifest() }.getOrNull()
@@ -80,10 +82,18 @@ class UpdateManager(private val activity: android.app.Activity) {
             } else {
                 // Only a policy previously fetched and cryptographically/structurally validated
                 // may enforce offline. A fresh install with no cached policy remains usable offline.
-                cachedMandatoryPolicy(current) ?: return@execute
+                cachedMandatoryPolicy(current) ?: run {
+                    if (manual) activity.runOnUiThread {
+                        if (!activity.isFinishing && !activity.isDestroyed) Toast.makeText(activity, "Pembaruan belum dapat diperiksa. Periksa koneksi dan coba lagi.", Toast.LENGTH_LONG).show()
+                    }
+                    return@execute
+                }
             }
             if (info.versionCode <= current && current >= info.minimumVersionCode) {
                 clearCompletedUpdateState(current)
+                if (manual) activity.runOnUiThread {
+                    if (!activity.isFinishing && !activity.isDestroyed) Toast.makeText(activity, "Belum ada pembaruan APK yang lebih baru.", Toast.LENGTH_LONG).show()
+                }
                 return@execute
             }
             activity.runOnUiThread { showUpdateDialog(info, current) }

@@ -138,9 +138,20 @@ class BackupManager(
     /** Shared by local-folder and cloud backup so both preserve the same companion state. */
     fun createEncryptedSnapshotBytes(maxBytes: Long = Long.MAX_VALUE): ByteArray {
         val dbSize = store.databaseFile().length().coerceAtLeast(0L)
-        val initialCapacity = (dbSize + 256 * 1024L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        require(maxBytes > 0) { "Batas ukuran backup tidak valid" }
+        val initialCapacity = minOf(dbSize + 256 * 1024L, maxBytes, 4L * 1024 * 1024).toInt()
         val out = ByteArrayOutputStream(initialCapacity)
-        writeEncryptedSnapshot(out)
+        val limited = object : OutputStream() {
+            override fun write(value: Int) {
+                require(out.size().toLong() + 1 <= maxBytes) { "Backup melebihi batas ukuran" }
+                out.write(value)
+            }
+            override fun write(bytes: ByteArray, offset: Int, count: Int) {
+                require(out.size().toLong() + count <= maxBytes) { "Backup melebihi batas ukuran" }
+                out.write(bytes, offset, count)
+            }
+        }
+        writeEncryptedSnapshot(limited)
         val bytes = out.toByteArray()
         require(bytes.size.toLong() <= maxBytes) { "Backup melebihi batas ukuran" }
         return bytes

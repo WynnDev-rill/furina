@@ -72,13 +72,14 @@ class NativeHubController(context: Context) {
     }
 
     private fun desiredSource(): HubSource = if (_state.value.enginePreference != EnginePreference.ANDROID && _state.value.connected) HubSource.TERMUX else HubSource.ANDROID
-    private suspend fun apply(snapshot: HubSnapshot) {
+    private suspend fun apply(snapshot: HubSnapshot, useStoredDraft: Boolean = false) {
         val draft = repository.draft(snapshot.source, snapshot.id)
         _state.update { old -> snapshot.persona.applyTo(old).copy(
             source = snapshot.source, activeConversationId = snapshot.id, messages = snapshot.messages, conversations = snapshot.conversations,
             activeSource = if (snapshot.source == HubSource.TERMUX) "Termux Core" else "Android ${if (runtime.config.mode() == OnlineAiConfigStore.MODE_ONLINE) "Online" else "Lokal"}",
             coreVersion = snapshot.coreVersion.ifBlank { old.coreVersion }, historyLimited = snapshot.historyLimited,
-            draft = draft, loading = false, personaPending = repository.personaPending(),
+            draft = if (!useStoredDraft && !old.loading && old.source == snapshot.source && old.activeConversationId == snapshot.id) old.draft else draft,
+            loading = false, personaPending = repository.personaPending(),
             activeModel = if (snapshot.source != old.source) "" else old.activeModel,
         ) }
     }
@@ -403,7 +404,7 @@ class NativeHubController(context: Context) {
         saveDraftNow(); aiEngine.unload()
         withContext(Dispatchers.IO) { backups.restoreFrom(uri, key) }
         _state.update { it.copy(enginePreference = EnginePreference.ANDROID) }; prefs.edit().putString("engine_preference", "ANDROID").apply()
-        apply(repository.snapshot(HubSource.ANDROID)); refreshMemoriesNow(); _state.update { it.copy(notice = "Backup Android dipulihkan. API key tidak diimpor.") }
+        apply(repository.snapshot(HubSource.ANDROID), useStoredDraft = true); refreshMemoriesNow(); _state.update { it.copy(notice = "Backup Android dipulihkan. API key tidak diimpor.") }
     } }
     fun openTrainingRoom(activity: Activity) {
         try {
