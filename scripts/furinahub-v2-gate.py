@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ACTIVITY = ROOT / "android-wrapper/app/src/main/java/com/wynndev/furina/NativeHubActivity.kt"
+ACTIVITY = ROOT / "android-wrapper/app/src/main/java/com/wynndev/furina/HubWallpaper.kt"
 APPEARANCE = ROOT / "android-wrapper/app/src/main/java/com/wynndev/furina/ChatAppearance.kt"
 CONTROLLER = ROOT / "android-wrapper/app/src/main/java/com/wynndev/furina/NativeHubController.kt"
 GRADLE = ROOT / "android-wrapper/app/build.gradle"
@@ -24,10 +24,9 @@ def main() -> None:
     gradle = GRADLE.read_text(encoding="utf-8")
     manifest = MANIFEST.read_text(encoding="utf-8")
 
-    require(gradle, 'versionName "4.1.${buildNumber}"', "versionName must identify the V2 line")
-    require(activity, "private fun ChatWallpaper", "chat wallpaper renderer is missing")
+    require(gradle, 'versionName "5.0.${buildNumber}"', "versionName must identify the transformation line")
+    require(activity, "internal fun ChatWallpaper", "chat wallpaper renderer is missing")
     require(activity, "private fun VideoWallpaper", "motion wallpaper renderer is missing")
-    require(activity, 'Text(if (connected) "Core" else "Sambungkan"', "compact Core state is missing")
     require(controller, "fun importChatWallpaper", "wallpaper import controller is missing")
     require(appearance, "MAX_IMAGE_BYTES = 12L * 1024L * 1024L", "image size guard changed")
     require(appearance, "MAX_VIDEO_BYTES = 20L * 1024L * 1024L", "video size guard changed")

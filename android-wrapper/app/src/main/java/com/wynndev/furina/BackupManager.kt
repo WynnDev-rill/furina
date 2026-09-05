@@ -278,7 +278,7 @@ class BackupManager(
         // This is the disposable, authenticated restore copy. FTS4 integrity checking needs a
         // writable connection; opening it read-only incorrectly rejects a healthy search index.
         android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE).use { db ->
-            require(db.version in 1..5) { "Versi database backup belum didukung" }
+            require(db.version in 1..6) { "Versi database backup belum didukung" }
             db.rawQuery("PRAGMA integrity_check", null).use { c ->
                 val result = if (c.moveToFirst()) c.getString(0) else "hasil pemeriksaan kosong"
                 require(result.equals("ok", ignoreCase = true)) { "Database backup tidak valid: ${result.take(200)}" }

@@ -46,7 +46,7 @@ class HubDataRepositoryTest {
         assertEquals("Jangan hilang", JSONArray(store.loadSessionJson("legacy")).getJSONObject(0).getString("content"))
         store.pinSession("legacy", true)
         assertTrue(JSONArray(store.sessionsJson()).getJSONObject(0).getBoolean("pinned"))
-        assertEquals(5, store.readableDatabase.version)
+        assertEquals(6, store.readableDatabase.version)
     }
 
     @Test fun pagingAndBranchesPreserveOriginalMessagesAndOrderForEqualTimestamps() = runBlocking {

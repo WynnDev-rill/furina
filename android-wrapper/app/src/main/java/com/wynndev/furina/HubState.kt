@@ -1,6 +1,7 @@
 package com.wynndev.furina
 
-enum class HubDestination { CHAT, PERSONA, MEMORY, SETTINGS }
+enum class HubDestination { CHAT, PERSONA, MEMORY, SETTINGS, MODELS, APPEARANCE, DATA, TERMUX }
+enum class HubThemeMode { SYSTEM, LIGHT, DARK }
 enum class EnginePreference { AUTO, TERMUX, ANDROID }
 enum class HubSource { ANDROID, TERMUX }
 
@@ -30,6 +31,9 @@ data class AndroidModelState(
     val state: String,
     val progress: Float,
     val selected: Boolean,
+    val downloadedBytes: Long = 0,
+    val totalBytes: Long = 0,
+    val error: String = "",
 )
 
 data class ProviderState(
@@ -39,6 +43,7 @@ data class ProviderState(
     val selected: Boolean,
     val models: List<OnlineModel> = emptyList(),
     val selectedModel: String = "",
+    val validated: Boolean = false,
 )
 
 data class HubUiState(
@@ -85,6 +90,11 @@ data class HubUiState(
     val coreRoutingMode: String = "local",
     val historyLimited: Boolean = false,
     val personaPending: Boolean = false,
+    val themeMode: HubThemeMode = HubThemeMode.SYSTEM,
+    val modelReady: Boolean = false,
+    val localModelLoaded: Boolean = false,
+    val firstResponseMs: Long = 0,
+    val responseDurationMs: Long = 0,
 )
 
 val FurinaTraits = listOf(

@@ -26,7 +26,7 @@ android {
         minSdk 33
         targetSdk 35
         versionCode buildNumber
-        versionName "4.1.${buildNumber}"
+        versionName "5.0.${buildNumber}"
         buildConfigField 'String', 'GIT_SHA', "\"${gitSha}\""
         buildConfigField 'String', 'EVIDENCE_ENROLLMENT_TOKEN', "\"${evidenceEnrollmentToken}\""
         ndk { abiFilters 'arm64-v8a' }

@@ -26,7 +26,7 @@ data class CompanionEmotionalState(
 class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
     companion object {
         private const val DB_NAME = "furina_memory.db"
-        private const val DB_VERSION = 5
+        private const val DB_VERSION = 6
         private val CORE_MEMORY_KINDS = setOf(
             "profile_name",
             "profile_location",
@@ -90,6 +90,7 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
         createSettingsTable(db)
         createSummaryTable(db)
         db.execSQL("ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+        createPendingTurns(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -97,6 +98,72 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
         if (oldVersion < 3) createSummaryTable(db)
         if (oldVersion < 4) compactLegacyAutoMemories(db)
         if (oldVersion < 5) db.execSQL("ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+        if (oldVersion < 6) createPendingTurns(db)
+    }
+
+
+    private fun createPendingTurns(db: SQLiteDatabase) {
+        db.execSQL("""CREATE TABLE IF NOT EXISTS pending_turns (
+            id TEXT PRIMARY KEY, session_id TEXT NOT NULL, user_text TEXT NOT NULL,
+            reply_text TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL,
+            FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE)""")
+    }
+
+    @Synchronized fun beginTurn(id: String, session: String, text: String) {
+        ensureSession(session)
+        writableDatabase.insertOrThrow("pending_turns", null, ContentValues().apply {
+            put("id", id); put("session_id", session); put("user_text", text)
+            put("created_at", System.currentTimeMillis())
+        })
+    }
+
+    @Synchronized fun checkpointTurn(id: String, text: String) {
+        check(writableDatabase.update("pending_turns", ContentValues().apply { put("reply_text", text) }, "id=?", arrayOf(id)) == 1)
+    }
+
+    @Synchronized fun discardTurn(id: String) { writableDatabase.delete("pending_turns", "id=?", arrayOf(id)) }
+
+    /** Both sides of a turn and removal of its journal commit together. */
+    @Synchronized fun finishTurn(id: String, reply: String): Pair<String, String> {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val result = db.rawQuery("SELECT session_id,user_text,created_at FROM pending_turns WHERE id=?", arrayOf(id)).use { c ->
+                check(c.moveToFirst()) { "Turn journal is missing" }
+                val userId = addMessage(c.getString(0), "user", c.getString(1), c.getLong(2))
+                val replyId = if (reply.isNotBlank()) addMessage(c.getString(0), "assistant", reply.trim(), c.getLong(2) + 1) else ""
+                userId to replyId
+            }
+            discardTurn(id)
+            db.setTransactionSuccessful()
+            return result
+        } finally { db.endTransaction() }
+    }
+
+    /** Run before accepting another generation. Never replay a network request automatically. */
+    @Synchronized fun recoverInterruptedTurns(): Int {
+        val db = writableDatabase
+        val rows = db.rawQuery("SELECT id,session_id,user_text,reply_text FROM pending_turns ORDER BY created_at", null).use { c ->
+            buildList { while (c.moveToNext()) add(List(4) { c.getString(it) }) }
+        }
+        db.beginTransaction()
+        try {
+            rows.forEach { (id, session, prompt, reply) ->
+                val key = "draft:ANDROID:$session"
+                val draft = hubValue(key).orEmpty()
+                if (reply.isNotBlank()) {
+                    finishTurn(id, reply)
+                    if (draft == prompt) putHubValue(key, "")
+                } else if (draft.isBlank() || draft == prompt) {
+                    putHubValue(key, prompt); discardTurn(id)
+                } else {
+                    // Preserve the submitted prompt and a newer composer draft independently.
+                    finishTurn(id, "")
+                }
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+        return rows.size
     }
 
     private fun createSettingsTable(db: SQLiteDatabase) {

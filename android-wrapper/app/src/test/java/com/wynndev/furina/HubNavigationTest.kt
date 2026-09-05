@@ -35,12 +35,14 @@ class HubNavigationTest {
     @get:Rule val ui = createAndroidComposeRule<NativeHubActivity>()
 
     @Test fun launchAndNavigateAcrossAllMainScreens() {
-        ui.onNodeWithText("Chat").assertIsDisplayed()
+        ui.onNodeWithContentDescription("Riwayat percakapan").assertIsDisplayed()
+        ui.onNodeWithContentDescription("Setelan").performClick()
         ui.onNodeWithText("Persona").performClick()
         ui.onNodeWithText("Nama companion").assertIsDisplayed()
+        ui.onNodeWithContentDescription("Kembali").performClick()
         ui.onNodeWithText("Memori").performClick()
-        ui.onNodeWithText("Tambahkan hal yang perlu diingat…").assertIsDisplayed()
-        ui.onNodeWithText("Setelan").performClick()
+        ui.onNodeWithText("Cari memori…").assertIsDisplayed()
+        ui.onNodeWithContentDescription("Kembali").performClick()
         ui.onNodeWithText("Tampilan chat").assertIsDisplayed()
         ui.onNodeWithText("Data & aplikasi").performScrollTo().assertIsDisplayed()
     }
@@ -49,8 +51,8 @@ class HubNavigationTest {
         ui.waitUntil(15_000) { !ViewModelProvider(ui.activity)[HubViewModel::class.java].controller.state.value.busy }
         ui.onNodeWithText("Kirim pesan…").performTextInput("Pesan yang belum terkirim")
         ui.onNodeWithContentDescription("Kirim").performClick()
-        ui.onNodeWithText("Persona").performClick()
-        ui.onNodeWithText("Chat").performClick()
+        ui.onNodeWithContentDescription("Setelan").performClick()
+        ui.onNodeWithContentDescription("Kembali").performClick()
         ui.onNodeWithText("Pesan yang belum terkirim").assertTextContains("Pesan yang belum terkirim")
     }
 }

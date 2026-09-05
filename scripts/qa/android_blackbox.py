@@ -11,6 +11,7 @@ from pathlib import Path
 parser = argparse.ArgumentParser()
 parser.add_argument('--apk', required=True)
 parser.add_argument('--output', required=True)
+parser.add_argument('--candidate', action='store_true')
 args = parser.parse_args()
 out = Path(args.output)
 out.mkdir(parents=True, exist_ok=True)
@@ -76,7 +77,8 @@ def restart():
     launch()
 
 def draft_flow():
-    click('Chat')
+    if not args.candidate:
+        click('Chat')
     click(klass='android.widget.EditText')
     shell('input', 'text', 'Draft%suji%sFurinaHub')
     capture('02-keyboard-draft')
@@ -88,6 +90,8 @@ def draft_flow():
 
 def navigation_flow():
     for index, label in enumerate(['Persona', 'Memori', 'Setelan']):
+        if args.candidate and label != 'Setelan':
+            click('Setelan')
         click(label)
         capture(f'10-{index}-{label}-top')
         for count in range(3):
@@ -129,6 +133,17 @@ try:
     capture('01-launch')
     scenario('draft-restart', draft_flow)
     scenario('navigation', navigation_flow)
+    if args.candidate:
+        def pages():
+            for label in ['Model', 'Tampilan chat', 'Termux', 'Data & aplikasi']:
+                click('Setelan')
+                click(label)
+                capture('30-' + label.replace(' ', '-'))
+                shell('input', 'swipe', 360, 1220, 360, 420, 350)
+                capture('31-' + label.replace(' ', '-'))
+                shell('input', 'keyevent', 4)
+                shell('input', 'keyevent', 4)
+        scenario('settings-pages', pages)
     scenario('accessibility', accessibility_flow)
 finally:
     (out / 'logcat.txt').write_text(adb('logcat', '-d', '-v', 'threadtime', check=False))
