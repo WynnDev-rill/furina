@@ -11,8 +11,11 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.hasText
-import com.sun.net.httpserver.HttpServer
-import java.net.InetSocketAddress
+import java.net.ServerSocket
+import java.net.InetAddress
+import java.io.InputStream
+import java.io.IOException
+import java.util.concurrent.Executors
 import java.util.concurrent.CopyOnWriteArrayList
 import org.junit.Assert.*
 import org.json.JSONObject
@@ -42,21 +45,47 @@ class HubNavigationTest {
 
     @Test fun customProviderSendTraversesControllerContextTransportAndHistory() {
         val requests = CopyOnWriteArrayList<String>()
-        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-        server.createContext("/v1/chat/completions") { exchange ->
-            requests.add(exchange.requestBody.bufferedReader().use { it.readText() })
-            val body = """{"choices":[{"message":{"content":"Jawaban uji transport"}}]}""".toByteArray()
-            exchange.responseHeaders.add("Content-Type", "application/json")
-            exchange.sendResponseHeaders(200, body.size.toLong())
-            exchange.responseBody.use { it.write(body) }
+        val server = ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"))
+        val executor = Executors.newSingleThreadExecutor()
+        fun line(input: InputStream): String = buildString {
+            while (true) {
+                val next = input.read()
+                if (next < 0 || next == 10) break
+                if (next != 13) append(next.toChar())
+                check(length <= 8_192)
+            }
         }
-        server.start()
+        executor.execute {
+            while (!server.isClosed) {
+                val socket = try { server.accept() } catch (_: IOException) { break }
+                socket.use {
+                    it.soTimeout = 5_000
+                    val input = it.getInputStream().buffered()
+                    val path = line(input).split(' ').getOrElse(1) { "" }
+                    val headers = mutableMapOf<String, String>()
+                    while (true) {
+                        val header = line(input)
+                        if (header.isBlank()) break
+                        headers[header.substringBefore(':').lowercase()] = header.substringAfter(':').trim()
+                    }
+                    val bytes = ByteArray(headers["content-length"]?.toIntOrNull() ?: 0)
+                    java.io.DataInputStream(input).readFully(bytes)
+                    requests.add(String(bytes, Charsets.UTF_8))
+                    val body = """{"choices":[{"message":{"content":"Jawaban uji transport"}}]}""".toByteArray()
+                    val code = if (path == "/v1/chat/completions") 200 else 404
+                    it.getOutputStream().use { output ->
+                        output.write("HTTP/1.1 $code Fixture\r\nContent-Type: application/json\r\nContent-Length: ${body.size}\r\nConnection: close\r\n\r\n".toByteArray())
+                        output.write(body)
+                    }
+                }
+            }
+        }
         val controller = ViewModelProvider(ui.activity)[HubViewModel::class.java].controller
         try {
             ui.waitUntil(15_000) { !controller.state.value.busy }
             ui.runOnIdle { controller.setAndroidAiMode("online") }
             ui.waitUntil(15_000) { !controller.state.value.busy }
-            ui.runOnIdle { controller.configureCustomProvider("http://127.0.0.1:" + server.address.port + "/v1", "qa-model", "") }
+            ui.runOnIdle { controller.configureCustomProvider("http://127.0.0.1:" + server.localPort + "/v1", "qa-model", "") }
             ui.waitUntil(15_000) { !controller.state.value.busy }
             assertTrue(controller.state.value.error, controller.state.value.modelReady)
             ui.runOnIdle { controller.addMemory("Kode proyek adalah zefir") }
@@ -72,7 +101,7 @@ class HubNavigationTest {
             assertEquals("system", messages.getJSONObject(0).getString("role"))
             assertTrue(messages.getJSONObject(0).getString("content").contains("zefir"))
             assertTrue(messages.getJSONObject(0).getString("content").contains("Furina"))
-        } finally { server.stop(0) }
+        } finally { server.close(); executor.shutdownNow() }
     }
 
     @Test fun launchAndNavigateAcrossAllMainScreens() {

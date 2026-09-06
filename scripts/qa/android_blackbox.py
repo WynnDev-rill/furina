@@ -139,7 +139,8 @@ def fill_field(value, index=0):
     shell('input', 'tap', (x1+x2)//2, (y1+y2)//2)
     shell('input', 'keycombination', 113, 29)
     shell('input', 'keyevent', 67)
-    shell('input', 'text', value.replace(' ', '%s'))
+    if value:
+        shell('input', 'text', value.replace(' ', '%s'))
 
 def chat_transport_flow():
     from fixture_provider import ProviderFixture
@@ -218,6 +219,61 @@ def chat_transport_flow():
 
 
 
+def persona_persistence_flow():
+    restart()
+    click('Persona')
+    fill_field('Wynn QA', 1)
+    shell('input', 'keyevent', 4)
+    shell('input', 'keyevent', 4)
+    click('Persona')
+    wait_text('Wynn QA')
+    click('Simpan identitas')
+    wait_text('Persona disimpan')
+    restart()
+    click('Persona')
+    wait_text('Wynn QA')
+    capture('60-persona-after-restart')
+    fill_field('', 1)
+    shell('input', 'keyevent', 4)
+    click('Simpan identitas')
+    wait_text('Persona disimpan')
+
+
+def history_management_flow():
+    restart()
+    click('Riwayat percakapan')
+    fill_field('QA_CHAT')
+    shell('input', 'keyevent', 4)
+    wait_text('QA_CHAT zefir')
+    click('Kelola percakapan')
+    fill_field('QA Arsip')
+    shell('input', 'keyevent', 4)
+    click('Simpan')
+    fill_field('QA Arsip')
+    shell('input', 'keyevent', 4)
+    click('Kelola percakapan')
+    click('Pin')
+    click('Kelola percakapan')
+    wait_text('Lepas pin')
+    shell('input', 'keyevent', 4)
+    capture('61-history-pinned')
+    click('QA Arsip')
+    wait_text('QA_RATE')
+    restart()
+    click('Riwayat percakapan')
+    fill_field('QA Arsip')
+    shell('input', 'keyevent', 4)
+    click('Kelola percakapan')
+    wait_text('Lepas pin')
+    click('Hapus…')
+    click('Batal')
+    wait_text('QA Arsip')
+    fill_field('no-match-qa-title')
+    shell('input', 'keyevent', 4)
+    wait_text('Tidak ada judul yang cocok.')
+    capture('62-history-no-results')
+
+
 def media_flow():
     import shutil
     restart()
@@ -227,9 +283,11 @@ def media_flow():
     media.mkdir(exist_ok=True)
     photo = media / 'qa-wallpaper.png'
     video = media / 'qa-motion.mp4'
+    webm = media / 'qa-motion.webm'
     subprocess.run([ffmpeg, '-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=0x167e99:s=720x1280', '-frames:v', '1', str(photo)], check=True)
     subprocess.run([ffmpeg, '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=360x640:r=15', '-t', '3', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(video)], check=True)
-    for path in [photo, video]:
+    subprocess.run([ffmpeg, '-v', 'error', '-y', '-i', str(video), '-c:v', 'libvpx-vp9', '-b:v', '256k', str(webm)], check=True)
+    for path in [photo, video, webm]:
         adb('push', path, '/sdcard/Download/' + path.name)
         shell('am', 'broadcast', '-a', 'android.intent.action.MEDIA_SCANNER_SCAN_FILE', '-d', 'file:///sdcard/Download/' + path.name)
     click('Setelan')
@@ -266,6 +324,18 @@ def media_flow():
     capture('55-video-after-background')
     click('Setelan')
     click('Tampilan chat')
+    choose('Pilih video', webm.name)
+    wait_text('Video berulang')
+    capture('56-webm-preview')
+    shell('input', 'swipe', 360, 1220, 360, 650, 350)
+    click('Gerakan latar')
+    shell('input', 'keyevent', 4)
+    shell('input', 'keyevent', 4)
+    restart()
+    capture('57-webm-paused-after-restart')
+    click('Setelan')
+    click('Tampilan chat')
+    wait_text('Gerakan dijeda')
     click('Midnight')
     shell('input', 'keyevent', 4)
     shell('input', 'keyevent', 4)
@@ -304,6 +374,8 @@ try:
         scenario('chat-http-memory-stop-recovery', chat_transport_flow)
         restart()
         scenario('photo-video-lifecycle', media_flow)
+        scenario('persona-form-and-restart', persona_persistence_flow)
+        scenario('history-search-rename-pin-cancel', history_management_flow)
         restart()
     scenario('accessibility', accessibility_flow)
 finally:
