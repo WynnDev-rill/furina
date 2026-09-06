@@ -10,6 +10,8 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onNode
 import androidx.work.Configuration
 import androidx.work.WorkManager
 import androidx.lifecycle.ViewModelProvider
@@ -37,10 +39,10 @@ class HubNavigationTest {
     @Test fun launchAndNavigateAcrossAllMainScreens() {
         ui.onNodeWithContentDescription("Riwayat percakapan").assertIsDisplayed()
         ui.onNodeWithContentDescription("Setelan").performClick()
-        ui.onNodeWithText("Persona").performClick()
+        ui.onNode(hasText("Persona") and hasText("Nama, kepribadian, dan cara berinteraksi")).performClick()
         ui.onNodeWithText("Nama companion").assertIsDisplayed()
         ui.onNodeWithContentDescription("Kembali").performClick()
-        ui.onNodeWithText("Memori").performClick()
+        ui.onNode(hasText("Memori") and hasText("Hal penting yang diingat")).performClick()
         ui.onNodeWithText("Cari memori…").assertIsDisplayed()
         ui.onNodeWithContentDescription("Kembali").performClick()
         ui.onNodeWithText("Tampilan chat").assertIsDisplayed()

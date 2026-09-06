@@ -196,7 +196,7 @@ class NativeHubController(context: Context) {
             if (runtime.config.mode() == OnlineAiConfigStore.MODE_LOCAL && downloads.status(selectedModel()).optString("state") != "ready") {
                 showError(IllegalStateException("Unduh model lokal di Setelan atau pilih provider online.")); return false
             }
-            if (runtime.config.mode() == OnlineAiConfigStore.MODE_ONLINE && !runtime.config.isValidated(runtime.config.selectedProvider(), runtime.keys.fingerprint(runtime.config.selectedProvider()))) {
+            if (runtime.config.mode() == OnlineAiConfigStore.MODE_ONLINE && !runtime.config.isValidated(runtime.config.selectedProvider(), runtime.providerFingerprint(runtime.config.selectedProvider()))) {
                 showError(IllegalStateException("Atur dan tes API key di Setelan terlebih dahulu.")); return false
             }
         }
@@ -325,6 +325,15 @@ class NativeHubController(context: Context) {
     }
     fun setAutoFallback(enabled: Boolean) { if (!_state.value.busy) { runtime.setAutoFallback(enabled); _state.update { it.copy(autoFallback = enabled) } } }
     fun removeProviderKey(id: String) { if (!_state.value.busy) { runtime.removeKey(id); refreshProviders() } }
+    fun configureCustomProvider(endpoint: String, model: String, key: String) { operation("Menguji endpoint…") {
+        _state.update { it.copy(providerBusy = true) }
+        try {
+            runtime.configureCustom(endpoint, model, key)
+            val result = runtime.test("custom")
+            check(result.success) { result.message }
+            _state.update { it.copy(notice = result.message) }
+        } finally { refreshProviders(); _state.update { it.copy(providerBusy = false) } }
+    } }
     fun saveAndTestProvider(id: String, key: String) { operation("Menguji provider…") {
         _state.update { it.copy(providerBusy = true) }
         try {
@@ -332,9 +341,9 @@ class NativeHubController(context: Context) {
             val result = runtime.test(id); check(result.success) { result.message }; _state.update { it.copy(notice = result.message) }
         } finally { refreshProviders(); _state.update { it.copy(providerBusy = false) } }
     } }
-    private fun refreshProviders() { _state.update { it.copy(selectedProvider = runtime.config.selectedProvider(), providers = OnlineProviderCatalog.providers.map { p ->
+    private fun refreshProviders() { _state.update { it.copy(selectedProvider = runtime.config.selectedProvider(), customEndpoint = runtime.config.customEndpoint(), customModelId = runtime.config.selectedModel("custom").orEmpty(), providers = OnlineProviderCatalog.providers.map { p ->
         ProviderState(p.id, p.displayName, runtime.keys.has(p.id), p.id == runtime.config.selectedProvider(),
-            runtime.onlineProviders[p.id]?.cachedModels().orEmpty(), runtime.config.selectedModel(p.id).orEmpty(), runtime.config.isValidated(p.id, runtime.keys.fingerprint(p.id)))
+            runtime.onlineProviders[p.id]?.cachedModels().orEmpty(), runtime.config.selectedModel(p.id).orEmpty(), runtime.config.isValidated(p.id, runtime.providerFingerprint(p.id)))
     }) }; updateReadiness() }
     private suspend fun loadCoreSettings() {
         val root = bridge.get("/api/settings"); val core = root.optJSONObject("core") ?: JSONObject()

@@ -46,6 +46,8 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
@@ -126,7 +128,7 @@ import androidx.compose.material.icons.outlined.ChevronRight
                                     Text(p.name, style = MaterialTheme.typography.titleMedium)
                                     Text(if(p.validated) "Siap" else if(p.configured) "Perlu diuji" else "Belum terhubung", style = MaterialTheme.typography.bodySmall)
                                 }
-                                TextButton({ providerDialog = p }, enabled = !state.busy) { Text(if(p.configured) "Kelola" else "Hubungkan") }
+                                TextButton({ providerDialog = p }, enabled = !state.busy, modifier = Modifier.semantics { contentDescription = "Atur " + p.name }) { Text(if(p.configured) "Kelola" else "Hubungkan") }
                             }
                         }
                     }
@@ -168,9 +170,13 @@ import androidx.compose.material.icons.outlined.ChevronRight
         }
         Spacer(Modifier.height(8.dp))
     }
-    providerDialog?.let { p -> ProviderDialog(p, state.busy, { providerDialog = null }) { key ->
-        controller.selectProvider(p.id); controller.saveAndTestProvider(p.id, key); providerDialog = null
-    } }
+    providerDialog?.let { p ->
+        if(p.id == "custom") CustomProviderDialog(state, { providerDialog = null }) { endpoint, model, key ->
+            controller.configureCustomProvider(endpoint, model, key); providerDialog = null
+        } else ProviderDialog(p, state.busy, { providerDialog = null }) { key ->
+            controller.selectProvider(p.id); controller.saveAndTestProvider(p.id, key); providerDialog = null
+        }
+    }
     deleteModel?.let { model -> AlertDialog(onDismissRequest = { deleteModel = null }, title = { Text("Hapus berkas model?") }, text = { Text("Model perlu diunduh kembali untuk digunakan. Percakapan tetap tersimpan.") },
         confirmButton = { TextButton(enabled = !state.busy, onClick = { controller.deleteAndroidModel(model.id); deleteModel = null }) { Text("Hapus") } },
         dismissButton = { TextButton({ deleteModel = null }) { Text("Batal") } }) }

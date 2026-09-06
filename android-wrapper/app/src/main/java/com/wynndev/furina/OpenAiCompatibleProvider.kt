@@ -52,13 +52,33 @@ class OpenAiCompatibleProvider(
     override suspend fun unload() = Unit
     override fun resolvedModelId(): String? = lastResolvedModel
 
-    fun cachedModels(): List<OnlineModel> = modelCache
+    private fun endpoint(): String = if (id == "custom") CustomEndpoint.normalize(config.customEndpoint()) else spec.baseUrl
+    private fun apiKey(): String? = keyStore.get(id) ?: if (id == "custom") "" else null
+    fun invalidateCatalog() { modelCache = emptyList(); modelCacheAt = 0; unhealthyUntil.clear() }
+    fun cachedModels(): List<OnlineModel> = if (id == "custom") customModels() else modelCache
+    private fun customModels(): List<OnlineModel> = config.selectedModel(id)?.takeIf { it.isNotBlank() && config.customEndpoint().isNotBlank() }
+        ?.let { listOf(OnlineModel(it, it, 4096, 2048)) }.orEmpty()
 
     suspend fun testAndRefresh(): ProviderProbeResult = withContext(Dispatchers.IO) {
-        val key = keyStore.get(id) ?: return@withContext ProviderProbeResult(false, "API key belum disimpan")
+        val key = apiKey() ?: return@withContext ProviderProbeResult(false, "API key belum disimpan")
         try {
+            if (id == "custom") {
+                val model = customModels().firstOrNull() ?: error("Isi endpoint dan ID model")
+                val payload = JSONObject().put("model", model.id).put("stream", false).put("max_tokens", 8)
+                    .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", "Reply OK.")))
+                val connection = openConnection(endpoint() + "/chat/completions", "POST", key).apply { doOutput = true }
+                val answer = connection.cancellableRead {
+                    connection.outputStream.use { it.write(payload.toString().toByteArray(StandardCharsets.UTF_8)) }
+                    val code = connection.responseCode
+                    val body = readAll(if (code in 200..299) connection.inputStream else connection.errorStream)
+                    if (code !in 200..299) throw httpError(code, body)
+                    parseCompletion(body)
+                }
+                check(answer.isNotBlank()) { "Endpoint tidak menghasilkan jawaban" }
+                return@withContext ProviderProbeResult(true, "Endpoint siap digunakan.", listOf(model))
+            }
             if (id == "openrouter") {
-                val probe = request("${spec.baseUrl}/key", "GET", key)
+                val probe = request("${endpoint()}/key", "GET", key)
                 if (probe.code !in 200..299) throw httpError(probe.code, probe.body)
             }
             val models = discoverFreeModels(force = true)
@@ -77,9 +97,10 @@ class OpenAiCompatibleProvider(
     }
 
     suspend fun discoverFreeModels(force: Boolean = false): List<OnlineModel> = withContext(Dispatchers.IO) {
+        if (id == "custom") return@withContext customModels()
         val now = System.currentTimeMillis()
         if (!force && modelCache.isNotEmpty() && now - modelCacheAt < 10 * 60_000L) return@withContext modelCache
-        val key = keyStore.get(id) ?: return@withContext emptyList()
+        val key = apiKey() ?: return@withContext emptyList()
         val response = request("${spec.baseUrl}/models", "GET", key)
         if (response.code !in 200..299) throw httpError(response.code, response.body)
         val parsed = parseModels(response.body)
@@ -93,7 +114,7 @@ class OpenAiCompatibleProvider(
     }
 
     override fun stream(request: AiGenerationRequest): Flow<String> = channelFlow {
-        val key = keyStore.get(id) ?: throw IllegalStateException("API key ${spec.displayName} belum disimpan")
+        val key = apiKey() ?: throw IllegalStateException("API key ${spec.displayName} belum disimpan")
         val discovered = try {
             discoverFreeModels(force = false)
         } catch (e: CancellationException) {
@@ -112,7 +133,7 @@ class OpenAiCompatibleProvider(
         val now = System.currentTimeMillis()
         val healthy = ordered.filter { (unhealthyUntil[it.id] ?: 0L) <= now }
         val pool = if (healthy.isNotEmpty()) healthy else ordered
-        val candidates = if (config.autoFallback()) pool.take(MAX_FALLBACK_CANDIDATES) else ordered.take(1)
+        val candidates = if (id != "custom" && config.autoFallback()) pool.take(MAX_FALLBACK_CANDIDATES) else ordered.take(1)
         var lastError: Throwable? = null
 
         for (candidate in candidates) {
@@ -133,7 +154,7 @@ class OpenAiCompatibleProvider(
                     val cooldown = if (e.status == 429) 5 * 60_000L else 90_000L
                     unhealthyUntil[candidate.id] = System.currentTimeMillis() + cooldown
                 }
-                if (emitted || !config.autoFallback() || !e.retryable) throw e
+                if (emitted || id == "custom" || !config.autoFallback() || !e.retryable) throw e
             }
         }
         throw lastError ?: IllegalStateException("Semua model gratis ${spec.displayName} sedang tidak tersedia")
@@ -317,7 +338,7 @@ class OpenAiCompatibleProvider(
             readTimeout = 120_000
             instanceFollowRedirects = false
             useCaches = false
-            setRequestProperty("Authorization", "Bearer $key")
+            if (key.isNotBlank()) setRequestProperty("Authorization", "Bearer $key")
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("User-Agent", "Furina-Android/4.3")
             if (id == "openrouter") {

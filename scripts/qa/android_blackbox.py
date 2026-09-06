@@ -49,8 +49,8 @@ def click(label=None, klass=None, required=True):
         for node in reversed(nodes):
             if node.get('enabled') == 'false':
                 continue
-            bounds = list(map(int, re.findall(r'\d+', node.get('bounds', ''))))
-            if len(bounds) == 4 and bounds[2] > bounds[0] and bounds[3] > bounds[1]:
+            bounds = list(map(int, re.findall(r'-?\d+', node.get('bounds', ''))))
+            if len(bounds) == 4 and bounds[0] >= 0 and bounds[1] >= 0 and bounds[2] > bounds[0] and bounds[3] > bounds[1]:
                 shell('input', 'tap', (bounds[0] + bounds[2]) // 2, (bounds[1] + bounds[3]) // 2)
                 time.sleep(.6)
                 return True
@@ -98,7 +98,10 @@ def navigation_flow():
             shell('input', 'swipe', 360, 1220, 360, 420, 350)
             capture(f'11-{index}-{label}-scroll-{count}')
         shell('input', 'keyevent', 4)
-    click('Chat')
+        if args.candidate and label != 'Setelan':
+            shell('input', 'keyevent', 4)
+    if not args.candidate:
+        click('Chat')
     click('Riwayat percakapan')
     capture('15-history')
     shell('input', 'keyevent', 4)

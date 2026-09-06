@@ -45,6 +45,7 @@ data class OnlineModel(
 
 object OnlineProviderCatalog {
     val providers = listOf(
+        OnlineProviderSpec("custom", "Endpoint sendiri", "", "", "Server OpenAI-compatible pilihanmu."),
         OnlineProviderSpec(
             id = "openrouter",
             displayName = "OpenRouter",
@@ -105,6 +106,20 @@ class OnlineAiConfigStore(context: Context) {
     }
 
     private val prefs = context.applicationContext.getSharedPreferences("furina_online_ai", Context.MODE_PRIVATE)
+
+    fun customEndpoint(): String = prefs.getString("custom_endpoint", "").orEmpty()
+    fun setCustomEndpoint(endpoint: String, model: String) {
+        val normalized = CustomEndpoint.normalize(endpoint)
+        require(model.trim().length in 1..200 && model.none { it.isISOControl() }) { "Isi ID model yang valid" }
+        if (normalized != customEndpoint() || model.trim() != selectedModel("custom")) clearValidation("custom")
+        prefs.edit().putString("custom_endpoint", normalized).putString("model:custom", model.trim()).apply()
+    }
+    fun validationFingerprint(provider: String, keyFingerprint: String?): String? {
+        if (provider != "custom") return keyFingerprint
+        if (customEndpoint().isBlank() || selectedModel(provider).isNullOrBlank()) return null
+        val source = customEndpoint() + "\\n" + selectedModel(provider) + "\\n" + keyFingerprint.orEmpty()
+        return MessageDigest.getInstance("SHA-256").digest(source.toByteArray()).joinToString("") { "%02x".format(it) }
+    }
 
     fun mode(): String = prefs.getString("mode", MODE_LOCAL).let { if (it == MODE_ONLINE) MODE_ONLINE else MODE_LOCAL }
     fun setMode(value: String) = prefs.edit().putString("mode", if (value == MODE_ONLINE) MODE_ONLINE else MODE_LOCAL).apply()
@@ -232,7 +247,7 @@ fun onlineProvidersJson(
     OnlineProviderCatalog.providers.forEach { spec ->
         val models = JSONArray()
         cachedModels(spec.id).forEach { models.put(it.toJson()) }
-        val fingerprint = keys.fingerprint(spec.id)
+        val fingerprint = config.validationFingerprint(spec.id, keys.fingerprint(spec.id))
         providers.put(
             JSONObject()
                 .put("id", spec.id)

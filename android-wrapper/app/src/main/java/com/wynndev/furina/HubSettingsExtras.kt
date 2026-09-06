@@ -49,11 +49,11 @@ internal fun OnlineModelsCard(state: HubUiState, controller: NativeHubController
                 TextButton(enabled = !state.busy && provider.configured, onClick = { controller.saveAndTestProvider(provider.id, "") }) { Text("Segarkan") }
                 TextButton(enabled = !state.busy && provider.configured, onClick = { controller.removeProviderKey(provider.id) }) { Text("Lepas key") }
             }
-            Row {
-                Text("Fallback model gratis", Modifier.weight(1f))
+            if(provider.id != "custom") Row {
+                Text("Ganti model saat tidak tersedia", Modifier.weight(1f))
                 Switch(state.autoFallback, controller::setAutoFallback, enabled = !state.busy)
             }
-            Text("Pilihan model berlaku untuk mesin Android. Kuota gratis tetap mengikuti aturan provider; katalog bukan jaminan kuota akun.", style = MaterialTheme.typography.bodySmall)
+            Text(if(provider.id == "custom") "Model ini memakai endpoint pilihanmu." else "Kuota mengikuti akun provider.", style = MaterialTheme.typography.bodySmall)
         }
     }
     if (choosing) AlertDialog(onDismissRequest = { choosing = false }, title = { Text("Model ${provider.name}") }, text = {
@@ -77,7 +77,7 @@ internal fun CoreSettingsCard(state: HubUiState, controller: NativeHubController
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Mesin Termux Core", style = MaterialTheme.typography.titleMedium)
-            Text("Pengaturan ini mengubah mesin Core, bukan provider Android. API key hanya dikirim ke Core lokal saat disimpan.", style = MaterialTheme.typography.bodySmall)
+            Text("Pilih model yang digunakan Furina Lite.", style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(state.coreRoutingMode == "local", { controller.setCoreMode("local") }, label = { Text("Lokal") }, enabled = !state.busy)
                 FilterChip(state.coreRoutingMode == "online", { controller.setCoreMode("online") }, label = { Text("Online") }, enabled = !state.busy)

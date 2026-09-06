@@ -95,6 +95,8 @@ data class HubUiState(
     val localModelLoaded: Boolean = false,
     val firstResponseMs: Long = 0,
     val responseDurationMs: Long = 0,
+    val customEndpoint: String = "",
+    val customModelId: String = "",
 )
 
 val FurinaTraits = listOf(
