@@ -169,7 +169,7 @@ class NativeHubController(context: Context) {
     private fun conversation(action: String, id: String = "", title: String = "", pinned: Boolean = false) { operation("Memperbarui percakapan…") {
         saveDraftNow(); val current = _state.value
         check(current.source != HubSource.TERMUX || current.connected) { "Hubungkan Core untuk mengubah percakapan Termux" }
-        apply(repository.conversation(current.source, action, id, title, pinned)); _state.update { it.copy(destination = HubDestination.CHAT) }
+        apply(repository.conversation(current.source, action, id, title, pinned)); _state.update { it.copy(destination = HubDestination.CHAT, chatError = null) }
     } }
     fun newConversation() = conversation("create")
     fun switchConversation(id: String) = conversation("switch", id)
@@ -206,7 +206,7 @@ class NativeHubController(context: Context) {
         val request = "hub-${UUID.randomUUID()}"; val pending = "assistant-$request"
         activeRequestSource = source; activeRequestId = request
         reservedDraft = clean
-        _state.update { it.copy(busy = true, generating = true, draft = "", error = null, status = "Menyiapkan jawaban…",
+        _state.update { it.copy(busy = true, generating = true, draft = "", error = null, chatError = null, status = "Menyiapkan jawaban…",
             messages = it.messages + HubMessage("user-$request", "user", clean) + HubMessage(pending, "assistant", "", true)) }
         generationJob = scope.launch {
             var status = "Siap"
@@ -232,9 +232,9 @@ class NativeHubController(context: Context) {
                     }
                     _state.update { it.copy(activeModel = result.metrics.optString("model", model.displayName), firstResponseMs = result.metrics.optLong("firstTokenMs"), responseDurationMs = result.metrics.optLong("durationMs"), localModelLoaded = model.offline) }
                 }
-            } catch (e: TimeoutCancellationException) { status = "Gagal"; showError(IllegalStateException("Core melewati batas waktu jawaban. Periksa koneksi sebelum mencoba lagi.")) }
+            } catch (e: TimeoutCancellationException) { status = "Gagal"; showChatError(IllegalStateException("Jawaban melewati batas waktu. Periksa koneksi lalu coba lagi.")) }
             catch (e: CancellationException) { status = "Dihentikan" }
-            catch (e: Exception) { status = "Gagal"; showError(e) }
+            catch (e: Exception) { status = "Gagal"; showChatError(e) }
             finally {
                 withContext(NonCancellable) {
                     if (source == HubSource.TERMUX && status != "Siap") {
@@ -475,6 +475,11 @@ class NativeHubController(context: Context) {
         } catch (e: Exception) { showError(e) }
     }
     fun clearError() = _state.update { it.copy(error = null) }
+    fun clearChatError() = _state.update { it.copy(chatError = null) }
+    private fun showChatError(error: Exception) {
+        android.util.Log.w("FurinaHub", "Chat failed: " + error.javaClass.simpleName + "\n" + error.stackTrace.take(6).joinToString("\n"))
+        _state.update { it.copy(chatError = error.message?.take(300)?.ifBlank { null } ?: "Jawaban belum bisa dimuat. Coba lagi.") }
+    }
     fun clearNotice() = _state.update { it.copy(notice = null) }
     fun permissionDenied() = showError(IllegalStateException("Izinkan ‘Run commands in Termux environment’ pada info aplikasi FurinaHub; Termux juga harus mengaktifkan allow-external-apps."))
     private fun showError(error: Throwable) = _state.update { it.copy(error = error.message?.take(500)?.ifBlank { null } ?: "Terjadi kesalahan; silakan coba lagi.") }

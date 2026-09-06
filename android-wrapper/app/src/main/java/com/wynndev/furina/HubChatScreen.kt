@@ -22,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -104,6 +105,13 @@ import androidx.compose.material3.DropdownMenuItem
                 }
             }
             Surface(color = MaterialTheme.colorScheme.surface) {
+                Column {
+                state.chatError?.let { error ->
+                    Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(error, Modifier.weight(1f), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        IconButton(controller::clearChatError) { Icon(Icons.Outlined.Close, "Tutup pesan kesalahan") }
+                    }
+                }
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.Bottom) {
                     OutlinedTextField(state.draft, controller::setDraft, Modifier.weight(1f),
                         placeholder = { Text("Kirim pesan…") }, minLines = 1, maxLines = 6,
@@ -115,6 +123,7 @@ import androidx.compose.material3.DropdownMenuItem
                     }, enabled = state.generating || (!state.busy && !state.loading && state.draft.isNotBlank()), modifier = Modifier.size(48.dp)) {
                         Icon(if(state.generating) Icons.Outlined.Stop else Icons.AutoMirrored.Outlined.Send, if(state.generating) "Hentikan" else "Kirim")
                     }
+                }
                 }
             }
         }

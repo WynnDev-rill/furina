@@ -54,6 +54,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.key
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,6 +80,7 @@ import androidx.compose.foundation.layout.consumeWindowInsets
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
+    val pages = rememberSaveableStateHolder()
     val chat = state.destination == HubDestination.CHAT
     BackHandler(!chat && !drawer.isOpen) { controller.navigateBack() }
     BackHandler(drawer.isOpen) { scope.launch { drawer.close() } }
@@ -138,11 +140,13 @@ import androidx.compose.foundation.layout.consumeWindowInsets
             }
         ) { padding ->
             val body = Modifier.padding(padding).consumeWindowInsets(padding)
-            when (state.destination) {
-                HubDestination.CHAT -> ChatScreen(state, controller, body)
-                HubDestination.PERSONA -> PersonaScreen(state, controller, onTraining, body)
-                HubDestination.MEMORY -> MemoryScreen(state, controller, body)
-                else -> PreferencesScreen(state, controller, onConnect, onDownload, body)
+            pages.SaveableStateProvider(state.destination.name) {
+                when (state.destination) {
+                    HubDestination.CHAT -> ChatScreen(state, controller, body)
+                    HubDestination.PERSONA -> PersonaScreen(state, controller, onTraining, body)
+                    HubDestination.MEMORY -> MemoryScreen(state, controller, body)
+                    else -> PreferencesScreen(state, controller, onConnect, onDownload, body)
+                }
             }
         }
     }

@@ -177,6 +177,7 @@ def chat_transport_flow():
         def send_message(value):
             fill_field(value)
             click('Kirim')
+            capture('submitted-' + value.split()[0])
 
         send_message('QA_CHAT zefir')
         wait_text('Jawaban uji')
@@ -216,6 +217,60 @@ def chat_transport_flow():
         adb('reverse', '--remove', 'tcp:8765', check=False)
 
 
+
+def media_flow():
+    import shutil
+    restart()
+    ffmpeg = shutil.which('ffmpeg')
+    assert ffmpeg, 'ffmpeg is required to generate device media fixtures'
+    media = out / 'media'
+    media.mkdir(exist_ok=True)
+    photo = media / 'qa-wallpaper.png'
+    video = media / 'qa-motion.mp4'
+    subprocess.run([ffmpeg, '-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=0x167e99:s=720x1280', '-frames:v', '1', str(photo)], check=True)
+    subprocess.run([ffmpeg, '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=360x640:r=15', '-t', '3', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(video)], check=True)
+    for path in [photo, video]:
+        adb('push', path, '/sdcard/Download/' + path.name)
+        shell('am', 'broadcast', '-a', 'android.intent.action.MEDIA_SCANNER_SCAN_FILE', '-d', 'file:///sdcard/Download/' + path.name)
+    click('Setelan')
+    click('Tampilan chat')
+
+    def choose(button, filename):
+        click(button)
+        capture('50-picker-' + filename)
+        if not click(filename, required=False):
+            click('Show roots', required=False)
+            click('Downloads', required=False)
+            click(filename)
+        time.sleep(3)
+
+    choose('Pilih foto', photo.name)
+    wait_text('Foto pribadi')
+    capture('51-photo-preview')
+    shell('input', 'keyevent', 4)
+    shell('input', 'keyevent', 4)
+    restart()
+    capture('52-photo-after-restart')
+    click('Setelan')
+    click('Tampilan chat')
+    wait_text('Foto pribadi')
+    choose('Pilih video', video.name)
+    wait_text('Video berulang')
+    capture('53-video-preview')
+    shell('input', 'keyevent', 4)
+    shell('input', 'keyevent', 4)
+    capture('54-video-chat')
+    shell('input', 'keyevent', 3)
+    time.sleep(2)
+    launch()
+    capture('55-video-after-background')
+    click('Setelan')
+    click('Tampilan chat')
+    click('Midnight')
+    shell('input', 'keyevent', 4)
+    shell('input', 'keyevent', 4)
+
+
 try:
     (out / 'device.txt').write_text(shell('getprop'))
     adb('install', '-r', args.apk, timeout=120)
@@ -247,6 +302,8 @@ try:
         scenario('settings-pages', pages)
     if args.candidate:
         scenario('chat-http-memory-stop-recovery', chat_transport_flow)
+        restart()
+        scenario('photo-video-lifecycle', media_flow)
         restart()
     scenario('accessibility', accessibility_flow)
 finally:

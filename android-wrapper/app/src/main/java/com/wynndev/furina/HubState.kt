@@ -58,6 +58,7 @@ data class HubUiState(
     val busy: Boolean = false,
     val status: String = "Siap",
     val error: String? = null,
+    val chatError: String? = null,
     val messages: List<HubMessage> = emptyList(),
     val conversations: List<HubConversation> = emptyList(),
     val activeConversationId: String = "",
