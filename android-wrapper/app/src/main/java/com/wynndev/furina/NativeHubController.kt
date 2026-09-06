@@ -78,14 +78,16 @@ class NativeHubController(context: Context) {
     private fun desiredSource(): HubSource = if (_state.value.enginePreference != EnginePreference.ANDROID && _state.value.connected) HubSource.TERMUX else HubSource.ANDROID
     private suspend fun apply(snapshot: HubSnapshot, useStoredDraft: Boolean = false) {
         val draft = repository.draft(snapshot.source, snapshot.id)
+        val personaPending = withContext(Dispatchers.IO) { repository.personaPending() }
         _state.update { old -> snapshot.persona.applyTo(old).copy(
             source = snapshot.source, activeConversationId = snapshot.id, messages = snapshot.messages, conversations = snapshot.conversations,
             activeSource = if (snapshot.source == HubSource.TERMUX) "Termux Core" else "Android ${if (runtime.config.mode() == OnlineAiConfigStore.MODE_ONLINE) "Online" else "Lokal"}",
             coreVersion = snapshot.coreVersion.ifBlank { old.coreVersion }, historyLimited = snapshot.historyLimited,
             draft = if (!useStoredDraft && !old.loading && old.source == snapshot.source && old.activeConversationId == snapshot.id) old.draft else draft,
-            loading = false, personaPending = repository.personaPending(),
+            loading = false, personaPending = personaPending,
             activeModel = if (snapshot.source != old.source) "" else old.activeModel,
         ) }
+        updateReadiness()
     }
     private fun updateReadiness() { _state.update { s -> s.copy(modelReady =
         if (s.source == HubSource.TERMUX) s.connected else if (s.androidAiMode == OnlineAiConfigStore.MODE_ONLINE)
@@ -216,8 +218,16 @@ class NativeHubController(context: Context) {
                     val (providerId, model) = runtime.resolve(selectedModel())
                     val persona = withContext(Dispatchers.IO) { repository.persona() }
                     val result = withContext(Dispatchers.IO) {
+                        val visible = StringBuilder()
+                        var lastFrame = 0L
                         aiEngine.generate(request, providerId, model, session, clean, persona.name, personaPrompt(persona)) { token ->
-                            updatePending(pending) { it.copy(content = it.content + token) }
+                            visible.append(token)
+                            val now = android.os.SystemClock.elapsedRealtime()
+                            if (lastFrame == 0L || now - lastFrame >= 32L) {
+                                val text = visible.toString()
+                                updatePending(pending) { it.copy(content = text) }
+                                lastFrame = now
+                            }
                         }
                     }
                     _state.update { it.copy(activeModel = result.metrics.optString("model", model.displayName), firstResponseMs = result.metrics.optLong("firstTokenMs"), responseDurationMs = result.metrics.optLong("durationMs"), localModelLoaded = model.offline) }
@@ -342,7 +352,7 @@ class NativeHubController(context: Context) {
         } finally { refreshProviders(); _state.update { it.copy(providerBusy = false) } }
     } }
     private fun refreshProviders() { _state.update { it.copy(selectedProvider = runtime.config.selectedProvider(), customEndpoint = runtime.config.customEndpoint(), customModelId = runtime.config.selectedModel("custom").orEmpty(), providers = OnlineProviderCatalog.providers.map { p ->
-        ProviderState(p.id, p.displayName, runtime.keys.has(p.id), p.id == runtime.config.selectedProvider(),
+        ProviderState(p.id, p.displayName, runtime.keys.has(p.id) || (p.id == "custom" && runtime.config.customEndpoint().isNotBlank()), p.id == runtime.config.selectedProvider(),
             runtime.onlineProviders[p.id]?.cachedModels().orEmpty(), runtime.config.selectedModel(p.id).orEmpty(), runtime.config.isValidated(p.id, runtime.providerFingerprint(p.id)))
     }) }; updateReadiness() }
     private suspend fun loadCoreSettings() {
@@ -448,7 +458,7 @@ class NativeHubController(context: Context) {
     } }
     fun restoreBackup(uri: Uri, key: String) { operation("Memulihkan data Android…") {
         saveDraftNow(); aiEngine.unload()
-        withContext(Dispatchers.IO) { backups.restoreFrom(uri, key) }
+        withContext(Dispatchers.IO) { backups.restoreFrom(uri, key); store.recoverInterruptedTurns() }
         _state.update { it.copy(enginePreference = EnginePreference.ANDROID) }; prefs.edit().putString("engine_preference", "ANDROID").apply()
         apply(repository.snapshot(HubSource.ANDROID), useStoredDraft = true); refreshMemoriesNow(); _state.update { it.copy(notice = "Backup Android dipulihkan. API key tidak diimpor.") }
     } }

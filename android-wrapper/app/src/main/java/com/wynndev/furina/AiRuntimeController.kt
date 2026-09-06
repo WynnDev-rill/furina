@@ -14,8 +14,9 @@ class AiRuntimeController(context: Context) {
     fun providerFingerprint(id: String): String? = config.validationFingerprint(id, keys.fingerprint(id))
     fun configureCustom(endpoint: String, model: String, key: String) {
         val normalized = CustomEndpoint.normalize(endpoint)
-        if (normalized != config.customEndpoint()) keys.remove("custom")
+        val previousEndpoint = config.customEndpoint()
         config.setCustomEndpoint(normalized, model)
+        if (normalized != previousEndpoint) keys.remove("custom")
         if (key.isNotBlank()) saveKey("custom", key)
         onlineProviders["custom"]?.invalidateCatalog()
         setProvider("custom")

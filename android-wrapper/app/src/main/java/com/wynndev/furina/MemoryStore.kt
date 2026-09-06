@@ -249,6 +249,7 @@ class MemoryStore(private val context: Context) : SQLiteOpenHelper(context, DB_N
         db.beginTransaction()
         try {
             db.delete("messages", "session_id=?", arrayOf(id))
+            db.delete("pending_turns", "session_id=?", arrayOf(id))
             db.delete("session_summaries", "session_id=?", arrayOf(id))
             try { db.delete("message_fts", "session_id=?", arrayOf(id)) } catch (_: Throwable) {}
             db.execSQL("UPDATE sessions SET title='Percakapan baru', updated_at=? WHERE id=?", arrayOf<Any>(System.currentTimeMillis(), id))

@@ -11,7 +11,6 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.onNode
 import androidx.work.Configuration
 import androidx.work.WorkManager
 import androidx.lifecycle.ViewModelProvider

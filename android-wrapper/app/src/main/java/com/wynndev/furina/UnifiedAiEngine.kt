@@ -78,59 +78,59 @@ class UnifiedAiEngine(
         store.beginTurn(requestId, sessionId, userText)
         try {
 
-        val context = contextEngine.build(
-            sessionId = sessionId,
-            query = userText,
-            characterName = characterName,
-            customPersona = persona,
-            contextWindowTokens = model.contextWindowTokens,
-        ).copy(sessionMessageCount = store.messageCountForSession(sessionId))
-        val activeProvider = provider(providerId)
-        val warmStart = activeProvider.isWarm(model, context)
-        activeProvider.prepare(model, context)
+            val context = contextEngine.build(
+                sessionId = sessionId,
+                query = userText,
+                characterName = characterName,
+                customPersona = persona,
+                contextWindowTokens = model.contextWindowTokens,
+            ).copy(sessionMessageCount = store.messageCountForSession(sessionId))
+            val activeProvider = provider(providerId)
+            val warmStart = activeProvider.isWarm(model, context)
+            activeProvider.prepare(model, context)
 
-        val request = AiGenerationRequest(
-            requestId = requestId,
-            sessionId = sessionId,
-            model = model,
-            context = context,
-            userMessage = userText,
-            predictLength = model.maxOutputTokens,
-        )
-        activeProvider.stream(request).collect { token ->
-            val now = SystemClock.elapsedRealtime()
-            if (firstTokenAt == 0L) firstTokenAt = now
-            tokenCount += 1
-            reply.append(token)
-            if (lastCheckpoint == 0L || now - lastCheckpoint >= 400L) {
-                store.checkpointTurn(requestId, reply.toString())
-                lastCheckpoint = now
+            val request = AiGenerationRequest(
+                requestId = requestId,
+                sessionId = sessionId,
+                model = model,
+                context = context,
+                userMessage = userText,
+                predictLength = model.maxOutputTokens,
+            )
+            activeProvider.stream(request).collect { token ->
+                val now = SystemClock.elapsedRealtime()
+                if (firstTokenAt == 0L) firstTokenAt = now
+                tokenCount += 1
+                reply.append(token)
+                if (lastCheckpoint == 0L || now - lastCheckpoint >= 400L) {
+                    store.checkpointTurn(requestId, reply.toString())
+                    lastCheckpoint = now
+                }
+                onToken(token)
             }
-            onToken(token)
-        }
 
-        val finalText = reply.toString().trim()
-        check(finalText.isNotBlank()) { "Model tidak menghasilkan jawaban" }
-        val (userId, assistantId) = store.finishTurn(requestId, finalText)
-        committed = true
-        scheduleMaintenance(sessionId, userText)
+            val finalText = reply.toString().trim()
+            check(finalText.isNotBlank()) { "Model tidak menghasilkan jawaban" }
+            val (userId, assistantId) = store.finishTurn(requestId, finalText)
+            committed = true
+            scheduleMaintenance(sessionId, userText)
 
-        val finishedAt = SystemClock.elapsedRealtime()
-        val firstTokenMs = if (firstTokenAt > 0L) firstTokenAt - startedAt else finishedAt - startedAt
-        val decodeMs = if (firstTokenAt > 0L) (finishedAt - firstTokenAt).coerceAtLeast(1L) else 1L
-        val metrics = JSONObject()
-            .put("firstTokenMs", firstTokenMs)
-            .put("tokensPerSecond", tokenCount * 1000.0 / decodeMs)
-            .put("tokenCount", tokenCount)
-            .put("tokenCountIsEstimate", true)
-            .put("durationMs", finishedAt - startedAt)
-            .put("outputCharacters", finalText.length)
-            .put("warmStart", warmStart)
-            .put("provider", activeProvider.id)
-            .put("model", activeProvider.resolvedModelId() ?: model.id)
-            .put("continuity", "companion-v4-role-safe-rehydration")
-            .put("qualityFlags", qualityFlags(userText, finalText))
-        return UnifiedGenerationResult(userId, assistantId, metrics)
+            val finishedAt = SystemClock.elapsedRealtime()
+            val firstTokenMs = if (firstTokenAt > 0L) firstTokenAt - startedAt else finishedAt - startedAt
+            val decodeMs = if (firstTokenAt > 0L) (finishedAt - firstTokenAt).coerceAtLeast(1L) else 1L
+            val metrics = JSONObject()
+                .put("firstTokenMs", firstTokenMs)
+                .put("tokensPerSecond", tokenCount * 1000.0 / decodeMs)
+                .put("tokenCount", tokenCount)
+                .put("tokenCountIsEstimate", true)
+                .put("durationMs", finishedAt - startedAt)
+                .put("outputCharacters", finalText.length)
+                .put("warmStart", warmStart)
+                .put("provider", activeProvider.id)
+                .put("model", activeProvider.resolvedModelId() ?: model.id)
+                .put("continuity", "companion-v4-role-safe-rehydration")
+                .put("qualityFlags", qualityFlags(userText, finalText))
+            return UnifiedGenerationResult(userId, assistantId, metrics)
         } catch (error: Exception) {
             if (!committed) try {
                 if (reply.isNotBlank()) store.finishTurn(requestId, reply.toString()) else store.discardTurn(requestId)
