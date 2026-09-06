@@ -73,6 +73,10 @@ jobs:
           set -euo pipefail
           export ANDROID_AVD_HOME="$RUNNER_TEMP/furina-avd"
           mkdir -p device-evidence/baseline "$ANDROID_AVD_HOME"
+          if ! command -v ffmpeg >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
           test -e /dev/kvm
           sudo chmod a+rw /dev/kvm
           sdkmanager 'emulator' 'system-images;android-35;google_apis;x86_64'

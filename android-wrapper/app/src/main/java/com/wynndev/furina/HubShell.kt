@@ -168,7 +168,7 @@ private fun DrawerContent(
     var deleteConfirm by remember { mutableStateOf(false) }
     selected?.let { row ->
         AlertDialog(onDismissRequest = { selected = null; deleteConfirm = false }, title = { Text(if (deleteConfirm) "Hapus percakapan?" else "Kelola percakapan") },
-            text = { if (deleteConfirm) Text("Riwayat ini akan dihapus dari sumber ${state.activeSource}. Tindakan ini tidak dapat dibatalkan.") else OutlinedTextField(rename, { rename = it.take(72) }, label = { Text("Judul") }) },
+            text = { if (deleteConfirm) Text("Percakapan dan semua pesannya akan dihapus. Tindakan ini tidak dapat dibatalkan.") else OutlinedTextField(rename, { rename = it.take(72) }, label = { Text("Judul") }) },
             confirmButton = { TextButton(enabled = !state.busy, onClick = { if (deleteConfirm) onDelete(row.id) else onRename(row.id, rename); selected = null; deleteConfirm = false }) { Text(if (deleteConfirm) "Hapus" else "Simpan") } },
             dismissButton = { Row {
                 if (!deleteConfirm) TextButton(enabled = !state.busy, onClick = { onPin(row.id, !row.pinned); selected = null }) { Text(if (row.pinned) "Lepas pin" else "Pin") }
@@ -194,8 +194,12 @@ private fun DrawerContent(
         Spacer(Modifier.height(12.dp))
         Text("Percakapan", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(10.dp))
         OutlinedTextField(search, { search = it }, Modifier.fillMaxWidth(), placeholder = { Text("Cari judul percakapan…") }, singleLine = true)
+        val conversations = state.conversations.filter { it.title.contains(search, true) }
         LazyColumn(Modifier.weight(1f)) {
-            items(state.conversations.filter { it.title.contains(search, true) }, key = { it.id }) { conversation ->
+            if (conversations.isEmpty()) item {
+                Text(if (search.isBlank()) "Belum ada percakapan." else "Tidak ada judul yang cocok.", Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            items(conversations, key = { it.id }) { conversation ->
                 NavigationDrawerItem(
                     label = {
                         Row(verticalAlignment = Alignment.CenterVertically) {

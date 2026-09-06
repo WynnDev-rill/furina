@@ -184,7 +184,7 @@ class OpenAiCompatibleProvider(
         if (id != "gemini") payload.put("temperature", 0.85)
         applyReasoningPolicy(payload, model.id)
 
-        val connection = openConnection("${spec.baseUrl}/chat/completions", "POST", key).apply {
+        val connection = openConnection("${endpoint()}/chat/completions", "POST", key).apply {
             doOutput = true
             setRequestProperty("Accept", "text/event-stream, application/json")
         }
