@@ -34,6 +34,7 @@ class BackupManager(
         private const val COMPANION_PREFS = "furina_companion_intelligence_v2"
         private const val MAX_COMPANION_BYTES = 2 * 1024 * 1024
         private const val MIN_ENCRYPTED_BACKUP_BYTES = 64L
+        private const val MAX_RESTORE_BYTES = 256L * 1024 * 1024
     }
 
     private val prefs = context.getSharedPreferences("furina_backup", Context.MODE_PRIVATE)
@@ -123,15 +124,34 @@ class BackupManager(
     }
 
     fun restoreFrom(uri: Uri) {
-        context.contentResolver.openInputStream(uri)!!.use(::restoreEncryptedSnapshot)
+        val input = context.contentResolver.openInputStream(uri) ?: error("Berkas backup tidak dapat dibaca")
+        input.use(::restoreEncryptedSnapshot)
+    }
+
+    /** A failed restore must never replace the key for the user's existing backups. */
+    fun restoreFrom(uri: Uri, recoveryKey: String) {
+        val previous = getOrCreateRecoveryKey()
+        try { setRecoveryKey(recoveryKey); restoreFrom(uri) }
+        catch (error: Exception) { setRecoveryKey(previous); throw error }
     }
 
     /** Shared by local-folder and cloud backup so both preserve the same companion state. */
     fun createEncryptedSnapshotBytes(maxBytes: Long = Long.MAX_VALUE): ByteArray {
         val dbSize = store.databaseFile().length().coerceAtLeast(0L)
-        val initialCapacity = (dbSize + 256 * 1024L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        require(maxBytes > 0) { "Batas ukuran backup tidak valid" }
+        val initialCapacity = minOf(dbSize + 256 * 1024L, maxBytes, 4L * 1024 * 1024).toInt()
         val out = ByteArrayOutputStream(initialCapacity)
-        writeEncryptedSnapshot(out)
+        val limited = object : OutputStream() {
+            override fun write(value: Int) {
+                require(out.size().toLong() + 1 <= maxBytes) { "Backup melebihi batas ukuran" }
+                out.write(value)
+            }
+            override fun write(bytes: ByteArray, offset: Int, count: Int) {
+                require(out.size().toLong() + count <= maxBytes) { "Backup melebihi batas ukuran" }
+                out.write(bytes, offset, count)
+            }
+        }
+        writeEncryptedSnapshot(limited)
         val bytes = out.toByteArray()
         require(bytes.size.toLong() <= maxBytes) { "Backup melebihi batas ukuran" }
         return bytes
@@ -143,33 +163,34 @@ class BackupManager(
     }
 
     private fun writeEncryptedSnapshot(rawOut: OutputStream) {
-        store.checkpoint()
-        val dbFile = store.databaseFile()
-        require(dbFile.isFile) { "Database Furina belum tersedia" }
+        val dbFile = File.createTempFile("furina-backup-snapshot-", ".db", context.cacheDir)
+        try {
+            store.writeSnapshot(dbFile)
 
-        val key = decodeKey(getOrCreateRecoveryKey())
-        val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
-        rawOut.write(MAGIC_V2)
-        rawOut.write(iv)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
+            val key = decodeKey(getOrCreateRecoveryKey())
+            val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
+            rawOut.write(MAGIC_V2)
+            rawOut.write(iv)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
 
-        CipherOutputStream(rawOut, cipher).use { encrypted ->
-            ZipOutputStream(encrypted.buffered()).use { zip ->
-                zip.putNextEntry(ZipEntry(DB_ENTRY))
-                dbFile.inputStream().use { it.copyTo(zip, 1024 * 1024) }
-                zip.closeEntry()
+            CipherOutputStream(rawOut, cipher).use { encrypted ->
+                ZipOutputStream(encrypted.buffered()).use { zip ->
+                    zip.putNextEntry(ZipEntry(DB_ENTRY))
+                    dbFile.inputStream().use { it.copyTo(zip, 1024 * 1024) }
+                    zip.closeEntry()
 
-                zip.putNextEntry(ZipEntry(COMPANION_ENTRY))
-                zip.write(companionSnapshot().toString().toByteArray(Charsets.UTF_8))
-                zip.closeEntry()
+                    zip.putNextEntry(ZipEntry(COMPANION_ENTRY))
+                    zip.write(companionSnapshot().toString().toByteArray(Charsets.UTF_8))
+                    zip.closeEntry()
+                }
             }
-        }
+        } finally { dbFile.delete() }
     }
 
     private fun restoreEncryptedSnapshot(rawIn: InputStream) {
         val header = ByteArray(MAGIC_V2.size)
-        require(rawIn.read(header) == header.size) { "Backup rusak" }
+        java.io.DataInputStream(rawIn).readFully(header)
         when {
             header.contentEquals(MAGIC_V2) -> restoreV2(rawIn)
             header.contentEquals(MAGIC_V1) -> restoreV1(rawIn)
@@ -181,19 +202,26 @@ class BackupManager(
     private fun restoreV2(rawIn: InputStream) {
         val key = decodeKey(getOrCreateRecoveryKey())
         val iv = ByteArray(12)
-        require(rawIn.read(iv) == iv.size) { "Backup rusak" }
+        java.io.DataInputStream(rawIn).readFully(iv)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
 
         val tempDb = File(context.cacheDir, "furina-restore-${System.currentTimeMillis()}.db")
+        val authenticatedZip = File.createTempFile("furina-authenticated-", ".zip", context.cacheDir)
         var companion: JSONObject? = null
         try {
+            // Consume the encrypted stream through its authentication tag before trusting ZIP entries.
             CipherInputStream(rawIn, cipher).use { decrypted ->
-                ZipInputStream(decrypted.buffered()).use { zip ->
+                authenticatedZip.outputStream().use { copyBounded(decrypted, it, MAX_RESTORE_BYTES) }
+            }
+            authenticatedZip.inputStream().use { input ->
+                ZipInputStream(input.buffered()).use { zip ->
+                    val seen = mutableSetOf<String>()
                     while (true) {
                         val entry = zip.nextEntry ?: break
+                        require(seen.add(entry.name)) { "Entri backup duplikat" }
                         when (entry.name) {
-                            DB_ENTRY -> tempDb.outputStream().use { zip.copyTo(it, 1024 * 1024) }
+                            DB_ENTRY -> tempDb.outputStream().use { copyBounded(zip, it, MAX_RESTORE_BYTES) }
                             COMPANION_ENTRY -> {
                                 val buffer = ByteArrayOutputStream()
                                 val chunk = ByteArray(32 * 1024)
@@ -215,6 +243,7 @@ class BackupManager(
             restoreCompanionSnapshot(companion ?: JSONObject())
         } finally {
             tempDb.delete()
+            authenticatedZip.delete()
         }
     }
 
@@ -222,13 +251,13 @@ class BackupManager(
     private fun restoreV1(rawIn: InputStream) {
         val key = decodeKey(getOrCreateRecoveryKey())
         val iv = ByteArray(12)
-        require(rawIn.read(iv) == iv.size) { "Backup rusak" }
+        java.io.DataInputStream(rawIn).readFully(iv)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
         val temp = File(context.cacheDir, "furina-legacy-restore-${System.currentTimeMillis()}.db")
         try {
             CipherInputStream(rawIn, cipher).use { decrypted ->
-                temp.outputStream().use { decrypted.copyTo(it, 1024 * 1024) }
+                temp.outputStream().use { copyBounded(decrypted, it, MAX_RESTORE_BYTES) }
             }
             validateDatabase(temp)
             store.restoreFrom(temp)
@@ -245,6 +274,32 @@ class BackupManager(
             require(input.read(sqliteHeader) == 16 && String(sqliteHeader, Charsets.US_ASCII).startsWith("SQLite format 3")) {
                 "Recovery key salah atau backup tidak valid"
             }
+        }
+        // This is the disposable, authenticated restore copy. FTS4 integrity checking needs a
+        // writable connection; opening it read-only incorrectly rejects a healthy search index.
+        android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE).use { db ->
+            require(db.version in 1..6) { "Versi database backup belum didukung" }
+            db.rawQuery("PRAGMA integrity_check", null).use { c ->
+                val result = if (c.moveToFirst()) c.getString(0) else "hasil pemeriksaan kosong"
+                require(result.equals("ok", ignoreCase = true)) { "Database backup tidak valid: ${result.take(200)}" }
+            }
+            for (table in listOf("sessions", "messages", "memories")) {
+                db.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name=?", arrayOf(table)).use { c ->
+                    require(c.moveToFirst()) { "Struktur database backup tidak sesuai" }
+                }
+            }
+        }
+    }
+
+    private fun copyBounded(input: InputStream, output: OutputStream, maxBytes: Long) {
+        val buffer = ByteArray(64 * 1024)
+        var total = 0L
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) return
+            total += count
+            require(total <= maxBytes) { "Backup melebihi batas pemulihan 256 MB" }
+            output.write(buffer, 0, count)
         }
     }
 

@@ -1,0 +1,12 @@
+LianYu / 恋语
+Copyright 2026 Sylvara-Lin and LianYu contributors
+
+This product includes software developed by the LianYu contributors.
+
+Public Edition Notice:
+This repository is the public open-source edition of LianYu. Private relay
+configuration, bundled service credentials, native shell hardening, VMP,
+anti-debugging implementation, private request signing, and private server
+certificate pinning are not included in this public distribution.
+
+Third-party dependencies remain subject to their own respective licenses.

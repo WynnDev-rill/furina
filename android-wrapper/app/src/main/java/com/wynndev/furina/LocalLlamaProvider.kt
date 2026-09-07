@@ -29,7 +29,8 @@ class LocalLlamaProvider(
     }
 
     private val appContext = context.applicationContext
-    private val engine: InferenceEngine = AiChat.getInferenceEngine(appContext)
+    private val engineDelegate = lazy { AiChat.getInferenceEngine(appContext) }
+    private val engine: InferenceEngine get() = engineDelegate.value
     private val loadMutex = Mutex()
     private val checkpointDir = File(appContext.filesDir, "offline-kv-v4").apply { mkdirs() }
 
@@ -274,6 +275,7 @@ class LocalLlamaProvider(
     }
 
     override suspend fun unload() = withContext(Dispatchers.IO) {
+        if (!engineDelegate.isInitialized()) return@withContext
         try {
             when (engine.state.value) {
                 is InferenceEngine.State.ModelReady, is InferenceEngine.State.Error -> engine.cleanUp()

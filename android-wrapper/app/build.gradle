@@ -1,6 +1,7 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
 }
 
 def buildNumber = (System.getenv('FURINA_BUILD_NUMBER') ?: System.getenv('GITHUB_RUN_NUMBER') ?: '1') as Integer
@@ -25,7 +26,7 @@ android {
         minSdk 33
         targetSdk 35
         versionCode buildNumber
-        versionName "4.0.${buildNumber}"
+        versionName "5.0.${buildNumber}"
         buildConfigField 'String', 'GIT_SHA', "\"${gitSha}\""
         buildConfigField 'String', 'EVIDENCE_ENROLLMENT_TOKEN', "\"${evidenceEnrollmentToken}\""
         ndk { abiFilters 'arm64-v8a' }
@@ -62,6 +63,7 @@ android {
 
     buildFeatures {
         buildConfig = true
+        compose = true
     }
 
     compileOptions {
@@ -70,6 +72,7 @@ android {
     }
 
     kotlinOptions { jvmTarget = '17' }
+    testOptions { unitTests.includeAndroidResources = true }
 
     packaging {
         resources.excludes += ['/META-INF/{AL2.0,LGPL2.1}']
@@ -81,8 +84,24 @@ android {
 }
 
 dependencies {
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.10.0'
+    implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.10.0'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.16.1'
+    testImplementation 'androidx.test:core:1.7.0'
+    testImplementation 'androidx.compose.ui:ui-test-junit4'
+    debugImplementation 'androidx.compose.ui:ui-test-manifest'
+    testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2'
     implementation files('libs/llama-android.aar')
+    implementation platform('androidx.compose:compose-bom:2026.05.00')
     implementation 'androidx.activity:activity-ktx:1.12.2'
+    implementation 'androidx.activity:activity-compose:1.12.2'
+    implementation 'androidx.compose.foundation:foundation'
+    implementation 'androidx.compose.material:material-icons-extended'
+    implementation 'androidx.compose.material3:material3'
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.ui:ui-tooling-preview'
+    debugImplementation 'androidx.compose.ui:ui-tooling'
     implementation 'androidx.core:core-ktx:1.17.0'
     implementation 'androidx.datastore:datastore-preferences:1.2.0'
     implementation 'androidx.documentfile:documentfile:1.0.1'

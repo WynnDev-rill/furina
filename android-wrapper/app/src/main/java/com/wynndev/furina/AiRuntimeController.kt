@@ -11,6 +11,17 @@ class AiRuntimeController(context: Context) {
         spec.id to OpenAiCompatibleProvider(spec, keys, config)
     }
 
+    fun providerFingerprint(id: String): String? = config.validationFingerprint(id, keys.fingerprint(id))
+    fun configureCustom(endpoint: String, model: String, key: String) {
+        val normalized = CustomEndpoint.normalize(endpoint)
+        val previousEndpoint = config.customEndpoint()
+        config.setCustomEndpoint(normalized, model)
+        if (normalized != previousEndpoint) keys.remove("custom")
+        if (key.isNotBlank()) saveKey("custom", key)
+        onlineProviders["custom"]?.invalidateCatalog()
+        setProvider("custom")
+    }
+
     fun settingsJson(): String = onlineProvidersJson(config, keys) { id -> onlineProviders[id]?.cachedModels().orEmpty() }
 
     fun setMode(mode: String) = config.setMode(mode)
@@ -39,7 +50,7 @@ class AiRuntimeController(context: Context) {
     suspend fun test(providerId: String): ProviderProbeResult {
         val provider = onlineProviders[providerId] ?: return ProviderProbeResult(false, "Provider tidak dikenal")
         val result = provider.testAndRefresh()
-        val fingerprint = keys.fingerprint(providerId)
+        val fingerprint = providerFingerprint(providerId)
         if (result.success && fingerprint != null) config.markValidated(providerId, fingerprint)
         else config.clearValidation(providerId)
         return result
@@ -47,7 +58,7 @@ class AiRuntimeController(context: Context) {
 
     suspend fun refresh(providerId: String): ProviderProbeResult {
         val provider = onlineProviders[providerId] ?: return ProviderProbeResult(false, "Provider tidak dikenal")
-        if (!keys.has(providerId)) return ProviderProbeResult(false, "API key belum disimpan")
+        if (providerId != "custom" && !keys.has(providerId)) return ProviderProbeResult(false, "API key belum disimpan")
         return try {
             val models = provider.discoverFreeModels(force = true)
             if (models.isEmpty()) ProviderProbeResult(false, "Tidak ada model gratis yang tersedia")
@@ -71,7 +82,7 @@ class AiRuntimeController(context: Context) {
 
         val providerId = config.selectedProvider()
         val provider = onlineProviders[providerId] ?: error("Provider online tidak dikenal")
-        val fingerprint = keys.fingerprint(providerId)
+        val fingerprint = providerFingerprint(providerId)
         if (fingerprint == null) error("Masukkan API key ${OnlineProviderCatalog.byId(providerId)?.displayName ?: providerId} terlebih dahulu")
         if (!config.isValidated(providerId, fingerprint)) error("Tes API key ${OnlineProviderCatalog.byId(providerId)?.displayName ?: providerId} terlebih dahulu")
         val models = provider.discoverFreeModels(force = false)
@@ -86,7 +97,7 @@ class AiRuntimeController(context: Context) {
         val mode = config.mode()
         val providerId = config.selectedProvider()
         val provider = OnlineProviderCatalog.byId(providerId)
-        val fingerprint = keys.fingerprint(providerId)
+        val fingerprint = providerFingerprint(providerId)
         return JSONObject()
             .put("mode", mode)
             .put("provider", if (mode == OnlineAiConfigStore.MODE_ONLINE) providerId else "local-llama")
