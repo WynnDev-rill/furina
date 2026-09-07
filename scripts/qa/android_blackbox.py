@@ -193,6 +193,8 @@ def chat_transport_flow():
         time.sleep(2)
         click('Hentikan')
         wait_text('Hentikan', present=False)
+        wait_text('Tutup pesan kesalahan', present=False)
+        capture('43-stopped-reply-before-restart')
         restart()
         wait_text('Potongan')
         capture('43-stopped-reply-after-restart')
