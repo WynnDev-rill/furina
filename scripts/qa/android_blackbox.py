@@ -35,8 +35,8 @@ def hierarchy():
 
 def capture(name):
     time.sleep(.7)
-    (out / f'{name}.png').write_bytes(adb('exec-out', 'screencap', '-p', binary=True))
     raw, tree = hierarchy()
+    (out / f'{name}.png').write_bytes(adb('exec-out', 'screencap', '-p', binary=True))
     (out / f'{name}.xml').write_text(raw)
     return tree
 
@@ -287,16 +287,24 @@ def media_flow():
     subprocess.run([ffmpeg, '-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=0x167e99:s=720x1280', '-frames:v', '1', str(photo)], check=True)
     subprocess.run([ffmpeg, '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=360x640:r=15', '-t', '3', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(video)], check=True)
     subprocess.run([ffmpeg, '-v', 'error', '-y', '-i', str(video), '-c:v', 'libvpx-vp9', '-b:v', '256k', str(webm)], check=True)
-    for path in [photo, video, webm]:
-        adb('push', path, '/sdcard/Download/' + path.name)
-        shell('am', 'broadcast', '-a', 'android.intent.action.MEDIA_SCANNER_SCAN_FILE', '-d', 'file:///sdcard/Download/' + path.name)
     click('Setelan')
     click('Tampilan chat')
 
     def choose(button, filename):
+        # Stage one new item at a time so the newest picker thumbnail is unambiguous.
+        import os
+        path = media / filename
+        os.utime(path, None)
+        adb('push', path, '/sdcard/Download/' + filename)
+        shell('am', 'broadcast', '-a', 'android.intent.action.MEDIA_SCANNER_SCAN_FILE', '-d', 'file:///sdcard/Download/' + filename)
+        time.sleep(2)
         click(button)
-        capture('50-picker-' + filename)
-        if not click(filename, required=False):
+        tree = capture('50-picker-' + filename)
+        prefix = 'Photo taken on' if button == 'Pilih foto' else 'Video taken on'
+        thumbnails = [n.get('content-desc') for n in tree.iter('node') if n.get('content-desc', '').startswith(prefix)]
+        if thumbnails:
+            click(thumbnails[0])
+        elif not click(filename, required=False):
             click('Show roots', required=False)
             click('Downloads', required=False)
             click(filename)
