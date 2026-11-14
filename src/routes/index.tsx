@@ -2,27 +2,74 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Send, Settings, Trash2, Plus, Volume2, Image as ImageIcon, RotateCcw,
-  Play, Pause, Square, Loader2, MessageSquarePlus, MessagesSquare, Check,
-  CheckCheck, Pencil, AlertCircle, LogIn, LogOut, Sparkles, Sun, Moon, X,
+  Send,
+  Settings,
+  Trash2,
+  Plus,
+  Volume2,
+  Image as ImageIcon,
+  RotateCcw,
+  Play,
+  Pause,
+  Square,
+  Loader2,
+  MessageSquarePlus,
+  MessagesSquare,
+  Check,
+  CheckCheck,
+  Pencil,
+  AlertCircle,
+  LogIn,
+  LogOut,
+  Sparkles,
+  Sun,
+  Moon,
+  X,
   Download,
+  ChevronLeft,
+  ChevronRight,
+  UserRound,
+  Brain,
+  AudioLines,
+  Bell,
+  Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetDescription } from "@/components/ui/sheet";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+  SheetDescription,
+} from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { toast } from "sonner";
+import { Toaster, toast } from "sonner";
 
 import furinaDefault from "@/assets/furina.jpg";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllPages } from "@/lib/record-pagination";
 import { lovable } from "@/integrations/lovable";
+import {
+  androidOAuthRedirect,
+  isAndroidLoginPage,
+  openAndroidLogin,
+  receiveAndroidSession,
+  returnAndroidSession,
+} from "@/lib/android-auth";
 import {
   chatWithFurina,
   speakVoicevoxUrl,
@@ -44,9 +91,16 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "Furina — AI Companion" },
-      { name: "description", content: "Personal AI companion dengan suara Jepang natural, memori lintas-percakapan, dan kepribadian Furina." },
+      {
+        name: "description",
+        content:
+          "Personal AI companion dengan suara Jepang natural, memori lintas-percakapan, dan kepribadian Furina.",
+      },
       { property: "og:title", content: "Furina — AI Companion" },
-      { property: "og:description", content: "Personal AI companion with voice, memory, vision, and Furina personality." },
+      {
+        property: "og:description",
+        content: "Personal AI companion with voice, memory, vision, and Furina personality.",
+      },
     ],
   }),
   component: FurinaApp,
@@ -66,7 +120,13 @@ type Msg = {
   stickerId?: string;
 };
 type TTSProvider = "voicevox" | "clone";
-type Conversation = { id: string; title: string; messages: Msg[]; updatedAt: number; lastSummaryCount?: number };
+type Conversation = {
+  id: string;
+  title: string;
+  messages: Msg[];
+  updatedAt: number;
+  lastSummaryCount?: number;
+};
 type ThemeMode = "dark" | "light";
 
 const STORAGE = {
@@ -88,19 +148,41 @@ const STORAGE = {
   migratedFlag: "furina:migratedTo",
   theme: "furina:theme",
   preGen: "furina:preGenAudio",
+  proactive: "furina:proactive",
+  proactiveHours: "furina:proactiveHours",
+  lastActivity: "furina:lastActivityAt",
+  cacheOwner: "furina:cacheOwner",
 };
 
 const ALL_FURINA_KEYS = [
-  STORAGE.convos, STORAGE.activeId, STORAGE.bg, STORAGE.name, STORAGE.persona,
-  STORAGE.lang, STORAGE.speed, STORAGE.provider, STORAGE.vvSpeaker, STORAGE.vvTranslate,
-  STORAGE.cloneSample, STORAGE.cloneSampleMime, STORAGE.cloneSampleName,
-  STORAGE.theme, STORAGE.preGen,
+  STORAGE.convos,
+  STORAGE.activeId,
+  STORAGE.bg,
+  STORAGE.name,
+  STORAGE.persona,
+  STORAGE.lang,
+  STORAGE.speed,
+  STORAGE.provider,
+  STORAGE.vvSpeaker,
+  STORAGE.vvTranslate,
+  STORAGE.cloneSample,
+  STORAGE.cloneSampleMime,
+  STORAGE.cloneSampleName,
+  STORAGE.theme,
+  STORAGE.preGen,
+  STORAGE.legacyMsgs,
+  STORAGE.proactive,
+  STORAGE.proactiveHours,
+  STORAGE.lastActivity,
+  STORAGE.cacheOwner,
   // guestId and migratedFlag are NOT cleared on logout — they belong to the browser identity
 ];
 
 function clearAllFurinaLocal() {
   for (const k of ALL_FURINA_KEYS) {
-    try { localStorage.removeItem(k); } catch {}
+    try {
+      localStorage.removeItem(k);
+    } catch {}
   }
 }
 
@@ -108,23 +190,28 @@ function newConversation(): Conversation {
   return { id: crypto.randomUUID(), title: "Percakapan baru", messages: [], updatedAt: Date.now() };
 }
 function getOrCreateGuestId(): string {
-  if (typeof window === "undefined") return "guest-ssr";
-  let id = localStorage.getItem(STORAGE.guestId);
-  if (!id) { id = crypto.randomUUID(); localStorage.setItem(STORAGE.guestId, id); }
-  return id;
+  const fallback = crypto.randomUUID();
+  try {
+    const id = localStorage.getItem(STORAGE.guestId);
+    if (id) return id;
+    localStorage.setItem(STORAGE.guestId, fallback);
+  } catch {
+    /* Storage can be disabled by the browser. */
+  }
+  return fallback;
 }
 
 const VV_SPEAKERS = [
   { id: 14, label: "★ Rekomendasi Furina — 冥鳴ひまり (ノーマル, anggun)" },
-  { id: 8,  label: "春日部つむぎ — ノーマル (cerah, energik)" },
+  { id: 8, label: "春日部つむぎ — ノーマル (cerah, energik)" },
   { id: 20, label: "もち子さん — ノーマル (hangat lembut)" },
-  { id: 2,  label: "四国めたん — ノーマル (manis muda)" },
-  { id: 0,  label: "四国めたん — あまあま (manja)" },
-  { id: 6,  label: "四国めたん — ツンツン (tsundere)" },
-  { id: 9,  label: "波音リツ — ノーマル (dewasa kalem)" },
+  { id: 2, label: "四国めたん — ノーマル (manis muda)" },
+  { id: 0, label: "四国めたん — あまあま (manja)" },
+  { id: 6, label: "四国めたん — ツンツン (tsundere)" },
+  { id: 9, label: "波音リツ — ノーマル (dewasa kalem)" },
   { id: 10, label: "雨晴はう — ノーマル (lembut tenang)" },
-  { id: 3,  label: "ずんだもん — ノーマル (imut ceria)" },
-  { id: 7,  label: "ずんだもん — ツンツン" },
+  { id: 3, label: "ずんだもん — ノーマル (imut ceria)" },
+  { id: 7, label: "ずんだもん — ツンツン" },
   { id: 23, label: "WhiteCUL — ノーマル (manis polos)" },
   { id: 27, label: "九州そら — ノーマル (anggun dewasa)" },
   { id: 29, label: "九州そら — あまあま" },
@@ -134,8 +221,6 @@ const VV_SPEAKERS = [
 ];
 
 // (Sticker feature removed.)
-
-
 
 // Natural relative time (display side — matches server humanizeDelta vibe)
 function relTime(ts: number, now: number): string {
@@ -160,7 +245,8 @@ function relTime(ts: number, now: number): string {
     if (hh < 18) return "tadi sore";
     return "tadi malam";
   }
-  const yest = new Date(now); yest.setDate(yest.getDate() - 1);
+  const yest = new Date(now);
+  yest.setDate(yest.getDate() - 1);
   if (yest.toDateString() === d.toDateString()) return "kemarin";
   const days = Math.round((now - ts) / 86400000);
   if (days < 7) return `${days} hari lalu`;
@@ -183,10 +269,47 @@ type SettingsSnapshot = {
   vvTranslate?: boolean;
   preGen?: boolean;
   theme?: ThemeMode;
+  proactiveEnabled?: boolean;
+  proactiveIdleHours?: number;
   cloneSampleName?: string;
   cloneSampleMime?: string;
   cloneSampleB64?: string; // small samples only — large ones live in storage bucket
 };
+
+const settingsSections = [
+  {
+    id: "persona",
+    label: "Karakter & tampilan",
+    description: "Nama, kepribadian, bahasa, dan tema",
+    icon: UserRound,
+  },
+  {
+    id: "suara",
+    label: "Suara",
+    description: "Pilihan suara dan kecepatan bicara",
+    icon: AudioLines,
+  },
+  {
+    id: "memori",
+    label: "Memori",
+    description: "Lihat dan kelola hal yang Furina ingat",
+    icon: Brain,
+  },
+  {
+    id: "proaktif",
+    label: "Sapaan proaktif",
+    description: "Atur kapan Furina menyapamu",
+    icon: Bell,
+  },
+  {
+    id: "akun",
+    label: "Akun & data",
+    description: "Login, sinkronisasi, dan percakapan",
+    icon: Shield,
+  },
+] as const;
+
+type SettingsSection = (typeof settingsSections)[number]["id"];
 
 function FurinaApp() {
   const chat = useServerFn(chatWithFurina);
@@ -206,8 +329,12 @@ function FurinaApp() {
 
   const [authUser, setAuthUser] = useState<{ id: string; email?: string } | null>(null);
   const [authReady, setAuthReady] = useState(false);
+  const [androidLoginPage, setAndroidLoginPage] = useState(false);
+  const androidReturnStarted = useRef(false);
+  const [androidReturn, setAndroidReturn] = useState<string | null>(null);
+  const [androidLoginError, setAndroidLoginError] = useState("");
   const [syncing, setSyncing] = useState(false);
-  const [guestId] = useState<string>(() => getOrCreateGuestId());
+  const [guestId, setGuestId] = useState("");
   const userId = authUser?.id ?? guestId;
 
   const [theme, setTheme] = useState<ThemeMode>("dark");
@@ -226,8 +353,38 @@ function FurinaApp() {
   const [vvTranslate, setVvTranslate] = useState(true);
   const [preGenAudio, setPreGenAudio] = useState(true);
   const [openSettings, setOpenSettings] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
+  const selectedSection = settingsSections.find((section) => section.id === settingsSection);
+  const settingsHeading = useRef<HTMLHeadingElement>(null);
+  const settingsScroll = useRef<HTMLDivElement>(null);
+  const settingsList = useRef<HTMLDivElement>(null);
+  const previousSection = useRef<SettingsSection | null>(null);
+  useEffect(() => {
+    if (!openSettings) {
+      previousSection.current = null;
+      return;
+    }
+    settingsScroll.current?.scrollTo(0, 0);
+    if (settingsSection) settingsHeading.current?.focus();
+    else if (previousSection.current) {
+      settingsList.current
+        ?.querySelector<HTMLButtonElement>(`[data-section="${previousSection.current}"]`)
+        ?.focus();
+    }
+    previousSection.current = settingsSection;
+  }, [openSettings, settingsSection]);
   const [openConvos, setOpenConvos] = useState(false);
-  const [memories, setMemories] = useState<{ id: string; content: string; kind?: string; importance?: number; occurred_at?: string | null; emotion?: string | null; compressed?: boolean }[]>([]);
+  const [memories, setMemories] = useState<
+    {
+      id: string;
+      content: string;
+      kind?: string;
+      importance?: number;
+      occurred_at?: string | null;
+      emotion?: string | null;
+      compressed?: boolean;
+    }[]
+  >([]);
   const [newMem, setNewMem] = useState("");
   const [editingMemId, setEditingMemId] = useState<string | null>(null);
   const [editingMemContent, setEditingMemContent] = useState("");
@@ -248,7 +405,11 @@ function FurinaApp() {
   const [proactiveEnabled, setProactiveEnabled] = useState(true);
   const [proactiveIdleHours, setProactiveIdleHours] = useState(6);
   const proactiveFiredRef = useRef(false);
-  const lastActivityKey = "furina:lastActivityAt";
+  const lastActivityKey = STORAGE.lastActivity;
+  const [clearingChat, setClearingChat] = useState(false);
+  const sendLock = useRef(false);
+  const accountRef = useRef<string | null>(null);
+  const [syncFailed, setSyncFailed] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -258,7 +419,6 @@ function FurinaApp() {
   const initialLoadDoneRef = useRef(false);
   const cloudHydratedRef = useRef(false);
   const settingsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const conversationsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userMsgCountRef = useRef(0);
 
   const activeConvo = conversations.find((c) => c.id === activeId);
@@ -272,45 +432,111 @@ function FurinaApp() {
 
   // ===== Auth listener =====
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session?.user) setAuthUser({ id: data.session.user.id, email: data.session.user.email ?? undefined });
+    setGuestId(getOrCreateGuestId());
+    const fromBrowser = isAndroidLoginPage();
+    setAndroidLoginPage(fromBrowser);
+    async function consumeAndroidReturn() {
+      const url = new URL(window.location.href);
+      const payload = new URLSearchParams(url.hash.slice(1)).get("android-session");
+      if (!payload) return;
+      url.hash = "";
+      history.replaceState(history.state, "", url);
+      try {
+        const { error } = await supabase.auth.setSession(await receiveAndroidSession(payload));
+        if (error) throw error;
+      } catch {
+        toast.error("Sesi Android gagal diterima. Mulai lagi dari Pengaturan.");
+      }
+    }
+    void consumeAndroidReturn();
+    window.addEventListener("hashchange", consumeAndroidReturn);
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      const next = session?.user
+        ? { id: session.user.id, email: session.user.email ?? undefined }
+        : null;
+      accountRef.current = next?.id ?? null;
+      setAuthUser((previous) =>
+        previous?.id === next?.id && previous?.email === next?.email ? previous : next,
+      );
       setAuthReady(true);
+      if (fromBrowser && session && !androidReturnStarted.current) {
+        androidReturnStarted.current = true;
+        void returnAndroidSession(session)
+          .then((returnUrl) => {
+            setAndroidReturn(returnUrl);
+            // The encrypted transfer owns this session. Remove the browser copy
+            // without revoking the refresh token needed by WebView.
+            sessionStorage.removeItem("furina:browser-oauth-session");
+          })
+          .catch((error: Error) => setAndroidLoginError(error.message));
+      }
     });
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
-      setAuthUser(session?.user ? { id: session.user.id, email: session.user.email ?? undefined } : null);
-    });
-    return () => sub.subscription.unsubscribe();
+    return () => {
+      sub.subscription.unsubscribe();
+      window.removeEventListener("hashchange", consumeAndroidReturn);
+    };
   }, []);
 
   // ===== Fetch mood on user change =====
   useEffect(() => {
-    if (!userId) return;
-    getMoodFn({ data: { userId } }).then((r) => {
-      if (r?.mood) setMood({ score: r.mood.score, label: r.label });
-    }).catch(() => {});
-  }, [userId, getMoodFn]);
+    if (!authReady || !userId || androidLoginPage) return;
+    let disposed = false;
+    getMoodFn({ data: { userId } })
+      .then((r) => {
+        if (!disposed && r?.mood) setMood({ score: r.mood.score, label: r.label });
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+    };
+  }, [authReady, userId, getMoodFn, androidLoginPage]);
 
   // ===== Proactive greeting on idle-return =====
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!proactiveEnabled) return;
+    if (!authReady || !userId || !activeId || syncing || !proactiveEnabled || androidLoginPage)
+      return;
 
     const tryGreet = async () => {
       if (proactiveFiredRef.current) return;
       if (document.visibilityState !== "visible") return;
-      const last = parseInt(localStorage.getItem(lastActivityKey) ?? "0", 10);
-      if (!last) { proactiveFiredRef.current = true; return; }
+      let last = 0;
+      try {
+        last = Number(localStorage.getItem(lastActivityKey));
+      } catch {}
+      if (!last) {
+        proactiveFiredRef.current = true;
+        return;
+      }
       const hoursIdle = (Date.now() - last) / (1000 * 60 * 60);
       if (hoursIdle < proactiveIdleHours) return;
       proactiveFiredRef.current = true;
       try {
-        const r = await proactiveFn({ data: { userId, characterName: name, hoursIdle: Math.min(720, hoursIdle) } });
-        if (r?.ok && r.greeting) {
-          const aiMsg: Msg = { id: crypto.randomUUID(), role: "assistant", content: r.greeting, at: Date.now() };
-          setConversations((convos) => convos.map((c) => c.id === activeId
-            ? { ...c, messages: [...c.messages, aiMsg], updatedAt: Date.now() }
-            : c));
-          if (authUser && activeId) upsertSingleMessage(authUser.id, activeId, aiMsg);
+        const r = await proactiveFn({
+          data: { userId, characterName: name, hoursIdle: Math.min(720, hoursIdle) },
+        });
+        if (r?.ok && r.greeting && accountRef.current === (authUser?.id ?? null)) {
+          const aiMsg: Msg = {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: r.greeting,
+            at: Date.now(),
+          };
+          setConversations((convos) =>
+            convos.map((c) =>
+              c.id === activeId
+                ? { ...c, messages: [...c.messages, aiMsg], updatedAt: Date.now() }
+                : c,
+            ),
+          );
+          if (authUser && activeId && activeConvo && accountRef.current === authUser.id) {
+            await upsertSingleConversation(
+              authUser.id,
+              { ...activeConvo, updatedAt: Date.now() },
+              true,
+            );
+            await upsertSingleMessage(authUser.id, activeId, aiMsg);
+          }
           if (r.mood) setMood(r.mood);
         }
       } catch {}
@@ -320,27 +546,67 @@ function FurinaApp() {
     document.addEventListener("visibilitychange", onVis);
     // Coba juga langsung saat mount
     const t = setTimeout(tryGreet, 1500);
-    return () => { document.removeEventListener("visibilitychange", onVis); clearTimeout(t); };
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      clearTimeout(t);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [proactiveEnabled, proactiveIdleHours, userId, activeId, name, authUser]);
+  }, [
+    authReady,
+    syncing,
+    proactiveEnabled,
+    proactiveIdleHours,
+    userId,
+    activeId,
+    name,
+    authUser,
+    androidLoginPage,
+  ]);
 
-  // Touch lastActivity setiap kali user interaksi kirim
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const touch = () => { try { localStorage.setItem(lastActivityKey, String(Date.now())); } catch {} };
-    window.addEventListener("focus", touch);
-    return () => window.removeEventListener("focus", touch);
-  }, []);
-  const buildSettings = useCallback((): SettingsSnapshot => ({
-    bg, name, persona, lang: language, speed, provider, vvSpeaker, vvTranslate, preGen: preGenAudio, theme,
-    cloneSampleName,
-    cloneSampleMime: typeof window !== "undefined" ? localStorage.getItem(STORAGE.cloneSampleMime) ?? undefined : undefined,
-    cloneSampleB64: typeof window !== "undefined" ? localStorage.getItem(STORAGE.cloneSample) ?? undefined : undefined,
-  }), [bg, name, persona, language, speed, provider, vvSpeaker, vvTranslate, preGenAudio, theme, cloneSampleName]);
+  const buildSettings = useCallback(
+    (): SettingsSnapshot => ({
+      bg,
+      name,
+      persona,
+      lang: language,
+      speed,
+      provider,
+      vvSpeaker,
+      vvTranslate,
+      preGen: preGenAudio,
+      theme,
+      cloneSampleName,
+      proactiveEnabled,
+      proactiveIdleHours,
+      cloneSampleMime:
+        typeof window !== "undefined"
+          ? (localStorage.getItem(STORAGE.cloneSampleMime) ?? undefined)
+          : undefined,
+      cloneSampleB64:
+        typeof window !== "undefined"
+          ? (localStorage.getItem(STORAGE.cloneSample) ?? undefined)
+          : undefined,
+    }),
+    [
+      bg,
+      name,
+      persona,
+      language,
+      speed,
+      provider,
+      vvSpeaker,
+      vvTranslate,
+      preGenAudio,
+      theme,
+      cloneSampleName,
+      proactiveEnabled,
+      proactiveIdleHours,
+    ],
+  );
 
   const applySettings = useCallback((s: SettingsSnapshot) => {
-    if (s.bg) setBg(s.bg);
-    if (s.name) setName(s.name);
+    setBg(s.bg || furinaDefault);
+    setName(s.name || "Furina");
     // Persona: hanya overwrite kalau cloud punya isi non-kosong.
     // String kosong dari cloud dianggap "belum diset" biar tidak menimpa persona lokal.
     if (typeof s.persona === "string" && s.persona.trim().length > 0) setPersona(s.persona);
@@ -351,6 +617,9 @@ function FurinaApp() {
     if (typeof s.vvTranslate === "boolean") setVvTranslate(s.vvTranslate);
     if (typeof s.preGen === "boolean") setPreGenAudio(s.preGen);
     if (s.theme === "dark" || s.theme === "light") setTheme(s.theme);
+    if (typeof s.proactiveEnabled === "boolean") setProactiveEnabled(s.proactiveEnabled);
+    if (typeof s.proactiveIdleHours === "number")
+      setProactiveIdleHours(Math.max(1, Math.min(48, s.proactiveIdleHours)));
     if (s.cloneSampleName) setCloneSampleName(s.cloneSampleName);
     if (s.cloneSampleB64 && s.cloneSampleMime) {
       try {
@@ -364,7 +633,11 @@ function FurinaApp() {
 
   // ===== Load from local on mount (guest mode entry point) =====
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (
+      typeof window === "undefined" ||
+      new URLSearchParams(window.location.search).has("furina_android_callback")
+    )
+      return;
     try {
       const th = localStorage.getItem(STORAGE.theme);
       if (th === "light" || th === "dark") setTheme(th);
@@ -372,44 +645,77 @@ function FurinaApp() {
 
       const rawConvos = localStorage.getItem(STORAGE.convos);
       let loaded: Conversation[] = [];
-      if (rawConvos) loaded = JSON.parse(rawConvos);
-      else {
+      if (rawConvos) {
+        try {
+          const parsed: unknown = JSON.parse(rawConvos);
+          if (Array.isArray(parsed))
+            loaded = parsed.filter((c) => typeof c?.id === "string" && Array.isArray(c.messages));
+        } catch {}
+      } else {
         const legacy = localStorage.getItem(STORAGE.legacyMsgs);
         if (legacy) {
           const msgs: Msg[] = JSON.parse(legacy);
-          if (msgs.length) loaded = [{ id: crypto.randomUUID(), title: "Percakapan lama", messages: msgs, updatedAt: Date.now() }];
+          if (msgs.length)
+            loaded = [
+              {
+                id: crypto.randomUUID(),
+                title: "Percakapan lama",
+                messages: msgs,
+                updatedAt: Date.now(),
+              },
+            ];
           localStorage.removeItem(STORAGE.legacyMsgs);
         }
       }
       if (!loaded.length) loaded = [newConversation()];
+      loaded = loaded.map((c) => ({
+        ...c,
+        messages: c.messages.map((m) => (m.status === "sending" ? { ...m, status: "failed" } : m)),
+      }));
       setConversations(loaded);
       const savedActive = localStorage.getItem(STORAGE.activeId);
-      setActiveId(savedActive && loaded.some((c) => c.id === savedActive) ? savedActive : loaded[0].id);
+      setActiveId(
+        savedActive && loaded.some((c) => c.id === savedActive) ? savedActive : loaded[0].id,
+      );
 
-      const b = localStorage.getItem(STORAGE.bg); if (b) setBg(b);
-      const n = localStorage.getItem(STORAGE.name); if (n) setName(n);
-      const p = localStorage.getItem(STORAGE.persona); if (p) setPersona(p);
-      const l = localStorage.getItem(STORAGE.lang); if (l) setLanguage(l as typeof language);
+      const b = localStorage.getItem(STORAGE.bg);
+      if (b) setBg(b);
+      const n = localStorage.getItem(STORAGE.name);
+      if (n) setName(n);
+      const p = localStorage.getItem(STORAGE.persona);
+      if (p) setPersona(p);
+      const l = localStorage.getItem(STORAGE.lang);
+      if (l) setLanguage(l as typeof language);
       const sp = localStorage.getItem(STORAGE.speed);
       if (sp) setSpeed(Math.min(1.5, Math.max(0.7, parseFloat(sp) || 1.0)));
       const pr = localStorage.getItem(STORAGE.provider);
       if (pr === "voicevox" || pr === "clone") setProvider(pr);
       const vs = localStorage.getItem(STORAGE.vvSpeaker);
       if (vs) setVvSpeaker(parseInt(vs, 10) || VV_SPEAKERS[0].id);
-      const vt = localStorage.getItem(STORAGE.vvTranslate); if (vt) setVvTranslate(vt === "1");
-      const pg = localStorage.getItem(STORAGE.preGen); if (pg) setPreGenAudio(pg === "1");
+      const vt = localStorage.getItem(STORAGE.vvTranslate);
+      if (vt) setVvTranslate(vt === "1");
+      const pg = localStorage.getItem(STORAGE.preGen);
+      if (pg) setPreGenAudio(pg === "1");
 
+      const pe = localStorage.getItem(STORAGE.proactive);
+      if (pe !== null) setProactiveEnabled(pe === "1");
+      const ph = Number(localStorage.getItem(STORAGE.proactiveHours));
+      if (ph >= 1 && ph <= 48) setProactiveIdleHours(ph);
       const cs = localStorage.getItem(STORAGE.cloneSample);
       const csn = localStorage.getItem(STORAGE.cloneSampleName);
       setHasCloneSample(!!cs);
       if (csn) setCloneSampleName(csn);
-    } catch {}
+    } catch {
+      const fresh = newConversation();
+      setConversations([fresh]);
+      setActiveId(fresh.id);
+    }
     initialLoadDoneRef.current = true;
   }, []);
 
   // ===== Sync on auth change =====
   useEffect(() => {
-    if (!authReady) return;
+    if (!authReady || !guestId || androidLoginPage) return;
     if (!authUser) {
       lastSyncedAuthIdRef.current = null;
       cloudHydratedRef.current = false;
@@ -419,30 +725,75 @@ function FurinaApp() {
     lastSyncedAuthIdRef.current = authUser.id;
     cloudHydratedRef.current = false;
     pullFromCloud(authUser.id);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authReady, authUser]);
-
-
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authReady, authUser, guestId, androidLoginPage]);
 
   async function pullFromCloud(uid: string) {
     setSyncing(true);
+    setSyncFailed(false);
     try {
-      const [{ data: settingsRow }, { data: convosRows }, { data: msgsRows }] = await Promise.all([
+      const [settings, convosRows, msgsRows] = await Promise.all([
         supabase.from("user_settings").select("data").eq("user_id", uid).maybeSingle(),
-        supabase.from("conversations").select("*").eq("user_id", uid).eq("character_id", "furina").order("updated_at", { ascending: false }),
-        supabase.from("messages").select("*").eq("user_id", uid).order("created_at", { ascending: true }),
+        fetchAllPages((from, to) =>
+          supabase
+            .from("conversations")
+            .select("*")
+            .eq("user_id", uid)
+            .eq("character_id", "furina")
+            .order("updated_at", { ascending: false })
+            .order("id")
+            .range(from, to),
+        ),
+        fetchAllPages((from, to) =>
+          supabase
+            .from("messages")
+            .select("*")
+            .eq("user_id", uid)
+            .order("created_at", { ascending: true })
+            .order("id")
+            .range(from, to),
+        ),
       ]);
 
+      if (accountRef.current !== uid) return;
+      if (settings.error) throw settings.error;
+      const { data: settingsRow } = settings;
+      const cacheOwner = localStorage.getItem(STORAGE.cacheOwner);
+      if (cacheOwner && cacheOwner !== uid) {
+        clearAllFurinaLocal();
+        applySettings({
+          bg: furinaDefault,
+          name: "Furina",
+          persona: "",
+          lang: "auto",
+          provider: "voicevox",
+          speed: 1,
+          vvSpeaker: VV_SPEAKERS[0].id,
+          vvTranslate: true,
+          preGen: true,
+          theme: "dark",
+          proactiveEnabled: true,
+          proactiveIdleHours: 6,
+        });
+        setPersona("");
+        setHasCloneSample(false);
+        setCloneSampleName("");
+      }
       const hasCloudData = !!settingsRow || (convosRows && convosRows.length > 0);
-      const hasLocalData = !!localStorage.getItem(STORAGE.convos) || !!localStorage.getItem(STORAGE.name);
+      const hasLocalData =
+        (!cacheOwner || cacheOwner === uid) &&
+        (!!localStorage.getItem(STORAGE.convos) || !!localStorage.getItem(STORAGE.name));
 
       if (!hasCloudData && hasLocalData) {
         const migratedTo = localStorage.getItem(STORAGE.migratedFlag);
         if (migratedTo !== uid) {
           // Auto-migrate guest data → account
-          await migrateMemFn({ data: { fromGuestId: guestId, toUserId: uid } }).catch((e) => console.warn("mem migrate:", e));
-          await pushSettingsTo(uid, buildSettings());
           await pushAllConversationsTo(uid, conversations);
+          await pushSettingsTo(uid, buildSettings());
+          if (cacheOwner !== uid)
+            await migrateMemFn({ data: { fromGuestId: guestId, toUserId: uid } });
+          if (accountRef.current !== uid) return;
+          localStorage.setItem(STORAGE.cacheOwner, uid);
           localStorage.setItem(STORAGE.migratedFlag, uid);
           toast.success("Data guest dipindahkan ke akunmu.");
           cloudHydratedRef.current = true;
@@ -456,11 +807,11 @@ function FurinaApp() {
         if (settingsRow?.data) applySettings(settingsRow.data as SettingsSnapshot);
 
         const byConv: Record<string, Msg[]> = {};
-        for (const r of (msgsRows ?? [])) {
+        for (const r of msgsRows ?? []) {
           const list = byConv[r.conversation_id] ?? (byConv[r.conversation_id] = []);
           list.push({
             id: r.id,
-            role: (r.role as "user" | "assistant"),
+            role: r.role as "user" | "assistant",
             content: r.content,
             at: new Date(r.created_at).getTime(),
             status: (r.status as MsgStatus) ?? "read",
@@ -479,114 +830,145 @@ function FurinaApp() {
         if (!convList.length) convList.push(newConversation());
         setConversations(convList);
         // Preserve last active convo kalau masih ada di list; kalau tidak, pilih terbaru.
-        const savedActive = typeof window !== "undefined" ? localStorage.getItem(STORAGE.activeId) : null;
-        const preserved = savedActive && convList.some((c) => c.id === savedActive) ? savedActive : convList[0].id;
+        const savedActive =
+          typeof window !== "undefined" ? localStorage.getItem(STORAGE.activeId) : null;
+        const preserved =
+          savedActive && convList.some((c) => c.id === savedActive) ? savedActive : convList[0].id;
         setActiveId(preserved);
       } else if (hasLocalData) {
-        // Cloud kosong tapi local punya data → push local ke cloud (bukan reset).
-        // Ini fallback aman kalau flag migrasi sebelumnya sudah diset tapi cloud entah kenapa hilang.
-        try {
-          await pushAllConversationsTo(uid, conversations);
-          await pushSettingsTo(uid, buildSettings());
-          toast.info("Menyimpan ulang data lokal ke akun.");
-        } catch (e) { console.warn("re-sync local→cloud:", e); }
+        await pushAllConversationsTo(uid, conversations);
+        await pushSettingsTo(uid, buildSettings());
+        toast.info("Menyimpan ulang data lokal ke akun.");
       } else {
         // Brand new account, no local data either → fresh start
         const fresh = [newConversation()];
         setConversations(fresh);
         setActiveId(fresh[0].id);
         // Also reset visual / settings to defaults
-        setBg(furinaDefault); setName("Furina"); setPersona(""); setLanguage("auto");
-        setSpeed(1.0); setProvider("voicevox"); setVvSpeaker(VV_SPEAKERS[0].id);
-        setVvTranslate(true); setPreGenAudio(true);
+        setBg(furinaDefault);
+        setName("Furina");
+        setPersona("");
+        setLanguage("auto");
+        setSpeed(1.0);
+        setProvider("voicevox");
+        setVvSpeaker(VV_SPEAKERS[0].id);
+        setVvTranslate(true);
+        setPreGenAudio(true);
       }
-
+      if (accountRef.current === uid) {
+        localStorage.setItem(STORAGE.cacheOwner, uid);
+        cloudHydratedRef.current = true;
+      }
     } catch (e) {
       console.error("pullFromCloud:", e);
-      toast.error("Gagal sinkronisasi data dari akun.");
+      if (accountRef.current !== uid) return;
+      setSyncFailed(true);
+      toast.error("Gagal memuat data akun. Coba sinkronkan kembali.");
     } finally {
-      cloudHydratedRef.current = true;
-      setSyncing(false);
+      if (accountRef.current === uid) setSyncing(false);
     }
   }
 
   async function pushSettingsTo(uid: string, s: SettingsSnapshot) {
-    try {
+    {
       let payload: SettingsSnapshot = s;
       // Defense-in-depth: kalau persona lokal kosong tapi cloud punya isi,
       // jangan overwrite persona di cloud. Merge fields lain seperti biasa.
       if (!s.persona || s.persona.trim().length === 0) {
         const { data: existing } = await supabase
-          .from("user_settings").select("data").eq("user_id", uid).maybeSingle();
+          .from("user_settings")
+          .select("data")
+          .eq("user_id", uid)
+          .maybeSingle();
         const cloudPersona = (existing?.data as SettingsSnapshot | undefined)?.persona;
         if (cloudPersona && cloudPersona.trim().length > 0) {
           payload = { ...s, persona: cloudPersona };
         }
       }
-      await supabase.from("user_settings").upsert({ user_id: uid, data: payload, updated_at: new Date().toISOString() });
-    } catch (e) {
-      console.warn("settings push failed:", e);
+      const { error } = await supabase
+        .from("user_settings")
+        .upsert({ user_id: uid, data: payload, updated_at: new Date().toISOString() });
+      if (error) throw error;
     }
   }
 
   async function pushAllConversationsTo(uid: string, convs: Conversation[]) {
     if (!convs.length) return;
-    try {
+    {
       const convRows = convs.map((c) => ({
-        id: c.id, user_id: uid, character_id: "furina", title: c.title,
+        id: c.id,
+        user_id: uid,
+        character_id: "furina",
+        title: c.title,
         updated_at: new Date(c.updatedAt).toISOString(),
       }));
-      await supabase.from("conversations").upsert(convRows);
-      const msgRows = convs.flatMap((c) => c.messages.map((m) => ({
-        id: m.id, conversation_id: c.id, user_id: uid, role: m.role,
-        content: m.content, status: m.status ?? "sent",
-        created_at: new Date(m.at).toISOString(),
-        audio_url: m.audioUrl ?? null, audio_emotion: m.audioEmotion ?? null,
-        image_url: m.imageDataUrl && m.imageDataUrl.length < 300000 ? m.imageDataUrl : null,
-        sticker_id: m.stickerId ?? null,
-      })));
+      const { error } = await supabase.from("conversations").upsert(convRows);
+      if (error) throw error;
+      const msgRows = convs.flatMap((c) =>
+        c.messages.map((m) => ({
+          id: m.id,
+          conversation_id: c.id,
+          user_id: uid,
+          role: m.role,
+          content: m.content,
+          status: m.status ?? "sent",
+          created_at: new Date(m.at).toISOString(),
+          audio_url: m.audioUrl ?? null,
+          audio_emotion: m.audioEmotion ?? null,
+          image_url: m.imageDataUrl && m.imageDataUrl.length < 300000 ? m.imageDataUrl : null,
+          sticker_id: m.stickerId ?? null,
+        })),
+      );
       // chunk to avoid payload limits
       for (let i = 0; i < msgRows.length; i += 200) {
-        await supabase.from("messages").upsert(msgRows.slice(i, i + 200));
+        const { error: messageError } = await supabase
+          .from("messages")
+          .upsert(msgRows.slice(i, i + 200));
+        if (messageError) throw messageError;
       }
-    } catch (e) {
-      console.warn("conversations push failed:", e);
     }
   }
 
   async function upsertSingleMessage(uid: string, convId: string, m: Msg) {
     try {
-      await supabase.from("messages").upsert({
-        id: m.id, conversation_id: convId, user_id: uid, role: m.role,
-        content: m.content, status: m.status ?? "sent",
+      const { error } = await supabase.from("messages").upsert({
+        id: m.id,
+        conversation_id: convId,
+        user_id: uid,
+        role: m.role,
+        content: m.content,
+        status: m.status ?? "sent",
         created_at: new Date(m.at).toISOString(),
-        audio_url: m.audioUrl ?? null, audio_emotion: m.audioEmotion ?? null,
+        audio_url: m.audioUrl ?? null,
+        audio_emotion: m.audioEmotion ?? null,
         image_url: m.imageDataUrl && m.imageDataUrl.length < 300000 ? m.imageDataUrl : null,
         sticker_id: m.stickerId ?? null,
       });
+      if (error) throw error;
     } catch (e) {
       console.warn("message upsert:", e);
     }
   }
 
-  async function upsertSingleConversation(uid: string, c: Conversation) {
+  async function upsertSingleConversation(uid: string, c: Conversation, required = false) {
     try {
-      await supabase.from("conversations").upsert({
-        id: c.id, user_id: uid, character_id: "furina", title: c.title,
+      const { error } = await supabase.from("conversations").upsert({
+        id: c.id,
+        user_id: uid,
+        character_id: "furina",
+        title: c.title,
         updated_at: new Date(c.updatedAt).toISOString(),
       });
+      if (error) throw error;
     } catch (e) {
+      if (required) throw e;
       console.warn("conv upsert:", e);
     }
   }
 
-  // ===== Auto-persist conversations to localStorage + cloud (debounced) =====
-  // NOTE: Hanya push conversation row untuk convo AKTIF, tidak semua.
-  // Mass-push sebelumnya membuat semua conversations.updated_at jadi sama (bug: waktu riwayat seragam)
-  // dan berpotensi race dengan per-message upsert (bug: pesan terbaru sesekali "hilang").
-  // Message rows tetap ditulis per-bubble via upsertSingleMessage().
+  // Each cloud mutation persists at its entry point. This cache is for reloads.
   useEffect(() => {
-    if (!conversations.length) return;
+    if (!conversations.length || androidLoginPage || syncing || syncFailed) return;
     try {
       const slim = conversations.map((c) => ({
         ...c,
@@ -596,26 +978,19 @@ function FurinaApp() {
       }));
       localStorage.setItem(STORAGE.convos, JSON.stringify(slim));
     } catch {}
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-
-    if (authUser && initialLoadDoneRef.current && cloudHydratedRef.current && activeId) {
-      const active = conversations.find((c) => c.id === activeId);
-      if (!active) return;
-      // Skip blank shells (no messages, default title) — mencegah insert row kosong ke cloud
-      // saat kondisi race antara initial local-load & pullFromCloud.
-      if (active.messages.length === 0 && (active.title === "Percakapan baru" || !active.title)) return;
-      if (conversationsDebounceRef.current) clearTimeout(conversationsDebounceRef.current);
-      conversationsDebounceRef.current = setTimeout(() => {
-        upsertSingleConversation(authUser.id, active).catch(() => {});
-      }, 1200);
-    }
-  }, [conversations, authUser, activeId]);
-
-
+  }, [conversations, androidLoginPage, syncing, syncFailed]);
 
   useEffect(() => {
-    if (activeId) try { localStorage.setItem(STORAGE.activeId, activeId); } catch {}
-  }, [activeId]);
+    const scroll = scrollRef.current;
+    if (scroll) scroll.scrollTop = scroll.scrollHeight;
+  }, [activeId, messages.length, sending]);
+
+  useEffect(() => {
+    if (activeId && !androidLoginPage)
+      try {
+        localStorage.setItem(STORAGE.activeId, activeId);
+      } catch {}
+  }, [activeId, androidLoginPage]);
 
   // ===== Auto-persist settings to cloud (debounced) =====
   useEffect(() => {
@@ -625,8 +1000,15 @@ function FurinaApp() {
     if (!cloudHydratedRef.current) return;
     if (settingsDebounceRef.current) clearTimeout(settingsDebounceRef.current);
     settingsDebounceRef.current = setTimeout(() => {
-      pushSettingsTo(authUser.id, buildSettings()).catch(() => {});
+      if (accountRef.current === authUser.id) {
+        pushSettingsTo(authUser.id, buildSettings()).catch(() =>
+          toast.error("Pengaturan belum tersinkron."),
+        );
+      }
     }, 800);
+    return () => {
+      if (settingsDebounceRef.current) clearTimeout(settingsDebounceRef.current);
+    };
   }, [authUser, buildSettings]);
 
   // Auto-focus dihapus agar keyboard tidak muncul otomatis di mobile
@@ -634,17 +1016,21 @@ function FurinaApp() {
   function toggleTheme() {
     const next: ThemeMode = theme === "dark" ? "light" : "dark";
     setTheme(next);
-    try { localStorage.setItem(STORAGE.theme, next); } catch {}
+    try {
+      localStorage.setItem(STORAGE.theme, next);
+    } catch {}
   }
 
-  const updateActiveMessages = useCallback((updater: (prev: Msg[]) => Msg[]) => {
-    setConversations((convos) =>
-      convos.map((c) => c.id === activeId
-        ? { ...c, messages: updater(c.messages), updatedAt: Date.now() }
-        : c,
-      ),
-    );
-  }, [activeId]);
+  const updateActiveMessages = useCallback(
+    (updater: (prev: Msg[]) => Msg[]) => {
+      setConversations((convos) =>
+        convos.map((c) =>
+          c.id === activeId ? { ...c, messages: updater(c.messages), updatedAt: Date.now() } : c,
+        ),
+      );
+    },
+    [activeId],
+  );
 
   function updateMessageById(msgId: string, patch: Partial<Msg>) {
     updateActiveMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, ...patch } : m)));
@@ -656,26 +1042,39 @@ function FurinaApp() {
     setConversations((prev) => [c, ...prev]);
     setActiveId(c.id);
     setOpenConvos(false);
-    if (authUser) upsertSingleConversation(authUser.id, c);
+    if (authUser && cloudHydratedRef.current) void upsertSingleConversation(authUser.id, c);
     setTimeout(() => inputRef.current?.focus(), 0);
   }
-  function selectConversation(id: string) { stopTTS(); setActiveId(id); setOpenConvos(false); }
+  function selectConversation(id: string) {
+    stopTTS();
+    setActiveId(id);
+    setOpenConvos(false);
+  }
   async function deleteConversation(id: string) {
+    if (sending || syncing || syncFailed || clearingChat) return;
+    if (!confirm("Hapus percakapan ini beserta semua pesannya?")) return;
+    if (authUser) {
+      const { error } = await supabase
+        .from("conversations")
+        .delete()
+        .eq("id", id)
+        .eq("user_id", authUser.id);
+      if (error) {
+        toast.error("Percakapan belum terhapus. Coba lagi.");
+        return;
+      }
+    }
     setConversations((prev) => {
       const filtered = prev.filter((c) => c.id !== id);
       const next = filtered.length ? filtered : [newConversation()];
       if (id === activeId) setActiveId(next[0].id);
       return next;
     });
-    if (authUser) {
-      try {
-        await supabase.from("messages").delete().eq("conversation_id", id).eq("user_id", authUser.id);
-        await supabase.from("conversations").delete().eq("id", id).eq("user_id", authUser.id);
-      } catch (e) { console.warn(e); }
-    }
   }
   function renameConversation(id: string, title: string) {
-    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, title: title.trim() || c.title } : c)));
+    setConversations((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, title: title.trim() || c.title } : c)),
+    );
     if (authUser) {
       const c = conversations.find((x) => x.id === id);
       if (c) upsertSingleConversation(authUser.id, { ...c, title: title.trim() || c.title });
@@ -687,7 +1086,10 @@ function FurinaApp() {
     if (provider !== "voicevox") return;
     if (msg.audioUrl) return;
     if (msg.stickerId) return;
-    const clean = msg.content.replace(/\*[^*]+\*/g, "").replace(/\[stiker:[^\]]*\]/g, "").trim();
+    const clean = msg.content
+      .replace(/\*[^*]+\*/g, "")
+      .replace(/\[stiker:[^\]]*\]/g, "")
+      .trim();
     if (!clean) return;
     try {
       const { mp3Url, emotion } = await ttsVV({
@@ -710,7 +1112,9 @@ function FurinaApp() {
       .join("\n");
     try {
       await summarizeFn({ data: { userId, conversationTitle: conv.title, transcript } });
-      setConversations((prev) => prev.map((c) => c.id === conv.id ? { ...c, lastSummaryCount: total } : c));
+      setConversations((prev) =>
+        prev.map((c) => (c.id === conv.id ? { ...c, lastSummaryCount: total } : c)),
+      );
     } catch (e) {
       console.warn("summarize failed:", e);
     }
@@ -720,42 +1124,60 @@ function FurinaApp() {
   async function sendMessage(text: string, retryMsgId?: string) {
     const trimmed = text.trim();
     if (!trimmed && !pendingImage) return;
-    if (sending) return;
+    if (
+      sendLock.current ||
+      !activeConvo ||
+      !authReady ||
+      !userId ||
+      syncing ||
+      clearingChat ||
+      syncFailed
+    )
+      return;
+    sendLock.current = true;
 
-    const imageDataUrl = pendingImage?.dataUrl;
+    const imageDataUrl = retryMsgId
+      ? messages.find((m) => m.id === retryMsgId)?.imageDataUrl
+      : pendingImage?.dataUrl;
     const messageContent = trimmed || (imageDataUrl ? "(gambar)" : "");
 
+    const userMessageTime = messages.find((m) => m.id === retryMsgId)?.at ?? Date.now();
     let userMsgId: string;
+    const title =
+      activeConvo.title === "Percakapan baru"
+        ? (trimmed || "Gambar baru").slice(0, 40).replace(/\s+/g, " ").trim()
+        : activeConvo.title;
     if (retryMsgId) {
       userMsgId = retryMsgId;
       updateMessageById(retryMsgId, { status: "sending", failedPayload: undefined });
     } else {
       userMsgId = crypto.randomUUID();
       const userMsg: Msg = {
-        id: userMsgId, role: "user",
+        id: userMsgId,
+        role: "user",
         content: messageContent,
-        at: Date.now(), status: "sending",
+        at: userMessageTime,
+        status: "sending",
         imageDataUrl,
       };
       updateActiveMessages((prev) => [...prev, userMsg]);
-      if (activeConvo && (activeConvo.title === "Percakapan baru" || !activeConvo.title)) {
-        const t = (trimmed || "Gambar baru").slice(0, 40).replace(/\s+/g, " ").trim();
-        renameConversation(activeConvo.id, t || "Percakapan baru");
-      }
-      if (authUser && activeConvo) {
-        upsertSingleMessage(authUser.id, activeConvo.id, userMsg);
-        upsertSingleConversation(authUser.id, { ...activeConvo, updatedAt: Date.now() });
+      if (title !== activeConvo.title) {
+        setConversations((prev) => prev.map((c) => (c.id === activeId ? { ...c, title } : c)));
       }
       setInput("");
       setPendingImage(null);
     }
 
     setSending(true);
-    setTimeout(() => updateMessageById(userMsgId, { status: "sent" }), 120);
-    setTimeout(() => updateMessageById(userMsgId, { status: "delivered" }), 380);
-
     try {
-      const currentMsgs = (conversations.find((c) => c.id === activeId)?.messages ?? []);
+      if (authUser)
+        await upsertSingleConversation(
+          authUser.id,
+          { ...activeConvo, title, updatedAt: Date.now() },
+          true,
+        );
+      updateMessageById(userMsgId, { status: "sent" });
+      const currentMsgs = conversations.find((c) => c.id === activeId)?.messages ?? [];
       const ctxMsgs = currentMsgs
         .filter((m) => m.status !== "failed")
         .slice(-12)
@@ -765,7 +1187,9 @@ function FurinaApp() {
       }
 
       const lastAssistant = [...currentMsgs].reverse().find((m) => m.role === "assistant");
-      const millisSinceLastAssistant = lastAssistant ? Math.max(0, Date.now() - lastAssistant.at) : undefined;
+      const millisSinceLastAssistant = lastAssistant
+        ? Math.max(0, Date.now() - lastAssistant.at)
+        : undefined;
 
       const chatResult = await chat({
         data: {
@@ -778,22 +1202,42 @@ function FurinaApp() {
           millisSinceLastAssistant,
           conversationId: activeId,
           clientNow: Date.now(),
-          tz: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return undefined; } })(),
+          tz: (() => {
+            try {
+              return Intl.DateTimeFormat().resolvedOptions().timeZone;
+            } catch {
+              return undefined;
+            }
+          })(),
         },
       });
 
-      const bubbles: string[] = (chatResult as { bubbles?: string[]; reply: string }).bubbles?.length
+      const bubbles: string[] = (chatResult as { bubbles?: string[]; reply: string }).bubbles
+        ?.length
         ? (chatResult as { bubbles: string[] }).bubbles
         : [chatResult.reply];
       const moodOut = (chatResult as { mood?: { score: number; label: string } }).mood;
       if (moodOut) setMood(moodOut);
 
+      if (accountRef.current !== (authUser?.id ?? null)) return;
       updateMessageById(userMsgId, { status: "read" });
-      try { localStorage.setItem(lastActivityKey, String(Date.now())); } catch {}
+      if (authUser) {
+        await upsertSingleMessage(authUser.id, activeId, {
+          id: userMsgId,
+          role: "user",
+          content: messageContent,
+          imageDataUrl,
+          status: "read",
+          at: userMessageTime,
+        });
+      }
+      try {
+        localStorage.setItem(lastActivityKey, String(Date.now()));
+      } catch {}
       proactiveFiredRef.current = true;
 
       // Render bubbles one-by-one with typing delay based on length
-      let lastAiMsg: Msg | null = null;
+      const aiMessages: Msg[] = [];
       for (let i = 0; i < bubbles.length; i++) {
         const text = bubbles[i];
         if (i > 0) {
@@ -802,20 +1246,31 @@ function FurinaApp() {
           await new Promise((r) => setTimeout(r, delayMs));
         }
         const aiMsg: Msg = {
-          id: crypto.randomUUID(), role: "assistant", content: text, at: Date.now(),
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: text,
+          at: Date.now(),
         };
-        lastAiMsg = aiMsg;
+        if (accountRef.current !== (authUser?.id ?? null)) return;
+        aiMessages.push(aiMsg);
         updateActiveMessages((prev) => [...prev, aiMsg]);
         if (authUser && activeConvo) upsertSingleMessage(authUser.id, activeConvo.id, aiMsg);
       }
 
-      // Audio hanya di bubble terakhir
+      const lastAiMsg = aiMessages.at(-1);
       if (lastAiMsg) preGenerateAudio(lastAiMsg);
 
       // Background: maybe summarize
       const updatedConv = conversations.find((c) => c.id === activeId);
-      if (updatedConv && lastAiMsg) maybeSummarize({ ...updatedConv, messages: [...updatedConv.messages, lastAiMsg] });
-
+      if (updatedConv && lastAiMsg)
+        maybeSummarize({
+          ...updatedConv,
+          messages: [
+            ...updatedConv.messages,
+            { id: userMsgId, role: "user", content: messageContent, at: userMessageTime },
+            ...aiMessages,
+          ],
+        });
 
       // Style profile update every 10 user messages
       userMsgCountRef.current += 1;
@@ -836,13 +1291,14 @@ function FurinaApp() {
       toast.error(msg);
       updateMessageById(userMsgId, { status: "failed", failedPayload: trimmed });
     } finally {
+      sendLock.current = false;
       setSending(false);
     }
   }
 
-  function retrySend(m: Msg) { sendMessage(m.failedPayload ?? m.content, m.id); }
-
-
+  function retrySend(m: Msg) {
+    sendMessage(m.failedPayload ?? m.content, m.id);
+  }
 
   // ===== TTS controls =====
   function stopTTS() {
@@ -851,18 +1307,28 @@ function FurinaApp() {
       audioRef.current.currentTime = 0;
       audioRef.current = null;
     }
-    setPlayingId(null); setPaused(false);
+    setPlayingId(null);
+    setPaused(false);
   }
   function pauseTTS() {
-    if (audioRef.current && !audioRef.current.paused) { audioRef.current.pause(); setPaused(true); }
+    if (audioRef.current && !audioRef.current.paused) {
+      audioRef.current.pause();
+      setPaused(true);
+    }
   }
   async function resumeTTS() {
-    if (audioRef.current && audioRef.current.paused) { await audioRef.current.play(); setPaused(false); }
+    if (audioRef.current && audioRef.current.paused) {
+      await audioRef.current.play();
+      setPaused(false);
+    }
   }
 
   async function playTTS(msg: Msg) {
     try {
-      const clean = msg.content.replace(/\*[^*]+\*/g, "").replace(/\[stiker:[^\]]*\]/g, "").trim();
+      const clean = msg.content
+        .replace(/\*[^*]+\*/g, "")
+        .replace(/\[stiker:[^\]]*\]/g, "")
+        .trim();
       if (!clean) return;
       stopTTS();
 
@@ -872,63 +1338,96 @@ function FurinaApp() {
         try {
           if (provider === "voicevox") {
             const { mp3Url, emotion } = await ttsVV({
-              data: { text: clean.slice(0, 1200), speaker: vvSpeaker, speed, translateToJa: vvTranslate },
+              data: {
+                text: clean.slice(0, 1200),
+                speaker: vvSpeaker,
+                speed,
+                translateToJa: vvTranslate,
+              },
             });
             src = mp3Url;
             updateMessageById(msg.id, { audioUrl: mp3Url, audioEmotion: emotion });
           } else {
             const sampleB64 = localStorage.getItem(STORAGE.cloneSample);
             const sampleMime = localStorage.getItem(STORAGE.cloneSampleMime) ?? "audio/wav";
-            if (!sampleB64) throw new Error("Belum ada sampel suara. Upload sampel di Pengaturan dulu.");
+            if (!sampleB64)
+              throw new Error("Belum ada sampel suara. Upload sampel di Pengaturan dulu.");
             const { audio, mime } = await ttsClone({
-              data: { text: clean.slice(0, 600), sampleBase64: sampleB64, sampleMime, language: "ja", translateToJa: vvTranslate },
+              data: {
+                text: clean.slice(0, 600),
+                sampleBase64: sampleB64,
+                sampleMime,
+                language: "ja",
+                translateToJa: vvTranslate,
+              },
             });
             src = `data:${mime};base64,${audio}`;
             updateMessageById(msg.id, { audioUrl: src });
           }
-        } finally { setLoadingId(null); }
+        } finally {
+          setLoadingId(null);
+        }
       }
 
       const a = new Audio(src);
       audioRef.current = a;
-      setPlayingId(msg.id); setPaused(false);
-      a.onended = () => { setPlayingId(null); setPaused(false); audioRef.current = null; };
+      setPlayingId(msg.id);
+      setPaused(false);
+      a.onended = () => {
+        setPlayingId(null);
+        setPaused(false);
+        audioRef.current = null;
+      };
       a.onerror = () => {
-        setPlayingId(null); setPaused(false); audioRef.current = null;
+        setPlayingId(null);
+        setPaused(false);
+        audioRef.current = null;
         toast.error("Audio gagal dimuat. URL kedaluwarsa — coba putar ulang.");
         updateMessageById(msg.id, { audioUrl: undefined });
       };
       await a.play();
     } catch (e) {
-      setLoadingId(null); setPlayingId(null); setPaused(false);
+      setLoadingId(null);
+      setPlayingId(null);
+      setPaused(false);
       toast.error(e instanceof Error ? e.message : "Voice failed");
     }
   }
 
   // ===== Misc =====
-  function handleBgUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleBgUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const url = String(reader.result);
+    if (!file.type.startsWith("image/") || file.size > 16 * 1024 * 1024) {
+      toast.error("Pilih gambar hingga 16 MB.");
+      return;
+    }
+    try {
+      const url = await compressImage(file, 1600, 0.85);
+      localStorage.setItem(STORAGE.bg, url);
       setBg(url);
-      try { localStorage.setItem(STORAGE.bg, url); } catch { toast.error("Gambar terlalu besar untuk disimpan."); }
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      toast.error("Latar tidak dapat disimpan.");
+    }
   }
 
   async function refreshMemories() {
     try {
       const { memories } = await listMemFn({ data: { userId } });
       setMemories(memories);
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Gagal memuat memori"); }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Gagal memuat memori");
+    }
   }
 
   function handleSampleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { toast.error("Sampel terlalu besar. Maks 5MB."); return; }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Sampel terlalu besar. Maks 5MB.");
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       const data = String(reader.result);
@@ -938,9 +1437,12 @@ function FurinaApp() {
         localStorage.setItem(STORAGE.cloneSample, b64);
         localStorage.setItem(STORAGE.cloneSampleMime, file.type || "audio/wav");
         localStorage.setItem(STORAGE.cloneSampleName, file.name);
-        setCloneSampleName(file.name); setHasCloneSample(true);
+        setCloneSampleName(file.name);
+        setHasCloneSample(true);
         toast.success(`Sampel "${file.name}" tersimpan.`);
-      } catch { toast.error("Gagal menyimpan sampel."); }
+      } catch {
+        toast.error("Gagal menyimpan sampel.");
+      }
     };
     reader.readAsDataURL(file);
   }
@@ -948,14 +1450,21 @@ function FurinaApp() {
     localStorage.removeItem(STORAGE.cloneSample);
     localStorage.removeItem(STORAGE.cloneSampleMime);
     localStorage.removeItem(STORAGE.cloneSampleName);
-    setHasCloneSample(false); setCloneSampleName("");
+    setHasCloneSample(false);
+    setCloneSampleName("");
   }
 
   async function handleImagePick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith("image/")) { toast.error("File harus berupa gambar."); return; }
-    if (file.size > 8 * 1024 * 1024) { toast.error("Gambar terlalu besar. Maks 8MB."); return; }
+    if (!file.type.startsWith("image/")) {
+      toast.error("File harus berupa gambar.");
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error("Gambar terlalu besar. Maks 8MB.");
+      return;
+    }
     try {
       const dataUrl = await compressImage(file, 1280, 0.85);
       setPendingImage({ dataUrl, name: file.name });
@@ -968,22 +1477,51 @@ function FurinaApp() {
 
   async function loginGoogle() {
     try {
-      const result = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin });
+      if (/FurinaWebView\//.test(navigator.userAgent)) {
+        openAndroidLogin();
+        return;
+      }
+      const redirect = androidLoginPage ? androidOAuthRedirect() : window.location.origin;
+      const result = await lovable.auth.signInWithOAuth("google", { redirect_uri: redirect });
       if (result.error) toast.error("Login gagal: " + (result.error.message ?? "unknown"));
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Login gagal"); }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Login gagal");
+    }
   }
 
   async function logout() {
-    await supabase.auth.signOut();
+    if (sending || syncing) return;
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      toast.error("Gagal keluar dari akun.");
+      return;
+    }
+    stopTTS();
+    cloudHydratedRef.current = false;
     // Wipe ALL furina:* keys from this browser → guest comes back blank
     clearAllFurinaLocal();
     // Reset state to defaults
     setAuthUser(null);
-    setBg(furinaDefault); setName("Furina"); setPersona(""); setLanguage("auto");
-    setSpeed(1.0); setProvider("voicevox"); setVvSpeaker(VV_SPEAKERS[0].id);
-    setVvTranslate(true); setPreGenAudio(true); setTheme("dark");
-    setHasCloneSample(false); setCloneSampleName("");
+    setBg(furinaDefault);
+    setName("Furina");
+    setPersona("");
+    setLanguage("auto");
+    setSpeed(1.0);
+    setProvider("voicevox");
+    setVvSpeaker(VV_SPEAKERS[0].id);
+    setVvTranslate(true);
+    setPreGenAudio(true);
+    setTheme("dark");
+    setHasCloneSample(false);
+    setCloneSampleName("");
+    setProactiveEnabled(true);
+    setProactiveIdleHours(6);
+    setSyncFailed(false);
+    setInput("");
+    setPendingImage(null);
     setMemories([]);
+    setMood({ score: 0, label: "adem" });
+    proactiveFiredRef.current = false;
     const fresh = [newConversation()];
     setConversations(fresh);
     setActiveId(fresh[0].id);
@@ -991,57 +1529,113 @@ function FurinaApp() {
     toast.success("Sudah logout. Mode guest mulai bersih.");
   }
 
-  function savePref(key: string, value: string) { try { localStorage.setItem(key, value); } catch {} }
-  function clearChat() { updateActiveMessages(() => []); }
+  function savePref(key: string, value: string) {
+    try {
+      localStorage.setItem(key, value);
+    } catch {}
+  }
+  async function clearChat() {
+    if (sending || syncing || syncFailed || clearingChat || !activeId || !messages.length) return;
+    if (!confirm("Hapus semua pesan di percakapan ini?")) return;
+    setClearingChat(true);
+    stopTTS();
+    try {
+      if (authUser) {
+        const { error } = await supabase
+          .from("messages")
+          .delete()
+          .eq("user_id", authUser.id)
+          .eq("conversation_id", activeId);
+        if (error) throw error;
+      }
+      updateActiveMessages(() => []);
+      toast.success("Percakapan dibersihkan.");
+    } catch {
+      toast.error("Pesan belum terhapus. Coba lagi.");
+    } finally {
+      setClearingChat(false);
+    }
+  }
+
+  if (androidLoginPage) {
+    return (
+      <main className="android-auth-page">
+        <div className="glass-surface android-auth-card">
+          <img src="/icon-192.png" width={56} height={56} alt="" />
+          <h1>Masuk ke Furina</h1>
+          {androidLoginError ? (
+            <p role="alert">{androidLoginError}</p>
+          ) : androidReturn ? (
+            <>
+              <p>{authUser?.email}</p>
+              <Button asChild>
+                <a href={androidReturn}>Kembali ke Furina</a>
+              </Button>
+            </>
+          ) : (
+            <Button onClick={loginGoogle} disabled={!authReady}>
+              <LogIn aria-hidden="true" /> Masuk dengan Google
+            </Button>
+          )}
+        </div>
+        <Toaster theme={theme} position="bottom-center" closeButton />
+      </main>
+    );
+  }
 
   return (
-    <div className="relative h-[100dvh] w-full overflow-hidden bg-background text-foreground">
-      <img src={bg} alt={`${name} background`} className="absolute inset-0 h-full w-full object-cover" draggable={false} />
-      <div className={`pointer-events-none absolute inset-0 ${
-        theme === "dark"
-          ? "bg-gradient-to-b from-black/40 via-black/10 to-black/70"
-          : "bg-gradient-to-b from-white/30 via-white/10 to-white/60"
-      }`} />
-
-      {/* Top bar */}
-      <header className="absolute left-0 right-0 top-0 z-20 flex items-center justify-between p-3 sm:p-4">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="glass-chip rounded-full px-3 py-1.5 text-sm font-medium max-w-[55vw] truncate flex items-center gap-2">
-            <span className={`h-2 w-2 rounded-full ${syncing ? "bg-amber-400 animate-pulse" : "bg-emerald-400"} shadow-[0_0_8px_rgba(52,211,153,0.8)]`} />
-            <span className="truncate">{name}</span>
-            <span
-              title={`Mood: ${mood.label} (${mood.score})`}
-              className={`h-1.5 w-1.5 rounded-full ${
-                mood.score >= 60 ? "bg-pink-400" :
-                mood.score >= 25 ? "bg-yellow-300" :
-                mood.score > -20 ? "bg-sky-300" :
-                mood.score > -55 ? "bg-orange-400" : "bg-red-400"
-              }`}
-            />
-            {activeConvo && <span className="text-xs opacity-60 truncate">· {activeConvo.title}</span>}
+    <div className="furina-shell relative w-full overflow-hidden bg-background text-foreground">
+      <img src={bg} alt="" fetchPriority="high" className="furina-backdrop" draggable={false} />
+      <div className="furina-scrim" />
+      <header className="furina-header glass-surface">
+        <div className="furina-identity" aria-label={`Mood ${name}: ${mood.label}`}>
+          <img src="/icon-192.png" alt="" width={36} height={36} />
+          <div className="min-w-0">
+            <h1 className="truncate">{name || "Furina"}</h1>
+            <p className="truncate">
+              {syncing ? "Menyinkronkan…" : (activeConvo?.title ?? "Pendamping AI")}
+            </p>
           </div>
         </div>
-        <div className="flex items-center gap-1.5">
-          <Button size="icon" variant="ghost" onClick={toggleTheme}
-            className="glass-chip rounded-full h-9 w-9" aria-label="Ganti tema">
+        <div className="furina-toolbar">
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={toggleTheme}
+            className="furina-toolbar-button"
+            aria-label="Ganti tema"
+          >
             {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </Button>
 
-          <Button size="icon" variant="ghost" onClick={startNewConversation}
-            className="glass-chip rounded-full h-9 w-9" aria-label="Percakapan baru" title="Percakapan baru">
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={startNewConversation}
+            className="furina-toolbar-button"
+            aria-label="Percakapan baru"
+            title="Percakapan baru"
+          >
             <MessageSquarePlus className="h-4 w-4" />
           </Button>
 
           <Sheet open={openConvos} onOpenChange={setOpenConvos}>
             <SheetTrigger asChild>
-              <Button size="icon" variant="ghost" className="glass-chip rounded-full h-9 w-9" aria-label="Riwayat percakapan">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="furina-toolbar-button"
+                aria-label="Riwayat percakapan"
+              >
                 <MessagesSquare className="h-4 w-4" />
               </Button>
             </SheetTrigger>
-            <SheetContent side="left" className="w-full overflow-y-auto sm:max-w-sm">
+            <SheetContent side="left" className="history-sheet w-full overflow-y-auto sm:max-w-sm">
               <SheetHeader>
                 <SheetTitle>Riwayat Percakapan</SheetTitle>
-                <SheetDescription>{authUser ? "Tersinkron ke akunmu." : "Mode guest — login untuk simpan ke cloud."}</SheetDescription>
+                <SheetDescription>
+                  {authUser ? "Tersinkron ke akunmu." : "Mode guest — login untuk simpan ke cloud."}
+                </SheetDescription>
               </SheetHeader>
               <div className="mt-4 space-y-2">
                 <Button onClick={startNewConversation} className="w-full">
@@ -1050,7 +1644,8 @@ function FurinaApp() {
                 <div className="mt-3 space-y-3">
                   {(() => {
                     const now = Date.now();
-                    const startOfDay = new Date(); startOfDay.setHours(0,0,0,0);
+                    const startOfDay = new Date();
+                    startOfDay.setHours(0, 0, 0, 0);
                     const todayStart = startOfDay.getTime();
                     const yesterdayStart = todayStart - 86400000;
                     const weekStart = todayStart - 6 * 86400000;
@@ -1070,596 +1665,1056 @@ function FurinaApp() {
                       else if (c.updatedAt >= monthStart) buckets[3].items.push(c);
                       else buckets[4].items.push(c);
                     }
-                    return buckets.filter((b) => b.items.length).map((bucket) => (
-                      <div key={bucket.label}>
-                        <div className="mb-1 px-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                          {bucket.label}
+                    return buckets
+                      .filter((b) => b.items.length)
+                      .map((bucket) => (
+                        <div key={bucket.label}>
+                          <div className="mb-1 px-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                            {bucket.label}
+                          </div>
+                          <div className="space-y-1">
+                            {bucket.items.map((c) => {
+                              const isActive = c.id === activeId;
+                              const preview =
+                                c.messages[c.messages.length - 1]?.content?.slice(0, 60) ??
+                                "Belum ada pesan";
+                              return (
+                                <div
+                                  key={c.id}
+                                  className={`group rounded-lg border p-2 transition ${isActive ? "border-primary bg-accent" : "hover:bg-muted"}`}
+                                >
+                                  {editingTitleId === c.id ? (
+                                    <div className="flex items-center gap-1">
+                                      <Input
+                                        autoFocus
+                                        value={editingTitleVal}
+                                        onChange={(e) => setEditingTitleVal(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") {
+                                            renameConversation(c.id, editingTitleVal);
+                                            setEditingTitleId(null);
+                                          }
+                                          if (e.key === "Escape") setEditingTitleId(null);
+                                        }}
+                                        className="h-7 text-sm"
+                                      />
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-7 w-7"
+                                        onClick={() => {
+                                          renameConversation(c.id, editingTitleVal);
+                                          setEditingTitleId(null);
+                                        }}
+                                      >
+                                        <Check className="h-4 w-4" />
+                                      </Button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => selectConversation(c.id)}
+                                      className="flex w-full flex-col text-left"
+                                    >
+                                      <span className="truncate text-sm font-medium">
+                                        {c.title}
+                                      </span>
+                                      <span className="truncate text-xs text-muted-foreground">
+                                        {preview}
+                                      </span>
+                                      <span className="text-[10px] text-muted-foreground">
+                                        {relTime(c.updatedAt, now)}
+                                      </span>
+                                    </button>
+                                  )}
+                                  {editingTitleId !== c.id && (
+                                    <div className="mt-1 flex items-center gap-1">
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-10 w-10"
+                                        aria-label="Ubah judul"
+                                        onClick={() => {
+                                          setEditingTitleId(c.id);
+                                          setEditingTitleVal(c.title);
+                                        }}
+                                      >
+                                        <Pencil className="h-3 w-3" />
+                                      </Button>
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-10 w-10 text-destructive"
+                                        aria-label="Hapus percakapan"
+                                        onClick={() => {
+                                          if (confirm("Hapus percakapan ini?"))
+                                            deleteConversation(c.id);
+                                        }}
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                      </Button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
-                        <div className="space-y-1">
-                          {bucket.items.map((c) => {
-                            const isActive = c.id === activeId;
-                            const preview = c.messages[c.messages.length - 1]?.content?.slice(0, 60) ?? "Belum ada pesan";
-                            return (
-                              <div key={c.id}
-                                className={`group rounded-lg border p-2 transition ${isActive ? "border-primary bg-accent" : "hover:bg-muted"}`}>
-                                {editingTitleId === c.id ? (
-                                  <div className="flex items-center gap-1">
-                                    <Input autoFocus value={editingTitleVal}
-                                      onChange={(e) => setEditingTitleVal(e.target.value)}
-                                      onKeyDown={(e) => {
-                                        if (e.key === "Enter") { renameConversation(c.id, editingTitleVal); setEditingTitleId(null); }
-                                        if (e.key === "Escape") setEditingTitleId(null);
-                                      }}
-                                      className="h-7 text-sm" />
-                                    <Button size="icon" variant="ghost" className="h-7 w-7"
-                                      onClick={() => { renameConversation(c.id, editingTitleVal); setEditingTitleId(null); }}>
-                                      <Check className="h-4 w-4" />
-                                    </Button>
-                                  </div>
-                                ) : (
-                                  <button onClick={() => selectConversation(c.id)} className="flex w-full flex-col text-left">
-                                    <span className="truncate text-sm font-medium">{c.title}</span>
-                                    <span className="truncate text-xs text-muted-foreground">{preview}</span>
-                                    <span className="text-[10px] text-muted-foreground">{relTime(c.updatedAt, now)}</span>
-                                  </button>
-                                )}
-                                {editingTitleId !== c.id && (
-                                  <div className="mt-1 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
-                                    <Button size="icon" variant="ghost" className="h-6 w-6"
-                                      onClick={() => { setEditingTitleId(c.id); setEditingTitleVal(c.title); }}>
-                                      <Pencil className="h-3 w-3" />
-                                    </Button>
-                                    <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive"
-                                      onClick={() => { if (confirm("Hapus percakapan ini?")) deleteConversation(c.id); }}>
-                                      <Trash2 className="h-3 w-3" />
-                                    </Button>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ));
+                      ));
                   })()}
                 </div>
-
               </div>
             </SheetContent>
           </Sheet>
 
-          <Sheet open={openSettings} onOpenChange={(o) => { setOpenSettings(o); if (o) refreshMemories(); }}>
+          <Sheet
+            open={openSettings}
+            onOpenChange={(o) => {
+              setOpenSettings(o);
+              if (!o) setSettingsSection(null);
+            }}
+          >
             <SheetTrigger asChild>
-              <Button size="icon" variant="ghost" className="glass-chip rounded-full h-9 w-9" aria-label="Pengaturan">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="furina-toolbar-button"
+                aria-label="Pengaturan"
+              >
                 <Settings className="h-4 w-4" />
               </Button>
             </SheetTrigger>
 
-            <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-md">
-              <SheetHeader>
-                <SheetTitle>Pengaturan</SheetTitle>
-                <SheetDescription>Personalisasi karakter, suara, akun, dan memori.</SheetDescription>
+            <SheetContent
+              side="right"
+              className="settings-sheet w-full p-0 sm:max-w-[29rem]"
+              onEscapeKeyDown={(event) => {
+                if (settingsSection) {
+                  event.preventDefault();
+                  setSettingsSection(null);
+                }
+              }}
+            >
+              <SheetHeader className="settings-heading space-y-0 text-left">
+                {selectedSection && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => setSettingsSection(null)}
+                    aria-label="Kembali ke pengaturan"
+                  >
+                    <ChevronLeft aria-hidden="true" />
+                  </Button>
+                )}
+                <SheetTitle ref={settingsHeading} tabIndex={-1}>
+                  {selectedSection?.label ?? "Pengaturan"}
+                </SheetTitle>
+                <SheetDescription className="sr-only">
+                  {selectedSection?.description ?? "Pengaturan Furina Companion"}
+                </SheetDescription>
               </SheetHeader>
 
-              <Tabs defaultValue="persona" className="mt-4 w-full">
-                <TabsList className="grid w-full grid-cols-5 h-9">
-                  <TabsTrigger value="persona" className="text-[11px] px-1">Persona</TabsTrigger>
-                  <TabsTrigger value="memori" className="text-[11px] px-1">Memori</TabsTrigger>
-                  <TabsTrigger value="suara" className="text-[11px] px-1">Suara</TabsTrigger>
-                  <TabsTrigger value="proaktif" className="text-[11px] px-1">Proaktif</TabsTrigger>
-                  <TabsTrigger value="akun" className="text-[11px] px-1">Akun</TabsTrigger>
-                </TabsList>
+              <div ref={settingsScroll} className="settings-scroll">
+                {!selectedSection && (
+                  <>
+                    <div className="settings-profile">
+                      <img src="/icon-192.png" alt="" width={52} height={52} />
+                      <div className="min-w-0">
+                        <h3 className="truncate">{name}</h3>
+                        <p className="truncate">
+                          {authUser?.email ?? (authUser ? "Akun Furina" : "Mode tamu")}
+                        </p>
+                      </div>
+                    </div>
+                    <div ref={settingsList} className="settings-list">
+                      {settingsSections.map(({ id, label, description, icon: Icon }) => (
+                        <button
+                          key={id}
+                          type="button"
+                          className="settings-link"
+                          data-section={id}
+                          onClick={() => {
+                            setSettingsSection(id);
+                            if (id === "memori") void refreshMemories();
+                          }}
+                        >
+                          <span className="settings-link-icon">
+                            <Icon size={19} aria-hidden="true" />
+                          </span>
+                          <span>
+                            <strong>{label}</strong>
+                            <small>{description}</small>
+                          </span>
+                          <ChevronRight size={17} className="settings-chevron" aria-hidden="true" />
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
 
                 {/* PERSONA TAB */}
-                <TabsContent value="persona" className="mt-4 space-y-4">
-                  <section className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-xs font-semibold uppercase tracking-wider">Mood saat ini</Label>
-                      <span className="inline-flex items-center gap-1.5 text-xs">
-                        <span className={`h-2 w-2 rounded-full ${
-                          mood.score >= 60 ? "bg-pink-400" :
-                          mood.score >= 25 ? "bg-yellow-300" :
-                          mood.score > -20 ? "bg-sky-300" :
-                          mood.score > -55 ? "bg-orange-400" : "bg-red-400"
-                        }`} />
-                        <span className="font-medium capitalize">{mood.label}</span>
-                        <span className="tabular-nums text-muted-foreground">({mood.score > 0 ? "+" : ""}{mood.score})</span>
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-muted-foreground leading-relaxed">
-                      Berubah otomatis dari cara kamu ngobrol. Manis → naik, kasar/cuek → turun, netral → luruh sendiri.
-                    </p>
-                  </section>
+                {settingsSection === "persona" && (
+                  <div className="settings-detail">
+                    <section className="settings-group space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Label className="text-xs font-semibold uppercase tracking-wider">
+                          Mood saat ini
+                        </Label>
+                        <span className="inline-flex items-center gap-1.5 text-xs">
+                          <span
+                            className={`h-2 w-2 rounded-full ${
+                              mood.score >= 60
+                                ? "bg-pink-400"
+                                : mood.score >= 25
+                                  ? "bg-yellow-300"
+                                  : mood.score > -20
+                                    ? "bg-sky-300"
+                                    : mood.score > -55
+                                      ? "bg-orange-400"
+                                      : "bg-red-400"
+                            }`}
+                          />
+                          <span className="font-medium capitalize">{mood.label}</span>
+                          <span className="tabular-nums text-muted-foreground">
+                            ({mood.score > 0 ? "+" : ""}
+                            {mood.score})
+                          </span>
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Berubah otomatis dari cara kamu ngobrol. Manis → naik, kasar/cuek → turun,
+                        netral → luruh sendiri.
+                      </p>
+                    </section>
 
-                  <section className="space-y-2">
-                    <Label>Nama karakter</Label>
-                    <Input value={name} onChange={(e) => { setName(e.target.value); savePref(STORAGE.name, e.target.value); }} />
-                  </section>
+                    <section className="space-y-2">
+                      <Label htmlFor="furina-name">Nama karakter</Label>
+                      <Input
+                        id="furina-name"
+                        maxLength={48}
+                        value={name}
+                        onChange={(e) => {
+                          setName(e.target.value);
+                          savePref(STORAGE.name, e.target.value);
+                        }}
+                      />
+                    </section>
 
-                  <section className="space-y-2">
-                    <Label>Kepribadian / system prompt (opsional)</Label>
-                    <Textarea rows={6} placeholder="Kosongkan untuk kepribadian Furina default…"
-                      value={persona}
-                      onChange={(e) => { setPersona(e.target.value); savePref(STORAGE.persona, e.target.value); }} />
-                    <p className="text-[10px] text-muted-foreground">Kalau kosong, Furina pakai kepribadian default (dramatis, tsundere halus, ekspresif terkendali).</p>
-                  </section>
+                    <section className="space-y-2">
+                      <Label htmlFor="furina-persona">Kepribadian</Label>
+                      <Textarea
+                        id="furina-persona"
+                        rows={4}
+                        placeholder="Kosongkan untuk kepribadian Furina default…"
+                        value={persona}
+                        onChange={(e) => {
+                          setPersona(e.target.value);
+                          savePref(STORAGE.persona, e.target.value);
+                        }}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Kalau kosong, Furina pakai kepribadian default (dramatis, tsundere halus,
+                        ekspresif terkendali).
+                      </p>
+                    </section>
 
-                  <section className="space-y-2">
-                    <Label>Bahasa balasan</Label>
-                    <Select value={language} onValueChange={(v) => { setLanguage(v as typeof language); savePref(STORAGE.lang, v); }}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="auto">Auto (mengikuti kamu)</SelectItem>
-                        <SelectItem value="ja">日本語</SelectItem>
-                        <SelectItem value="en">English</SelectItem>
-                        <SelectItem value="id">Indonesia</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </section>
-
-                  <Separator />
-
-                  <section className="space-y-2">
-                    <Label className="flex items-center gap-2"><ImageIcon className="h-4 w-4" /> Background karakter</Label>
-                    <input type="file" accept="image/*" onChange={handleBgUpload} className="block w-full text-sm" />
-                    <Button variant="outline" size="sm" onClick={() => { setBg(furinaDefault); localStorage.removeItem(STORAGE.bg); }}>
-                      <RotateCcw className="mr-2 h-4 w-4" /> Kembalikan Furina default
-                    </Button>
-                  </section>
-
-                  <section className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                    <Label className="text-xs font-semibold uppercase tracking-wider">Tema</Label>
-                    <Button size="sm" variant="outline" onClick={toggleTheme} className="w-full">
-                      {theme === "dark" ? <><Sun className="mr-2 h-4 w-4" />Ganti ke Terang</> : <><Moon className="mr-2 h-4 w-4" />Ganti ke Gelap</>}
-                    </Button>
-                  </section>
-                </TabsContent>
-
-                {/* MEMORI TAB */}
-                <TabsContent value="memori" className="mt-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label>Memori (lintas-percakapan)</Label>
-                    <div className="flex gap-1">
-                      <Button variant="ghost" size="sm" onClick={async () => {
-                        toast.info("Meringkas memori lama…");
-                        try {
-                          const r = await compactMemFn({ data: { userId, threshold: 20, batch: 15, force: true } }) as { ok: boolean; reason?: string; compacted?: number };
-                          if (r.ok) { toast.success(`${r.compacted} memori diringkas.`); refreshMemories(); }
-                          else toast.info(r.reason === "below-threshold" ? "Belum banyak memori untuk diringkas." : "Tidak ada yang diringkas.");
-                        } catch (e) { toast.error(e instanceof Error ? e.message : "Gagal"); }
-                      }}>Ringkas</Button>
-                      <Button variant="ghost" size="sm" onClick={async () => {
-                        if (!confirm("Hapus semua memori?")) return;
-                        await clearMemFn({ data: { userId } });
-                        refreshMemories();
-                        toast.success("Memori dibersihkan");
-                      }}>Hapus semua</Button>
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    Fakta tentang kamu (otomatis dipelajari) + ringkasan percakapan lama. Memori lama otomatis diringkas biar hemat.
-                  </p>
-                  <div className="flex gap-2">
-                    <Input placeholder="Tambah fakta tentang dirimu…" value={newMem} onChange={(e) => setNewMem(e.target.value)} />
-                    <Button size="icon" onClick={async () => {
-                      if (newMem.trim().length < 3) return;
-                      try {
-                        await addMemFn({ data: { content: newMem.trim(), userId } });
-                        setNewMem(""); refreshMemories();
-                      } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
-                    }}><Plus className="h-4 w-4" /></Button>
-                  </div>
-
-                  <div className="flex flex-wrap gap-1">
-                    {[
-                      { id: "all", label: "Semua" },
-                      { id: "fact", label: "Fakta" },
-                      { id: "episodic", label: "Kejadian" },
-                      { id: "preference", label: "Preferensi" },
-                      { id: "relation", label: "Relasi" },
-                      { id: "style", label: "Gaya" },
-                      { id: "summary", label: "Ringkasan" },
-                    ].map((f) => (
-                      <button
-                        key={f.id}
-                        onClick={() => setMemFilter(f.id)}
-                        className={`rounded-full border px-2 py-0.5 text-[10px] transition ${
-                          memFilter === f.id ? "border-primary bg-primary/15 text-primary" : "border-border text-muted-foreground hover:bg-muted"
-                        }`}
+                    <section className="space-y-2">
+                      <Label htmlFor="furina-language">Bahasa balasan</Label>
+                      <Select
+                        value={language}
+                        onValueChange={(v) => {
+                          setLanguage(v as typeof language);
+                          savePref(STORAGE.lang, v);
+                        }}
                       >
-                        {f.label}
-                      </button>
-                    ))}
-                  </div>
-                  <Input placeholder="Cari memori…" value={memSearch} onChange={(e) => setMemSearch(e.target.value)} className="h-8 text-xs" />
-
-                  <div className="max-h-[50vh] space-y-1 overflow-y-auto rounded-md border p-2 text-sm">
-                    {(() => {
-                      const q = memSearch.trim().toLowerCase();
-                      const filtered = memories.filter((m) => {
-                        if (memFilter !== "all" && (m.kind ?? "fact") !== memFilter) return false;
-                        if (q && !m.content.toLowerCase().includes(q)) return false;
-                        return true;
-                      });
-                      if (filtered.length === 0) return <p className="text-muted-foreground">Tidak ada memori cocok.</p>;
-                      const kindColor: Record<string, string> = {
-                        fact: "bg-muted",
-                        episodic: "bg-blue-500/20 text-blue-600 dark:text-blue-300",
-                        preference: "bg-emerald-500/20 text-emerald-600 dark:text-emerald-300",
-                        relation: "bg-purple-500/20 text-purple-600 dark:text-purple-300",
-                        style: "bg-accent/40",
-                        summary: "bg-primary/20",
-                        meta_summary: "bg-primary/20",
-                      };
-                      return filtered.map((m) => {
-                        const isEditing = editingMemId === m.id;
-                        const kind = m.kind ?? "fact";
-                        return (
-                          <div key={m.id} className="rounded p-1.5 hover:bg-muted/60">
-                            {isEditing ? (
-                              <div className="space-y-2">
-                                <Textarea
-                                  value={editingMemContent}
-                                  onChange={(e) => setEditingMemContent(e.target.value)}
-                                  rows={3}
-                                  className="text-sm"
-                                />
-                                <div className="flex items-center gap-2">
-                                  <Label className="text-[10px] text-muted-foreground">Penting</Label>
-                                  <Slider
-                                    value={[editingMemImportance]}
-                                    min={1} max={10} step={1}
-                                    onValueChange={(v) => setEditingMemImportance(v[0] ?? 5)}
-                                    className="flex-1"
-                                  />
-                                  <span className="w-6 text-right text-[11px] font-medium">{editingMemImportance}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <Label className="text-[10px] text-muted-foreground">Tanggal</Label>
-                                  <Input
-                                    type="date"
-                                    value={editingMemOccurred}
-                                    onChange={(e) => setEditingMemOccurred(e.target.value)}
-                                    className="h-7 flex-1 text-xs"
-                                  />
-                                  {editingMemOccurred && (
-                                    <button onClick={() => setEditingMemOccurred("")} className="text-[10px] text-muted-foreground hover:text-destructive">×</button>
-                                  )}
-                                </div>
-                                <div className="flex justify-end gap-2">
-                                  <Button size="sm" variant="ghost" onClick={() => setEditingMemId(null)}>Batal</Button>
-                                  <Button size="sm" onClick={async () => {
-                                    if (editingMemContent.trim().length < 3) return;
-                                    try {
-                                      await updateMemFn({ data: {
-                                        id: m.id, userId,
-                                        content: editingMemContent.trim(),
-                                        importance: editingMemImportance,
-                                        occurred_at: editingMemOccurred || null,
-                                      }});
-                                      setEditingMemId(null);
-                                      refreshMemories();
-                                      toast.success("Memori diperbarui");
-                                    } catch (e) { toast.error(e instanceof Error ? e.message : "Gagal simpan"); }
-                                  }}>Simpan</Button>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="flex items-start gap-2">
-                                <span className={`mt-0.5 shrink-0 rounded px-1 text-[9px] font-semibold uppercase ${kindColor[kind] ?? "bg-muted"}`}>
-                                  {kind}
-                                </span>
-                                <div className="flex-1 min-w-0">
-                                  <p className="break-words">{m.content}</p>
-                                  {(m.occurred_at || m.emotion) && (
-                                    <p className="mt-0.5 text-[10px] text-muted-foreground">
-                                      {m.occurred_at && <>📅 {new Date(m.occurred_at).toLocaleDateString("id-ID")}</>}
-                                      {m.occurred_at && m.emotion && " · "}
-                                      {m.emotion && <>💭 {m.emotion}</>}
-                                    </p>
-                                  )}
-                                </div>
-                                <span className="mt-0.5 rounded bg-muted px-1 text-[9px] text-muted-foreground" title="Importance">
-                                  {m.importance ?? 5}
-                                </span>
-                                <button
-                                  onClick={() => {
-                                    setEditingMemId(m.id);
-                                    setEditingMemContent(m.content);
-                                    setEditingMemImportance(m.importance ?? 5);
-                                    setEditingMemOccurred(m.occurred_at ? m.occurred_at.slice(0, 10) : "");
-                                  }}
-                                  className="text-muted-foreground hover:text-primary"
-                                  title="Edit"
-                                >
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </button>
-                                <button
-                                  onClick={async () => { await delMemFn({ data: { id: m.id, userId } }); refreshMemories(); }}
-                                  className="text-muted-foreground hover:text-destructive"
-                                  title="Hapus"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      });
-                    })()}
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">{memories.length} memori tersimpan.</p>
-                </TabsContent>
-
-                {/* SUARA TAB */}
-                <TabsContent value="suara" className="mt-4 space-y-3">
-                  <Label>Mesin suara (TTS)</Label>
-                  <Select value={provider} onValueChange={(v) => { setProvider(v as TTSProvider); savePref(STORAGE.provider, v); }}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="voicevox">VOICEVOX — anime Jepang (gratis, stabil)</SelectItem>
-                      <SelectItem value="clone">Voice Clone — suara karakter custom (XTTS Space)</SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  {provider === "voicevox" ? (
-                    <div className="space-y-2">
-                      <Label className="text-xs text-muted-foreground">Karakter VOICEVOX</Label>
-                      <Select value={String(vvSpeaker)}
-                        onValueChange={(v) => { setVvSpeaker(parseInt(v, 10)); savePref(STORAGE.vvSpeaker, v); }}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectTrigger id="furina-language">
+                          <SelectValue />
+                        </SelectTrigger>
                         <SelectContent>
-                          {VV_SPEAKERS.map((s) => <SelectItem key={s.id} value={String(s.id)}>{s.label}</SelectItem>)}
+                          <SelectItem value="auto">Auto (mengikuti kamu)</SelectItem>
+                          <SelectItem value="ja">日本語</SelectItem>
+                          <SelectItem value="en">English</SelectItem>
+                          <SelectItem value="id">Indonesia</SelectItem>
                         </SelectContent>
                       </Select>
-                      <div className="flex items-center justify-between pt-1">
-                        <Label className="text-xs">Auto-terjemah ke Jepang</Label>
-                        <Switch checked={vvTranslate}
-                          onCheckedChange={(c) => { setVvTranslate(c); savePref(STORAGE.vvTranslate, c ? "1" : "0"); }} />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <Label className="text-xs">Pre-generate audio (instant play)</Label>
-                        <Switch checked={preGenAudio}
-                          onCheckedChange={(c) => { setPreGenAudio(c); savePref(STORAGE.preGen, c ? "1" : "0"); }} />
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                      <Label className="text-xs font-semibold flex items-center gap-1">
-                        <Sparkles className="h-3 w-3" /> Sampel suara karakter
-                      </Label>
-                      <p className="text-[10px] leading-relaxed text-muted-foreground">
-                        Upload 1 file audio (mp3/wav, 6–15 detik, jernih, satu suara, tanpa musik). Clone via Coqui XTTS HF Space — gratis tanpa API key, kadang antri ~30 detik.
-                      </p>
-                      <input type="file" accept="audio/*" onChange={handleSampleUpload} className="block w-full text-xs" />
-                      {hasCloneSample && (
-                        <div className="flex items-center justify-between rounded bg-background/60 px-2 py-1 text-xs">
-                          <span className="truncate">✓ {cloneSampleName || "Sampel tersimpan"}</span>
-                          <button onClick={clearSample} className="text-muted-foreground hover:text-destructive">
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                    </section>
 
-                  <p className="pt-2 text-[11px] leading-relaxed text-muted-foreground">
-                    <Volume2 className="mr-1 inline h-3 w-3" />
-                    Tombol ▶ di tiap balon AI untuk memutar suara.
-                  </p>
+                    <Separator />
 
-                  <div className="pt-2 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label>Kecepatan bicara</Label>
-                      <span className="text-xs text-muted-foreground tabular-nums">{speed.toFixed(2)}x</span>
-                    </div>
-                    <Slider min={0.7} max={1.5} step={0.05} value={[speed]}
-                      onValueChange={(v) => { const s = v[0] ?? 1; setSpeed(s); savePref(STORAGE.speed, String(s)); }} />
+                    <section className="space-y-2">
+                      <Label htmlFor="furina-background">Latar karakter</Label>
+                      <input
+                        id="furina-background"
+                        type="file"
+                        accept="image/*"
+                        onChange={handleBgUpload}
+                        className="block w-full text-sm"
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setBg(furinaDefault);
+                          localStorage.removeItem(STORAGE.bg);
+                        }}
+                      >
+                        <RotateCcw className="mr-2 h-4 w-4" /> Kembalikan Furina default
+                      </Button>
+                    </section>
+
+                    <section className="settings-group space-y-2">
+                      <Label className="text-xs font-semibold uppercase tracking-wider">Tema</Label>
+                      <Button size="sm" variant="outline" onClick={toggleTheme} className="w-full">
+                        {theme === "dark" ? (
+                          <>
+                            <Sun className="mr-2 h-4 w-4" />
+                            Ganti ke Terang
+                          </>
+                        ) : (
+                          <>
+                            <Moon className="mr-2 h-4 w-4" />
+                            Ganti ke Gelap
+                          </>
+                        )}
+                      </Button>
+                    </section>
                   </div>
-                </TabsContent>
+                )}
 
-                {/* PROAKTIF TAB */}
-                <TabsContent value="proaktif" className="mt-4 space-y-4">
-                  <section className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label>Sapa duluan saat kamu balik</Label>
-                      <Switch checked={proactiveEnabled} onCheckedChange={setProactiveEnabled} />
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      Kalau kamu lama tidak buka chat, Furina bisa nyapa duluan 1 kali saat kamu kembali. Maks sekali per sesi.
-                    </p>
-                  </section>
-
-                  <section className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label>Ambang idle (jam)</Label>
-                      <span className="text-xs text-muted-foreground tabular-nums">{proactiveIdleHours} jam</span>
-                    </div>
-                    <Slider min={1} max={48} step={1} value={[proactiveIdleHours]}
-                      onValueChange={(v) => setProactiveIdleHours(v[0] ?? 6)} disabled={!proactiveEnabled} />
-                    <p className="text-[10px] text-muted-foreground">
-                      Furina nyapa duluan kalau kamu tidak chat lebih dari {proactiveIdleHours} jam.
-                    </p>
-                  </section>
-                </TabsContent>
-
-                {/* AKUN TAB */}
-                <TabsContent value="akun" className="mt-4 space-y-4">
-                  <section className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                    <Label className="text-xs font-semibold uppercase tracking-wider">Akun</Label>
-                    {authUser ? (
-                      <div className="space-y-2">
-                        <p className="text-sm">Login sebagai <span className="font-medium">{authUser.email ?? authUser.id}</span></p>
-                        <p className="text-[11px] text-muted-foreground">
-                          ✓ Semua chat, kepribadian, dan pengaturan tersimpan otomatis ke akunmu.
-                        </p>
-                        <Button variant="outline" size="sm" className="w-full" onClick={logout}>
-                          <LogOut className="mr-2 h-4 w-4" /> Logout (kembali ke guest kosong)
+                {/* MEMORI TAB */}
+                {settingsSection === "memori" && (
+                  <div className="settings-detail">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <Label>Memori (lintas-percakapan)</Label>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={async () => {
+                            toast.info("Meringkas memori lama…");
+                            try {
+                              const r = (await compactMemFn({
+                                data: { userId, threshold: 20, batch: 15, force: true },
+                              })) as { ok: boolean; reason?: string; compacted?: number };
+                              if (r.ok) {
+                                toast.success(`${r.compacted} memori diringkas.`);
+                                refreshMemories();
+                              } else
+                                toast.info(
+                                  r.reason === "below-threshold"
+                                    ? "Belum banyak memori untuk diringkas."
+                                    : "Tidak ada yang diringkas.",
+                                );
+                            } catch (e) {
+                              toast.error(e instanceof Error ? e.message : "Gagal");
+                            }
+                          }}
+                        >
+                          Ringkas
                         </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={async () => {
+                            if (!confirm("Hapus semua memori?")) return;
+                            await clearMemFn({ data: { userId } });
+                            refreshMemories();
+                            toast.success("Memori dibersihkan");
+                          }}
+                        >
+                          Hapus semua
+                        </Button>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Fakta tentang kamu (otomatis dipelajari) + ringkasan percakapan lama. Memori
+                      lama otomatis diringkas biar hemat.
+                    </p>
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Tambah fakta tentang dirimu…"
+                        value={newMem}
+                        onChange={(e) => setNewMem(e.target.value)}
+                      />
+                      <Button
+                        size="icon"
+                        onClick={async () => {
+                          if (newMem.trim().length < 3) return;
+                          try {
+                            await addMemFn({ data: { content: newMem.trim(), userId } });
+                            setNewMem("");
+                            refreshMemories();
+                          } catch (e) {
+                            toast.error(e instanceof Error ? e.message : "Failed");
+                          }
+                        }}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1">
+                      {[
+                        { id: "all", label: "Semua" },
+                        { id: "fact", label: "Fakta" },
+                        { id: "episodic", label: "Kejadian" },
+                        { id: "preference", label: "Preferensi" },
+                        { id: "relation", label: "Relasi" },
+                        { id: "style", label: "Gaya" },
+                        { id: "summary", label: "Ringkasan" },
+                      ].map((f) => (
+                        <button
+                          key={f.id}
+                          onClick={() => setMemFilter(f.id)}
+                          className={`rounded-full border px-2 py-0.5 text-xs transition ${
+                            memFilter === f.id
+                              ? "border-primary bg-primary/15 text-primary"
+                              : "border-border text-muted-foreground hover:bg-muted"
+                          }`}
+                        >
+                          {f.label}
+                        </button>
+                      ))}
+                    </div>
+                    <Input
+                      placeholder="Cari memori…"
+                      value={memSearch}
+                      onChange={(e) => setMemSearch(e.target.value)}
+                      className="h-8 text-xs"
+                    />
+
+                    <div className="max-h-[50vh] space-y-1 overflow-y-auto rounded-md border p-2 text-sm">
+                      {(() => {
+                        const q = memSearch.trim().toLowerCase();
+                        const filtered = memories.filter((m) => {
+                          if (memFilter !== "all" && (m.kind ?? "fact") !== memFilter) return false;
+                          if (q && !m.content.toLowerCase().includes(q)) return false;
+                          return true;
+                        });
+                        if (filtered.length === 0)
+                          return <p className="text-muted-foreground">Tidak ada memori cocok.</p>;
+                        const kindColor: Record<string, string> = {
+                          fact: "bg-muted",
+                          episodic: "bg-blue-500/20 text-blue-600 dark:text-blue-300",
+                          preference: "bg-emerald-500/20 text-emerald-600 dark:text-emerald-300",
+                          relation: "bg-purple-500/20 text-purple-600 dark:text-purple-300",
+                          style: "bg-accent/40",
+                          summary: "bg-primary/20",
+                          meta_summary: "bg-primary/20",
+                        };
+                        return filtered.map((m) => {
+                          const isEditing = editingMemId === m.id;
+                          const kind = m.kind ?? "fact";
+                          return (
+                            <div key={m.id} className="rounded p-1.5 hover:bg-muted/60">
+                              {isEditing ? (
+                                <div className="space-y-2">
+                                  <Textarea
+                                    value={editingMemContent}
+                                    onChange={(e) => setEditingMemContent(e.target.value)}
+                                    rows={3}
+                                    className="text-sm"
+                                  />
+                                  <div className="flex items-center gap-2">
+                                    <Label className="text-xs text-muted-foreground">Penting</Label>
+                                    <Slider
+                                      value={[editingMemImportance]}
+                                      min={1}
+                                      max={10}
+                                      step={1}
+                                      onValueChange={(v) => setEditingMemImportance(v[0] ?? 5)}
+                                      className="flex-1"
+                                    />
+                                    <span className="w-6 text-right text-xs font-medium">
+                                      {editingMemImportance}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Label className="text-xs text-muted-foreground">Tanggal</Label>
+                                    <Input
+                                      type="date"
+                                      value={editingMemOccurred}
+                                      onChange={(e) => setEditingMemOccurred(e.target.value)}
+                                      className="h-7 flex-1 text-xs"
+                                    />
+                                    {editingMemOccurred && (
+                                      <button
+                                        onClick={() => setEditingMemOccurred("")}
+                                        className="text-xs text-muted-foreground hover:text-destructive"
+                                      >
+                                        ×
+                                      </button>
+                                    )}
+                                  </div>
+                                  <div className="flex justify-end gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => setEditingMemId(null)}
+                                    >
+                                      Batal
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      onClick={async () => {
+                                        if (editingMemContent.trim().length < 3) return;
+                                        try {
+                                          await updateMemFn({
+                                            data: {
+                                              id: m.id,
+                                              userId,
+                                              content: editingMemContent.trim(),
+                                              importance: editingMemImportance,
+                                              occurred_at: editingMemOccurred || null,
+                                            },
+                                          });
+                                          setEditingMemId(null);
+                                          refreshMemories();
+                                          toast.success("Memori diperbarui");
+                                        } catch (e) {
+                                          toast.error(
+                                            e instanceof Error ? e.message : "Gagal simpan",
+                                          );
+                                        }
+                                      }}
+                                    >
+                                      Simpan
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex items-start gap-2">
+                                  <span
+                                    className={`mt-0.5 shrink-0 rounded px-1 text-[9px] font-semibold uppercase ${kindColor[kind] ?? "bg-muted"}`}
+                                  >
+                                    {kind}
+                                  </span>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="break-words">{m.content}</p>
+                                    {(m.occurred_at || m.emotion) && (
+                                      <p className="mt-0.5 text-xs text-muted-foreground">
+                                        {m.occurred_at && (
+                                          <>
+                                            📅 {new Date(m.occurred_at).toLocaleDateString("id-ID")}
+                                          </>
+                                        )}
+                                        {m.occurred_at && m.emotion && " · "}
+                                        {m.emotion && <>💭 {m.emotion}</>}
+                                      </p>
+                                    )}
+                                  </div>
+                                  <span
+                                    className="mt-0.5 rounded bg-muted px-1 text-[9px] text-muted-foreground"
+                                    title="Importance"
+                                  >
+                                    {m.importance ?? 5}
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      setEditingMemId(m.id);
+                                      setEditingMemContent(m.content);
+                                      setEditingMemImportance(m.importance ?? 5);
+                                      setEditingMemOccurred(
+                                        m.occurred_at ? m.occurred_at.slice(0, 10) : "",
+                                      );
+                                    }}
+                                    className="text-muted-foreground hover:text-primary"
+                                    title="Edit"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={async () => {
+                                      await delMemFn({ data: { id: m.id, userId } });
+                                      refreshMemories();
+                                    }}
+                                    className="text-muted-foreground hover:text-destructive"
+                                    title="Hapus"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {memories.length} memori tersimpan.
+                    </p>
+                  </div>
+                )}
+
+                {/* SUARA TAB */}
+                {settingsSection === "suara" && (
+                  <div className="settings-detail">
+                    <Label htmlFor="furina-provider">Mesin suara</Label>
+                    <Select
+                      value={provider}
+                      onValueChange={(v) => {
+                        setProvider(v as TTSProvider);
+                        savePref(STORAGE.provider, v);
+                      }}
+                    >
+                      <SelectTrigger id="furina-provider">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="voicevox">
+                          VOICEVOX — anime Jepang (gratis, stabil)
+                        </SelectItem>
+                        <SelectItem value="clone">
+                          Voice Clone — suara karakter custom (XTTS Space)
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+
+                    {provider === "voicevox" ? (
+                      <div className="space-y-2">
+                        <Label htmlFor="furina-speaker">Karakter VOICEVOX</Label>
+                        <Select
+                          value={String(vvSpeaker)}
+                          onValueChange={(v) => {
+                            setVvSpeaker(parseInt(v, 10));
+                            savePref(STORAGE.vvSpeaker, v);
+                          }}
+                        >
+                          <SelectTrigger id="furina-speaker">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {VV_SPEAKERS.map((s) => (
+                              <SelectItem key={s.id} value={String(s.id)}>
+                                {s.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <div className="flex items-center justify-between pt-1">
+                          <Label htmlFor="furina-translate">Terjemahkan ke bahasa Jepang</Label>
+                          <Switch
+                            id="furina-translate"
+                            checked={vvTranslate}
+                            onCheckedChange={(c) => {
+                              setVvTranslate(c);
+                              savePref(STORAGE.vvTranslate, c ? "1" : "0");
+                            }}
+                          />
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <Label htmlFor="furina-audio-ready">Siapkan audio otomatis</Label>
+                          <Switch
+                            id="furina-audio-ready"
+                            checked={preGenAudio}
+                            onCheckedChange={(c) => {
+                              setPreGenAudio(c);
+                              savePref(STORAGE.preGen, c ? "1" : "0");
+                            }}
+                          />
+                        </div>
                       </div>
                     ) : (
-                      <div className="space-y-2">
-                        <p className="text-xs text-muted-foreground">
-                          Mode guest. Login pertama kali → data guest dipindahkan otomatis ke akun. Login berikutnya → memuat data akunmu.
+                      <div className="settings-group space-y-2">
+                        <Label htmlFor="furina-voice-sample" className="flex items-center gap-1">
+                          <Sparkles className="h-3 w-3" /> Sampel suara karakter
+                        </Label>
+                        <p className="text-xs leading-relaxed text-muted-foreground">
+                          Upload 1 file audio (mp3/wav, 6–15 detik, jernih, satu suara, tanpa
+                          musik). Clone via Coqui XTTS HF Space — gratis tanpa API key, kadang antri
+                          ~30 detik.
                         </p>
-                        <Button size="sm" className="w-full" onClick={loginGoogle}>
-                          <LogIn className="mr-2 h-4 w-4" /> Masuk dengan Google
-                        </Button>
+                        <input
+                          id="furina-voice-sample"
+                          type="file"
+                          accept="audio/*"
+                          onChange={handleSampleUpload}
+                          className="block w-full text-xs"
+                        />
+                        {hasCloneSample && (
+                          <div className="flex items-center justify-between rounded bg-background/60 px-2 py-1 text-xs">
+                            <span className="truncate">
+                              ✓ {cloneSampleName || "Sampel tersimpan"}
+                            </span>
+                            <button
+                              onClick={clearSample}
+                              className="text-muted-foreground hover:text-destructive"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
-                  </section>
 
-                  <Separator />
+                    <p className="pt-2 text-xs leading-relaxed text-muted-foreground">
+                      <Volume2 className="mr-1 inline h-3 w-3" />
+                      Tombol ▶ di tiap balon AI untuk memutar suara.
+                    </p>
 
-                  <Button variant="outline" className="w-full" onClick={clearChat}>
-                    <Trash2 className="mr-2 h-4 w-4" /> Bersihkan percakapan ini
-                  </Button>
-                </TabsContent>
-              </Tabs>
+                    <div className="pt-2 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Label>Kecepatan bicara</Label>
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          {speed.toFixed(2)}x
+                        </span>
+                      </div>
+                      <Slider
+                        aria-label="Kecepatan bicara"
+                        min={0.7}
+                        max={1.5}
+                        step={0.05}
+                        value={[speed]}
+                        onValueChange={(v) => {
+                          const s = v[0] ?? 1;
+                          setSpeed(s);
+                          savePref(STORAGE.speed, String(s));
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* PROAKTIF TAB */}
+                {settingsSection === "proaktif" && (
+                  <div className="settings-detail">
+                    <section className="space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Label htmlFor="furina-proactive">Sapa saat kamu kembali</Label>
+                        <Switch
+                          id="furina-proactive"
+                          checked={proactiveEnabled}
+                          onCheckedChange={(enabled) => {
+                            setProactiveEnabled(enabled);
+                            savePref(STORAGE.proactive, enabled ? "1" : "0");
+                          }}
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Kalau kamu lama tidak buka chat, Furina bisa nyapa duluan 1 kali saat kamu
+                        kembali. Maks sekali per sesi.
+                      </p>
+                    </section>
+
+                    <section className="space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Label>Ambang idle (jam)</Label>
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          {proactiveIdleHours} jam
+                        </span>
+                      </div>
+                      <Slider
+                        aria-label="Ambang idle dalam jam"
+                        min={1}
+                        max={48}
+                        step={1}
+                        value={[proactiveIdleHours]}
+                        onValueChange={([hours]) => {
+                          setProactiveIdleHours(hours);
+                          savePref(STORAGE.proactiveHours, String(hours));
+                        }}
+                        disabled={!proactiveEnabled}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Furina nyapa duluan kalau kamu tidak chat lebih dari {proactiveIdleHours}{" "}
+                        jam.
+                      </p>
+                    </section>
+                  </div>
+                )}
+
+                {/* AKUN TAB */}
+                {settingsSection === "akun" && (
+                  <div className="settings-detail">
+                    <section className="settings-group space-y-2">
+                      <Label className="text-xs font-semibold uppercase tracking-wider">Akun</Label>
+                      {authUser ? (
+                        <div className="space-y-2">
+                          <p className="text-sm">
+                            Login sebagai{" "}
+                            <span className="font-medium">{authUser.email ?? authUser.id}</span>
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {syncFailed
+                              ? "Sinkronisasi gagal."
+                              : syncing
+                                ? "Sedang memuat data akun…"
+                                : "Percakapan dan pengaturan disinkronkan ke akunmu."}
+                          </p>
+                          {syncFailed && (
+                            <Button
+                              type="button"
+                              className="w-full"
+                              onClick={() => void pullFromCloud(authUser.id)}
+                            >
+                              Coba sinkronkan lagi
+                            </Button>
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full"
+                            onClick={logout}
+                            disabled={sending || syncing}
+                          >
+                            <LogOut className="mr-2 h-4 w-4" /> Logout (kembali ke guest kosong)
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <p className="text-xs text-muted-foreground">
+                            Mode guest. Login pertama kali → data guest dipindahkan otomatis ke
+                            akun. Login berikutnya → memuat data akunmu.
+                          </p>
+                          <Button size="sm" className="w-full" onClick={loginGoogle}>
+                            <LogIn className="mr-2 h-4 w-4" /> Masuk dengan Google
+                          </Button>
+                        </div>
+                      )}
+                    </section>
+
+                    <Separator />
+
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={clearChat}
+                      disabled={
+                        sending || syncing || syncFailed || clearingChat || !messages.length
+                      }
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" /> Bersihkan percakapan ini
+                    </Button>
+                  </div>
+                )}
+              </div>
             </SheetContent>
           </Sheet>
         </div>
       </header>
 
       {/* Chat messages */}
-      <main ref={scrollRef} className="absolute inset-0 z-10 overflow-y-auto px-3 pt-20 pb-36 sm:px-4">
-        <div className="mx-auto flex min-h-full max-w-3xl flex-col gap-3">
-        {messages.length === 0 && (
-          <div className="mt-auto mb-4 w-fit max-w-[min(92%,640px)] self-start animate-fade-in">
-            <div className="bubble-ai rounded-2xl px-4 py-3 text-sm shadow-lg">
-              Halo… akhirnya kamu datang juga~ ✦ Aku {name}. Ceritakan apa saja.
+      <main ref={scrollRef} className="furina-chat" aria-label="Percakapan">
+        <div className="furina-chat-inner mx-auto flex min-h-full max-w-3xl flex-col gap-4">
+          {messages.length === 0 && (
+            <div className="mt-auto mb-1 w-fit max-w-[min(92%,640px)] self-start">
+              <div className="bubble-ai rounded-2xl px-4 py-3 text-sm shadow-lg">
+                Halo… akhirnya kamu datang juga~ ✦ Aku {name}. Ceritakan apa saja.
+              </div>
             </div>
-            <div className="mt-1 px-1 text-[10px] opacity-70">baru saja</div>
-          </div>
-        )}
-        <div className="mt-auto" />
-        {messages.map((m) => {
-          const isUser = m.role === "user";
-          const isPlaying = playingId === m.id;
-          const isLoading = loadingId === m.id;
-          return (
-            <div key={m.id} className={`flex w-full flex-col animate-fade-in ${isUser ? "items-end" : "items-start"}`}>
-              <div className={`${isUser ? "bubble-user" : "bubble-ai"} w-fit max-w-[min(92%,640px)] rounded-2xl px-4 py-2.5 text-sm shadow-lg`}>
-                {m.imageDataUrl && (
-                  <button
-                    type="button"
-                    onClick={() => setLightboxUrl(m.imageDataUrl!)}
-                    className="mb-2 block w-full overflow-hidden rounded-lg"
-                    aria-label="Buka gambar"
+          )}
+          {messages.length > 0 && <div className="mt-auto" />}
+          {messages.map((m) => {
+            const isUser = m.role === "user";
+            const isPlaying = playingId === m.id;
+            const isLoading = loadingId === m.id;
+            return (
+              <div
+                key={m.id}
+                className={`flex w-full flex-col ${isUser ? "items-end" : "items-start"}`}
+              >
+                <div
+                  className={`${isUser ? "bubble-user" : "bubble-ai"} w-fit max-w-[min(92%,640px)] rounded-2xl px-4 py-2.5 text-sm shadow-lg`}
+                >
+                  {m.imageDataUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setLightboxUrl(m.imageDataUrl!)}
+                      className="mb-2 block w-full overflow-hidden rounded-lg"
+                      aria-label="Buka gambar"
+                    >
+                      <img
+                        src={m.imageDataUrl}
+                        alt="lampiran"
+                        className="max-h-64 w-full cursor-zoom-in rounded-lg object-cover transition hover:opacity-90"
+                        loading="lazy"
+                      />
+                    </button>
+                  )}
+                  {m.content && (
+                    <div className="whitespace-pre-wrap break-words leading-relaxed">
+                      {m.content}
+                    </div>
+                  )}
+                </div>
+
+                <div className="furina-message-meta mt-1 flex w-fit items-center gap-1.5 px-2">
+                  <span
+                    className="text-[10px] opacity-70 tabular-nums"
+                    title={new Date(m.at).toLocaleString()}
                   >
-                    <img
-                      src={m.imageDataUrl}
-                      alt="lampiran"
-                      className="max-h-64 w-full cursor-zoom-in rounded-lg object-cover transition hover:opacity-90"
-                      loading="lazy"
-                    />
-                  </button>
-                )}
-                {m.content && <div className="whitespace-pre-wrap break-words leading-relaxed">{m.content}</div>}
+                    {fmtTime(m.at)}
+                  </span>
+
+                  {isUser && <MsgStatusIcon status={m.status} />}
+
+                  {isUser && m.status === "failed" && (
+                    <button
+                      onClick={() => retrySend(m)}
+                      className="ml-1 inline-flex items-center gap-1 rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-red-500"
+                    >
+                      <RotateCcw className="h-2.5 w-2.5" /> Kirim ulang
+                    </button>
+                  )}
+
+                  {!isUser && (
+                    <div className="flex items-center gap-1">
+                      {isLoading && (
+                        <span className="glass-chip inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px]">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          Menyiapkan suara…
+                        </span>
+                      )}
+                      {!isLoading && !isPlaying && (
+                        <button
+                          onClick={() => playTTS(m)}
+                          className="glass-chip rounded-full p-1.5 transition hover:scale-105"
+                          aria-label="Putar"
+                          title={m.audioUrl ? "Putar (siap)" : "Putar (akan disiapkan)"}
+                        >
+                          <Play className="h-3 w-3" />
+                        </button>
+                      )}
+                      {!isLoading && isPlaying && !paused && (
+                        <button
+                          onClick={pauseTTS}
+                          className="glass-chip rounded-full p-1.5"
+                          aria-label="Jeda"
+                        >
+                          <Pause className="h-3 w-3" />
+                        </button>
+                      )}
+                      {!isLoading && isPlaying && paused && (
+                        <button
+                          onClick={resumeTTS}
+                          className="glass-chip rounded-full p-1.5"
+                          aria-label="Lanjutkan"
+                        >
+                          <Play className="h-3 w-3" />
+                        </button>
+                      )}
+                      {!isLoading && isPlaying && (
+                        <button
+                          onClick={stopTTS}
+                          className="glass-chip rounded-full p-1.5"
+                          aria-label="Berhenti"
+                        >
+                          <Square className="h-3 w-3" />
+                        </button>
+                      )}
+                      {m.audioUrl && !isPlaying && !isLoading && (
+                        <span className="text-[10px] opacity-60">●</span>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
+            );
+          })}
 
-              <div className="mt-1 flex items-center gap-1.5 px-1">
-                <span className="text-[10px] opacity-70 tabular-nums" title={new Date(m.at).toLocaleString()}>{fmtTime(m.at)}</span>
-
-                {isUser && <MsgStatusIcon status={m.status} />}
-
-                {isUser && m.status === "failed" && (
-                  <button onClick={() => retrySend(m)}
-                    className="ml-1 inline-flex items-center gap-1 rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-red-500">
-                    <RotateCcw className="h-2.5 w-2.5" /> Kirim ulang
-                  </button>
-                )}
-
-                {!isUser && (
-                  <div className="flex items-center gap-1">
-                    {isLoading && (
-                      <span className="glass-chip inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px]">
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                        Menyiapkan suara…
-                      </span>
-                    )}
-                    {!isLoading && !isPlaying && (
-                      <button onClick={() => playTTS(m)}
-                        className="glass-chip rounded-full p-1.5 transition hover:scale-105"
-                        aria-label="Putar" title={m.audioUrl ? "Putar (siap)" : "Putar (akan disiapkan)"}>
-                        <Play className="h-3 w-3" />
-                      </button>
-                    )}
-                    {!isLoading && isPlaying && !paused && (
-                      <button onClick={pauseTTS} className="glass-chip rounded-full p-1.5" aria-label="Jeda">
-                        <Pause className="h-3 w-3" />
-                      </button>
-                    )}
-                    {!isLoading && isPlaying && paused && (
-                      <button onClick={resumeTTS} className="glass-chip rounded-full p-1.5" aria-label="Lanjutkan">
-                        <Play className="h-3 w-3" />
-                      </button>
-                    )}
-                    {!isLoading && isPlaying && (
-                      <button onClick={stopTTS} className="glass-chip rounded-full p-1.5" aria-label="Berhenti">
-                        <Square className="h-3 w-3" />
-                      </button>
-                    )}
-                    {m.audioUrl && !isPlaying && !isLoading && (
-                      <span className="text-[10px] opacity-60">●</span>
-                    )}
-                  </div>
-                )}
-              </div>
+          {sending && (
+            <div role="status" className="bubble-ai w-fit self-start rounded-xl px-3 py-2 text-xs">
+              {name || "Furina"} sedang menulis…
             </div>
-          );
-        })}
-
-
-        {sending && (
-          <div className="w-fit max-w-[min(92%,640px)] self-start bubble-ai rounded-2xl px-4 py-2.5 text-sm shadow-lg">
-            <span className="inline-flex gap-1">
-              <span className="h-2 w-2 animate-bounce rounded-full bg-foreground/50 [animation-delay:-0.3s]" />
-              <span className="h-2 w-2 animate-bounce rounded-full bg-foreground/50 [animation-delay:-0.15s]" />
-              <span className="h-2 w-2 animate-bounce rounded-full bg-foreground/50" />
-            </span>
-          </div>
-        )}
+          )}
         </div>
       </main>
 
-
       {/* Composer */}
-      <div className="composer-glass absolute bottom-0 left-0 right-0 z-20 p-3">
+      <div className="furina-composer">
         <div className="mx-auto max-w-3xl">
           {pendingImage && (
             <div className="mb-2 flex items-center gap-2 rounded-lg border bg-card/70 p-2">
-              <img src={pendingImage.dataUrl} alt="preview" className="h-14 w-14 rounded object-cover" />
+              <img
+                src={pendingImage.dataUrl}
+                alt="preview"
+                className="h-14 w-14 rounded object-cover"
+              />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-xs font-medium">{pendingImage.name}</p>
                 <p className="text-[10px] text-muted-foreground">Akan dikirim bersama pesan</p>
               </div>
-              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setPendingImage(null)}>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-10 w-10"
+                aria-label="Hapus lampiran"
+                onClick={() => setPendingImage(null)}
+              >
                 <X className="h-4 w-4" />
               </Button>
             </div>
           )}
-          <div className="flex items-end gap-2 rounded-2xl border bg-background/60 px-2 py-1.5 backdrop-blur">
-            <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImagePick} className="hidden" />
-            <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full"
-              onClick={() => imageInputRef.current?.click()} aria-label="Kirim gambar" title="Kirim gambar">
+          <div className="glass-surface furina-input flex items-end gap-1.5 px-2 py-1.5">
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleImagePick}
+              className="hidden"
+            />
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-11 w-11 shrink-0 rounded-xl"
+              onClick={() => imageInputRef.current?.click()}
+              aria-label="Kirim gambar"
+              title="Kirim gambar"
+            >
               <ImageIcon className="h-4 w-4" />
             </Button>
-            <Textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
-              placeholder="Ketik pesan..." rows={1}
-              className="max-h-32 min-h-[40px] flex-1 resize-none border-0 bg-transparent focus-visible:ring-0 shadow-none" />
-            <Button onClick={() => sendMessage(input)} disabled={sending || (!input.trim() && !pendingImage)}
-              size="icon" className="h-10 w-10 rounded-full">
+            <Textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (
+                  e.key === "Enter" &&
+                  !e.shiftKey &&
+                  !e.nativeEvent.isComposing &&
+                  e.keyCode !== 229
+                ) {
+                  e.preventDefault();
+                  sendMessage(input);
+                }
+              }}
+              placeholder="Tulis pesan…"
+              rows={1}
+              aria-label="Tulis pesan"
+              enterKeyHint="send"
+              className="max-h-28 min-h-11 min-w-0 flex-1 resize-none border-0 bg-transparent px-2 py-2.5 text-base focus-visible:ring-0 shadow-none dark:bg-transparent"
+            />
+            <Button
+              onClick={() => sendMessage(input)}
+              disabled={
+                !authReady ||
+                !activeId ||
+                sending ||
+                syncing ||
+                syncFailed ||
+                clearingChat ||
+                (!input.trim() && !pendingImage)
+              }
+              size="icon"
+              className="h-11 w-11 shrink-0 rounded-xl"
+              aria-label="Kirim pesan"
+            >
               <Send className="h-4 w-4" />
             </Button>
           </div>
         </div>
       </div>
 
+      <Toaster theme={theme} position="bottom-center" closeButton />
+
       {/* Image lightbox */}
-      <Dialog open={!!lightboxUrl} onOpenChange={(o) => { if (!o) setLightboxUrl(null); }}>
+      <Dialog
+        open={!!lightboxUrl}
+        onOpenChange={(o) => {
+          if (!o) setLightboxUrl(null);
+        }}
+      >
         <DialogContent className="max-w-[96vw] border-0 bg-black/90 p-2 sm:max-w-[90vw]">
+          <DialogTitle className="sr-only">Lampiran percakapan</DialogTitle>
           {lightboxUrl && (
             <div className="relative flex items-center justify-center">
               <img
@@ -1687,11 +2742,12 @@ function MsgStatusIcon({ status }: { status?: MsgStatus }) {
   if (status === "sending") return <Loader2 className="h-3 w-3 animate-spin opacity-70" />;
   if (status === "sent") return <Check className="h-3 w-3 opacity-70" />;
   if (status === "delivered") return <CheckCheck className="h-3 w-3 opacity-70" />;
-  if (status === "read") return (
-    <span className="inline-flex animate-[pop_0.4s_ease-out]">
-      <CheckCheck className="h-3 w-3 text-sky-400" />
-    </span>
-  );
+  if (status === "read")
+    return (
+      <span className="inline-flex animate-[pop_0.4s_ease-out]">
+        <CheckCheck className="h-3 w-3 text-sky-400" />
+      </span>
+    );
   if (status === "failed") return <AlertCircle className="h-3 w-3 text-red-400" />;
   return null;
 }
@@ -1713,7 +2769,8 @@ async function compressImage(file: File, maxDim: number, quality: number): Promi
   const w = Math.round(img.width * ratio);
   const h = Math.round(img.height * ratio);
   const canvas = document.createElement("canvas");
-  canvas.width = w; canvas.height = h;
+  canvas.width = w;
+  canvas.height = h;
   const ctx = canvas.getContext("2d");
   if (!ctx) return dataUrl;
   ctx.drawImage(img, 0, 0, w, h);

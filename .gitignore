@@ -30,3 +30,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Generated Graphify cache and local skill tool binaries
+/graphify-out/*
+!/graphify-out/GRAPH_REPORT.md
+!/graphify-out/graph.json
+/.agents/skills/impeccable/scripts/impeccable-engine*
+**/__pycache__/
+!/graphify-out/graph.html

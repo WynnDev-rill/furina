@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { requireFurinaIdentity, requireGuestId } from "@/lib/furina-identity.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1";
@@ -168,6 +169,7 @@ async function writeMood(userId: string, mood: MoodState) {
 export const getMood = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ userId: z.string().min(1) }).parse(d))
   .handler(async ({ data }) => {
+    await requireFurinaIdentity(data.userId);
     const m = await readMood(data.userId);
     return { mood: m, label: moodLabel(m.score).label };
   });
@@ -375,6 +377,7 @@ Pakai MEMORIES & RINGKASAN PERCAKAPAN LAMA secara natural — seperti teman yang
 export const chatWithFurina = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => ChatInput.parse(d))
   .handler(async ({ data }) => {
+    await requireFurinaIdentity(data.userId);
     const lastUser = [...data.messages].reverse().find((m) => m.role === "user");
     const userText = lastUser?.content ?? "";
 
@@ -832,6 +835,7 @@ const SummarizeInput = z.object({
 export const summarizeConversation = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => SummarizeInput.parse(d))
   .handler(async ({ data }) => {
+    await requireFurinaIdentity(data.userId);
     const res = await fetch(`${GATEWAY}/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
@@ -1099,6 +1103,7 @@ const MemoryListInput = z.object({ userId: z.string().min(1) });
 export const listMemories = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => MemoryListInput.parse(d))
   .handler(async ({ data }) => {
+    await requireFurinaIdentity(data.userId);
     const { data: rows, error } = await supabaseAdmin
       .from("memories")
       .select("id, content, created_at, kind, importance, occurred_at, last_accessed_at, compressed, emotion")
@@ -1116,6 +1121,7 @@ export const deleteMemory = createServerFn({ method: "POST" })
     z.object({ id: z.string().uuid(), userId: z.string().min(1) }).parse(d),
   )
   .handler(async ({ data }) => {
+    await requireFurinaIdentity(data.userId);
     const { error } = await supabaseAdmin
       .from("memories").delete()
       .eq("id", data.id).eq("user_id", data.userId);
@@ -1133,6 +1139,7 @@ export const addMemory = createServerFn({ method: "POST" })
     }).parse(d),
   )
   .handler(async ({ data }) => {
+    await requireFurinaIdentity(data.userId);
     const vec = await embed(data.content);
     const { error } = await supabaseAdmin.from("memories").insert({
       content: data.content,
@@ -1158,6 +1165,7 @@ export const updateMemory = createServerFn({ method: "POST" })
     }).parse(d),
   )
   .handler(async ({ data }) => {
+    await requireFurinaIdentity(data.userId);
     // re-embed karena teks berubah
     const vec = await embed(data.content);
     const patch: Record<string, unknown> = {
@@ -1177,6 +1185,7 @@ export const updateMemory = createServerFn({ method: "POST" })
 export const clearAllMemories = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ userId: z.string().min(1) }).parse(d))
   .handler(async ({ data }) => {
+    await requireFurinaIdentity(data.userId);
     const { error } = await supabaseAdmin
       .from("memories").delete()
       .eq("user_id", data.userId).eq("character_id", CHARACTER_ID);
@@ -1192,6 +1201,8 @@ const MigrateInput = z.object({
 export const migrateGuestMemories = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => MigrateInput.parse(d))
   .handler(async ({ data }) => {
+    await requireFurinaIdentity(data.toUserId, true);
+    await requireGuestId(data.fromGuestId);
     const { error } = await supabaseAdmin
       .from("memories").update({ user_id: data.toUserId })
       .eq("user_id", data.fromGuestId).eq("character_id", CHARACTER_ID);
@@ -1211,6 +1222,7 @@ const StyleInput = z.object({
 export const updateStyleProfile = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => StyleInput.parse(d))
   .handler(async ({ data }) => {
+    await requireFurinaIdentity(data.userId);
     const sample = data.userMessages.slice(-30).map((m, i) => `${i + 1}. ${m}`).join("\n");
     const res = await fetch(`${GATEWAY}/chat/completions`, {
       method: "POST",
@@ -1251,6 +1263,7 @@ export const updateStyleProfile = createServerFn({ method: "POST" })
 export const getStyleProfile = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ userId: z.string().min(1) }).parse(d))
   .handler(async ({ data }) => {
+    await requireFurinaIdentity(data.userId);
     const { data: rows } = await supabaseAdmin
       .from("memories").select("content")
       .eq("user_id", data.userId).eq("character_id", CHARACTER_ID).eq("kind", "style")
@@ -1359,6 +1372,7 @@ const CompactInput = z.object({
 export const compactMemories = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => CompactInput.parse(d))
   .handler(async ({ data }) => {
+    await requireFurinaIdentity(data.userId);
     // Rate-limit: 1x per 10 menit per user, kecuali force
     if (!data.force) {
       const { data: settingsRow } = await supabaseAdmin
@@ -1442,6 +1456,7 @@ const ProactiveInput = z.object({
 export const proactiveGreeting = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => ProactiveInput.parse(d))
   .handler(async ({ data }) => {
+    await requireFurinaIdentity(data.userId);
     const mood = await readMood(data.userId);
     const moodInfo = moodLabel(mood.score);
 
