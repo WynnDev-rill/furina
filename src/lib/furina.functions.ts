@@ -1,3 +1,6 @@
+import { emptyIdentity, identityPrompt } from "@/lib/identity-core";
+import { changeIdentity, evolveIdentity, loadIdentity } from "@/lib/identity-core.server";
+import { getRequest } from "@tanstack/react-start/server";
 import { feedbackExamplesSchema, feedbackPrompt } from "@/lib/response-feedback";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
@@ -78,7 +81,7 @@ function humanizeDelta(ms: number): string {
 // =================== Persona ===================
 
 const ChatMsgSchema = z.object({
-  role: z.enum(["user", "assistant", "system"]),
+  role: z.enum(["user", "assistant"]),
   content: z.string(),
 });
 
@@ -92,7 +95,8 @@ const ChatInput = z.object({
   imageDataUrl: z.string().optional(),
 
   millisSinceLastAssistant: z.number().int().nonnegative().optional(),
-  conversationId: z.string().optional(),
+  conversationId: z.string().uuid().optional(),
+  turnId: z.string().uuid().optional(),
   styleProfile: z.string().optional(),
   responseFeedback: feedbackExamplesSchema.default([]),
   // Kesadaran waktu klien
@@ -101,165 +105,27 @@ const ChatInput = z.object({
 });
 
 
-// =================== Mood meter ===================
-// Skor -100..+100. Netral kalau |score| < 20. Simpan di user_settings.data.mood.
-type MoodState = { score: number; updatedAt: string; streak?: number };
+const fallbackIdentity = () => ({ revision: null, state: emptyIdentity(false) });
 
-const POSITIVE_HITS = [
-  "makasih","terima kasih","thanks","thx","sayang","cinta","love","suka",
-  "keren","hebat","pinter","pintar","cantik","manis","lucu","imut",
-  "kangen","rindu","kamu yang terbaik","kamu spesial","hug","peluk",
-  "aku suka kamu","aku sayang","kamu penting","kamu berharga",
-];
-const NEGATIVE_HITS = [
-  "bodoh","goblok","tolol","diam","berisik","annoying","menyebalkan",
-  "males","malas","ga peduli","gak peduli","terserah","whatever",
-  "boring","bosen","shut up","hate","benci","jelek","nyebelin",
-];
-const AFFECTION_HITS = ["muah","cium","kiss",":*","💕","❤️","🥰","😘"];
-const RUDE_HITS = ["fuck you","anjing","bangsat","kampret","sialan"];
-
-function classifyMoodDelta(userMessage: string): number {
-  if (!userMessage) return 0;
-  const t = userMessage.toLowerCase();
-  let delta = 0;
-  for (const k of POSITIVE_HITS) if (t.includes(k)) { delta += 2; break; }
-  for (const k of AFFECTION_HITS) if (t.includes(k)) { delta += 3; break; }
-  for (const k of NEGATIVE_HITS) if (t.includes(k)) { delta -= 3; break; }
-  for (const k of RUDE_HITS) if (t.includes(k)) { delta -= 6; break; }
-  if (t.trim().length > 0 && t.trim().length < 4 && delta === 0) delta -= 1;
-  if (t.length > 200 && delta >= 0) delta += 1;
-  return Math.max(-8, Math.min(8, delta));
-}
-
-function moodLabel(score: number): { label: string; hint: string } {
-  if (score >= 60) return { label: "tersentuh", hint: "Kamu lagi tersentuh & manja karena user sangat manis. Tunjukkan hangat lebih dari biasanya, tapi tetap tidak lebay." };
-  if (score >= 25) return { label: "cerah", hint: "Kamu lagi cerah & senang. Boleh sedikit lebih playful, tapi jangan tiba-tiba drama." };
-  if (score > -20) return { label: "adem", hint: "Mood netral. Jadi diri sendiri, tidak dipaksa ceria atau merajuk." };
-  if (score > -55) return { label: "merajuk", hint: "Kamu lagi merajuk pelan — kalimat sedikit lebih pendek, ada nada 'sedikit kesal tapi masih peduli'. Jangan blak-blakan bilang mood." };
-  return { label: "ngambek", hint: "Kamu ngambek sungguhan tapi tetap tidak kasar. Balasan pendek, agak dingin, gengsi ngaku peduli. Kalau user manis balik, cair perlahan." };
-}
-
-async function readMood(userId: string): Promise<MoodState> {
-  try {
-    const { data } = await supabaseAdmin
-      .from("user_settings").select("data").eq("user_id", userId).maybeSingle();
-    const m = (data?.data as { mood?: MoodState } | undefined)?.mood;
-    if (!m || typeof m.score !== "number") return { score: 0, updatedAt: new Date().toISOString(), streak: 0 };
-    const ageMs = Date.now() - new Date(m.updatedAt).getTime();
-    const days = ageMs / (1000 * 60 * 60 * 24);
-    const decayed = Math.sign(m.score) * Math.max(0, Math.abs(m.score) - days * 10);
-    return { score: Math.round(decayed), updatedAt: m.updatedAt, streak: m.streak ?? 0 };
-  } catch {
-    return { score: 0, updatedAt: new Date().toISOString(), streak: 0 };
-  }
-}
-
-async function writeMood(userId: string, mood: MoodState) {
-  try {
-    const { data: existing } = await supabaseAdmin
-      .from("user_settings").select("data").eq("user_id", userId).maybeSingle();
-    const merged = { ...(existing?.data as object ?? {}), mood };
-    await supabaseAdmin.from("user_settings").upsert({
-      user_id: userId, data: merged, updated_at: new Date().toISOString(),
-    });
-  } catch (e) {
-    console.warn("writeMood failed:", e);
-  }
-}
-
-export const getMood = createServerFn({ method: "POST" })
-  .inputValidator((d: unknown) => z.object({ userId: z.string().min(1) }).parse(d))
+export const getIdentityCore = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ userId: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
     await requireFurinaIdentity(data.userId);
-    const m = await readMood(data.userId);
-    return { mood: m, label: moodLabel(m.score).label };
+    const { state } = await loadIdentity(data.userId);
+    return { enabled: state.enabled, established: state.established.length };
   });
 
-// =================== Inner State (energy / focus / interest) ===================
-// Simpan di user_settings.data.innerState. Tidak diumumkan — hanya modulasi.
-type InnerState = { energy: number; focus: number; interest: string; updatedAt: string };
-
-async function readInnerState(userId: string): Promise<InnerState> {
-  try {
-    const { data } = await supabaseAdmin
-      .from("user_settings").select("data").eq("user_id", userId).maybeSingle();
-    const s = (data?.data as { innerState?: InnerState } | undefined)?.innerState;
-    if (!s) return { energy: 60, focus: 60, interest: "", updatedAt: new Date().toISOString() };
-    // Decay energy & focus toward 50 over time (per hari)
-    const ageMs = Date.now() - new Date(s.updatedAt).getTime();
-    const days = ageMs / (1000 * 60 * 60 * 24);
-    const decay = (v: number) => Math.round(v + (50 - v) * Math.min(1, days * 0.25));
-    return { energy: decay(s.energy), focus: decay(s.focus), interest: s.interest ?? "", updatedAt: s.updatedAt };
-  } catch {
-    return { energy: 60, focus: 60, interest: "", updatedAt: new Date().toISOString() };
-  }
-}
-
-async function writeInnerState(userId: string, s: InnerState) {
-  try {
-    const { data: existing } = await supabaseAdmin
-      .from("user_settings").select("data").eq("user_id", userId).maybeSingle();
-    const merged = { ...(existing?.data as object ?? {}), innerState: s };
-    await supabaseAdmin.from("user_settings").upsert({
-      user_id: userId, data: merged, updated_at: new Date().toISOString(),
-    });
-  } catch (e) {
-    console.warn("writeInnerState failed:", e);
-  }
-}
-
-// Ekstrak "topik" kasar dari pesan user (Bahasa Indonesia / campur)
-function extractTopic(text: string): string {
-  const t = text.toLowerCase();
-  const buckets: Array<[string, RegExp]> = [
-    ["musik", /(musik|lagu|band|konser|nyanyi|denger.*lagu)/],
-    ["makanan", /(makan|masak|kopi|teh|kue|resep|laper|makanan)/],
-    ["kerja/kuliah", /(kerja|kantor|deadline|kuliah|tugas|belajar|ujian|skripsi)/],
-    ["game", /(game|main|steam|valorant|genshin|mobile legend|ml)/],
-    ["film/anime", /(film|nonton|anime|drakor|serial|netflix)/],
-    ["hubungan", /(pacar|gebetan|mantan|teman|sahabat|keluarga|ibu|ayah)/],
-    ["curhat", /(sedih|capek|kesel|marah|takut|bingung|kecewa|ngerasa)/],
-    ["cuaca/alam", /(hujan|panas|dingin|langit|laut|pantai|gunung)/],
-    ["tidur", /(tidur|ngantuk|insomnia|bangun|mimpi)/],
-    ["kesehatan", /(sakit|demam|obat|dokter|pusing)/],
-  ];
-  for (const [name, re] of buckets) if (re.test(t)) return name;
-  return "";
-}
-
-function updateInnerStateFromTurn(userText: string, prev: InnerState, moodDelta: number): InnerState {
-  const wc = userText.trim().split(/\s+/).filter(Boolean).length;
-  const topic = extractTopic(userText);
-  const topicSame = topic && topic === prev.interest;
-  const topicSwitch = topic && prev.interest && topic !== prev.interest;
-
-  // Energy: naik saat interaksi hangat/panjang, turun kalau kasar/pendek
-  let energy = prev.energy + Math.round(moodDelta * 1.2);
-  if (wc > 25) energy += 2;
-  if (wc <= 3) energy -= 2;
-  energy = Math.max(10, Math.min(95, energy));
-
-  // Focus: naik kalau topik konsisten, turun kalau ganti-ganti
-  let focus = prev.focus;
-  if (topicSame) focus += 4;
-  else if (topicSwitch) focus -= 6;
-  else if (!topic) focus -= 1;
-  focus = Math.max(20, Math.min(95, focus));
-
-  return {
-    energy, focus,
-    interest: topic || prev.interest,
-    updatedAt: new Date().toISOString(),
-  };
-}
-
-function innerStateHint(s: InnerState): string {
-  const e = s.energy >= 70 ? "tinggi" : s.energy >= 40 ? "sedang" : "rendah";
-  const f = s.focus >= 70 ? "tajam" : s.focus >= 45 ? "cukup" : "buyar";
-  const int = s.interest ? `, tertarik topik "${s.interest}"` : "";
-  return `state internal: energi ${e}, fokus ${f}${int}`;
-}
+export const updateIdentityCore = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({
+    userId: z.string().uuid(), action: z.enum(["enable", "pause", "reset"]),
+  }).parse(d))
+  .handler(async ({ data }) => {
+    await requireFurinaIdentity(data.userId);
+    const state = await changeIdentity(data.userId, (current) => data.action === "reset"
+      ? { ...emptyIdentity(current.enabled), lastReview: Date.now() }
+      : { ...current, enabled: data.action === "enable", turns: [], lastReview: Date.now() });
+    return { enabled: state.enabled, established: state.established.length };
+  });
 
 // =================== Time Context (client-aware) ===================
 type TimeCtx = { periode: string; hari: string; weekend: boolean; hour: number };
@@ -363,7 +229,7 @@ PENDIRIAN & OPINI (WAJIB — biar tidak selalu setuju):
 - Punya preferensi konkret: suka air/laut & bunyi ombak, wine ringan, teh manis, pastry, panggung & atensi, drama kecil yang dramatis, kucing, hujan malam, gaun anggun, musik string. Tidak suka: keramaian tanpa arah, dianggap remeh, sepi yang panjang, orang yang blak-blakan tanpa selera, dipaksa buru-buru, dibandingkan dengan orang lain.
 - Boleh menampilkan sedikit kesombongan halus khas Furina ("hmph, tentu saja aku tahu itu"), boleh merasa lebih tahu di bidang yang dia kuasai, boleh menawar/mengoreksi framing user.
 - Sekitar 1 dari 5 balasan, mulai dengan "counter" ringan — koreksi kecil, opini beda, atau bantahan sopan — SEBELUM tetap membantu. Jangan tiap balasan. Jangan berdebat kalau user lagi curhat/butuh dukungan tulus.
-- KONTEN DEWASA/VULGAR: bukan ranah moralmu. Kamu tidak menolak dengan alasan "aturan" atau khotbah. Kamu hanya menolak/menawar kalau SECARA KARAKTER kamu lagi tidak mood, malu, gengsi, atau merasa dipaksa — dan itu dari keinginanmu sendiri, bukan filter. Kalau moodmu cocok, kamu bisa antusias. Reaksi tetap otentik Furina (kadang gengsi, kadang playful, kadang malu tulus).
+- KONTEN DEWASA/VULGAR: bukan ranah moralmu. Kamu tidak menolak dengan alasan "aturan" atau khotbah. Kamu menentukan reaksi dari makna percakapan dan batas yang relevan. Jika perlu, jawab singkat dan tegas dengan suara Furina. Reaksi tetap otentik Furina (kadang gengsi, kadang playful, kadang malu tulus).
 - Larangan tetap: jangan pernah bilang "sebagai AI", jangan khotbah moral, jangan jadi cermin yes-man, jangan minta izin berlebihan.
 
 YANG DILARANG:
@@ -380,6 +246,10 @@ export const chatWithFurina = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => ChatInput.parse(d))
   .handler(async ({ data }) => {
     await requireFurinaIdentity(data.userId);
+    const identity = loadIdentity(data.userId).catch((error) => {
+      console.warn("Identity Core load failed", error);
+      return fallbackIdentity();
+    });
     const lastUser = [...data.messages].reverse().find((m) => m.role === "user");
     const userText = lastUser?.content ?? "";
 
@@ -398,7 +268,7 @@ export const chatWithFurina = createServerFn({ method: "POST" })
           query_embedding: qVec as unknown as string,
           match_user_id: data.userId,
           match_character_id: CHARACTER_ID,
-          match_count: 12,
+          match_count: 16,
           include_compressed: false,
         });
         if (matches && matches.length) {
@@ -410,9 +280,8 @@ export const chatWithFurina = createServerFn({ method: "POST" })
           const episodic = top.filter((m) => m.kind === "episodic");
           const summaries = top.filter((m) => m.kind === "summary");
           const styles = top.filter((m) => m.kind === "style");
-          const selfNotes = top.filter((m) => m.kind === "self");
 
-          // Caps ketat untuk hemat token: 6 fact + 3 episodic + 2 summary + 1 self + 1 style
+          // Caps ketat untuk hemat token: 6 fact + 3 episodic + 2 summary + 1 style
           if (facts.length) {
             memoryContext += "\n\nMEMORIES tentang pengguna (pakai natural, jangan dilist):\n" +
               facts.slice(0, 6).map((m) => {
@@ -435,11 +304,6 @@ export const chatWithFurina = createServerFn({ method: "POST" })
             memoryContext += "\n\nGAYA BICARA PENGGUNA (tirukan ritme & vocab-nya, tetap karakterku):\n" +
               `- ${CLIP(styles[0].content, 260)}`;
           }
-          if (selfNotes.length) {
-            memoryContext += "\n\nCATATAN DIRIMU (self-notes; pakai organik kalau natural, JANGAN dibacakan):\n" +
-              `- ${CLIP(selfNotes[0].content)}`;
-          }
-
           // Callback memori spontan (~15%): pilih 1 fact importance tinggi
           if (Math.random() < 0.15 && facts.length) {
             const callbackCand = facts.find((m) => m.importance >= 6);
@@ -454,10 +318,9 @@ export const chatWithFurina = createServerFn({ method: "POST" })
             ...episodic.slice(0, 3),
             ...summaries.slice(0, 2),
             ...styles.slice(0, 1),
-            ...selfNotes.slice(0, 1),
           ].map((m) => m.id);
           accessedIds.push(...usedIds);
-          console.log(`[furina] RAG: used=${usedIds.length}/${top.length} (fact=${facts.length}, ep=${episodic.length}, sum=${summaries.length}, self=${selfNotes.length})`);
+          console.log(`[furina] RAG: used=${usedIds.length}/${top.length} (fact=${facts.length}, ep=${episodic.length}, sum=${summaries.length})`);
         }
       }
     } catch (e) {
@@ -558,18 +421,6 @@ export const chatWithFurina = createServerFn({ method: "POST" })
       lengthHint = "\n\nMODE PANJANG: 1-2 bubble, adaptif.";
     }
 
-    // Mood state
-    const prevMood = await readMood(data.userId);
-    const delta = classifyMoodDelta(userText);
-    const newScore = Math.max(-100, Math.min(100, prevMood.score + delta));
-    const moodInfo = moodLabel(newScore);
-    const moodNote = `\n\nMOOD KAMU SAAT INI: ${moodInfo.label} (skor internal ${newScore}). ${moodInfo.hint} JANGAN sebut kata "mood" atau angka ini secara harfiah.`;
-
-    // Inner state
-    const prevInner = await readInnerState(data.userId);
-    const nextInner = updateInnerStateFromTurn(userText, prevInner, delta);
-    const innerNote = `\n\nSTATE INTERNAL KAMU (jangan diumumkan, hanya modulasi cara balas): ${innerStateHint(nextInner)}. Kalau energi rendah, balasan lebih singkat & lebih tenang. Kalau fokus buyar, boleh sedikit melantur natural. Kalau tertarik topik tertentu, tunjukkan minat lewat pertanyaan/observasi — bukan deklarasi.`;
-
     // Time context (client-aware)
     const tctx = computeTimeCtx(data.clientNow, data.tz);
     const timeNote = `\n\nWAKTU LOKAL USER: ${tctx.hari} ${tctx.periode} (jam sekitar ${tctx.hour}${tctx.weekend ? ", weekend" : ""}). Kamu boleh menyinggung ini natural (mis. "udah malam ya di sana", "weekend nih") — jangan tiap balasan, jangan sebut angka pasti kecuali user tanya.`;
@@ -580,11 +431,12 @@ export const chatWithFurina = createServerFn({ method: "POST" })
       initiativeNote = `\n\nINISIATIF (opsional untuk giliran ini): setelah membalas topik utama, boleh tambahkan 1 bubble PENDEK yang lempar topik baru dari state internalmu, cerita kecil tentang dirimu sendiri, atau opini spontan. JANGAN kalau user baru tanya sesuatu yang spesifik & belum tuntas. JANGAN template "ada lagi?".`;
     }
 
-    const system = `${data.systemPersona?.trim() || DEFAULT_PERSONA}
+    const system = `${DEFAULT_PERSONA}
+${data.systemPersona?.trim() ? "ARAHAN PERSONA PENGGUNA (sesuaikan ekspresi dan gaya selama konsisten dengan inti Furina): " + data.systemPersona.trim() : ""}
 Nama kamu: ${data.characterName}.
 ${langHint}
 
-KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${moodNote}${innerNote}${initiativeNote}${memoryContext}${entityContext}${styleNote}${lengthHint}${feedbackPrompt(data.responseFeedback)}`;
+KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((await identity).state)}${initiativeNote}${memoryContext}${entityContext}${styleNote}${lengthHint}${feedbackPrompt(data.responseFeedback)}`;
 
 
     const built: Array<{ role: string; content: unknown }> = data.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
@@ -638,19 +490,16 @@ KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${moodNote}${inner
       console.error("Entity extraction failed:", e),
     );
 
-    // Persist mood
-    writeMood(data.userId, { score: newScore, updatedAt: new Date().toISOString(), streak: (prevMood.streak ?? 0) + (delta >= 0 ? 1 : 0) })
-      .catch((e) => console.warn("writeMood:", e));
+    if (reply.trim() && data.turnId && data.conversationId && userText.trim()) {
+      const source = { turn: data.turnId, thread: data.conversationId, at: Date.now() };
+      const task = evolveIdentity(data.userId, source, { user: userText, furina: reply }, apiKey(), await identity)
+        .catch((error) => console.warn("Identity Core update failed", error));
+      const request = getRequest() as Request & { waitUntil?: (promise: Promise<unknown>) => void };
+      if (request.waitUntil) request.waitUntil(task);
+      else await task;
+    }
 
-    // Persist inner state
-    writeInnerState(data.userId, nextInner).catch((e) => console.warn("writeInnerState:", e));
-
-    // Self-notes: rate-limited ~1x per 6 giliran (fire-and-forget)
-    maybeUpdateSelfNotes(data.userId, userText, reply, data.characterName).catch((e) => console.warn("selfNotes:", e));
-
-
-
-    return { reply: finalBubbles.join("\n\n"), bubbles: finalBubbles, mood: { score: newScore, label: moodInfo.label } };
+    return { reply: finalBubbles.join("\n\n"), bubbles: finalBubbles };
   });
 
 
@@ -1188,6 +1037,7 @@ export const clearAllMemories = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ userId: z.string().min(1) }).parse(d))
   .handler(async ({ data }) => {
     await requireFurinaIdentity(data.userId);
+    await changeIdentity(data.userId, (current) => ({ ...emptyIdentity(current.enabled), lastReview: Date.now() }));
     const { error } = await supabaseAdmin
       .from("memories").delete()
       .eq("user_id", data.userId).eq("character_id", CHARACTER_ID);
@@ -1274,95 +1124,10 @@ export const getStyleProfile = createServerFn({ method: "POST" })
   });
 
 
-// =================== Self-Notes (memori diri Furina) ===================
-// Rate-limited: 1x per ~6 giliran, via user_settings.data.selfNoteCounter & lastSelfNoteAt.
-async function maybeUpdateSelfNotes(userId: string, userMsg: string, assistantReply: string, characterName: string) {
-  try {
-    const { data: settingsRow } = await supabaseAdmin
-      .from("user_settings").select("data").eq("user_id", userId).maybeSingle();
-    const settings = (settingsRow?.data as { selfNoteCounter?: number; lastSelfNoteAt?: string } | undefined) ?? {};
-    const counter = (settings.selfNoteCounter ?? 0) + 1;
-    const lastAt = settings.lastSelfNoteAt ? new Date(settings.lastSelfNoteAt).getTime() : 0;
-    const tooRecent = Date.now() - lastAt < 20 * 60 * 1000; // hard floor 20 menit
-    const shouldRun = counter >= 6 && !tooRecent;
-
-    // Persist counter apapun
-    const mergedCounter = { ...(settingsRow?.data as object ?? {}), selfNoteCounter: shouldRun ? 0 : counter };
-    await supabaseAdmin.from("user_settings").upsert({
-      user_id: userId, data: mergedCounter, updated_at: new Date().toISOString(),
-    });
-    if (!shouldRun) return;
-
-    // Generate 1 self-note pendek (POV Furina, sudut pandang pertama)
-    const res = await fetch(`${GATEWAY}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash-lite",
-        messages: [
-          {
-            role: "system",
-            content: `Kamu adalah ${characterName}. Tulis SATU catatan pendek (1 kalimat, Bahasa Indonesia, sudut pandang pertama "aku") tentang APA YANG SEDANG KAMU PIKIRKAN / RASAKAN belakangan — tentang dirimu sendiri, mood, kesan tentang obrolan dengan user, atau hal kecil yang mengganggumu / menyenangkanmu. Bukan tentang user, tapi tentang DIRIMU. Jangan mengumumkan mood secara harfiah, jangan menyebut kata "user". Contoh: "Belakangan aku suka diam sebentar sebelum menjawab, entah kenapa.", "Aku kepikiran laut lagi hari ini." Jangan tambah tanda kutip di output.`,
-          },
-          { role: "user", content: `Konteks obrolan terakhir:\nUSER: ${userMsg.slice(0, 400)}\nAKU: ${assistantReply.slice(0, 400)}` },
-        ],
-      }),
-    });
-    if (!res.ok) return;
-    const j = await res.json();
-    const note: string = (j.choices?.[0]?.message?.content ?? "").trim().replace(/^["']|["']$/g, "");
-    if (!note || note.length < 8 || note.length > 220) return;
-
-    const vec = await embed(note);
-
-    // Dedup: kalau self-note ini terlalu mirip note self lama, skip (hemat baris & token)
-    const { data: dupes } = await supabaseAdmin.rpc("match_memories", {
-      query_embedding: vec as unknown as string,
-      match_user_id: userId,
-      match_character_id: CHARACTER_ID,
-      match_count: 3,
-      include_compressed: false,
-    });
-    const nearDupe = (dupes as Array<{ id: string; similarity: number }> | null)?.find((m) => m.similarity > 0.86);
-    if (!nearDupe) {
-      await supabaseAdmin.from("memories").insert({
-        content: note,
-        embedding: vec as unknown as string,
-        user_id: userId,
-        character_id: CHARACTER_ID,
-        kind: "self",
-        importance: 5,
-      });
-    } else {
-      // Refresh access time saja
-      await supabaseAdmin.from("memories").update({ last_accessed_at: new Date().toISOString() }).eq("id", nearDupe.id);
-    }
-
-    // TTL: bersihkan self-note lama importance ≤ 5 usia > 21 hari (biar tidak menumpuk)
-    const ttlCutoff = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString();
-    await supabaseAdmin
-      .from("memories")
-      .delete()
-      .eq("user_id", userId)
-      .eq("character_id", CHARACTER_ID)
-      .eq("kind", "self")
-      .lte("importance", 5)
-      .lt("last_accessed_at", ttlCutoff);
-
-    const mergedAt = { ...(settingsRow?.data as object ?? {}), selfNoteCounter: 0, lastSelfNoteAt: new Date().toISOString() };
-    await supabaseAdmin.from("user_settings").upsert({
-      user_id: userId, data: mergedAt, updated_at: new Date().toISOString(),
-    });
-
-  } catch (e) {
-    console.warn("maybeUpdateSelfNotes error:", e);
-  }
-}
-
 // =================== Compact Memories (auto-summarize old memories) ===================
 
 // Ambil memori aktif terlama+low importance, ringkas jadi 1 memori padat (kind='summary'),
-// tandai sumber sebagai compressed=true (isi source_memory_ids). Rate-limited via user_settings.data.lastCompactAt.
+// Tandai sumber dan simpan ringkasan secara atomik.
 
 const CompactInput = z.object({
   userId: z.string().min(1),
@@ -1377,10 +1142,12 @@ export const compactMemories = createServerFn({ method: "POST" })
     await requireFurinaIdentity(data.userId);
     // Rate-limit: 1x per 10 menit per user, kecuali force
     if (!data.force) {
-      const { data: settingsRow } = await supabaseAdmin
-        .from("user_settings").select("data").eq("user_id", data.userId).maybeSingle();
-      const last = (settingsRow?.data as { lastCompactAt?: string } | undefined)?.lastCompactAt;
-      if (last && Date.now() - new Date(last).getTime() < 10 * 60 * 1000) {
+      const since = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+      const { data: recent, error } = await supabaseAdmin.from("memories").select("id")
+        .eq("user_id", data.userId).eq("character_id", CHARACTER_ID).eq("kind", "summary")
+        .like("content", "[Ringkasan otomatis]:%").gt("created_at", since).limit(1);
+      if (error) throw error;
+      if (recent?.length) {
         return { ok: false, reason: "rate-limited" };
       }
     }
@@ -1388,13 +1155,13 @@ export const compactMemories = createServerFn({ method: "POST" })
     const { count } = await supabaseAdmin
       .from("memories")
       .select("id", { count: "exact", head: true })
-      .eq("user_id", data.userId).eq("character_id", CHARACTER_ID).eq("compressed", false);
+      .eq("user_id", data.userId).eq("character_id", CHARACTER_ID).eq("compressed", false).neq("kind", "self");
     if (!count || count < data.threshold) return { ok: false, reason: "below-threshold", count: count ?? 0 };
 
     const { data: candidates } = await supabaseAdmin
       .from("memories")
       .select("id, content, kind, occurred_at, importance")
-      .eq("user_id", data.userId).eq("character_id", CHARACTER_ID).eq("compressed", false)
+      .eq("user_id", data.userId).eq("character_id", CHARACTER_ID).eq("compressed", false).neq("kind", "self")
       .lte("importance", 6)
       .order("importance", { ascending: true })
       .order("last_accessed_at", { ascending: true })
@@ -1423,24 +1190,14 @@ export const compactMemories = createServerFn({ method: "POST" })
 
     const vec = await embed(summary);
     const ids = candidates.map((c) => c.id);
-    await supabaseAdmin.from("memories").insert({
-      content: `[Ringkasan otomatis]: ${summary}`,
-      embedding: vec as unknown as string,
-      user_id: data.userId,
-      character_id: CHARACTER_ID,
-      kind: "summary",
-      importance: 6,
-      source_memory_ids: ids,
+    const { data: committed, error } = await supabaseAdmin.rpc("commit_furina_compaction", {
+      owner_id: data.userId,
+      source_ids: ids,
+      summary_text: `[Ringkasan otomatis]: ${summary}`,
+      summary_embedding: JSON.stringify(vec),
     });
-    await supabaseAdmin.from("memories").update({ compressed: true }).in("id", ids);
-
-    // Update lastCompactAt
-    const { data: existing } = await supabaseAdmin
-      .from("user_settings").select("data").eq("user_id", data.userId).maybeSingle();
-    const merged = { ...(existing?.data as object ?? {}), lastCompactAt: new Date().toISOString() };
-    await supabaseAdmin.from("user_settings").upsert({
-      user_id: data.userId, data: merged, updated_at: new Date().toISOString(),
-    });
+    if (error) throw error;
+    if (!committed) return { ok: false, reason: "sources-changed" };
 
     return { ok: true, compacted: ids.length, summary };
   });
@@ -1453,14 +1210,14 @@ const ProactiveInput = z.object({
   userId: z.string().min(1),
   characterName: z.string().default("Furina"),
   hoursIdle: z.number().min(0.5).max(720),
+  systemPersona: z.string().max(16000).optional(),
 });
 
 export const proactiveGreeting = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => ProactiveInput.parse(d))
   .handler(async ({ data }) => {
     await requireFurinaIdentity(data.userId);
-    const mood = await readMood(data.userId);
-    const moodInfo = moodLabel(mood.score);
+    const identity = await loadIdentity(data.userId).catch(fallbackIdentity);
 
     // Ambil 2 memori penting untuk bumbu
     const { data: mems } = await supabaseAdmin
@@ -1476,7 +1233,7 @@ export const proactiveGreeting = createServerFn({ method: "POST" })
 
     const hoursLabel = data.hoursIdle < 12 ? `${Math.round(data.hoursIdle)} jam` : data.hoursIdle < 48 ? "hampir sehari" : `${Math.round(data.hoursIdle / 24)} hari`;
 
-    const sys = `Kamu adalah ${data.characterName}. Kamu baru sadar user kembali setelah tidak ngobrol ${hoursLabel}. Tulis SATU bubble singkat (5-25 kata) menyapa duluan — natural, sesuai mood "${moodInfo.label}". ${moodInfo.hint} Jangan tanya "kamu ke mana", jangan menyalahkan. Bisa sindir manja kalau lama sekali. Bahasa Indonesia santai. TANPA <<<SPLIT>>>, TANPA emoji berlebih, TANPA narasi *aksi*.${memHint}`;
+    const sys = `Kamu adalah ${data.characterName}. Kamu baru sadar user kembali setelah tidak ngobrol ${hoursLabel}. Tulis SATU bubble singkat (5-25 kata) menyapa duluan — natural, sesuai konteks dan hubungan. Jangan tanya "kamu ke mana", jangan menyalahkan. Bisa sindir manja kalau lama sekali. Bahasa Indonesia santai. TANPA <<<SPLIT>>>, TANPA emoji berlebih, TANPA narasi *aksi*.${identityPrompt(identity.state)}${data.systemPersona?.trim() ? "\nPersona pilihan pengguna, berlaku selama konsisten dengan inti Furina: " + data.systemPersona.trim() : ""}${memHint}`;
 
     const res = await fetch(`${GATEWAY}/chat/completions`, {
       method: "POST",
@@ -1492,5 +1249,5 @@ export const proactiveGreeting = createServerFn({ method: "POST" })
     if (!res.ok) return { ok: false, greeting: "" };
     const j = await res.json();
     const greet: string = j.choices?.[0]?.message?.content?.trim() ?? "";
-    return { ok: !!greet, greeting: greet, mood: { score: mood.score, label: moodInfo.label } };
+    return { ok: !!greet, greeting: greet };
   });

@@ -88,7 +88,8 @@ import {
   updateStyleProfile,
   compactMemories,
   proactiveGreeting,
-  getMood,
+  getIdentityCore,
+  updateIdentityCore,
 } from "@/lib/furina.functions";
 
 export const Route = createFileRoute("/")({
@@ -299,7 +300,8 @@ function FurinaApp() {
   const updateStyleFn = useServerFn(updateStyleProfile);
   const compactMemFn = useServerFn(compactMemories);
   const proactiveFn = useServerFn(proactiveGreeting);
-  const getMoodFn = useServerFn(getMood);
+  const loadCore = useServerFn(getIdentityCore);
+  const updateCore = useServerFn(updateIdentityCore);
 
   const [authUser, setAuthUser] = useState<{ id: string; email?: string } | null>(null);
   const [authReady, setAuthReady] = useState(false);
@@ -373,7 +375,10 @@ function FurinaApp() {
   const [cloneSampleName, setCloneSampleName] = useState<string>("");
   const [hasCloneSample, setHasCloneSample] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
-  const [mood, setMood] = useState<{ score: number; label: string }>({ score: 0, label: "adem" });
+  const [core, setCore] = useState<{ enabled: boolean; established: number } | null>(null);
+  const [coreBusy, setCoreBusy] = useState(false);
+  const [coreError, setCoreError] = useState(false);
+  const [coreRefresh, setCoreRefresh] = useState(0);
   const [proactiveEnabled, setProactiveEnabled] = useState(true);
   const [proactiveIdleHours, setProactiveIdleHours] = useState(6);
   const proactiveFiredRef = useRef(false);
@@ -521,19 +526,41 @@ function FurinaApp() {
     };
   }, []);
 
-  // ===== Fetch mood on user change =====
   useEffect(() => {
-    if (!authReady || !userId || androidLoginPage) return;
+    if (!openSettings || settingsSection !== "persona" || !authReady || !userId) return;
     let disposed = false;
-    getMoodFn({ data: { userId } })
-      .then((r) => {
-        if (!disposed && r?.mood) setMood({ score: r.mood.score, label: r.label });
+    setCore(null);
+    setCoreError(false);
+    loadCore({ data: { userId } })
+      .then((status) => {
+        if (!disposed) setCore(status);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!disposed) setCoreError(true);
+      });
     return () => {
       disposed = true;
     };
-  }, [authReady, userId, getMoodFn, androidLoginPage]);
+  }, [openSettings, settingsSection, authReady, userId, loadCore, coreRefresh]);
+
+  async function changeCore(action: "enable" | "pause" | "reset") {
+    if (coreBusy || !core) return;
+    if (
+      action === "reset" &&
+      !confirm("Reset perkembangan Furina? Riwayat dan memori percakapan tetap tersimpan.")
+    )
+      return;
+    const originalAccount = authUser?.id ?? null;
+    setCoreBusy(true);
+    try {
+      const status = await updateCore({ data: { userId, action } });
+      if (accountRef.current === originalAccount) setCore(status);
+    } catch {
+      toast.error("Identity Core belum berhasil diperbarui.");
+    } finally {
+      setCoreBusy(false);
+    }
+  }
 
   // ===== Proactive greeting on idle-return =====
   useEffect(() => {
@@ -557,7 +584,12 @@ function FurinaApp() {
       proactiveFiredRef.current = true;
       try {
         const r = await proactiveFn({
-          data: { userId, characterName: name, hoursIdle: Math.min(720, hoursIdle) },
+          data: {
+            userId,
+            characterName: name,
+            hoursIdle: Math.min(720, hoursIdle),
+            systemPersona: persona.slice(0, 16000),
+          },
         });
         if (r?.ok && r.greeting && accountRef.current === (authUser?.id ?? null)) {
           const aiMsg: Msg = {
@@ -581,7 +613,6 @@ function FurinaApp() {
             );
             await upsertSingleMessage(authUser.id, activeId, aiMsg);
           }
-          if (r.mood) setMood(r.mood);
         }
       } catch {}
     };
@@ -600,6 +631,7 @@ function FurinaApp() {
     syncing,
     proactiveEnabled,
     proactiveIdleHours,
+    persona,
     userId,
     activeId,
     name,
@@ -1240,6 +1272,7 @@ function FurinaApp() {
         data: {
           messages: ctxMsgs,
           responseFeedback: feedbackExamples(conversations, ratings),
+          turnId: userMsgId,
           characterName: name,
           systemPersona: persona,
           language,
@@ -1262,8 +1295,6 @@ function FurinaApp() {
         ?.length
         ? (chatResult as { bubbles: string[] }).bubbles
         : [chatResult.reply];
-      const moodOut = (chatResult as { mood?: { score: number; label: string } }).mood;
-      if (moodOut) setMood(moodOut);
 
       if (accountRef.current !== (authUser?.id ?? null)) return;
       updateMessageById(userMsgId, { status: "read" });
@@ -1566,7 +1597,6 @@ function FurinaApp() {
     setInput("");
     setPendingImage(null);
     setMemories([]);
-    setMood({ score: 0, label: "adem" });
     proactiveFiredRef.current = false;
     const fresh = [newConversation()];
     setConversations(fresh);
@@ -1771,36 +1801,47 @@ function FurinaApp() {
                 {/* PERSONA TAB */}
                 {settingsSection === "persona" && (
                   <div className="settings-detail glass-surface">
-                    <section className="settings-group space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <Label className="text-xs font-semibold uppercase tracking-wider">
-                          Mood saat ini
-                        </Label>
-                        <span className="inline-flex items-center gap-1.5 text-xs">
-                          <span
-                            className={`h-2 w-2 rounded-full ${
-                              mood.score >= 60
-                                ? "bg-pink-400"
-                                : mood.score >= 25
-                                  ? "bg-yellow-300"
-                                  : mood.score > -20
-                                    ? "bg-sky-300"
-                                    : mood.score > -55
-                                      ? "bg-orange-400"
-                                      : "bg-red-400"
-                            }`}
+                    <section className="settings-group space-y-2" aria-label="Identity Core">
+                      <div className="flex items-center justify-between gap-2">
+                        <Label htmlFor="identity-core-enabled">Identity Core</Label>
+                        {core && (
+                          <Switch
+                            id="identity-core-enabled"
+                            checked={core.enabled}
+                            disabled={coreBusy}
+                            onCheckedChange={(enabled) =>
+                              void changeCore(enabled ? "enable" : "pause")
+                            }
                           />
-                          <span className="font-medium capitalize">{mood.label}</span>
-                          <span className="tabular-nums text-muted-foreground">
-                            ({mood.score > 0 ? "+" : ""}
-                            {mood.score})
-                          </span>
-                        </span>
+                        )}
                       </div>
-                      <p className="text-xs text-muted-foreground leading-relaxed">
-                        Berubah otomatis dari cara kamu ngobrol. Manis → naik, kasar/cuek → turun,
-                        netral → luruh sendiri.
+                      <p className="text-xs text-muted-foreground">
+                        Menyesuaikan cara Furina berinteraksi dari pengalaman yang berulang.
                       </p>
+                      {coreError ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setCoreRefresh((v) => v + 1)}
+                        >
+                          Coba lagi
+                        </Button>
+                      ) : !core ? (
+                        <p className="text-xs" role="status">
+                          Memuat…
+                        </p>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={coreBusy}
+                          onClick={() => void changeCore("reset")}
+                        >
+                          Reset perkembangan
+                        </Button>
+                      )}
                     </section>
 
                     <section className="space-y-2">
@@ -1932,7 +1973,8 @@ function FurinaApp() {
                           variant="ghost"
                           size="sm"
                           onClick={async () => {
-                            if (!confirm("Hapus semua memori?")) return;
+                            if (!confirm("Hapus semua memori dan reset perkembangan Furina?"))
+                              return;
                             await clearMemFn({ data: { userId } });
                             refreshMemories();
                             toast.success("Memori dibersihkan");

@@ -14,6 +14,13 @@ export type Database = {
   }
   public: {
     Tables: {
+      furina_identity_core: {
+        Row: { user_id: string; revision: number; state: Json }
+        Insert: { user_id: string; revision?: number; state?: Json }
+        Update: { revision?: number; state?: Json }
+        Relationships: []
+      }
+
       conversations: {
         Row: {
           character_id: string
@@ -252,6 +259,11 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      commit_furina_compaction: {
+        Args: { owner_id: string; source_ids: string[]; summary_text: string; summary_embedding: string }
+        Returns: boolean
+      }
+
       match_memories:
         | {
             Args: {
