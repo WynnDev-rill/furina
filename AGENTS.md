@@ -25,3 +25,7 @@
 Skill proyek tersimpan di `.agents/skills/` dan dipasang dengan versi yang dicatat di `.agents/skills/SOURCES.md`. Pakai Ponytail dalam mode Full untuk implementasi. Pakai Ultra saat investigasi perlu menantang kompleksitas, dengan seluruh perilaku yang diminta tetap dipenuhi. Pakai UI UX Pro Max saat meneliti opsi desain dan Impeccable saat memoles serta mengaudit hasil. Keputusan visual yang sudah disetujui tercatat di `DESIGN.md`.
 
 Graphify membantu menemukan relasi modul, dan kode sumber tetap menjadi sumber kebenaran. Baca `graphify-out/GRAPH_REPORT.md` atau jalankan `graphify query 'How does FurinaApp send a message?'`. Regenerasi peta struktural setelah perubahan arsitektur dengan `pip install graphifyy==0.9.108` lalu `graphify update .`. Gunakan script dan panduan skill seperlunya. Direktori skill tidak dibundel ke aplikasi.
+
+## Identity Core
+
+`src/lib/identity-core.ts` owns the fixed character anchor and evidence rules. `identity-core.server.ts` stores bounded state per verified account or legacy guest identity, using revision checks for competing writes. Preserve the separation between the app's persona, durable identity development, retrieved facts and memories, and contextual reactions. Follow `docs/identity-core.md` for the review policy and verification commands.
