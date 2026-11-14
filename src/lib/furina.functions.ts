@@ -1,3 +1,4 @@
+import { feedbackExamplesSchema, feedbackPrompt } from "@/lib/response-feedback";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireFurinaIdentity, requireGuestId } from "@/lib/furina-identity.server";
@@ -93,6 +94,7 @@ const ChatInput = z.object({
   millisSinceLastAssistant: z.number().int().nonnegative().optional(),
   conversationId: z.string().optional(),
   styleProfile: z.string().optional(),
+  responseFeedback: feedbackExamplesSchema.default([]),
   // Kesadaran waktu klien
   clientNow: z.number().int().positive().optional(),
   tz: z.string().optional(),
@@ -582,7 +584,7 @@ export const chatWithFurina = createServerFn({ method: "POST" })
 Nama kamu: ${data.characterName}.
 ${langHint}
 
-KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${moodNote}${innerNote}${initiativeNote}${memoryContext}${entityContext}${styleNote}${lengthHint}`;
+KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${moodNote}${innerNote}${initiativeNote}${memoryContext}${entityContext}${styleNote}${lengthHint}${feedbackPrompt(data.responseFeedback)}`;
 
 
     const built: Array<{ role: string; content: unknown }> = data.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
