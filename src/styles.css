@@ -137,7 +137,8 @@
     border-color: var(--color-border);
   }
 
-  html, body {
+  html,
+  body {
     height: 100%;
   }
 
@@ -148,9 +149,18 @@
 }
 
 @keyframes pop {
-  0%   { transform: scale(0.6); opacity: 0; }
-  60%  { transform: scale(1.25); opacity: 1; }
-  100% { transform: scale(1); opacity: 1; }
+  0% {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.25);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 /* Chat surfaces — translucent, readable in both themes */
@@ -162,13 +172,15 @@
   border: 1px solid color-mix(in oklab, var(--color-foreground) 8%, transparent);
 }
 .bubble-user {
-  background: linear-gradient(135deg,
+  background: linear-gradient(
+    135deg,
     color-mix(in oklab, oklch(0.62 0.18 265) 88%, transparent),
-    color-mix(in oklab, oklch(0.55 0.20 295) 88%, transparent));
+    color-mix(in oklab, oklch(0.55 0.2 295) 88%, transparent)
+  );
   color: #fff;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255,255,255,0.14);
+  border: 1px solid rgba(255, 255, 255, 0.14);
 }
 .glass-chip {
   background: color-mix(in oklab, var(--color-background) 55%, transparent);
@@ -182,4 +194,404 @@
   backdrop-filter: blur(18px) saturate(150%);
   -webkit-backdrop-filter: blur(18px) saturate(150%);
   border-top: 1px solid color-mix(in oklab, var(--color-foreground) 10%, transparent);
+}
+
+/* Furina's blue palette stays legible over user-selected artwork. */
+:root {
+  color-scheme: light;
+  --background: oklch(0.975 0.016 235);
+  --foreground: oklch(0.23 0.06 254);
+  --muted-foreground: oklch(0.43 0.055 251);
+  --primary: oklch(0.48 0.17 255);
+  --primary-foreground: white;
+  --glass: rgb(246 252 255 / 95%);
+  --glass-border: rgb(38 85 134 / 18%);
+  --glass-hover: rgb(45 105 167 / 11%);
+  --sheet-surface: rgb(242 249 255 / 98%);
+  --art-base: #d9e9f5;
+  --art-shade: rgb(223 238 250 / 63%);
+  --art-foot: rgb(223 238 250 / 95%);
+  --furina-blue: #165a91;
+}
+.dark {
+  color-scheme: dark;
+  --background: oklch(0.19 0.052 254);
+  --foreground: oklch(0.96 0.015 240);
+  --muted-foreground: oklch(0.78 0.04 244);
+  --primary: oklch(0.81 0.105 235);
+  --primary-foreground: oklch(0.23 0.06 250);
+  --glass: rgb(12 27 48 / 95%);
+  --glass-border: rgb(160 209 255 / 21%);
+  --glass-hover: rgb(155 206 254 / 12%);
+  --sheet-surface: rgb(13 29 50 / 97%);
+  --art-base: #081421;
+  --art-shade: rgb(8 20 33 / 61%);
+  --art-foot: rgb(8 20 33 / 98%);
+  --furina-blue: #a0d5ff;
+}
+.furina-shell {
+  height: 100vh;
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: var(--art-base);
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+}
+.furina-backdrop,
+.furina-scrim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.furina-backdrop {
+  object-fit: cover;
+  object-position: 50% 33%;
+}
+.furina-scrim {
+  background: linear-gradient(
+    to bottom,
+    var(--art-shade),
+    transparent 30%,
+    transparent 43%,
+    var(--art-foot) 100%
+  );
+}
+.glass-surface {
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  box-shadow:
+    0 8px 24px rgb(3 17 31 / 16%),
+    inset 0 1px rgb(255 255 255 / 10%);
+}
+.furina-header {
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  width: min(calc(100% - 20px), 54rem);
+  margin: max(8px, env(safe-area-inset-top)) auto 0;
+  padding: 7px 8px;
+  border-radius: 18px;
+}
+.furina-identity {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding-left: 3px;
+}
+.furina-identity img {
+  flex: none;
+  object-fit: cover;
+  border-radius: 10px;
+}
+.furina-identity h1 {
+  font-size: 1rem;
+  line-height: 1.25;
+  font-weight: 750;
+  letter-spacing: -0.025em;
+}
+.furina-identity p {
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--muted-foreground);
+}
+.furina-toolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+.furina-toolbar .furina-toolbar-button {
+  width: 42px;
+  height: 44px;
+  border-radius: 12px;
+}
+.furina-toolbar .furina-toolbar-button:hover,
+.settings-link:hover {
+  background: var(--glass-hover);
+}
+.furina-chat {
+  position: relative;
+  overflow: auto;
+  z-index: 1;
+  padding: 16px max(14px, env(safe-area-inset-left));
+  overscroll-behavior-y: contain;
+  scrollbar-color: var(--glass-border) transparent;
+}
+.furina-chat .bubble-ai {
+  background: var(--glass);
+  border-color: var(--glass-border);
+  color: var(--foreground);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.furina-chat .bubble-user {
+  background: #174b84;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.furina-message-meta {
+  background: var(--glass);
+  border-radius: 10px;
+  color: var(--foreground);
+  min-height: 22px;
+}
+.furina-message-meta span {
+  opacity: 1;
+}
+.furina-message-meta .glass-chip {
+  display: inline-grid;
+  place-items: center;
+  min-width: 34px;
+  min-height: 34px;
+  backdrop-filter: none;
+}
+.furina-composer {
+  z-index: 2;
+  padding: 4px 10px max(10px, env(safe-area-inset-bottom));
+}
+.furina-input {
+  border-radius: 19px;
+}
+.furina-input:focus-within {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.settings-sheet,
+.history-sheet {
+  background: var(--sheet-surface);
+  border-color: var(--glass-border);
+  animation-duration: 190ms;
+}
+.settings-sheet {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0;
+}
+.settings-sheet .sheet-close {
+  top: calc(max(16px, env(safe-area-inset-top)) + 2px);
+}
+.settings-heading {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-height: 66px;
+  padding: max(16px, env(safe-area-inset-top)) 64px 15px 20px;
+  border-bottom: 1px solid var(--glass-border);
+}
+.settings-heading h2 {
+  font-size: clamp(1.15rem, 4.8vw, 1.4rem);
+  line-height: 1.2;
+  letter-spacing: -0.03em;
+  outline-offset: 4px;
+}
+.settings-heading button {
+  width: 44px;
+  height: 44px;
+  margin: -7px 0 -7px -9px;
+}
+.settings-scroll {
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 18px 16px max(22px, env(safe-area-inset-bottom));
+}
+.settings-profile {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 0 2px 22px;
+}
+.settings-profile img {
+  border-radius: 15px;
+  flex: none;
+}
+.settings-profile h3 {
+  font-size: 1.15rem;
+  font-weight: 750;
+}
+.settings-profile p {
+  font-size: 0.84rem;
+  color: var(--muted-foreground);
+}
+.settings-list {
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--glass-hover);
+}
+.settings-link {
+  display: grid;
+  grid-template-columns: 37px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-height: 70px;
+  padding: 10px 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease-out;
+}
+.settings-link + .settings-link {
+  border-top: 1px solid var(--glass-border);
+}
+.settings-link:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -3px;
+}
+.settings-link-icon {
+  display: grid;
+  height: 36px;
+  place-items: center;
+  background: var(--glass);
+  color: var(--furina-blue);
+  border-radius: 10px;
+}
+.settings-link strong,
+.settings-link small {
+  display: block;
+}
+.settings-link strong {
+  font-size: 0.94rem;
+  font-weight: 680;
+}
+.settings-link small,
+.settings-chevron {
+  color: var(--muted-foreground);
+}
+.settings-link small {
+  margin-top: 2px;
+  font-size: 0.79rem;
+  line-height: 1.4;
+}
+.settings-detail {
+  display: grid;
+  gap: 15px;
+  min-width: 0;
+}
+.settings-detail > * {
+  min-width: 0;
+}
+.settings-detail input:not([type="date"]),
+.settings-detail [role="combobox"] {
+  min-height: 42px;
+  max-width: 100%;
+}
+.settings-detail :is(input, textarea) {
+  font-size: 1rem;
+}
+.settings-detail input[type="file"]::file-selector-button {
+  margin-right: 8px;
+  border: 1px solid var(--glass-border);
+  border-radius: 9px;
+  padding: 8px 10px;
+  background: var(--glass);
+  color: var(--foreground);
+  cursor: pointer;
+}
+.settings-group {
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  padding: 13px;
+  background: var(--glass-hover);
+}
+.settings-detail [role="switch"] {
+  margin-block: 5px;
+}
+.settings-detail [data-slot="select-value"] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@supports (backdrop-filter: blur(12px)) or (-webkit-backdrop-filter: blur(12px)) {
+  .glass-surface {
+    background: color-mix(in srgb, var(--glass) 85%, transparent);
+    backdrop-filter: blur(16px) saturate(120%);
+    -webkit-backdrop-filter: blur(16px) saturate(120%);
+  }
+  .settings-sheet {
+    background: color-mix(in srgb, var(--sheet-surface) 90%, transparent);
+    backdrop-filter: blur(22px) saturate(120%);
+    -webkit-backdrop-filter: blur(22px) saturate(120%);
+  }
+}
+@media (min-width: 700px) {
+  .furina-backdrop {
+    object-fit: contain;
+    object-position: center top;
+  }
+  .furina-scrim {
+    background:
+      radial-gradient(ellipse at 50% 24%, transparent 18%, var(--art-base) 81%),
+      linear-gradient(transparent 40%, var(--art-foot));
+  }
+  .furina-header {
+    margin-top: 16px;
+    padding: 8px 10px;
+  }
+  .furina-chat {
+    padding-inline: 24px;
+  }
+  .furina-composer {
+    padding-bottom: 18px;
+  }
+  .settings-scroll {
+    padding-inline: 22px;
+  }
+}
+@media (max-width: 359px) {
+  .furina-toolbar .furina-toolbar-button {
+    width: 36px;
+  }
+  .furina-identity {
+    gap: 6px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .furina-shell *,
+  .settings-sheet *,
+  .history-sheet *,
+  .settings-sheet,
+  .history-sheet,
+  .furina-shell ~ [data-state] {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("/fonts/plus-jakarta-sans-latin.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+}
+.android-auth-page {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+.android-auth-card {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  max-width: 26rem;
+  width: 100%;
+  padding: 24px;
+  border-radius: 18px;
+  text-align: center;
+}
+.android-auth-card h1 {
+  font-size: 1.35rem;
+  font-weight: 750;
+}
+.android-auth-card img {
+  border-radius: 14px;
+}
+.android-auth-card p {
+  overflow-wrap: anywhere;
 }

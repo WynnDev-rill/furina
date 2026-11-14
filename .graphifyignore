@@ -1,0 +1,11 @@
+.agents/
+.github/
+src/components/ui/
+src/routeTree.gen.ts
+src/integrations/supabase/types.ts
+package-lock.json
+bun.lock
+public/
+.env
+webview-android/.gradle/
+webview-android/app/build/

@@ -1,0 +1,43 @@
+name: Build Furina WebView
+
+on:
+  pull_request:
+    paths:
+      - 'webview-android/**'
+      - '.github/workflows/build-furina-webview.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'webview-android/**'
+      - '.github/workflows/build-furina-webview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Install Android SDK 35
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Build and verify APK
+        run: |
+          gradle --no-daemon -p webview-android :app:assembleDebug
+          mkdir -p dist
+          cp webview-android/app/build/outputs/apk/debug/app-debug.apk dist/Furina-WebView.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose dist/Furina-WebView.apk
+          (cd dist && sha256sum Furina-WebView.apk > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Furina-WebView
+          path: dist/
