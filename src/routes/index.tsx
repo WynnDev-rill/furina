@@ -1,3 +1,4 @@
+import { ConversationHistory } from "@/components/conversation-history";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -226,36 +227,6 @@ const VV_SPEAKERS = [
 // (Sticker feature removed.)
 
 // Natural relative time (display side — matches server humanizeDelta vibe)
-function relTime(ts: number, now: number): string {
-  const ms = now - ts;
-  const s = Math.round(ms / 1000);
-  if (s < 10) return "baru saja";
-  if (s < 60) return "beberapa detik lalu";
-  const m = Math.round(s / 60);
-  if (m < 2) return "barusan";
-  if (m < 5) return "beberapa menit lalu";
-  if (m < 25) return `${m} menit lalu`;
-  if (m < 40) return "setengah jam lalu";
-  if (m < 80) return "sekitar sejam lalu";
-  const h = Math.round(m / 60);
-  if (h < 6) return `${h} jam lalu`;
-  const d = new Date(ts);
-  const sameDay = new Date(now).toDateString() === d.toDateString();
-  if (sameDay) {
-    const hh = d.getHours();
-    if (hh < 11) return "tadi pagi";
-    if (hh < 15) return "tadi siang";
-    if (hh < 18) return "tadi sore";
-    return "tadi malam";
-  }
-  const yest = new Date(now);
-  yest.setDate(yest.getDate() - 1);
-  if (yest.toDateString() === d.toDateString()) return "kemarin";
-  const days = Math.round((now - ts) / 86400000);
-  if (days < 7) return `${days} hari lalu`;
-  return d.toLocaleDateString();
-}
-
 function fmtTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
@@ -399,8 +370,6 @@ function FurinaApp() {
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
-  const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
-  const [editingTitleVal, setEditingTitleVal] = useState("");
   const [cloneSampleName, setCloneSampleName] = useState<string>("");
   const [hasCloneSample, setHasCloneSample] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -420,6 +389,7 @@ function FurinaApp() {
   const composerRef = useRef<HTMLDivElement>(null);
   const [expandedComposer, setExpandedComposer] = useState(false);
   const feedbackKey = authReady && userId ? `furina:response-feedback:${userId}` : "";
+  const [animatedRating, setAnimatedRating] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ key: string; ratings: Ratings }>({
     key: "",
     ratings: {},
@@ -448,6 +418,7 @@ function FurinaApp() {
     if (next[messageId] === rating) delete next[messageId];
     else next[messageId] = rating;
     setFeedback({ key: feedbackKey, ratings: next });
+    setAnimatedRating(next[messageId] ? `${messageId}:${rating}` : null);
     try {
       localStorage.setItem(feedbackKey, JSON.stringify(next));
     } catch {
@@ -1124,8 +1095,8 @@ function FurinaApp() {
     setOpenConvos(false);
   }
   async function deleteConversation(id: string) {
-    if (sending || syncing || syncFailed || clearingChat) return;
-    if (!confirm("Hapus percakapan ini beserta semua pesannya?")) return;
+    if (sending || syncing || syncFailed || clearingChat) return false;
+    if (!confirm("Hapus percakapan ini beserta semua pesannya?")) return false;
     if (authUser) {
       const { error } = await supabase
         .from("conversations")
@@ -1134,7 +1105,7 @@ function FurinaApp() {
         .eq("user_id", authUser.id);
       if (error) {
         toast.error("Percakapan belum terhapus. Coba lagi.");
-        return;
+        return false;
       }
     }
     setConversations((prev) => {
@@ -1143,6 +1114,7 @@ function FurinaApp() {
       if (id === activeId) setActiveId(next[0].id);
       return next;
     });
+    return true;
   }
   function renameConversation(id: string, title: string) {
     setConversations((prev) =>
@@ -1696,139 +1668,19 @@ function FurinaApp() {
                 <MessagesSquare className="h-4 w-4" />
               </Button>
             </SheetTrigger>
-            <SheetContent side="left" className="history-sheet w-full overflow-y-auto sm:max-w-sm">
-              <SheetHeader>
-                <SheetTitle>Riwayat Percakapan</SheetTitle>
-                <SheetDescription>
-                  {authUser ? "Tersinkron ke akunmu." : "Mode guest — login untuk simpan ke cloud."}
-                </SheetDescription>
-              </SheetHeader>
-              <div className="mt-4 space-y-2">
-                <Button onClick={startNewConversation} className="w-full">
-                  <Plus className="mr-2 h-4 w-4" /> Percakapan baru
-                </Button>
-                <div className="mt-3 space-y-3">
-                  {(() => {
-                    const now = Date.now();
-                    const startOfDay = new Date();
-                    startOfDay.setHours(0, 0, 0, 0);
-                    const todayStart = startOfDay.getTime();
-                    const yesterdayStart = todayStart - 86400000;
-                    const weekStart = todayStart - 6 * 86400000;
-                    const monthStart = todayStart - 29 * 86400000;
-                    const sorted = [...conversations].sort((a, b) => b.updatedAt - a.updatedAt);
-                    const buckets: { label: string; items: Conversation[] }[] = [
-                      { label: "Hari ini", items: [] },
-                      { label: "Kemarin", items: [] },
-                      { label: "7 hari terakhir", items: [] },
-                      { label: "30 hari terakhir", items: [] },
-                      { label: "Lebih lama", items: [] },
-                    ];
-                    for (const c of sorted) {
-                      if (c.updatedAt >= todayStart) buckets[0].items.push(c);
-                      else if (c.updatedAt >= yesterdayStart) buckets[1].items.push(c);
-                      else if (c.updatedAt >= weekStart) buckets[2].items.push(c);
-                      else if (c.updatedAt >= monthStart) buckets[3].items.push(c);
-                      else buckets[4].items.push(c);
-                    }
-                    return buckets
-                      .filter((b) => b.items.length)
-                      .map((bucket) => (
-                        <div key={bucket.label}>
-                          <div className="mb-1 px-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                            {bucket.label}
-                          </div>
-                          <div className="space-y-1">
-                            {bucket.items.map((c) => {
-                              const isActive = c.id === activeId;
-                              const preview =
-                                c.messages[c.messages.length - 1]?.content?.slice(0, 60) ??
-                                "Belum ada pesan";
-                              return (
-                                <div
-                                  key={c.id}
-                                  className={`group rounded-lg border p-2 transition ${isActive ? "border-primary bg-accent" : "hover:bg-muted"}`}
-                                >
-                                  {editingTitleId === c.id ? (
-                                    <div className="flex items-center gap-1">
-                                      <Input
-                                        autoFocus
-                                        value={editingTitleVal}
-                                        onChange={(e) => setEditingTitleVal(e.target.value)}
-                                        onKeyDown={(e) => {
-                                          if (e.key === "Enter") {
-                                            renameConversation(c.id, editingTitleVal);
-                                            setEditingTitleId(null);
-                                          }
-                                          if (e.key === "Escape") setEditingTitleId(null);
-                                        }}
-                                        className="h-7 text-sm"
-                                      />
-                                      <Button
-                                        size="icon"
-                                        variant="ghost"
-                                        className="h-7 w-7"
-                                        onClick={() => {
-                                          renameConversation(c.id, editingTitleVal);
-                                          setEditingTitleId(null);
-                                        }}
-                                      >
-                                        <Check className="h-4 w-4" />
-                                      </Button>
-                                    </div>
-                                  ) : (
-                                    <button
-                                      onClick={() => selectConversation(c.id)}
-                                      className="flex w-full flex-col text-left"
-                                    >
-                                      <span className="truncate text-sm font-medium">
-                                        {c.title}
-                                      </span>
-                                      <span className="truncate text-xs text-muted-foreground">
-                                        {preview}
-                                      </span>
-                                      <span className="text-[10px] text-muted-foreground">
-                                        {relTime(c.updatedAt, now)}
-                                      </span>
-                                    </button>
-                                  )}
-                                  {editingTitleId !== c.id && (
-                                    <div className="mt-1 flex items-center gap-1">
-                                      <Button
-                                        size="icon"
-                                        variant="ghost"
-                                        className="h-10 w-10"
-                                        aria-label="Ubah judul"
-                                        onClick={() => {
-                                          setEditingTitleId(c.id);
-                                          setEditingTitleVal(c.title);
-                                        }}
-                                      >
-                                        <Pencil className="h-3 w-3" />
-                                      </Button>
-                                      <Button
-                                        size="icon"
-                                        variant="ghost"
-                                        className="h-10 w-10 text-destructive"
-                                        aria-label="Hapus percakapan"
-                                        onClick={() => {
-                                          if (confirm("Hapus percakapan ini?"))
-                                            deleteConversation(c.id);
-                                        }}
-                                      >
-                                        <Trash2 className="h-3 w-3" />
-                                      </Button>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ));
-                  })()}
-                </div>
-              </div>
+            <SheetContent side="left" className="history-sheet p-0 sm:max-w-sm">
+              <ConversationHistory
+                key={userId}
+                entries={syncFailed ? [] : conversations}
+                activeId={activeId}
+                userId={userId}
+                pending={!authReady || syncing || (!!authUser && !cloudHydratedRef.current)}
+                unavailable={syncFailed}
+                onOpen={selectConversation}
+                onNew={startNewConversation}
+                onRename={renameConversation}
+                onDelete={deleteConversation}
+              />
             </SheetContent>
           </Sheet>
 
@@ -2685,6 +2537,14 @@ function FurinaApp() {
                               onClick={() => rateResponse(m.id, rating)}
                             >
                               <Icon size={14} aria-hidden="true" />
+                              {animatedRating === `${m.id}:${rating}` &&
+                                ratings[m.id] === rating && (
+                                  <span
+                                    className={`rating-spark rating-${rating}`}
+                                    onAnimationEnd={() => setAnimatedRating(null)}
+                                    aria-hidden="true"
+                                  />
+                                )}
                             </button>
                           ))}
                         </div>

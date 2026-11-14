@@ -752,3 +752,239 @@ body:has(.settings-sheet, .history-sheet) .furina-backdrop {
     transform: translateY(5px);
   }
 }
+
+/* Compact Nexa-inspired history, over Furina's existing glass sheet. */
+.history-sheet {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 0;
+  overflow: hidden;
+}
+.history-heading {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 9px;
+  min-height: 66px;
+  padding: 12px 64px 8px 18px;
+}
+.history-heading h2 {
+  font-size: clamp(1rem, 4.7vw, 1.25rem);
+}
+.history-count {
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--glass-blue);
+}
+.history-tools {
+  display: flex;
+  gap: 8px;
+  padding: 0 14px 12px;
+}
+.history-search {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.history-search > svg {
+  position: absolute;
+  left: 11px;
+  top: 13px;
+  pointer-events: none;
+}
+.history-search input {
+  height: 44px;
+  padding-left: 35px;
+  font-size: 1rem;
+  border-radius: 13px;
+  background: var(--glass);
+}
+.history-search input::placeholder {
+  color: var(--muted-foreground);
+}
+.history-action {
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+}
+.history-list {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 14px 16px;
+}
+.history-list > p {
+  padding: 14px 4px;
+  font-size: 0.86rem;
+}
+.history-list section + section {
+  margin-top: 14px;
+}
+.history-list h3 {
+  margin: 0 4px 6px;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+.history-list ul {
+  display: grid;
+  gap: 5px;
+}
+.history-row {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--glass-border);
+  border-radius: 13px;
+  background: linear-gradient(150deg, var(--glass-sheen), transparent 75%), var(--glass-panel);
+}
+.history-row[data-active="true"] {
+  border-color: var(--furina-blue);
+  background: linear-gradient(150deg, var(--glass-blue), transparent), var(--glass-panel);
+}
+.history-row > button:last-child {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  margin-right: 3px;
+}
+.history-open {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  min-height: 54px;
+  padding: 6px 11px;
+  text-align: left;
+  border-radius: inherit;
+  cursor: pointer;
+}
+.history-open:hover {
+  background: var(--glass-hover);
+}
+.history-open > span {
+  min-width: 0;
+}
+.history-open :is(strong, small) {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.history-open strong {
+  font-size: 0.89rem;
+  font-weight: 680;
+}
+.history-open small {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+.history-star {
+  flex: none;
+  color: var(--furina-blue);
+  fill: currentColor;
+}
+.history-rename {
+  display: flex;
+  width: 100%;
+  padding: 5px;
+  gap: 3px;
+}
+.history-rename input {
+  min-width: 0;
+  font-size: 1rem;
+}
+.history-rename button {
+  flex: none;
+}
+.history-menu {
+  z-index: 60;
+}
+.history-menu [role="menuitem"] {
+  min-height: 44px;
+  padding-inline: 10px;
+  gap: 10px;
+}
+.history-menu .history-delete {
+  color: #a52038;
+}
+.dark .history-menu .history-delete {
+  color: #ffb5be;
+}
+
+.furina-feedback button {
+  position: relative;
+}
+.furina-feedback button[aria-pressed="true"] > svg {
+  fill: currentColor;
+  stroke: var(--background);
+}
+.rating-spark {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .furina-feedback button:has(.rating-like) > svg {
+    animation: rating-pop 0.46s cubic-bezier(0.2, 0.65, 0.3, 1) both;
+  }
+  .furina-feedback button:has(.rating-dislike) > svg {
+    animation: rating-tilt 0.38s ease-out both;
+  }
+  .rating-dislike {
+    animation: rating-clear 0.38s linear both;
+  }
+  .rating-like::after {
+    content: "";
+    position: absolute;
+    left: calc(50% - 2px);
+    top: calc(50% - 2px);
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    box-shadow:
+      0 -14px #ffd369,
+      13px -5px #69ccff,
+      -12px -5px #efa4fd,
+      9px 10px #affaeb,
+      -9px 11px #ffe287;
+    animation: rating-sparks 0.46s ease-out both;
+  }
+}
+@keyframes rating-pop {
+  0% {
+    transform: scale(0.72) rotate(-20deg);
+  }
+  52% {
+    transform: scale(1.42) rotate(10deg);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes rating-tilt {
+  25% {
+    transform: rotate(-16deg) scale(1.12);
+  }
+  62% {
+    transform: rotate(10deg);
+  }
+}
+@keyframes rating-sparks {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.5) rotate(22deg);
+    opacity: 0;
+  }
+}
+
+@keyframes rating-clear {
+  to {
+    opacity: 0;
+  }
+}
