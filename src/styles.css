@@ -673,3 +673,82 @@ body:has(.settings-sheet, .history-sheet) .furina-backdrop {
 .android-auth-card p {
   overflow-wrap: anywhere;
 }
+
+/* The short composer stays inline. Wrapped drafts get a full-width writing row. */
+.furina-header {
+  justify-content: flex-end;
+}
+.furina-input {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  gap: 4px;
+  align-items: end;
+  padding: 6px 7px;
+}
+.furina-input .furina-draft {
+  width: 100%;
+  min-height: 44px;
+  max-height: min(14rem, 36vh);
+  max-height: min(14rem, 36dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  line-height: 24px;
+}
+.furina-input[data-expanded="true"] .furina-draft {
+  grid-area: 1 / 1 / 2 / -1;
+}
+.furina-input[data-expanded="true"] .furina-send {
+  grid-column: 3;
+}
+.settings-link {
+  min-height: 56px;
+}
+.furina-feedback {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  border-left: 1px solid var(--glass-border);
+  padding-left: 3px;
+}
+.furina-feedback button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.furina-feedback button:hover,
+.furina-feedback button[aria-pressed="true"] {
+  background: var(--glass-hover);
+}
+.furina-feedback button[aria-pressed="true"] {
+  color: var(--furina-blue);
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+.furina-feedback button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :is(.furina-toolbar-button, .furina-input button, .furina-feedback button, .settings-link) {
+    transition:
+      transform 160ms cubic-bezier(0.2, 0.75, 0.3, 1),
+      background-color 160ms ease-out;
+  }
+  :is(.furina-toolbar-button, .furina-input button, .furina-feedback button):active {
+    transform: scale(0.91);
+  }
+  .settings-link:active {
+    transform: scale(0.985);
+  }
+  .settings-detail {
+    animation: furina-detail-in 170ms ease-out both;
+  }
+}
+@keyframes furina-detail-in {
+  from {
+    opacity: 0.65;
+    transform: translateY(5px);
+  }
+}

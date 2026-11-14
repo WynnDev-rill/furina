@@ -33,7 +33,10 @@ import {
   AudioLines,
   Bell,
   Shield,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
+import { feedbackExamples, type Rating, type Ratings } from "@/lib/response-feedback";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -414,6 +417,76 @@ function FurinaApp() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+  const [expandedComposer, setExpandedComposer] = useState(false);
+  const feedbackKey = authReady && userId ? `furina:response-feedback:${userId}` : "";
+  const [feedback, setFeedback] = useState<{ key: string; ratings: Ratings }>({
+    key: "",
+    ratings: {},
+  });
+  const ratings = feedback.key === feedbackKey ? feedback.ratings : {};
+
+  useEffect(() => {
+    if (!feedbackKey) return;
+    let stored: Ratings = {};
+    try {
+      const parsed: unknown = JSON.parse(localStorage.getItem(feedbackKey) ?? "{}");
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        stored = Object.fromEntries(
+          Object.entries(parsed).filter(([, value]) => value === "like" || value === "dislike"),
+        );
+      }
+    } catch {
+      /* Ratings are optional when storage is unavailable. */
+    }
+    setFeedback({ key: feedbackKey, ratings: stored });
+  }, [feedbackKey]);
+
+  function rateResponse(messageId: string, rating: Rating) {
+    if (!feedbackKey || feedback.key !== feedbackKey) return;
+    const next = { ...ratings };
+    if (next[messageId] === rating) delete next[messageId];
+    else next[messageId] = rating;
+    setFeedback({ key: feedbackKey, ratings: next });
+    try {
+      localStorage.setItem(feedbackKey, JSON.stringify(next));
+    } catch {
+      /* Keep this session's vote. */
+    }
+  }
+
+  useEffect(() => {
+    const field = inputRef.current;
+    const composer = composerRef.current;
+    if (!field || !composer) return;
+    const measure = () => {
+      // Measure at the compact width so layout stays stable near the wrap threshold.
+      const compactWidth = composer.clientWidth - 112;
+      field.style.width = `${Math.max(1, compactWidth)}px`;
+      field.style.height = "0px";
+      const expanded = field.scrollHeight > 45;
+      field.style.removeProperty("width");
+      const available = composer.clientWidth - (expanded ? 16 : 112);
+      field.style.width = `${Math.max(1, available)}px`;
+      const scroll = scrollRef.current;
+      const atBottom =
+        !!scroll && scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < 32;
+      field.style.height = `${Math.max(44, field.scrollHeight)}px`;
+      field.style.removeProperty("width");
+      setExpandedComposer(expanded);
+      if (atBottom && scroll) scroll.scrollTop = scroll.scrollHeight;
+    };
+    measure();
+    let width = composer.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (width === composer.clientWidth) return;
+      width = composer.clientWidth;
+      measure();
+    });
+    observer.observe(composer);
+    return () => observer.disconnect();
+  }, [input, androidLoginPage]);
+
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const lastSyncedAuthIdRef = useRef<string | null>(null);
   const initialLoadDoneRef = useRef(false);
@@ -1194,6 +1267,7 @@ function FurinaApp() {
       const chatResult = await chat({
         data: {
           messages: ctxMsgs,
+          responseFeedback: feedbackExamples(conversations, ratings),
           characterName: name,
           systemPersona: persona,
           language,
@@ -1590,16 +1664,16 @@ function FurinaApp() {
       <img src={bg} alt="" fetchPriority="high" className="furina-backdrop" draggable={false} />
       <div className="furina-scrim" />
       <header className="furina-header">
-        <div className="furina-identity glass-surface" aria-label={`Mood ${name}: ${mood.label}`}>
-          <img src="/icon-192.png" alt="" width={36} height={36} />
-          <div className="min-w-0">
-            <h1 className="truncate">{name || "Furina"}</h1>
-            <p className="truncate">
-              {syncing ? "Menyinkronkan…" : (activeConvo?.title ?? "Pendamping AI")}
-            </p>
-          </div>
-        </div>
         <div className="furina-toolbar">
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={toggleTheme}
+            className="furina-toolbar-button glass-surface"
+            aria-label={theme === "dark" ? "Ganti ke tema terang" : "Ganti ke tema gelap"}
+          >
+            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </Button>
           <Button
             size="icon"
             variant="ghost"
@@ -1818,7 +1892,7 @@ function FurinaApp() {
                       </div>
                     </div>
                     <div ref={settingsList} className="settings-list glass-surface">
-                      {settingsSections.map(({ id, label, description, icon: Icon }) => (
+                      {settingsSections.map(({ id, label, icon: Icon }) => (
                         <button
                           key={id}
                           type="button"
@@ -1834,7 +1908,6 @@ function FurinaApp() {
                           </span>
                           <span>
                             <strong>{label}</strong>
-                            <small>{description}</small>
                           </span>
                           <ChevronRight size={17} className="settings-chevron" aria-hidden="true" />
                         </button>
@@ -2490,7 +2563,6 @@ function FurinaApp() {
           {messages.length === 0 && (
             <div className="furina-welcome">
               <h2>Halo, aku {name || "Furina"}.</h2>
-              <p>Mau cerita apa hari ini?</p>
             </div>
           )}
           {messages.length > 0 && <div className="mt-auto" />}
@@ -2592,8 +2664,30 @@ function FurinaApp() {
                           <Square className="h-3 w-3" />
                         </button>
                       )}
-                      {m.audioUrl && !isPlaying && !isLoading && (
-                        <span className="text-[10px] opacity-60">●</span>
+                      {m.content.trim() && (
+                        <div
+                          className="furina-feedback"
+                          role="group"
+                          aria-label="Penilaian jawaban"
+                        >
+                          {(
+                            [
+                              ["like", "Sukai jawaban", ThumbsUp],
+                              ["dislike", "Tidak suka jawaban", ThumbsDown],
+                            ] as const
+                          ).map(([rating, label, Icon]) => (
+                            <button
+                              key={rating}
+                              type="button"
+                              aria-label={label}
+                              aria-pressed={ratings[m.id] === rating}
+                              disabled={!feedbackKey || feedback.key !== feedbackKey}
+                              onClick={() => rateResponse(m.id, rating)}
+                            >
+                              <Icon size={14} aria-hidden="true" />
+                            </button>
+                          ))}
+                        </div>
                       )}
                     </div>
                   )}
@@ -2622,7 +2716,6 @@ function FurinaApp() {
               />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-xs font-medium">{pendingImage.name}</p>
-                <p className="text-[10px] text-muted-foreground">Akan dikirim bersama pesan</p>
               </div>
               <Button
                 size="icon"
@@ -2635,7 +2728,11 @@ function FurinaApp() {
               </Button>
             </div>
           )}
-          <div className="glass-surface furina-input flex items-end gap-1.5 px-2 py-1.5">
+          <div
+            ref={composerRef}
+            className="glass-surface furina-input"
+            data-expanded={expandedComposer}
+          >
             <input
               ref={imageInputRef}
               type="file"
@@ -2646,7 +2743,7 @@ function FurinaApp() {
             <Button
               size="icon"
               variant="ghost"
-              className="h-11 w-11 shrink-0 rounded-xl"
+              className="furina-attach h-11 w-11 shrink-0"
               onClick={() => imageInputRef.current?.click()}
               aria-label="Kirim gambar"
               title="Kirim gambar"
@@ -2672,7 +2769,7 @@ function FurinaApp() {
               rows={1}
               aria-label="Tulis pesan"
               enterKeyHint="send"
-              className="max-h-28 min-h-11 min-w-0 flex-1 resize-none border-0 bg-transparent px-2 py-2.5 text-base focus-visible:ring-0 shadow-none dark:bg-transparent"
+              className="furina-draft min-w-0 resize-none border-0 bg-transparent px-2 py-2.5 text-base focus-visible:ring-0 shadow-none dark:bg-transparent"
             />
             <Button
               onClick={() => sendMessage(input)}
@@ -2686,7 +2783,7 @@ function FurinaApp() {
                 (!input.trim() && !pendingImage)
               }
               size="icon"
-              className="h-11 w-11 shrink-0 rounded-xl"
+              className="furina-send h-11 w-11 shrink-0"
               aria-label="Kirim pesan"
             >
               <Send className="h-4 w-4" />
