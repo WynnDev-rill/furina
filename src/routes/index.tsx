@@ -1560,6 +1560,8 @@ function FurinaApp() {
   if (androidLoginPage) {
     return (
       <main className="android-auth-page">
+        <img src={bg} alt="" className="furina-backdrop" draggable={false} />
+        <div className="furina-scrim" />
         <div className="glass-surface android-auth-card">
           <img src="/icon-192.png" width={56} height={56} alt="" />
           <h1>Masuk ke Furina</h1>
@@ -1587,8 +1589,8 @@ function FurinaApp() {
     <div className="furina-shell relative w-full overflow-hidden bg-background text-foreground">
       <img src={bg} alt="" fetchPriority="high" className="furina-backdrop" draggable={false} />
       <div className="furina-scrim" />
-      <header className="furina-header glass-surface">
-        <div className="furina-identity" aria-label={`Mood ${name}: ${mood.label}`}>
+      <header className="furina-header">
+        <div className="furina-identity glass-surface" aria-label={`Mood ${name}: ${mood.label}`}>
           <img src="/icon-192.png" alt="" width={36} height={36} />
           <div className="min-w-0">
             <h1 className="truncate">{name || "Furina"}</h1>
@@ -1601,18 +1603,8 @@ function FurinaApp() {
           <Button
             size="icon"
             variant="ghost"
-            onClick={toggleTheme}
-            className="furina-toolbar-button"
-            aria-label="Ganti tema"
-          >
-            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-          </Button>
-
-          <Button
-            size="icon"
-            variant="ghost"
             onClick={startNewConversation}
-            className="furina-toolbar-button"
+            className="furina-toolbar-button glass-surface"
             aria-label="Percakapan baru"
             title="Percakapan baru"
           >
@@ -1624,7 +1616,7 @@ function FurinaApp() {
               <Button
                 size="icon"
                 variant="ghost"
-                className="furina-toolbar-button"
+                className="furina-toolbar-button glass-surface"
                 aria-label="Riwayat percakapan"
               >
                 <MessagesSquare className="h-4 w-4" />
@@ -1777,7 +1769,7 @@ function FurinaApp() {
               <Button
                 size="icon"
                 variant="ghost"
-                className="furina-toolbar-button"
+                className="furina-toolbar-button glass-surface"
                 aria-label="Pengaturan"
               >
                 <Settings className="h-4 w-4" />
@@ -1816,7 +1808,7 @@ function FurinaApp() {
               <div ref={settingsScroll} className="settings-scroll">
                 {!selectedSection && (
                   <>
-                    <div className="settings-profile">
+                    <div className="settings-profile glass-surface">
                       <img src="/icon-192.png" alt="" width={52} height={52} />
                       <div className="min-w-0">
                         <h3 className="truncate">{name}</h3>
@@ -1825,7 +1817,7 @@ function FurinaApp() {
                         </p>
                       </div>
                     </div>
-                    <div ref={settingsList} className="settings-list">
+                    <div ref={settingsList} className="settings-list glass-surface">
                       {settingsSections.map(({ id, label, description, icon: Icon }) => (
                         <button
                           key={id}
@@ -1853,7 +1845,7 @@ function FurinaApp() {
 
                 {/* PERSONA TAB */}
                 {settingsSection === "persona" && (
-                  <div className="settings-detail">
+                  <div className="settings-detail glass-surface">
                     <section className="settings-group space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <Label className="text-xs font-semibold uppercase tracking-wider">
@@ -1982,7 +1974,7 @@ function FurinaApp() {
 
                 {/* MEMORI TAB */}
                 {settingsSection === "memori" && (
-                  <div className="settings-detail">
+                  <div className="settings-detail glass-surface">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <Label>Memori (lintas-percakapan)</Label>
                       <div className="flex gap-1">
@@ -2247,7 +2239,7 @@ function FurinaApp() {
 
                 {/* SUARA TAB */}
                 {settingsSection === "suara" && (
-                  <div className="settings-detail">
+                  <div className="settings-detail glass-surface">
                     <Label htmlFor="furina-provider">Mesin suara</Label>
                     <Select
                       value={provider}
@@ -2376,7 +2368,7 @@ function FurinaApp() {
 
                 {/* PROAKTIF TAB */}
                 {settingsSection === "proaktif" && (
-                  <div className="settings-detail">
+                  <div className="settings-detail glass-surface">
                     <section className="space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <Label htmlFor="furina-proactive">Sapa saat kamu kembali</Label>
@@ -2424,7 +2416,7 @@ function FurinaApp() {
 
                 {/* AKUN TAB */}
                 {settingsSection === "akun" && (
-                  <div className="settings-detail">
+                  <div className="settings-detail glass-surface">
                     <section className="settings-group space-y-2">
                       <Label className="text-xs font-semibold uppercase tracking-wider">Akun</Label>
                       {authUser ? (
@@ -2496,10 +2488,9 @@ function FurinaApp() {
       <main ref={scrollRef} className="furina-chat" aria-label="Percakapan">
         <div className="furina-chat-inner mx-auto flex min-h-full max-w-3xl flex-col gap-4">
           {messages.length === 0 && (
-            <div className="mt-auto mb-1 w-fit max-w-[min(92%,640px)] self-start">
-              <div className="bubble-ai rounded-2xl px-4 py-3 text-sm shadow-lg">
-                Halo… akhirnya kamu datang juga~ ✦ Aku {name}. Ceritakan apa saja.
-              </div>
+            <div className="furina-welcome">
+              <h2>Halo, aku {name || "Furina"}.</h2>
+              <p>Mau cerita apa hari ini?</p>
             </div>
           )}
           {messages.length > 0 && <div className="mt-auto" />}
@@ -2623,7 +2614,7 @@ function FurinaApp() {
       <div className="furina-composer">
         <div className="mx-auto max-w-3xl">
           {pendingImage && (
-            <div className="mb-2 flex items-center gap-2 rounded-lg border bg-card/70 p-2">
+            <div className="glass-surface mb-2 flex items-center gap-2 rounded-2xl p-2">
               <img
                 src={pendingImage.dataUrl}
                 alt="preview"
@@ -2713,7 +2704,7 @@ function FurinaApp() {
           if (!o) setLightboxUrl(null);
         }}
       >
-        <DialogContent className="max-w-[96vw] border-0 bg-black/90 p-2 sm:max-w-[90vw]">
+        <DialogContent className="furina-lightbox glass-surface max-w-[96vw] p-2 sm:max-w-[90vw]">
           <DialogTitle className="sr-only">Lampiran percakapan</DialogTitle>
           {lightboxUrl && (
             <div className="relative flex items-center justify-center">

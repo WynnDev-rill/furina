@@ -1,7 +1,9 @@
 # Desain Furina Companion
 
-Aset karakter historis menjadi fokus tampilan chat. Biru laut dan biru es menghubungkan tema gelap dan terang. Panel atas, penulis pesan, dan panel Pengaturan memakai permukaan kaca beropasitas tinggi. Balon chat berwarna solid dengan sedikit transparansi untuk menghindari blur berulang di daftar panjang.
+Ilustrasi Furina mengisi latar percakapan. Gradasi biru laut dan biru es di tepi layar menjaga teks terbaca dan memberi ruang pada karakter. Sapaan memakai tipografi serif, sedangkan UI dan percakapan memakai Plus Jakarta Sans.
 
-Gunakan Plus Jakarta Sans untuk teks Latin dan font sistem untuk aksara lain. Header chat menampilkan identitas karakter, judul, dan tindakan utama. Pertahankan lebar percakapan di desktop dan beri ruang untuk keyboard virtual melalui layout grid dan viewport dinamis.
+- [Liquid Glass AI Chat](https://dribbble.com/shots/27214148-AI-SaaS-Mobile-Chat-App-Liquid-Glass-UI-Agentic-Copilot-Flow) menjadi acuan untuk sapaan yang lapang, tombol bulat terpisah, dan kolom pesan mengambang.
+- [Glassmorphism Settings](https://dribbble.com/shots/24472630-Mobile-App-Settings-Glassmorphism-Daily-UI-007) menjadi acuan untuk panel profil dan kelompok menu yang ringkas. Pengaturan menampilkan satu kategori per halaman dan mengembalikan fokus ke tombol asal.
+- [Orinex AI Assistant](https://www.behance.net/gallery/236526883/AI-Assistant-Mobile-App-UIUX) menjadi acuan untuk balon pesan berwarna lembut, tepi reflektif, dan efek kaca pada lampiran.
 
-Pengaturan memakai daftar navigasi dengan nama dan deskripsi yang bisa dipindai. Satu kategori tampil per halaman. Fokus berpindah ke judul halaman dan kembali ke tombol asal saat pengguna kembali. Efek transisi ringan mengikuti preferensi reduced motion. Pastikan label kontrol, pemakaian fokus, ukuran target sentuh, dan keterbacaan di atas gambar kustom.
+Gunakan blur yang lebih kuat pada panel modal dan pantulan lembut di tepi atas. Kelompok pengaturan mewarisi latar yang sudah diburamkan. Sediakan warna pengganti untuk WebView tanpa dukungan backdrop-filter. Uji tema terang dan gelap, fokus keyboard, preferensi reduced motion, serta layout dengan keyboard virtual.
