@@ -29,7 +29,15 @@ jobs:
         with:
           gradle-version: '8.7'
       - name: Install Android SDK 35
-        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+        run: |
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          printf 'ANDROID_HOME=%s\n' "$sdk_root" >> "$GITHUB_ENV"
+          sdkmanager="$sdk_root/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$sdkmanager" ]]; then
+            sdkmanager="$(find "$sdk_root/cmdline-tools" -maxdepth 4 -type f -name sdkmanager -print -quit)"
+          fi
+          test -x "$sdkmanager"
+          "$sdkmanager" --sdk_root="$sdk_root" 'platforms;android-35' 'build-tools;35.0.0'
       - name: Build and verify APK
         run: |
           gradle --no-daemon -p webview-android :app:assembleDebug
