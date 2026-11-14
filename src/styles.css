@@ -163,39 +163,6 @@
   }
 }
 
-/* Chat surfaces — translucent, readable in both themes */
-.bubble-ai {
-  background: color-mix(in oklab, var(--color-card) 72%, transparent);
-  color: var(--color-card-foreground);
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-  border: 1px solid color-mix(in oklab, var(--color-foreground) 8%, transparent);
-}
-.bubble-user {
-  background: linear-gradient(
-    135deg,
-    color-mix(in oklab, oklch(0.62 0.18 265) 88%, transparent),
-    color-mix(in oklab, oklch(0.55 0.2 295) 88%, transparent)
-  );
-  color: #fff;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-}
-.glass-chip {
-  background: color-mix(in oklab, var(--color-background) 55%, transparent);
-  backdrop-filter: blur(12px) saturate(140%);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
-  border: 1px solid color-mix(in oklab, var(--color-foreground) 10%, transparent);
-  color: var(--color-foreground);
-}
-.composer-glass {
-  background: color-mix(in oklab, var(--color-background) 78%, transparent);
-  backdrop-filter: blur(18px) saturate(150%);
-  -webkit-backdrop-filter: blur(18px) saturate(150%);
-  border-top: 1px solid color-mix(in oklab, var(--color-foreground) 10%, transparent);
-}
-
 /* Furina's blue palette stays legible over user-selected artwork. */
 :root {
   color-scheme: light;
@@ -204,29 +171,41 @@
   --muted-foreground: oklch(0.43 0.055 251);
   --primary: oklch(0.48 0.17 255);
   --primary-foreground: white;
-  --glass: rgb(246 252 255 / 95%);
+  --glass: rgb(227 243 255 / 61%);
+  --glass-fallback: #e3effa;
+  --glass-panel: rgb(203 227 247 / 39%);
+  --glass-lip: rgb(255 255 255 / 75%);
+  --glass-sheen: rgb(255 255 255 / 29%);
+  --glass-blue: rgb(119 185 247 / 25%);
+  --bubble-tint: rgb(181 219 253 / 76%);
+  --glass-shadow: rgb(16 43 77 / 22%);
   --glass-border: rgb(38 85 134 / 18%);
   --glass-hover: rgb(45 105 167 / 11%);
-  --sheet-surface: rgb(242 249 255 / 98%);
   --art-base: #d9e9f5;
-  --art-shade: rgb(223 238 250 / 63%);
-  --art-foot: rgb(223 238 250 / 95%);
+  --art-shade: rgb(220 238 255 / 40%);
+  --art-foot: rgb(226 243 255 / 83%);
   --furina-blue: #165a91;
 }
 .dark {
   color-scheme: dark;
   --background: oklch(0.19 0.052 254);
   --foreground: oklch(0.96 0.015 240);
-  --muted-foreground: oklch(0.78 0.04 244);
+  --muted-foreground: oklch(0.87 0.032 244);
   --primary: oklch(0.81 0.105 235);
   --primary-foreground: oklch(0.23 0.06 250);
-  --glass: rgb(12 27 48 / 95%);
+  --glass: rgb(13 29 56 / 56%);
+  --glass-fallback: #233956;
+  --glass-panel: rgb(16 27 53 / 43%);
+  --glass-lip: rgb(239 250 255 / 54%);
+  --glass-sheen: rgb(217 238 255 / 16%);
+  --glass-blue: rgb(94 160 242 / 19%);
+  --bubble-tint: rgb(37 86 150 / 60%);
+  --glass-shadow: rgb(4 10 27 / 38%);
   --glass-border: rgb(160 209 255 / 21%);
   --glass-hover: rgb(155 206 254 / 12%);
-  --sheet-surface: rgb(13 29 50 / 97%);
   --art-base: #081421;
-  --art-shade: rgb(8 20 33 / 61%);
-  --art-foot: rgb(8 20 33 / 98%);
+  --art-shade: rgb(7 15 35 / 47%);
+  --art-foot: rgb(6 14 35 / 89%);
   --furina-blue: #a0d5ff;
 }
 .furina-shell {
@@ -235,7 +214,6 @@
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   background: var(--art-base);
-  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
 }
 .furina-backdrop,
 .furina-scrim {
@@ -258,12 +236,20 @@
     var(--art-foot) 100%
   );
 }
-.glass-surface {
-  background: var(--glass);
+:where(body) {
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+}
+.glass-surface,
+.settings-sheet,
+.history-sheet,
+.furina-chat :is(.bubble-ai, .bubble-user),
+.furina-message-meta {
+  background: var(--glass-fallback);
   border: 1px solid var(--glass-border);
+  border-top-color: var(--glass-lip);
   box-shadow:
-    0 8px 24px rgb(3 17 31 / 16%),
-    inset 0 1px rgb(255 255 255 / 10%);
+    inset 0 1px rgb(255 255 255 / 16%),
+    0 10px 30px var(--glass-shadow);
 }
 .furina-header {
   z-index: 2;
@@ -273,20 +259,20 @@
   gap: 8px;
   width: min(calc(100% - 20px), 54rem);
   margin: max(8px, env(safe-area-inset-top)) auto 0;
-  padding: 7px 8px;
-  border-radius: 18px;
+  padding: 0;
 }
 .furina-identity {
   display: flex;
   align-items: center;
   gap: 9px;
   min-width: 0;
-  padding-left: 3px;
+  padding: 5px 13px 5px 5px;
+  border-radius: 999px;
 }
 .furina-identity img {
   flex: none;
   object-fit: cover;
-  border-radius: 10px;
+  border-radius: 50%;
 }
 .furina-identity h1 {
   font-size: 1rem;
@@ -303,12 +289,12 @@
   display: flex;
   flex: none;
   align-items: center;
-  gap: 2px;
+  gap: 7px;
 }
 .furina-toolbar .furina-toolbar-button {
-  width: 42px;
+  width: 44px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: 50%;
 }
 .furina-toolbar .furina-toolbar-button:hover,
 .settings-link:hover {
@@ -322,23 +308,44 @@
   overscroll-behavior-y: contain;
   scrollbar-color: var(--glass-border) transparent;
 }
-.furina-chat .bubble-ai {
-  background: var(--glass);
-  border-color: var(--glass-border);
+.furina-welcome {
+  width: min(100%, 34rem);
+  margin: auto auto clamp(14px, 5svh, 45px);
+  text-align: center;
+}
+.furina-welcome h2 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2rem, 8vw, 3.65rem);
+  line-height: 1.06;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+.furina-welcome p {
+  margin-top: 10px;
+  font-size: 0.9rem;
+}
+.dark .furina-welcome {
+  text-shadow: 0 2px 14px rgb(4 12 29 / 75%);
+}
+.furina-chat :is(.bubble-ai, .bubble-user) {
   color: var(--foreground);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  box-shadow:
+    inset 0 1px rgb(255 255 255 / 12%),
+    0 5px 16px var(--glass-shadow);
+}
+.furina-chat .bubble-ai {
+  border-bottom-left-radius: 8px;
 }
 .furina-chat .bubble-user {
-  background: #174b84;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  --glass: var(--bubble-tint);
+  border-bottom-right-radius: 8px;
 }
 .furina-message-meta {
-  background: var(--glass);
-  border-radius: 10px;
   color: var(--foreground);
-  min-height: 22px;
+  min-height: 24px;
+  border-radius: 999px;
+  box-shadow: none;
 }
 .furina-message-meta span {
   opacity: 1;
@@ -355,7 +362,10 @@
   padding: 4px 10px max(10px, env(safe-area-inset-bottom));
 }
 .furina-input {
-  border-radius: 19px;
+  border-radius: 28px;
+}
+.furina-input button {
+  border-radius: 50%;
 }
 .furina-input:focus-within {
   outline: 2px solid var(--ring);
@@ -363,17 +373,27 @@
 }
 .settings-sheet,
 .history-sheet {
-  background: var(--sheet-surface);
-  border-color: var(--glass-border);
-  animation-duration: 190ms;
+  top: max(8px, env(safe-area-inset-top));
+  bottom: max(8px, env(safe-area-inset-bottom));
+  width: min(calc(100% - 16px), 29rem);
+  height: auto;
+  border-radius: 28px;
+  overflow: hidden;
+  animation-duration: 230ms;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.history-sheet {
+  left: 8px;
+  overflow-y: auto;
 }
 .settings-sheet {
+  right: 8px;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 0;
 }
 .settings-sheet .sheet-close {
-  top: calc(max(16px, env(safe-area-inset-top)) + 2px);
+  top: 12px;
 }
 .settings-heading {
   display: flex;
@@ -381,8 +401,7 @@
   align-items: center;
   gap: 8px;
   min-height: 66px;
-  padding: max(16px, env(safe-area-inset-top)) 64px 15px 20px;
-  border-bottom: 1px solid var(--glass-border);
+  padding: 14px 60px 14px 20px;
 }
 .settings-heading h2 {
   font-size: clamp(1.15rem, 4.8vw, 1.4rem);
@@ -398,13 +417,15 @@
 .settings-scroll {
   overflow: auto;
   overscroll-behavior: contain;
-  padding: 18px 16px max(22px, env(safe-area-inset-bottom));
+  padding: 2px 12px 16px;
 }
 .settings-profile {
   display: flex;
   gap: 12px;
   align-items: center;
-  margin: 0 2px 22px;
+  margin-bottom: 12px;
+  padding: 10px 13px;
+  border-radius: 21px;
 }
 .settings-profile img {
   border-radius: 15px;
@@ -419,10 +440,8 @@
   color: var(--muted-foreground);
 }
 .settings-list {
-  border: 1px solid var(--glass-border);
-  border-radius: 16px;
+  border-radius: 22px;
   overflow: hidden;
-  background: var(--glass-hover);
 }
 .settings-link {
   display: grid;
@@ -430,7 +449,7 @@
   align-items: center;
   gap: 11px;
   width: 100%;
-  min-height: 70px;
+  min-height: 63px;
   padding: 10px 12px;
   text-align: left;
   cursor: pointer;
@@ -447,9 +466,10 @@
   display: grid;
   height: 36px;
   place-items: center;
-  background: var(--glass);
+  background: linear-gradient(145deg, var(--glass-sheen), var(--glass-blue));
+  box-shadow: inset 0 1px rgb(255 255 255 / 23%);
   color: var(--furina-blue);
-  border-radius: 10px;
+  border-radius: 50%;
 }
 .settings-link strong,
 .settings-link small {
@@ -469,6 +489,8 @@
   line-height: 1.4;
 }
 .settings-detail {
+  padding: 14px;
+  border-radius: 21px;
   display: grid;
   gap: 15px;
   min-width: 0;
@@ -506,17 +528,74 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Large lenses soften the scene once; smaller cards use the filtered color below. */
 @supports (backdrop-filter: blur(12px)) or (-webkit-backdrop-filter: blur(12px)) {
+  .glass-surface,
+  .settings-sheet,
+  .history-sheet,
+  .furina-chat :is(.bubble-ai, .bubble-user),
+  .furina-message-meta {
+    background:
+      radial-gradient(ellipse at 13% 0%, var(--glass-sheen), transparent 68%),
+      linear-gradient(153deg, var(--glass-blue), transparent 44%), var(--glass);
+  }
   .glass-surface {
-    background: color-mix(in srgb, var(--glass) 85%, transparent);
-    backdrop-filter: blur(16px) saturate(120%);
-    -webkit-backdrop-filter: blur(16px) saturate(120%);
+    backdrop-filter: blur(16px) saturate(135%);
+    -webkit-backdrop-filter: blur(16px) saturate(135%);
   }
-  .settings-sheet {
-    background: color-mix(in srgb, var(--sheet-surface) 90%, transparent);
-    backdrop-filter: blur(22px) saturate(120%);
-    -webkit-backdrop-filter: blur(22px) saturate(120%);
+  .settings-sheet,
+  .history-sheet {
+    --glass: var(--glass-panel);
+    backdrop-filter: blur(27px) saturate(132%);
+    -webkit-backdrop-filter: blur(27px) saturate(132%);
   }
+  .settings-sheet .glass-surface {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    --glass: var(--glass-panel);
+  }
+  .furina-chat :is(.bubble-ai, .bubble-user) {
+    background-color: var(--glass);
+    backdrop-filter: blur(12px) saturate(125%);
+    -webkit-backdrop-filter: blur(12px) saturate(125%);
+  }
+  .furina-message-meta {
+    --glass: var(--glass-panel);
+  }
+}
+body:has(.settings-sheet, .history-sheet, .furina-lightbox) [data-slot="sheet-overlay"],
+body:has(.furina-lightbox) [data-slot="dialog-overlay"] {
+  background: rgb(7 17 37 / 22%);
+}
+body:has(.settings-sheet, .history-sheet)
+  .furina-shell
+  > :is(.furina-header, .furina-chat, .furina-composer) {
+  opacity: 0;
+}
+body:has(.settings-sheet, .history-sheet) .furina-backdrop {
+  filter: blur(9px) saturate(118%);
+  transform: scale(1.03);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .furina-shell > :is(.furina-header, .furina-chat, .furina-composer) {
+    transition: opacity 180ms ease-out;
+  }
+}
+.settings-sheet :is(.sheet-close, .settings-heading button),
+.history-sheet .sheet-close {
+  border-radius: 50%;
+  background: linear-gradient(140deg, var(--glass-sheen), var(--glass-blue));
+  border: 1px solid var(--glass-border);
+}
+.furina-input textarea::placeholder {
+  color: var(--muted-foreground);
+  opacity: 1;
+}
+.furina-input button:disabled {
+  opacity: 0.68;
+}
+.android-auth-card {
+  position: relative;
 }
 @media (min-width: 700px) {
   .furina-backdrop {
@@ -530,7 +609,6 @@
   }
   .furina-header {
     margin-top: 16px;
-    padding: 8px 10px;
   }
   .furina-chat {
     padding-inline: 24px;
