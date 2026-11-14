@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
 
 import furinaDefault from "@/assets/furina.jpg";
@@ -34,6 +35,9 @@ import {
   migrateGuestMemories,
   summarizeConversation,
   updateStyleProfile,
+  compactMemories,
+  proactiveGreeting,
+  getMood,
 } from "@/lib/furina.functions";
 
 export const Route = createFileRoute("/")({
@@ -196,6 +200,9 @@ function FurinaApp() {
   const migrateMemFn = useServerFn(migrateGuestMemories);
   const summarizeFn = useServerFn(summarizeConversation);
   const updateStyleFn = useServerFn(updateStyleProfile);
+  const compactMemFn = useServerFn(compactMemories);
+  const proactiveFn = useServerFn(proactiveGreeting);
+  const getMoodFn = useServerFn(getMood);
 
   const [authUser, setAuthUser] = useState<{ id: string; email?: string } | null>(null);
   const [authReady, setAuthReady] = useState(false);
@@ -220,11 +227,15 @@ function FurinaApp() {
   const [preGenAudio, setPreGenAudio] = useState(true);
   const [openSettings, setOpenSettings] = useState(false);
   const [openConvos, setOpenConvos] = useState(false);
-  const [memories, setMemories] = useState<{ id: string; content: string; kind?: string; importance?: number; occurred_at?: string | null }[]>([]);
+  const [memories, setMemories] = useState<{ id: string; content: string; kind?: string; importance?: number; occurred_at?: string | null; emotion?: string | null; compressed?: boolean }[]>([]);
   const [newMem, setNewMem] = useState("");
   const [editingMemId, setEditingMemId] = useState<string | null>(null);
   const [editingMemContent, setEditingMemContent] = useState("");
   const [editingMemImportance, setEditingMemImportance] = useState(5);
+  const [editingMemOccurred, setEditingMemOccurred] = useState<string>("");
+  const [memFilter, setMemFilter] = useState<string>("all");
+  const [memSearch, setMemSearch] = useState<string>("");
+
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
@@ -232,8 +243,12 @@ function FurinaApp() {
   const [editingTitleVal, setEditingTitleVal] = useState("");
   const [cloneSampleName, setCloneSampleName] = useState<string>("");
   const [hasCloneSample, setHasCloneSample] = useState(false);
-const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
-  const [isBooting, setIsBooting] = useState(true);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [mood, setMood] = useState<{ score: number; label: string }>({ score: 0, label: "adem" });
+  const [proactiveEnabled, setProactiveEnabled] = useState(true);
+  const [proactiveIdleHours, setProactiveIdleHours] = useState(6);
+  const proactiveFiredRef = useRef(false);
+  const lastActivityKey = "furina:lastActivityAt";
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -241,10 +256,10 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const lastSyncedAuthIdRef = useRef<string | null>(null);
   const initialLoadDoneRef = useRef(false);
+  const cloudHydratedRef = useRef(false);
   const settingsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const conversationsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userMsgCountRef = useRef(0);
-  const bootMinDoneRef = useRef(false);
 
   const activeConvo = conversations.find((c) => c.id === activeId);
   const messages = useMemo(() => activeConvo?.messages ?? [], [activeConvo]);
@@ -256,33 +271,10 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   }, [theme]);
 
   // ===== Auth listener =====
-  function maybeFinishBoot() {
-    if (!bootMinDoneRef.current) return;
-    if (!authReady) return;
-    if (!initialLoadDoneRef.current) return;
-    setIsBooting(false);
-  }
-
-  useEffect(() => {
-    const minTimer = setTimeout(() => {
-      bootMinDoneRef.current = true;
-      maybeFinishBoot();
-    }, 1400);
-    // Fallback: never keep the boot screen longer than 4 s even if auth stalls
-    const maxTimer = setTimeout(() => {
-      setIsBooting(false);
-    }, 4000);
-    return () => {
-      clearTimeout(minTimer);
-      clearTimeout(maxTimer);
-    };
-  }, []);
-
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session?.user) setAuthUser({ id: data.session.user.id, email: data.session.user.email ?? undefined });
       setAuthReady(true);
-      maybeFinishBoot();
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
       setAuthUser(session?.user ? { id: session.user.id, email: session.user.email ?? undefined } : null);
@@ -290,7 +282,55 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  // ===== Build settings snapshot =====
+  // ===== Fetch mood on user change =====
+  useEffect(() => {
+    if (!userId) return;
+    getMoodFn({ data: { userId } }).then((r) => {
+      if (r?.mood) setMood({ score: r.mood.score, label: r.label });
+    }).catch(() => {});
+  }, [userId, getMoodFn]);
+
+  // ===== Proactive greeting on idle-return =====
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!proactiveEnabled) return;
+
+    const tryGreet = async () => {
+      if (proactiveFiredRef.current) return;
+      if (document.visibilityState !== "visible") return;
+      const last = parseInt(localStorage.getItem(lastActivityKey) ?? "0", 10);
+      if (!last) { proactiveFiredRef.current = true; return; }
+      const hoursIdle = (Date.now() - last) / (1000 * 60 * 60);
+      if (hoursIdle < proactiveIdleHours) return;
+      proactiveFiredRef.current = true;
+      try {
+        const r = await proactiveFn({ data: { userId, characterName: name, hoursIdle: Math.min(720, hoursIdle) } });
+        if (r?.ok && r.greeting) {
+          const aiMsg: Msg = { id: crypto.randomUUID(), role: "assistant", content: r.greeting, at: Date.now() };
+          setConversations((convos) => convos.map((c) => c.id === activeId
+            ? { ...c, messages: [...c.messages, aiMsg], updatedAt: Date.now() }
+            : c));
+          if (authUser && activeId) upsertSingleMessage(authUser.id, activeId, aiMsg);
+          if (r.mood) setMood(r.mood);
+        }
+      } catch {}
+    };
+
+    const onVis = () => tryGreet();
+    document.addEventListener("visibilitychange", onVis);
+    // Coba juga langsung saat mount
+    const t = setTimeout(tryGreet, 1500);
+    return () => { document.removeEventListener("visibilitychange", onVis); clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proactiveEnabled, proactiveIdleHours, userId, activeId, name, authUser]);
+
+  // Touch lastActivity setiap kali user interaksi kirim
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const touch = () => { try { localStorage.setItem(lastActivityKey, String(Date.now())); } catch {} };
+    window.addEventListener("focus", touch);
+    return () => window.removeEventListener("focus", touch);
+  }, []);
   const buildSettings = useCallback((): SettingsSnapshot => ({
     bg, name, persona, lang: language, speed, provider, vvSpeaker, vvTranslate, preGen: preGenAudio, theme,
     cloneSampleName,
@@ -301,7 +341,9 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const applySettings = useCallback((s: SettingsSnapshot) => {
     if (s.bg) setBg(s.bg);
     if (s.name) setName(s.name);
-    if (typeof s.persona === "string") setPersona(s.persona);
+    // Persona: hanya overwrite kalau cloud punya isi non-kosong.
+    // String kosong dari cloud dianggap "belum diset" biar tidak menimpa persona lokal.
+    if (typeof s.persona === "string" && s.persona.trim().length > 0) setPersona(s.persona);
     if (s.lang) setLanguage(s.lang as typeof language);
     if (typeof s.speed === "number") setSpeed(s.speed);
     if (s.provider === "voicevox" || s.provider === "clone") setProvider(s.provider);
@@ -363,19 +405,19 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
       if (csn) setCloneSampleName(csn);
     } catch {}
     initialLoadDoneRef.current = true;
-    maybeFinishBoot();
   }, []);
 
   // ===== Sync on auth change =====
   useEffect(() => {
     if (!authReady) return;
     if (!authUser) {
-      // Logged out — already handled by logout(); nothing to pull
       lastSyncedAuthIdRef.current = null;
+      cloudHydratedRef.current = false;
       return;
     }
     if (lastSyncedAuthIdRef.current === authUser.id) return;
     lastSyncedAuthIdRef.current = authUser.id;
+    cloudHydratedRef.current = false;
     pullFromCloud(authUser.id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authReady, authUser]);
@@ -403,6 +445,7 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
           await pushAllConversationsTo(uid, conversations);
           localStorage.setItem(STORAGE.migratedFlag, uid);
           toast.success("Data guest dipindahkan ke akunmu.");
+          cloudHydratedRef.current = true;
           setSyncing(false);
           return;
         }
@@ -435,7 +478,18 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
         }));
         if (!convList.length) convList.push(newConversation());
         setConversations(convList);
-        setActiveId(convList[0].id);
+        // Preserve last active convo kalau masih ada di list; kalau tidak, pilih terbaru.
+        const savedActive = typeof window !== "undefined" ? localStorage.getItem(STORAGE.activeId) : null;
+        const preserved = savedActive && convList.some((c) => c.id === savedActive) ? savedActive : convList[0].id;
+        setActiveId(preserved);
+      } else if (hasLocalData) {
+        // Cloud kosong tapi local punya data → push local ke cloud (bukan reset).
+        // Ini fallback aman kalau flag migrasi sebelumnya sudah diset tapi cloud entah kenapa hilang.
+        try {
+          await pushAllConversationsTo(uid, conversations);
+          await pushSettingsTo(uid, buildSettings());
+          toast.info("Menyimpan ulang data lokal ke akun.");
+        } catch (e) { console.warn("re-sync local→cloud:", e); }
       } else {
         // Brand new account, no local data either → fresh start
         const fresh = [newConversation()];
@@ -446,17 +500,30 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
         setSpeed(1.0); setProvider("voicevox"); setVvSpeaker(VV_SPEAKERS[0].id);
         setVvTranslate(true); setPreGenAudio(true);
       }
+
     } catch (e) {
       console.error("pullFromCloud:", e);
       toast.error("Gagal sinkronisasi data dari akun.");
     } finally {
+      cloudHydratedRef.current = true;
       setSyncing(false);
     }
   }
 
   async function pushSettingsTo(uid: string, s: SettingsSnapshot) {
     try {
-      await supabase.from("user_settings").upsert({ user_id: uid, data: s, updated_at: new Date().toISOString() });
+      let payload: SettingsSnapshot = s;
+      // Defense-in-depth: kalau persona lokal kosong tapi cloud punya isi,
+      // jangan overwrite persona di cloud. Merge fields lain seperti biasa.
+      if (!s.persona || s.persona.trim().length === 0) {
+        const { data: existing } = await supabase
+          .from("user_settings").select("data").eq("user_id", uid).maybeSingle();
+        const cloudPersona = (existing?.data as SettingsSnapshot | undefined)?.persona;
+        if (cloudPersona && cloudPersona.trim().length > 0) {
+          payload = { ...s, persona: cloudPersona };
+        }
+      }
+      await supabase.from("user_settings").upsert({ user_id: uid, data: payload, updated_at: new Date().toISOString() });
     } catch (e) {
       console.warn("settings push failed:", e);
     }
@@ -514,6 +581,10 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   }
 
   // ===== Auto-persist conversations to localStorage + cloud (debounced) =====
+  // NOTE: Hanya push conversation row untuk convo AKTIF, tidak semua.
+  // Mass-push sebelumnya membuat semua conversations.updated_at jadi sama (bug: waktu riwayat seragam)
+  // dan berpotensi race dengan per-message upsert (bug: pesan terbaru sesekali "hilang").
+  // Message rows tetap ditulis per-bubble via upsertSingleMessage().
   useEffect(() => {
     if (!conversations.length) return;
     try {
@@ -527,13 +598,20 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
     } catch {}
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
 
-    if (authUser && initialLoadDoneRef.current) {
+    if (authUser && initialLoadDoneRef.current && cloudHydratedRef.current && activeId) {
+      const active = conversations.find((c) => c.id === activeId);
+      if (!active) return;
+      // Skip blank shells (no messages, default title) — mencegah insert row kosong ke cloud
+      // saat kondisi race antara initial local-load & pullFromCloud.
+      if (active.messages.length === 0 && (active.title === "Percakapan baru" || !active.title)) return;
       if (conversationsDebounceRef.current) clearTimeout(conversationsDebounceRef.current);
       conversationsDebounceRef.current = setTimeout(() => {
-        pushAllConversationsTo(authUser.id, conversations).catch(() => {});
+        upsertSingleConversation(authUser.id, active).catch(() => {});
       }, 1200);
     }
-  }, [conversations, authUser]);
+  }, [conversations, authUser, activeId]);
+
+
 
   useEffect(() => {
     if (activeId) try { localStorage.setItem(STORAGE.activeId, activeId); } catch {}
@@ -542,13 +620,16 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   // ===== Auto-persist settings to cloud (debounced) =====
   useEffect(() => {
     if (!authUser || !initialLoadDoneRef.current) return;
+    // WAJIB: tunggu sampai pullFromCloud selesai supaya push tidak menimpa
+    // data cloud dengan state kosong hasil mount awal.
+    if (!cloudHydratedRef.current) return;
     if (settingsDebounceRef.current) clearTimeout(settingsDebounceRef.current);
     settingsDebounceRef.current = setTimeout(() => {
       pushSettingsTo(authUser.id, buildSettings()).catch(() => {});
     }, 800);
   }, [authUser, buildSettings]);
 
-  useEffect(() => { inputRef.current?.focus(); }, []);
+  // Auto-focus dihapus agar keyboard tidak muncul otomatis di mobile
 
   function toggleTheme() {
     const next: ThemeMode = theme === "dark" ? "light" : "dark";
@@ -676,18 +757,17 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
     try {
       const currentMsgs = (conversations.find((c) => c.id === activeId)?.messages ?? []);
       const ctxMsgs = currentMsgs
-        .filter((m) => m.status !== "failed" && (m.content ?? "").trim().length > 0)
+        .filter((m) => m.status !== "failed")
         .slice(-12)
-        .map((m) => ({ role: m.role, content: m.content.trim() }));
+        .map((m) => ({ role: m.role, content: m.content || "" }));
       if (!ctxMsgs.length || ctxMsgs[ctxMsgs.length - 1]?.content !== messageContent) {
         ctxMsgs.push({ role: "user", content: messageContent });
       }
 
-
       const lastAssistant = [...currentMsgs].reverse().find((m) => m.role === "assistant");
       const millisSinceLastAssistant = lastAssistant ? Math.max(0, Date.now() - lastAssistant.at) : undefined;
 
-      const { reply } = await chat({
+      const chatResult = await chat({
         data: {
           messages: ctxMsgs,
           characterName: name,
@@ -697,22 +777,45 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
           imageDataUrl,
           millisSinceLastAssistant,
           conversationId: activeId,
+          clientNow: Date.now(),
+          tz: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return undefined; } })(),
         },
       });
 
+      const bubbles: string[] = (chatResult as { bubbles?: string[]; reply: string }).bubbles?.length
+        ? (chatResult as { bubbles: string[] }).bubbles
+        : [chatResult.reply];
+      const moodOut = (chatResult as { mood?: { score: number; label: string } }).mood;
+      if (moodOut) setMood(moodOut);
+
       updateMessageById(userMsgId, { status: "read" });
+      try { localStorage.setItem(lastActivityKey, String(Date.now())); } catch {}
+      proactiveFiredRef.current = true;
 
-      const aiMsg: Msg = {
-        id: crypto.randomUUID(), role: "assistant", content: reply, at: Date.now(),
-      };
-      updateActiveMessages((prev) => [...prev, aiMsg]);
-      if (authUser && activeConvo) upsertSingleMessage(authUser.id, activeConvo.id, aiMsg);
+      // Render bubbles one-by-one with typing delay based on length
+      let lastAiMsg: Msg | null = null;
+      for (let i = 0; i < bubbles.length; i++) {
+        const text = bubbles[i];
+        if (i > 0) {
+          const words = text.split(/\s+/).length;
+          const delayMs = Math.min(1600, 350 + words * 55);
+          await new Promise((r) => setTimeout(r, delayMs));
+        }
+        const aiMsg: Msg = {
+          id: crypto.randomUUID(), role: "assistant", content: text, at: Date.now(),
+        };
+        lastAiMsg = aiMsg;
+        updateActiveMessages((prev) => [...prev, aiMsg]);
+        if (authUser && activeConvo) upsertSingleMessage(authUser.id, activeConvo.id, aiMsg);
+      }
 
-      preGenerateAudio(aiMsg);
+      // Audio hanya di bubble terakhir
+      if (lastAiMsg) preGenerateAudio(lastAiMsg);
 
       // Background: maybe summarize
       const updatedConv = conversations.find((c) => c.id === activeId);
-      if (updatedConv) maybeSummarize({ ...updatedConv, messages: [...updatedConv.messages, aiMsg] });
+      if (updatedConv && lastAiMsg) maybeSummarize({ ...updatedConv, messages: [...updatedConv.messages, lastAiMsg] });
+
 
       // Style profile update every 10 user messages
       userMsgCountRef.current += 1;
@@ -725,13 +828,15 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
           updateStyleFn({ data: { userId, userMessages: recentUserMsgs } }).catch(() => {});
         }
       }
+
+      // Background: compact old memories (rate-limited server-side)
+      compactMemFn({ data: { userId, threshold: 60, batch: 15, force: false } }).catch(() => {});
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Gagal kirim";
       toast.error(msg);
       updateMessageById(userMsgId, { status: "failed", failedPayload: trimmed });
     } finally {
       setSending(false);
-      setTimeout(() => inputRef.current?.focus(), 0);
     }
   }
 
@@ -891,7 +996,6 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   return (
     <div className="relative h-[100dvh] w-full overflow-hidden bg-background text-foreground">
-      <BootScreen visible={isBooting} />
       <img src={bg} alt={`${name} background`} className="absolute inset-0 h-full w-full object-cover" draggable={false} />
       <div className={`pointer-events-none absolute inset-0 ${
         theme === "dark"
@@ -905,6 +1009,15 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
           <div className="glass-chip rounded-full px-3 py-1.5 text-sm font-medium max-w-[55vw] truncate flex items-center gap-2">
             <span className={`h-2 w-2 rounded-full ${syncing ? "bg-amber-400 animate-pulse" : "bg-emerald-400"} shadow-[0_0_8px_rgba(52,211,153,0.8)]`} />
             <span className="truncate">{name}</span>
+            <span
+              title={`Mood: ${mood.label} (${mood.score})`}
+              className={`h-1.5 w-1.5 rounded-full ${
+                mood.score >= 60 ? "bg-pink-400" :
+                mood.score >= 25 ? "bg-yellow-300" :
+                mood.score > -20 ? "bg-sky-300" :
+                mood.score > -55 ? "bg-orange-400" : "bg-red-400"
+              }`}
+            />
             {activeConvo && <span className="text-xs opacity-60 truncate">· {activeConvo.title}</span>}
           </div>
         </div>
@@ -934,50 +1047,83 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
                 <Button onClick={startNewConversation} className="w-full">
                   <Plus className="mr-2 h-4 w-4" /> Percakapan baru
                 </Button>
-                <div className="mt-3 space-y-1">
-                  {[...conversations].sort((a, b) => b.updatedAt - a.updatedAt).map((c) => {
-                    const isActive = c.id === activeId;
-                    const preview = c.messages[c.messages.length - 1]?.content?.slice(0, 60) ?? "Belum ada pesan";
-                    return (
-                      <div key={c.id}
-                        className={`group rounded-lg border p-2 transition ${isActive ? "border-primary bg-accent" : "hover:bg-muted"}`}>
-                        {editingTitleId === c.id ? (
-                          <div className="flex items-center gap-1">
-                            <Input autoFocus value={editingTitleVal}
-                              onChange={(e) => setEditingTitleVal(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") { renameConversation(c.id, editingTitleVal); setEditingTitleId(null); }
-                                if (e.key === "Escape") setEditingTitleId(null);
-                              }}
-                              className="h-7 text-sm" />
-                            <Button size="icon" variant="ghost" className="h-7 w-7"
-                              onClick={() => { renameConversation(c.id, editingTitleVal); setEditingTitleId(null); }}>
-                              <Check className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ) : (
-                          <button onClick={() => selectConversation(c.id)} className="flex w-full flex-col text-left">
-                            <span className="truncate text-sm font-medium">{c.title}</span>
-                            <span className="truncate text-xs text-muted-foreground">{preview}</span>
-                            <span className="text-[10px] text-muted-foreground">{relTime(c.updatedAt, Date.now())}</span>
-                          </button>
-                        )}
-                        {editingTitleId !== c.id && (
-                          <div className="mt-1 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
-                            <Button size="icon" variant="ghost" className="h-6 w-6"
-                              onClick={() => { setEditingTitleId(c.id); setEditingTitleVal(c.title); }}>
-                              <Pencil className="h-3 w-3" />
-                            </Button>
-                            <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive"
-                              onClick={() => { if (confirm("Hapus percakapan ini?")) deleteConversation(c.id); }}>
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        )}
+                <div className="mt-3 space-y-3">
+                  {(() => {
+                    const now = Date.now();
+                    const startOfDay = new Date(); startOfDay.setHours(0,0,0,0);
+                    const todayStart = startOfDay.getTime();
+                    const yesterdayStart = todayStart - 86400000;
+                    const weekStart = todayStart - 6 * 86400000;
+                    const monthStart = todayStart - 29 * 86400000;
+                    const sorted = [...conversations].sort((a, b) => b.updatedAt - a.updatedAt);
+                    const buckets: { label: string; items: Conversation[] }[] = [
+                      { label: "Hari ini", items: [] },
+                      { label: "Kemarin", items: [] },
+                      { label: "7 hari terakhir", items: [] },
+                      { label: "30 hari terakhir", items: [] },
+                      { label: "Lebih lama", items: [] },
+                    ];
+                    for (const c of sorted) {
+                      if (c.updatedAt >= todayStart) buckets[0].items.push(c);
+                      else if (c.updatedAt >= yesterdayStart) buckets[1].items.push(c);
+                      else if (c.updatedAt >= weekStart) buckets[2].items.push(c);
+                      else if (c.updatedAt >= monthStart) buckets[3].items.push(c);
+                      else buckets[4].items.push(c);
+                    }
+                    return buckets.filter((b) => b.items.length).map((bucket) => (
+                      <div key={bucket.label}>
+                        <div className="mb-1 px-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                          {bucket.label}
+                        </div>
+                        <div className="space-y-1">
+                          {bucket.items.map((c) => {
+                            const isActive = c.id === activeId;
+                            const preview = c.messages[c.messages.length - 1]?.content?.slice(0, 60) ?? "Belum ada pesan";
+                            return (
+                              <div key={c.id}
+                                className={`group rounded-lg border p-2 transition ${isActive ? "border-primary bg-accent" : "hover:bg-muted"}`}>
+                                {editingTitleId === c.id ? (
+                                  <div className="flex items-center gap-1">
+                                    <Input autoFocus value={editingTitleVal}
+                                      onChange={(e) => setEditingTitleVal(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") { renameConversation(c.id, editingTitleVal); setEditingTitleId(null); }
+                                        if (e.key === "Escape") setEditingTitleId(null);
+                                      }}
+                                      className="h-7 text-sm" />
+                                    <Button size="icon" variant="ghost" className="h-7 w-7"
+                                      onClick={() => { renameConversation(c.id, editingTitleVal); setEditingTitleId(null); }}>
+                                      <Check className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <button onClick={() => selectConversation(c.id)} className="flex w-full flex-col text-left">
+                                    <span className="truncate text-sm font-medium">{c.title}</span>
+                                    <span className="truncate text-xs text-muted-foreground">{preview}</span>
+                                    <span className="text-[10px] text-muted-foreground">{relTime(c.updatedAt, now)}</span>
+                                  </button>
+                                )}
+                                {editingTitleId !== c.id && (
+                                  <div className="mt-1 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
+                                    <Button size="icon" variant="ghost" className="h-6 w-6"
+                                      onClick={() => { setEditingTitleId(c.id); setEditingTitleVal(c.title); }}>
+                                      <Pencil className="h-3 w-3" />
+                                    </Button>
+                                    <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive"
+                                      onClick={() => { if (confirm("Hapus percakapan ini?")) deleteConversation(c.id); }}>
+                                      <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                    );
-                  })}
+                    ));
+                  })()}
                 </div>
+
               </div>
             </SheetContent>
           </Sheet>
@@ -995,54 +1141,258 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
                 <SheetDescription>Personalisasi karakter, suara, akun, dan memori.</SheetDescription>
               </SheetHeader>
 
-              <div className="mt-6 space-y-6">
-                <section className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                  <Label className="text-xs font-semibold uppercase tracking-wider">Tampilan</Label>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">Tema</span>
-                    <Button size="sm" variant="outline" onClick={toggleTheme}>
-                      {theme === "dark" ? <><Sun className="mr-2 h-4 w-4" />Terang</> : <><Moon className="mr-2 h-4 w-4" />Gelap</>}
+              <Tabs defaultValue="persona" className="mt-4 w-full">
+                <TabsList className="grid w-full grid-cols-5 h-9">
+                  <TabsTrigger value="persona" className="text-[11px] px-1">Persona</TabsTrigger>
+                  <TabsTrigger value="memori" className="text-[11px] px-1">Memori</TabsTrigger>
+                  <TabsTrigger value="suara" className="text-[11px] px-1">Suara</TabsTrigger>
+                  <TabsTrigger value="proaktif" className="text-[11px] px-1">Proaktif</TabsTrigger>
+                  <TabsTrigger value="akun" className="text-[11px] px-1">Akun</TabsTrigger>
+                </TabsList>
+
+                {/* PERSONA TAB */}
+                <TabsContent value="persona" className="mt-4 space-y-4">
+                  <section className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-semibold uppercase tracking-wider">Mood saat ini</Label>
+                      <span className="inline-flex items-center gap-1.5 text-xs">
+                        <span className={`h-2 w-2 rounded-full ${
+                          mood.score >= 60 ? "bg-pink-400" :
+                          mood.score >= 25 ? "bg-yellow-300" :
+                          mood.score > -20 ? "bg-sky-300" :
+                          mood.score > -55 ? "bg-orange-400" : "bg-red-400"
+                        }`} />
+                        <span className="font-medium capitalize">{mood.label}</span>
+                        <span className="tabular-nums text-muted-foreground">({mood.score > 0 ? "+" : ""}{mood.score})</span>
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground leading-relaxed">
+                      Berubah otomatis dari cara kamu ngobrol. Manis → naik, kasar/cuek → turun, netral → luruh sendiri.
+                    </p>
+                  </section>
+
+                  <section className="space-y-2">
+                    <Label>Nama karakter</Label>
+                    <Input value={name} onChange={(e) => { setName(e.target.value); savePref(STORAGE.name, e.target.value); }} />
+                  </section>
+
+                  <section className="space-y-2">
+                    <Label>Kepribadian / system prompt (opsional)</Label>
+                    <Textarea rows={6} placeholder="Kosongkan untuk kepribadian Furina default…"
+                      value={persona}
+                      onChange={(e) => { setPersona(e.target.value); savePref(STORAGE.persona, e.target.value); }} />
+                    <p className="text-[10px] text-muted-foreground">Kalau kosong, Furina pakai kepribadian default (dramatis, tsundere halus, ekspresif terkendali).</p>
+                  </section>
+
+                  <section className="space-y-2">
+                    <Label>Bahasa balasan</Label>
+                    <Select value={language} onValueChange={(v) => { setLanguage(v as typeof language); savePref(STORAGE.lang, v); }}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">Auto (mengikuti kamu)</SelectItem>
+                        <SelectItem value="ja">日本語</SelectItem>
+                        <SelectItem value="en">English</SelectItem>
+                        <SelectItem value="id">Indonesia</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </section>
+
+                  <Separator />
+
+                  <section className="space-y-2">
+                    <Label className="flex items-center gap-2"><ImageIcon className="h-4 w-4" /> Background karakter</Label>
+                    <input type="file" accept="image/*" onChange={handleBgUpload} className="block w-full text-sm" />
+                    <Button variant="outline" size="sm" onClick={() => { setBg(furinaDefault); localStorage.removeItem(STORAGE.bg); }}>
+                      <RotateCcw className="mr-2 h-4 w-4" /> Kembalikan Furina default
                     </Button>
+                  </section>
+
+                  <section className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                    <Label className="text-xs font-semibold uppercase tracking-wider">Tema</Label>
+                    <Button size="sm" variant="outline" onClick={toggleTheme} className="w-full">
+                      {theme === "dark" ? <><Sun className="mr-2 h-4 w-4" />Ganti ke Terang</> : <><Moon className="mr-2 h-4 w-4" />Ganti ke Gelap</>}
+                    </Button>
+                  </section>
+                </TabsContent>
+
+                {/* MEMORI TAB */}
+                <TabsContent value="memori" className="mt-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label>Memori (lintas-percakapan)</Label>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="sm" onClick={async () => {
+                        toast.info("Meringkas memori lama…");
+                        try {
+                          const r = await compactMemFn({ data: { userId, threshold: 20, batch: 15, force: true } }) as { ok: boolean; reason?: string; compacted?: number };
+                          if (r.ok) { toast.success(`${r.compacted} memori diringkas.`); refreshMemories(); }
+                          else toast.info(r.reason === "below-threshold" ? "Belum banyak memori untuk diringkas." : "Tidak ada yang diringkas.");
+                        } catch (e) { toast.error(e instanceof Error ? e.message : "Gagal"); }
+                      }}>Ringkas</Button>
+                      <Button variant="ghost" size="sm" onClick={async () => {
+                        if (!confirm("Hapus semua memori?")) return;
+                        await clearMemFn({ data: { userId } });
+                        refreshMemories();
+                        toast.success("Memori dibersihkan");
+                      }}>Hapus semua</Button>
+                    </div>
                   </div>
-                </section>
+                  <p className="text-[11px] text-muted-foreground">
+                    Fakta tentang kamu (otomatis dipelajari) + ringkasan percakapan lama. Memori lama otomatis diringkas biar hemat.
+                  </p>
+                  <div className="flex gap-2">
+                    <Input placeholder="Tambah fakta tentang dirimu…" value={newMem} onChange={(e) => setNewMem(e.target.value)} />
+                    <Button size="icon" onClick={async () => {
+                      if (newMem.trim().length < 3) return;
+                      try {
+                        await addMemFn({ data: { content: newMem.trim(), userId } });
+                        setNewMem(""); refreshMemories();
+                      } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+                    }}><Plus className="h-4 w-4" /></Button>
+                  </div>
 
-                <section className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                  <Label className="text-xs font-semibold uppercase tracking-wider">Akun</Label>
-                  {authUser ? (
-                    <div className="space-y-2">
-                      <p className="text-sm">Login sebagai <span className="font-medium">{authUser.email ?? authUser.id}</span></p>
-                      <p className="text-[11px] text-muted-foreground">
-                        ✓ Semua chat, kepribadian, dan pengaturan tersimpan otomatis ke akunmu.
-                      </p>
-                      <Button variant="outline" size="sm" className="w-full" onClick={logout}>
-                        <LogOut className="mr-2 h-4 w-4" /> Logout (kembali ke guest kosong)
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <p className="text-xs text-muted-foreground">
-                        Mode guest. Login pertama kali → data guest dipindahkan otomatis ke akun. Login berikutnya → memuat data akunmu.
-                      </p>
-                      <Button size="sm" className="w-full" onClick={loginGoogle}>
-                        <LogIn className="mr-2 h-4 w-4" /> Masuk dengan Google
-                      </Button>
-                    </div>
-                  )}
-                </section>
+                  <div className="flex flex-wrap gap-1">
+                    {[
+                      { id: "all", label: "Semua" },
+                      { id: "fact", label: "Fakta" },
+                      { id: "episodic", label: "Kejadian" },
+                      { id: "preference", label: "Preferensi" },
+                      { id: "relation", label: "Relasi" },
+                      { id: "style", label: "Gaya" },
+                      { id: "summary", label: "Ringkasan" },
+                    ].map((f) => (
+                      <button
+                        key={f.id}
+                        onClick={() => setMemFilter(f.id)}
+                        className={`rounded-full border px-2 py-0.5 text-[10px] transition ${
+                          memFilter === f.id ? "border-primary bg-primary/15 text-primary" : "border-border text-muted-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                  <Input placeholder="Cari memori…" value={memSearch} onChange={(e) => setMemSearch(e.target.value)} className="h-8 text-xs" />
 
-                <section className="space-y-2">
-                  <Label>Nama karakter</Label>
-                  <Input value={name} onChange={(e) => { setName(e.target.value); savePref(STORAGE.name, e.target.value); }} />
-                </section>
+                  <div className="max-h-[50vh] space-y-1 overflow-y-auto rounded-md border p-2 text-sm">
+                    {(() => {
+                      const q = memSearch.trim().toLowerCase();
+                      const filtered = memories.filter((m) => {
+                        if (memFilter !== "all" && (m.kind ?? "fact") !== memFilter) return false;
+                        if (q && !m.content.toLowerCase().includes(q)) return false;
+                        return true;
+                      });
+                      if (filtered.length === 0) return <p className="text-muted-foreground">Tidak ada memori cocok.</p>;
+                      const kindColor: Record<string, string> = {
+                        fact: "bg-muted",
+                        episodic: "bg-blue-500/20 text-blue-600 dark:text-blue-300",
+                        preference: "bg-emerald-500/20 text-emerald-600 dark:text-emerald-300",
+                        relation: "bg-purple-500/20 text-purple-600 dark:text-purple-300",
+                        style: "bg-accent/40",
+                        summary: "bg-primary/20",
+                        meta_summary: "bg-primary/20",
+                      };
+                      return filtered.map((m) => {
+                        const isEditing = editingMemId === m.id;
+                        const kind = m.kind ?? "fact";
+                        return (
+                          <div key={m.id} className="rounded p-1.5 hover:bg-muted/60">
+                            {isEditing ? (
+                              <div className="space-y-2">
+                                <Textarea
+                                  value={editingMemContent}
+                                  onChange={(e) => setEditingMemContent(e.target.value)}
+                                  rows={3}
+                                  className="text-sm"
+                                />
+                                <div className="flex items-center gap-2">
+                                  <Label className="text-[10px] text-muted-foreground">Penting</Label>
+                                  <Slider
+                                    value={[editingMemImportance]}
+                                    min={1} max={10} step={1}
+                                    onValueChange={(v) => setEditingMemImportance(v[0] ?? 5)}
+                                    className="flex-1"
+                                  />
+                                  <span className="w-6 text-right text-[11px] font-medium">{editingMemImportance}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Label className="text-[10px] text-muted-foreground">Tanggal</Label>
+                                  <Input
+                                    type="date"
+                                    value={editingMemOccurred}
+                                    onChange={(e) => setEditingMemOccurred(e.target.value)}
+                                    className="h-7 flex-1 text-xs"
+                                  />
+                                  {editingMemOccurred && (
+                                    <button onClick={() => setEditingMemOccurred("")} className="text-[10px] text-muted-foreground hover:text-destructive">×</button>
+                                  )}
+                                </div>
+                                <div className="flex justify-end gap-2">
+                                  <Button size="sm" variant="ghost" onClick={() => setEditingMemId(null)}>Batal</Button>
+                                  <Button size="sm" onClick={async () => {
+                                    if (editingMemContent.trim().length < 3) return;
+                                    try {
+                                      await updateMemFn({ data: {
+                                        id: m.id, userId,
+                                        content: editingMemContent.trim(),
+                                        importance: editingMemImportance,
+                                        occurred_at: editingMemOccurred || null,
+                                      }});
+                                      setEditingMemId(null);
+                                      refreshMemories();
+                                      toast.success("Memori diperbarui");
+                                    } catch (e) { toast.error(e instanceof Error ? e.message : "Gagal simpan"); }
+                                  }}>Simpan</Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-start gap-2">
+                                <span className={`mt-0.5 shrink-0 rounded px-1 text-[9px] font-semibold uppercase ${kindColor[kind] ?? "bg-muted"}`}>
+                                  {kind}
+                                </span>
+                                <div className="flex-1 min-w-0">
+                                  <p className="break-words">{m.content}</p>
+                                  {(m.occurred_at || m.emotion) && (
+                                    <p className="mt-0.5 text-[10px] text-muted-foreground">
+                                      {m.occurred_at && <>📅 {new Date(m.occurred_at).toLocaleDateString("id-ID")}</>}
+                                      {m.occurred_at && m.emotion && " · "}
+                                      {m.emotion && <>💭 {m.emotion}</>}
+                                    </p>
+                                  )}
+                                </div>
+                                <span className="mt-0.5 rounded bg-muted px-1 text-[9px] text-muted-foreground" title="Importance">
+                                  {m.importance ?? 5}
+                                </span>
+                                <button
+                                  onClick={() => {
+                                    setEditingMemId(m.id);
+                                    setEditingMemContent(m.content);
+                                    setEditingMemImportance(m.importance ?? 5);
+                                    setEditingMemOccurred(m.occurred_at ? m.occurred_at.slice(0, 10) : "");
+                                  }}
+                                  className="text-muted-foreground hover:text-primary"
+                                  title="Edit"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  onClick={async () => { await delMemFn({ data: { id: m.id, userId } }); refreshMemories(); }}
+                                  className="text-muted-foreground hover:text-destructive"
+                                  title="Hapus"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">{memories.length} memori tersimpan.</p>
+                </TabsContent>
 
-                <section className="space-y-2">
-                  <Label>Kepribadian / system prompt (opsional)</Label>
-                  <Textarea rows={5} placeholder="Kosongkan untuk kepribadian Furina default…"
-                    value={persona}
-                    onChange={(e) => { setPersona(e.target.value); savePref(STORAGE.persona, e.target.value); }} />
-                </section>
-
-                <section className="space-y-3">
+                {/* SUARA TAB */}
+                <TabsContent value="suara" className="mt-4 space-y-3">
                   <Label>Mesin suara (TTS)</Label>
                   <Select value={provider} onValueChange={(v) => { setProvider(v as TTSProvider); savePref(STORAGE.provider, v); }}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
@@ -1106,138 +1456,66 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
                     <Slider min={0.7} max={1.5} step={0.05} value={[speed]}
                       onValueChange={(v) => { const s = v[0] ?? 1; setSpeed(s); savePref(STORAGE.speed, String(s)); }} />
                   </div>
-                </section>
+                </TabsContent>
 
-                <section className="space-y-2">
-                  <Label>Bahasa balasan</Label>
-                  <Select value={language} onValueChange={(v) => { setLanguage(v as typeof language); savePref(STORAGE.lang, v); }}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="auto">Auto (mengikuti kamu)</SelectItem>
-                      <SelectItem value="ja">日本語</SelectItem>
-                      <SelectItem value="en">English</SelectItem>
-                      <SelectItem value="id">Indonesia</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </section>
+                {/* PROAKTIF TAB */}
+                <TabsContent value="proaktif" className="mt-4 space-y-4">
+                  <section className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Sapa duluan saat kamu balik</Label>
+                      <Switch checked={proactiveEnabled} onCheckedChange={setProactiveEnabled} />
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Kalau kamu lama tidak buka chat, Furina bisa nyapa duluan 1 kali saat kamu kembali. Maks sekali per sesi.
+                    </p>
+                  </section>
 
-                <Separator />
+                  <section className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Ambang idle (jam)</Label>
+                      <span className="text-xs text-muted-foreground tabular-nums">{proactiveIdleHours} jam</span>
+                    </div>
+                    <Slider min={1} max={48} step={1} value={[proactiveIdleHours]}
+                      onValueChange={(v) => setProactiveIdleHours(v[0] ?? 6)} disabled={!proactiveEnabled} />
+                    <p className="text-[10px] text-muted-foreground">
+                      Furina nyapa duluan kalau kamu tidak chat lebih dari {proactiveIdleHours} jam.
+                    </p>
+                  </section>
+                </TabsContent>
 
-                <section className="space-y-2">
-                  <Label className="flex items-center gap-2"><ImageIcon className="h-4 w-4" /> Background karakter</Label>
-                  <input type="file" accept="image/*" onChange={handleBgUpload} className="block w-full text-sm" />
-                  <Button variant="outline" size="sm" onClick={() => { setBg(furinaDefault); localStorage.removeItem(STORAGE.bg); }}>
-                    <RotateCcw className="mr-2 h-4 w-4" /> Kembalikan Furina default
+                {/* AKUN TAB */}
+                <TabsContent value="akun" className="mt-4 space-y-4">
+                  <section className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                    <Label className="text-xs font-semibold uppercase tracking-wider">Akun</Label>
+                    {authUser ? (
+                      <div className="space-y-2">
+                        <p className="text-sm">Login sebagai <span className="font-medium">{authUser.email ?? authUser.id}</span></p>
+                        <p className="text-[11px] text-muted-foreground">
+                          ✓ Semua chat, kepribadian, dan pengaturan tersimpan otomatis ke akunmu.
+                        </p>
+                        <Button variant="outline" size="sm" className="w-full" onClick={logout}>
+                          <LogOut className="mr-2 h-4 w-4" /> Logout (kembali ke guest kosong)
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground">
+                          Mode guest. Login pertama kali → data guest dipindahkan otomatis ke akun. Login berikutnya → memuat data akunmu.
+                        </p>
+                        <Button size="sm" className="w-full" onClick={loginGoogle}>
+                          <LogIn className="mr-2 h-4 w-4" /> Masuk dengan Google
+                        </Button>
+                      </div>
+                    )}
+                  </section>
+
+                  <Separator />
+
+                  <Button variant="outline" className="w-full" onClick={clearChat}>
+                    <Trash2 className="mr-2 h-4 w-4" /> Bersihkan percakapan ini
                   </Button>
-                </section>
-
-                <Separator />
-
-                <section className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>Memori (lintas-percakapan)</Label>
-                    <Button variant="ghost" size="sm" onClick={async () => {
-                      if (!confirm("Hapus semua memori?")) return;
-                      await clearMemFn({ data: { userId } });
-                      refreshMemories();
-                      toast.success("Memori dibersihkan");
-                    }}>Hapus semua</Button>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    Fakta tentang kamu (otomatis dipelajari) + ringkasan percakapan lama. AI pakai ini supaya konsisten lintas chat.
-                  </p>
-                  <div className="flex gap-2">
-                    <Input placeholder="Tambah fakta tentang dirimu…" value={newMem} onChange={(e) => setNewMem(e.target.value)} />
-                    <Button size="icon" onClick={async () => {
-                      if (newMem.trim().length < 3) return;
-                      try {
-                        await addMemFn({ data: { content: newMem.trim(), userId } });
-                        setNewMem(""); refreshMemories();
-                      } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
-                    }}><Plus className="h-4 w-4" /></Button>
-                  </div>
-                  <div className="max-h-72 space-y-1 overflow-y-auto rounded-md border p-2 text-sm">
-                    {memories.length === 0 && <p className="text-muted-foreground">Belum ada memori.</p>}
-                    {memories.map((m) => {
-                      const isEditing = editingMemId === m.id;
-                      return (
-                        <div key={m.id} className="rounded p-1.5 hover:bg-muted/60">
-                          {isEditing ? (
-                            <div className="space-y-2">
-                              <Textarea
-                                value={editingMemContent}
-                                onChange={(e) => setEditingMemContent(e.target.value)}
-                                rows={3}
-                                className="text-sm"
-                              />
-                              <div className="flex items-center gap-2">
-                                <Label className="text-[10px] text-muted-foreground">Penting</Label>
-                                <Slider
-                                  value={[editingMemImportance]}
-                                  min={1} max={10} step={1}
-                                  onValueChange={(v) => setEditingMemImportance(v[0] ?? 5)}
-                                  className="flex-1"
-                                />
-                                <span className="w-6 text-right text-[11px] font-medium">{editingMemImportance}</span>
-                              </div>
-                              <div className="flex justify-end gap-2">
-                                <Button size="sm" variant="ghost" onClick={() => setEditingMemId(null)}>Batal</Button>
-                                <Button size="sm" onClick={async () => {
-                                  if (editingMemContent.trim().length < 3) return;
-                                  try {
-                                    await updateMemFn({ data: {
-                                      id: m.id, userId,
-                                      content: editingMemContent.trim(),
-                                      importance: editingMemImportance,
-                                    }});
-                                    setEditingMemId(null);
-                                    refreshMemories();
-                                    toast.success("Memori diperbarui");
-                                  } catch (e) { toast.error(e instanceof Error ? e.message : "Gagal simpan"); }
-                                }}>Simpan</Button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="flex items-start gap-2">
-                              {m.kind === "summary" && <span className="mt-0.5 rounded bg-primary/20 px-1 text-[9px] font-semibold uppercase">ringkasan</span>}
-                              {m.kind === "style" && <span className="mt-0.5 rounded bg-accent/30 px-1 text-[9px] font-semibold uppercase">gaya</span>}
-                              <span className="flex-1 break-words">{m.content}</span>
-                              <span className="mt-0.5 rounded bg-muted px-1 text-[9px] text-muted-foreground" title="Importance">
-                                {m.importance ?? 5}
-                              </span>
-                              <button
-                                onClick={() => {
-                                  setEditingMemId(m.id);
-                                  setEditingMemContent(m.content);
-                                  setEditingMemImportance(m.importance ?? 5);
-                                }}
-                                className="text-muted-foreground hover:text-primary"
-                                title="Edit"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                onClick={async () => { await delMemFn({ data: { id: m.id, userId } }); refreshMemories(); }}
-                                className="text-muted-foreground hover:text-destructive"
-                                title="Hapus"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                </section>
-
-                <Separator />
-
-                <Button variant="outline" className="w-full" onClick={clearChat}>
-                  <Trash2 className="mr-2 h-4 w-4" /> Bersihkan percakapan ini
-                </Button>
-              </div>
+                </TabsContent>
+              </Tabs>
             </SheetContent>
           </Sheet>
         </div>
@@ -1400,20 +1678,6 @@ const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
           )}
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-function BootScreen({ visible }: { visible: boolean }) {
-  return (
-    <div className={`boot-screen ${visible ? "" : "boot-hidden"}`} aria-hidden={!visible}>
-      <div className="boot-orb boot-orb-1" />
-      <div className="boot-orb boot-orb-2" />
-      <div className="boot-orb boot-orb-3" />
-      <div className="relative z-10 flex flex-col items-center">
-        <div className="boot-ring" />
-        <div className="boot-label">Memuat</div>
-      </div>
     </div>
   );
 }

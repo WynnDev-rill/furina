@@ -9,20 +9,8 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as NativeRouteImport } from './routes/native'
-import { Route as BackupAuthRouteImport } from './routes/backup-auth'
 import { Route as IndexRouteImport } from './routes/index'
 
-const NativeRoute = NativeRouteImport.update({
-  id: '/native',
-  path: '/native',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const BackupAuthRoute = BackupAuthRouteImport.update({
-  id: '/backup-auth',
-  path: '/backup-auth',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -31,50 +19,28 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/backup-auth': typeof BackupAuthRoute
-  '/native': typeof NativeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/backup-auth': typeof BackupAuthRoute
-  '/native': typeof NativeRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/backup-auth': typeof BackupAuthRoute
-  '/native': typeof NativeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/backup-auth' | '/native'
+  fullPaths: '/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/backup-auth' | '/native'
-  id: '__root__' | '/' | '/backup-auth' | '/native'
+  to: '/'
+  id: '__root__' | '/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  BackupAuthRoute: typeof BackupAuthRoute
-  NativeRoute: typeof NativeRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/native': {
-      id: '/native'
-      path: '/native'
-      fullPath: '/native'
-      preLoaderRoute: typeof NativeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/backup-auth': {
-      id: '/backup-auth'
-      path: '/backup-auth'
-      fullPath: '/backup-auth'
-      preLoaderRoute: typeof BackupAuthRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/': {
       id: '/'
       path: '/'
@@ -87,19 +53,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  BackupAuthRoute: BackupAuthRoute,
-  NativeRoute: NativeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
