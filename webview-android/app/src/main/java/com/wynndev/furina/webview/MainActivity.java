@@ -24,7 +24,7 @@ import android.widget.Toast;
 
 public final class MainActivity extends Activity {
     // Matches the working Lovable preview URL seen in the original Furina screenshot.
-    private static final String DEFAULT_URL = "https://preview--furina.lovable.app/";
+    private static final String DEFAULT_URL = "https://furina.lovable.app/";
     private static final String PREFS = "furina_webview_settings";
     private static final String PREF_URL = "url";
     private static final int FILE_PICKER_REQUEST = 73;

@@ -57,5 +57,5 @@ jobs:
             gh release create furina-webview-july6 dist/Furina-WebView-July6.apk dist/SHA256SUMS.txt \
               --target "$GITHUB_SHA" \
               --title "Furina WebView — Lovable July 6 snapshot" \
-              --notes "Installable standalone WebView APK. Opens https://preview--furina.lovable.app/ (hosted preview; requires site to remain accessible). Separate app ID from previous Furina APK. Debug signing is not a persistent production signature."
+              --notes "Installable standalone WebView APK. Opens https://furina.lovable.app/ (hosted preview; requires site to remain accessible). Separate app ID from previous Furina APK. Debug signing is not a persistent production signature."
           fi

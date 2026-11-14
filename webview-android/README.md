@@ -2,7 +2,7 @@
 
 This is an intentionally separate Android wrapper for the **July 6, 2026 Lovable web app**. The Lovable website source on main is not changed by this wrapper.
 
-- Opens `https://preview--furina.lovable.app/` by default (based on the user's currently accessible preview).
+- Opens `https://furina.lovable.app/` by default (based on the user's currently accessible preview).
 - Does not load Vercel or use `/native`.
 - Needs network access and a live Lovable preview/published site; AI/TTS/backend still require their hosted services.
 - Uses separate application id `com.wynndev.furina.webview` so it cannot replace the existing native Furina app.
