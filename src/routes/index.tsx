@@ -1471,8 +1471,8 @@ function FurinaApp() {
         }
       }
 
-      // Background: compact old memories (rate-limited server-side)
-      compactMemFn({ data: { userId, threshold: 60, batch: 15, force: false } }).catch(() => {});
+      // Background: reconcile similar memories (rate-limited server-side)
+      compactMemFn({ data: { userId } }).catch(() => {});
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Gagal kirim";
       toast.error(msg);

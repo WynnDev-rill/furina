@@ -170,6 +170,8 @@ export type Database = {
           emotion: string | null
           id: string
           importance: number
+          merged_into: string | null
+          dedup_checked_at: string | null
           saved: boolean
           kind: string
           last_accessed_at: string
@@ -187,6 +189,8 @@ export type Database = {
           emotion?: string | null
           id?: string
           importance?: number
+          merged_into?: string | null
+          dedup_checked_at?: string | null
           saved?: boolean
           kind?: string
           last_accessed_at?: string
@@ -204,6 +208,8 @@ export type Database = {
           emotion?: string | null
           id?: string
           importance?: number
+          merged_into?: string | null
+          dedup_checked_at?: string | null
           saved?: boolean
           kind?: string
           last_accessed_at?: string
@@ -289,6 +295,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      merge_furina_memories: {
+        Args: { owner_id: string; canonical_id: string; snapshots: Json; merged_content: string; merged_embedding: string }
+        Returns: boolean
+      }
+      claim_furina_memory_scan: {
+        Args: { owner_id: string }
+        Returns: { id: string; content: string; kind: string; occurred_at: string | null; embedding: string }[]
+      }
       correct_furina_memory: {
         Args: { owner_id: string; memory_id: string; new_content: string; new_embedding: string }
         Returns: boolean

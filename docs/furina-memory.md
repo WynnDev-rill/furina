@@ -6,11 +6,15 @@
 - **Referensi riwayat** memakai ekstraksi fakta dan kejadian, ringkasan, serta pencarian semantik yang sudah dimiliki Furina. Saat dijeda, chat berhenti mengambil dan membuat konteks otomatis lintas percakapan. Pesan dalam percakapan aktif tetap tersedia untuk menjawab giliran saat ini.
 - **Ringkasan** menampilkan cuplikan catatan aktif yang dikelompokkan menurut topik. Tampilan ini dirakit dari data yang dapat ditinjau dan tidak menjalankan permintaan model tambahan.
 - **Lupakan** menghapus catatan terpilih dan menggeser batas konteks sehingga turunan riwayat lama dan giliran di balik batas itu tidak dipakai kembali. Koreksi hanya memperbarui catatan terpilih dan membatalkan ringkasan otomatis yang tercatat sebagai turunannya. Batas riwayat tidak berubah. Riwayat pesan asli tetap dapat dibuka.
-- Catatan lama di balik batas masih bisa ditinjau dan dipulihkan satu per satu lewat Kelola memori. Catatan yang dipilih pulih sebagai memori tersimpan.
+- Data yang sudah berada di balik batas privasi tetap di luar daftar dan konteks AI. Tampilan pemulihan sementara telah dihapus.
 - Database sebelumnya tidak mencatat apakah sebuah catatan ditambahkan secara manual. Catatan lama tetap dapat ditinjau di bawah referensi riwayat, lalu dipindahkan ke daftar tersimpan.
 - Akun dan tamu memiliki ruang memori terpisah. Memori aktif tamu dapat dipindahkan saat masuk untuk pertama kalinya.
 - Hapus semua memori mempertahankan Identity Core dan profil seperti tanggal lahir. Identity Core memiliki pengaturan dan reset tersendiri. Detail yang kembali dibagikan secara eksplisit dalam pesan baru dapat dipelajari lagi apabila referensi riwayat aktif.
-- Sebagian fitur lama, seperti graf entitas dan profil gaya lama yang tidak menyimpan seluruh asal teks, dihentikan setelah batas privasi pertama dibuat. Pencarian vektor dan ekstraksi serta ringkasan percakapan baru serta kompaksi catatan baru tetap berjalan.
+- Sebagian fitur lama, seperti graf entitas dan profil gaya lama yang tidak menyimpan seluruh asal teks, dihentikan setelah batas privasi pertama dibuat. Pencarian vektor dan ekstraksi serta ringkasan percakapan baru serta penggabungan catatan yang mirip tetap berjalan.
+
+## Penggabungan otomatis
+
+Catatan otomatis dengan isi identik tidak dibuat ulang. Untuk catatan yang sangat mirip, pencarian vektor menghasilkan kandidat dan model memeriksa apakah semua catatan merujuk pada fakta yang sama atau saling melengkapi. Perbedaan tanggal kejadian, konflik, dan keputusan yang meragukan menahan penggabungan. Isi unik dipertahankan, dan catatan eksplisit pengguna tetap dikelola pengguna. Pemindaian bertahap juga memeriksa catatan otomatis yang sudah aktif. Sumber yang tergabung tetap tersimpan di belakang satu catatan kanonik dan tidak diambil ulang saat merespons.
 
 ## Referensi produk dan tampilan
 
