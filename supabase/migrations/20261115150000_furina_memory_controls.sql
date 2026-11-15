@@ -1,4 +1,6 @@
 alter table public.memories add column if not exists saved boolean not null default false;
+-- Legacy guest UUIDs have no auth.users row. Keep account cleanup on the trigger below.
+alter table public.memories drop constraint if exists memories_user_id_fkey;
 
 create table if not exists public.furina_memory_settings (
   user_id uuid primary key,
@@ -15,6 +17,7 @@ returns trigger language plpgsql security definer set search_path = ''
 as $$
 begin
   delete from public.furina_memory_settings where user_id = old.id;
+  delete from public.memories where user_id = old.id;
   return old;
 end;
 $$;

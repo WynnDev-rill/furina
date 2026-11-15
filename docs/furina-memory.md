@@ -7,6 +7,7 @@
 - **Ringkasan** menampilkan cuplikan catatan aktif yang dikelompokkan menurut topik. Tampilan ini dirakit dari data yang dapat ditinjau dan tidak menjalankan permintaan model tambahan.
 - **Lupakan** menghapus catatan terpilih dan menggeser batas konteks sehingga turunan riwayat lama dan giliran di balik batas itu tidak dipakai kembali. Koreksi juga menggeser batas ketika isi berubah. Penambahan dan pemindahan catatan tanpa perubahan teks tidak menggeser batas. Riwayat pesan asli tetap dapat dibuka.
 - Database sebelumnya tidak mencatat apakah sebuah catatan ditambahkan secara manual. Catatan lama tetap dapat ditinjau di bawah referensi riwayat, lalu dipindahkan ke daftar tersimpan.
+- Akun dan tamu memiliki ruang memori terpisah. Memori aktif tamu dapat dipindahkan saat masuk untuk pertama kalinya.
 - Hapus semua memori mempertahankan Identity Core dan profil seperti tanggal lahir. Identity Core memiliki pengaturan dan reset tersendiri. Detail yang kembali dibagikan secara eksplisit dalam pesan baru dapat dipelajari lagi apabila referensi riwayat aktif.
 - Sebagian fitur lama, seperti graf entitas dan profil gaya lama yang tidak menyimpan seluruh asal teks, dihentikan setelah batas privasi pertama dibuat. Pencarian vektor dan ekstraksi serta ringkasan percakapan baru serta kompaksi catatan baru tetap berjalan.
 
