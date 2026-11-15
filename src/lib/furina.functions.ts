@@ -906,7 +906,7 @@ export const speakClone = createServerFn({ method: "POST" })
 
 // =================== Memories CRUD ===================
 
-const MemoryListInput = z.object({ userId: z.string().min(1) });
+const MemoryListInput = z.object({ userId: z.string().uuid(), archived: z.boolean().default(false) });
 
 export const saveMemoryControl = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({
@@ -928,11 +928,31 @@ export const listMemories = createServerFn({ method: "POST" })
     let query = supabaseAdmin.from("memories")
       .select("id,content,created_at,kind,saved,compressed")
       .eq("user_id", data.userId).eq("character_id", CHARACTER_ID).neq("kind", "self");
-    if (policy.history_after) query = query.or(`saved.eq.true,created_at.gt.${policy.history_after}`);
+    if (data.archived) {
+      if (!policy.history_after) return { memories: [], policy };
+      query = query.eq("saved", false).lte("created_at", policy.history_after);
+    } else if (policy.history_after) {
+      query = query.or(`saved.eq.true,created_at.gt.${policy.history_after}`);
+    }
     const { data: rows, error } = await query.order("saved", { ascending: false })
       .order("created_at", { ascending: false }).limit(500);
     if (error) throw error;
     return { memories: rows ?? [], policy };
+  });
+
+export const restoreArchivedMemory = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid(), userId: z.string().uuid() }).parse(d))
+  .handler(async ({ data }) => {
+    await requireFurinaIdentity(data.userId);
+    const { history_after } = await readMemoryPolicy(data.userId);
+    if (!history_after) throw new Error("Tidak ada catatan lama.");
+    const { data: restored, error } = await supabaseAdmin
+      .from("memories").update({ saved: true, compressed: false, source_memory_ids: null })
+      .eq("id", data.id).eq("user_id", data.userId).eq("character_id", CHARACTER_ID)
+      .eq("saved", false).lte("created_at", history_after).neq("kind", "self")
+      .select("id").maybeSingle();
+    if (error || !restored) throw new Error("Catatan lama tidak dapat dipulihkan.");
+    return { ok: true };
   });
 
 export const deleteMemory = createServerFn({ method: "POST" })

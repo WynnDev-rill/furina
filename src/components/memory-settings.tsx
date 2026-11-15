@@ -16,6 +16,7 @@ import {
   clearAllMemories,
   deleteMemory,
   listMemories,
+  restoreArchivedMemory,
   saveMemoryControl,
   updateMemory,
 } from "@/lib/furina.functions";
@@ -43,16 +44,36 @@ export function MemorySettings({ userId }: { userId: string }) {
   const saveControl = useServerFn(saveMemoryControl);
   const add = useServerFn(addMemory);
   const edit = useServerFn(updateMemory);
+  const restore = useServerFn(restoreArchivedMemory);
   const forget = useServerFn(deleteMemory);
   const clear = useServerFn(clearAllMemories);
   const [data, setData] = useState<MemoryData | null>(null);
   const [retry, setRetry] = useState(0);
-  const [view, setView] = useState<"summary" | "all">("summary");
+  const [view, setView] = useState<"summary" | "all" | "archive">("summary");
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<{ id?: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState(false);
+  const archived = view === "archive";
+  const [archiveData, setArchiveData] = useState<MemoryData | null>(null);
+
+  useEffect(() => {
+    if (!archived || !userId) return;
+    let current = true;
+    setArchiveData(null);
+    setError(false);
+    list({ data: { userId, archived: true } })
+      .then((payload) => {
+        if (current) setArchiveData(payload);
+      })
+      .catch(() => {
+        if (current) setError(true);
+      });
+    return () => {
+      current = false;
+    };
+  }, [archived, list, userId, retry]);
 
   useEffect(() => {
     if (!userId) return;
@@ -76,6 +97,7 @@ export function MemorySettings({ userId }: { userId: string }) {
     try {
       await action();
       after?.();
+      if (archived) setArchiveData(await list({ data: { userId, archived: true } }));
       setData(await list({ data: { userId } }));
       setNotice(success);
     } catch {
@@ -89,7 +111,7 @@ export function MemorySettings({ userId }: { userId: string }) {
   const active = memories.filter((m) =>
     m.saved ? data?.policy.use_saved : !m.compressed && data?.policy.use_history,
   );
-  const shown = memories.filter((m) =>
+  const shown = (archived ? (archiveData?.memories ?? []) : memories).filter((m) =>
     m.content.toLocaleLowerCase("id").includes(query.trim().toLocaleLowerCase("id")),
   );
   const row = (m: Memory) => (
@@ -98,44 +120,64 @@ export function MemorySettings({ userId }: { userId: string }) {
         <p>{m.content}</p>
         {view === "all" && <small>{m.saved ? "Tersimpan" : "Dari riwayat"}</small>}
       </div>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button aria-label="Opsi memori" variant="ghost" size="icon" disabled={busy}>
-            <Ellipsis size={17} />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="glass-surface message-actions">
-          {!m.saved && m.content.length <= 800 && (
+      {archived ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Pulihkan sebagai memori tersimpan"
+          title="Pulihkan"
+          disabled={busy}
+          onClick={() =>
+            void apply(
+              () => restore({ data: { userId, id: m.id } }),
+              "Dipulihkan ke memori tersimpan.",
+            )
+          }
+        >
+          <Bookmark size={17} />
+        </Button>
+      ) : (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button aria-label="Opsi memori" variant="ghost" size="icon" disabled={busy}>
+              <Ellipsis size={17} />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="glass-surface message-actions">
+            {!m.saved && m.content.length <= 800 && (
+              <DropdownMenuItem
+                onSelect={() =>
+                  void apply(
+                    () => edit({ data: { userId, id: m.id, content: m.content } }),
+                    "Memori tersimpan.",
+                  )
+                }
+              >
+                Simpan ke memori
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
-              onSelect={() =>
-                void apply(
-                  () => edit({ data: { userId, id: m.id, content: m.content } }),
-                  "Memori tersimpan.",
-                )
-              }
+              onSelect={() => setDraft({ id: m.id, text: m.content.slice(0, 800) })}
             >
-              Simpan ke memori
+              Koreksi
             </DropdownMenuItem>
-          )}
-          <DropdownMenuItem onSelect={() => setDraft({ id: m.id, text: m.content.slice(0, 800) })}>
-            Koreksi
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            className="text-destructive"
-            onSelect={() => {
-              if (
-                !confirm(
-                  "Hapus memori ini dan mulai ulang konteks otomatis? Pesan lama dan memori tersimpan lainnya tetap ada.",
+            <DropdownMenuItem
+              className="text-destructive"
+              onSelect={() => {
+                if (
+                  !confirm(
+                    "Hapus memori ini dan mulai ulang konteks otomatis? Pesan lama dan memori tersimpan lainnya tetap ada.",
+                  )
                 )
-              )
-                return;
-              void apply(() => forget({ data: { userId, id: m.id } }), "Memori dihapus.");
-            }}
-          >
-            Lupakan
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+                  return;
+                void apply(() => forget({ data: { userId, id: m.id } }), "Memori dihapus.");
+              }}
+            >
+              Lupakan
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </li>
   );
 
@@ -192,7 +234,7 @@ export function MemorySettings({ userId }: { userId: string }) {
           >
             Ringkasan
           </button>
-          <button type="button" aria-pressed={view === "all"} onClick={() => setView("all")}>
+          <button type="button" aria-pressed={view !== "summary"} onClick={() => setView("all")}>
             Kelola memori
           </button>
         </nav>
@@ -230,12 +272,7 @@ export function MemorySettings({ userId }: { userId: string }) {
               onChange={(event) => setDraft({ ...draft, text: event.target.value })}
               disabled={busy}
             />
-            {draft.id && (
-              <small>
-                Koreksi juga memulai ulang konteks otomatis lama agar versi sebelumnya tidak dipakai
-                lagi.
-              </small>
-            )}
+
             <div className="memory-form-actions">
               <Button variant="ghost" type="button" disabled={busy} onClick={() => setDraft(null)}>
                 Batal
@@ -263,6 +300,27 @@ export function MemorySettings({ userId }: { userId: string }) {
           </>
         ) : (
           <>
+            {(archived || data.policy.history_after) && (
+              <div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => {
+                    setQuery("");
+                    setView(archived ? "all" : "archive");
+                  }}
+                >
+                  {archived ? "Kembali ke memori aktif" : "Tinjau catatan lama"}
+                </Button>
+                {archived && (
+                  <p className="memory-empty">
+                    Pilih catatan yang ingin dipulihkan sebagai memori tersimpan.
+                  </p>
+                )}
+              </div>
+            )}
             <div className="memory-tools">
               <div>
                 <Search size={16} aria-hidden="true" />
@@ -274,16 +332,32 @@ export function MemorySettings({ userId }: { userId: string }) {
                   onChange={(event) => setQuery(event.target.value)}
                 />
               </div>
-              <Button variant="outline" className="shrink-0" onClick={() => setDraft({ text: "" })}>
-                <Plus size={16} /> Tambah
-              </Button>
+              {!archived && (
+                <Button
+                  variant="outline"
+                  className="shrink-0"
+                  onClick={() => setDraft({ text: "" })}
+                >
+                  <Plus size={16} /> Tambah
+                </Button>
+              )}
             </div>
-            {shown.length ? (
+            {archived && !archiveData ? (
+              error ? (
+                <Button variant="outline" onClick={() => setRetry((n) => n + 1)}>
+                  Muat ulang catatan lama
+                </Button>
+              ) : (
+                <p className="memory-empty" role="status">
+                  Memuat catatan lama…
+                </p>
+              )
+            ) : shown.length ? (
               <ul>{shown.map(row)}</ul>
             ) : (
               <p className="memory-empty">{query ? "Tidak ada hasil." : "Belum ada memori."}</p>
             )}
-            {memories.length > 0 && (
+            {!archived && (memories.length > 0 || data.policy.history_after) && (
               <Button
                 variant="ghost"
                 className="memory-clear text-destructive"
