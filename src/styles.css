@@ -1204,3 +1204,29 @@ body:has(.settings-sheet, .history-sheet) .furina-backdrop {
 .memory-clear {
   justify-self: start;
 }
+
+.user-message-clipped {
+  max-block-size: 16.25em;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 85%, transparent 100%);
+}
+.user-message-toggle {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--foreground);
+  font-weight: 650;
+  font-size: 0.75rem;
+}
+.user-message-toggle svg {
+  transition: transform 160ms ease-out;
+}
+.user-message-toggle[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .user-message-toggle svg {
+    transition: none;
+  }
+}

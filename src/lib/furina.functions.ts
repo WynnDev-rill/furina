@@ -1,3 +1,4 @@
+import { geminiEnabled, recordChatUsage, requestGeminiChat } from "@/lib/gemini-provider.server";
 import { combineMemoryText, memoryTextKey } from "@/lib/memory-dedup";
 import { historyAfter } from "@/lib/memory-policy";
 import { readMemoryPolicy, unavailableMemoryPolicy } from "@/lib/memory-policy.server";
@@ -275,6 +276,7 @@ export const chatWithFurina = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => ChatInput.parse(d))
   .handler(async ({ data }) => {
     await requireFurinaIdentity(data.userId);
+    const signedIn = getRequest().headers.has("authorization");
     const startedAt = new Date().toISOString();
     const policyPromise = readMemoryPolicy(data.userId).catch(() => ({ ...unavailableMemoryPolicy, history_after: startedAt }));
     const userProfile = profileContext(data.userId, data.tz);
@@ -422,19 +424,17 @@ KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((
     }
 
 
-    const { response: res } = await requestWithChatModelFallback((model) =>
+    const messages = [{ role: "system", content: system }, ...built];
+    const direct = signedIn && (birthday?.age ?? 0) >= 18 && await geminiEnabled(data.userId)
+      ? await requestGeminiChat(data.userId, messages)
+      : null;
+    const res = direct ?? (await requestWithChatModelFallback((model) =>
       fetch(`${GATEWAY}/chat/completions`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Lovable-API-Key": apiKey(),
-        },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: "system", content: system }, ...built],
-        }),
+        headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
+        body: JSON.stringify({ model, messages }),
       }),
-    );
+    )).response;
     if (!res.ok) {
       const txt = await res.text();
       if (res.status === 429) throw new Error("Rate limit. Coba lagi sebentar.");
@@ -443,6 +443,9 @@ KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((
     }
     const json = await res.json();
     const { reply, greeting } = splitBirthdayReply(json.choices?.[0]?.message?.content ?? "");
+    if (signedIn && reply.trim()) {
+      await recordChatUsage(data.userId, direct ? "gemini" : "lovable", json.usage?.total_tokens).catch(() => {});
+    }
 
     // Split multi-bubble output (max 3 bubbles)
     const bubbles = reply
@@ -459,7 +462,7 @@ KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((
       console.error("Entity extraction failed:", e),
     );
 
-    if (!data.replay && reply.trim() && data.turnId && data.conversationId && userText.trim()) {
+    if (!data.replay && reply.trim() && data.turnId && data.conversationId && userText.trim() && process.env.LOVABLE_API_KEY) {
       const source = { turn: data.turnId, thread: data.conversationId, at: Date.now() };
       const task = evolveIdentity(data.userId, source, { user: userText, furina: reply }, apiKey(), await identity)
         .catch((error) => console.warn("Identity Core update failed", error));
