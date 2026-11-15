@@ -988,3 +988,98 @@ body:has(.settings-sheet, .history-sheet) .furina-backdrop {
     opacity: 0;
   }
 }
+
+.message-gesture {
+  position: relative;
+  width: fit-content;
+  max-width: min(92%, 640px);
+  touch-action: pan-y pinch-zoom;
+  -webkit-touch-callout: none;
+}
+.message-gesture-arrow {
+  position: absolute;
+  top: 50%;
+  left: 10px;
+  color: var(--foreground);
+  transform: translateY(-50%);
+}
+.message-gesture-content {
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+.message-gesture-content:active {
+  transition: none;
+}
+.furina-chat {
+  overflow-x: hidden;
+}
+.message-quote {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  margin: 0 0 6px;
+  padding: 5px 8px;
+  border-inline-start: 2px solid var(--ring);
+  border-radius: 6px;
+  background: var(--glass-blue);
+  font-size: 0.75rem;
+}
+.message-quote span {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.message-draft-quote {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding: 5px 8px;
+  border-radius: 18px;
+}
+.message-draft-quote .message-quote {
+  flex: 1;
+  margin: 0;
+}
+.message-more {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 50%;
+  transition:
+    background-color 160ms,
+    transform 160ms;
+}
+.message-more:is(:hover, :focus-visible) {
+  background: var(--glass-blue);
+}
+.message-more:active {
+  transform: scale(0.9);
+}
+.message-actions {
+  --glass: var(--glass-panel);
+  width: min(88vw, 19rem);
+  gap: 4px;
+  padding: 16px;
+  border-radius: 22px;
+}
+.message-actions [data-slot="dialog-title"] {
+  margin-bottom: 8px;
+}
+.message-actions button:not(:last-child) {
+  min-height: 44px;
+  justify-content: flex-start;
+  border-radius: 12px;
+}
+body:has(.message-actions) [data-slot="dialog-overlay"] {
+  background-color: rgb(5 13 28 / 28%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .message-more,
+  .message-gesture-content {
+    transition: none;
+  }
+}

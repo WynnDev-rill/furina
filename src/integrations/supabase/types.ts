@@ -14,6 +14,13 @@ export type Database = {
   }
   public: {
     Tables: {
+      furina_user_profile: {
+        Row: {user_id: string; birth_date: string | null; greeted_year: number | null}
+        Insert: {user_id: string; birth_date?: string | null; greeted_year?: number | null}
+        Update: {birth_date?: string | null; greeted_year?: number | null}
+        Relationships: []
+      }
+
       conversations: {
         Row: {
           character_id: string
@@ -206,6 +213,7 @@ export type Database = {
           created_at: string
           id: string
           image_url: string | null
+          reply_to?: Json | null
           role: string
           status: string
           sticker_id: string | null
@@ -219,6 +227,7 @@ export type Database = {
           created_at?: string
           id?: string
           image_url?: string | null
+          reply_to?: Json | null
           role: string
           status?: string
           sticker_id?: string | null
@@ -232,6 +241,7 @@ export type Database = {
           created_at?: string
           id?: string
           image_url?: string | null
+          reply_to?: Json | null
           role?: string
           status?: string
           sticker_id?: string | null
@@ -270,6 +280,11 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_furina_message_branch: {
+        Args: { branch_id: string; branch_title: string; prefix: Json }
+        Returns: undefined
+      }
+
       commit_furina_compaction: {
         Args: {
           owner_id: string
