@@ -1,3 +1,10 @@
+export function normalizeGeminiKey(value: string) {
+  const key = value.replace(/^[\s\u200B]+|[\s\u200B]+$/g, "");
+  return key.length >= 20 && key.length <= 256 && /^(?:AQ\.)?[A-Za-z0-9_-]+$/.test(key)
+    ? key
+    : null;
+}
+
 const encoder = new TextEncoder();
 
 function encode(bytes: Uint8Array) {

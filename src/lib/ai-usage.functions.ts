@@ -8,7 +8,7 @@ import {
   GEMINI_BASE,
   GEMINI_CHAT_MODEL,
 } from "./gemini-provider.server";
-import { protectGeminiKey } from "./gemini-key";
+import { isInvalidGeminiKey, normalizeGeminiKey, protectGeminiKey } from "./gemini-key";
 import { localCalendar } from "./birth-date";
 import { profileContext } from "./user-profile.server";
 
@@ -56,16 +56,14 @@ export const getAiUsage = createServerFn({ method: "POST" })
   });
 
 export const addGeminiKey = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
-    identity
-      .extend({
-        key: z
-          .string()
-          .trim()
-          .regex(/^[A-Za-z0-9_-]{20,256}$/),
-      })
-      .parse(input),
-  )
+  .inputValidator((input: unknown) => {
+    const result = identity.extend({ key: z.string().max(300) }).safeParse(input);
+    const key = result.success ? normalizeGeminiKey(result.data.key) : null;
+    if (!result.success || !key) {
+      throw new Error("Tempel API key lengkap dari Google AI Studio tanpa tanda kutip atau label.");
+    }
+    return { userId: result.data.userId, key };
+  })
   .handler(async ({ data: { userId, key } }) => {
     await requireFurinaIdentity(userId, true);
     if (((await profileContext(userId)).birthday?.age ?? 0) < 18) {
@@ -81,11 +79,21 @@ export const addGeminiKey = createServerFn({ method: "POST" })
     } catch {
       throw new Error("Gemini belum dapat dihubungi. Coba lagi.");
     }
+    if (validation.status === 429) {
+      throw new Error("Gemini sedang membatasi permintaan. Coba lagi setelah kuota tersedia.");
+    }
+    if (validation.status >= 500) {
+      throw new Error("Layanan Gemini sedang bermasalah. Coba lagi nanti.");
+    }
     if (!validation.ok) {
+      const reason = await validation.text().catch(() => "");
+      if (isInvalidGeminiKey(validation.status, reason)) {
+        throw new Error(
+          "Google menolak API key ini. Salin ulang kunci aktif dari Google AI Studio.",
+        );
+      }
       throw new Error(
-        validation.status === 429
-          ? "Gemini sedang membatasi permintaan. Coba lagi setelah kuota tersedia."
-          : "Kunci belum bisa mengakses Gemini 3.8 Flash. Periksa kunci dan proyek di Google AI Studio.",
+        "API key belum bisa mengakses Gemini 3.8 Flash. Periksa akses model di proyek Google AI Studio.",
       );
     }
     const { box, fingerprint } = await protectGeminiKey(key, userId, encryptionSecret());
