@@ -153,6 +153,12 @@ export type Database = {
         }
         Relationships: []
       }
+      furina_memory_settings: {
+        Row: { user_id: string; use_saved: boolean; use_history: boolean; history_after: string | null }
+        Insert: { user_id: string; use_saved?: boolean; use_history?: boolean; history_after?: string | null }
+        Update: { user_id?: string; use_saved?: boolean; use_history?: boolean; history_after?: string | null }
+        Relationships: []
+      }
       memories: {
         Row: {
           access_count: number
@@ -164,6 +170,7 @@ export type Database = {
           emotion: string | null
           id: string
           importance: number
+          saved: boolean
           kind: string
           last_accessed_at: string
           occurred_at: string | null
@@ -180,6 +187,7 @@ export type Database = {
           emotion?: string | null
           id?: string
           importance?: number
+          saved?: boolean
           kind?: string
           last_accessed_at?: string
           occurred_at?: string | null
@@ -196,6 +204,7 @@ export type Database = {
           emotion?: string | null
           id?: string
           importance?: number
+          saved?: boolean
           kind?: string
           last_accessed_at?: string
           occurred_at?: string | null
@@ -280,6 +289,18 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      correct_furina_memory: {
+        Args: { owner_id: string; memory_id: string; new_content: string; new_embedding: string }
+        Returns: boolean
+      }
+      forget_furina_memory: {
+        Args: { owner_id: string; memory_id: string | null }
+        Returns: boolean
+      }
+      find_furina_memories: {
+        Args: { owner_id: string; query_vec: string; use_saved: boolean; use_history: boolean; since_time: string | null; row_count: number }
+        Returns: { id: string; content: string; kind: string; saved: boolean; similarity: number; occurred_at: string | null }[]
+      }
       create_furina_message_branch: {
         Args: { branch_id: string; branch_title: string; prefix: Json }
         Returns: undefined

@@ -1089,3 +1089,118 @@ body:has(.settings-sheet, .history-sheet) .furina-backdrop {
     transition: none;
   }
 }
+
+.memory-pages {
+  display: grid;
+  gap: 12px;
+}
+.memory-controls {
+  gap: 0;
+}
+.memory-control {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 2px;
+  cursor: pointer;
+}
+.memory-control + .memory-control {
+  border-top: 1px solid var(--glass-border);
+}
+.memory-control strong {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+.memory-control small,
+.memory-note small,
+.memory-form small {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.memory-reader {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.memory-nav {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+}
+.memory-nav button {
+  min-height: 44px;
+  padding: 3px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+.memory-nav button[aria-pressed="true"] {
+  background: var(--glass-blue);
+  box-shadow: inset 0 0 0 1px var(--glass-lip);
+}
+.memory-section h3 {
+  padding-block: 5px;
+  font-size: 1rem;
+  font-weight: 720;
+}
+.memory-note {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: 6px;
+  padding-block: 9px;
+  border-bottom: 1px solid var(--glass-border);
+  overflow-wrap: anywhere;
+}
+.memory-note p {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  white-space: pre-line;
+}
+.memory-note [data-slot="button"] {
+  width: 44px;
+  height: 44px;
+}
+.memory-empty,
+.memory-notice {
+  padding: 8px 0;
+  font-size: 0.85rem;
+}
+.memory-tools,
+.memory-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.memory-tools > div {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+.memory-tools svg:first-child {
+  flex-shrink: 0;
+}
+.memory-tools > div > svg {
+  position: absolute;
+  inset: 50% auto auto 10px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.memory-tools input {
+  padding-inline-start: 34px;
+}
+.memory-form {
+  display: grid;
+  gap: 8px;
+}
+.memory-form-actions {
+  justify-content: flex-end;
+}
+.memory-clear {
+  justify-self: start;
+}
