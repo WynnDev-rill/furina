@@ -1,3 +1,7 @@
+import { BirthDateSettings } from "@/components/birth-date-settings";
+import { MessageGesture } from "@/components/message-gesture";
+import { branchPrefix, messageQuote, type MessageQuote } from "@/lib/message-quote";
+import { Ellipsis, CornerUpLeft, Copy } from "lucide-react";
 import { ConversationHistory } from "@/components/conversation-history";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -123,6 +127,7 @@ type Msg = {
   failedPayload?: string;
   imageDataUrl?: string;
   stickerId?: string;
+  replyTo?: MessageQuote;
 };
 type TTSProvider = "voicevox" | "clone";
 type Conversation = {
@@ -315,6 +320,9 @@ function FurinaApp() {
 
   const [theme, setTheme] = useState<ThemeMode>("dark");
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [replyTo, setReplyTo] = useState<MessageQuote | undefined>();
+  const [editingMessage, setEditingMessage] = useState<Msg | null>(null);
+  const [messageMenu, setMessageMenu] = useState<Msg | null>(null);
   const [activeId, setActiveId] = useState<string>("");
   const [input, setInput] = useState("");
   const [pendingImage, setPendingImage] = useState<{ dataUrl: string; name: string } | null>(null);
@@ -469,6 +477,26 @@ function FurinaApp() {
   const cloudHydratedRef = useRef(false);
   const settingsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userMsgCountRef = useRef(0);
+
+  useEffect(() => {
+    setReplyTo(undefined);
+    setEditingMessage(null);
+    setMessageMenu(null);
+  }, [activeId, userId]);
+
+  function beginReply(message: Msg) {
+    const parsed = messageQuote.safeParse({
+      id: message.id,
+      role: message.role,
+      excerpt: message.content.trim().slice(0, 200) || "Lampiran",
+    });
+    if (!parsed.success) return;
+    if (editingMessage) setInput("");
+    setEditingMessage(null);
+    setReplyTo(parsed.data);
+    setMessageMenu(null);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }
 
   const activeConvo = conversations.find((c) => c.id === activeId);
   const messages = useMemo(() => activeConvo?.messages ?? [], [activeConvo]);
@@ -895,6 +923,7 @@ function FurinaApp() {
             audioEmotion: r.audio_emotion ?? undefined,
             imageDataUrl: r.image_url ?? undefined,
             stickerId: r.sticker_id ?? undefined,
+            replyTo: messageQuote.safeParse(r.reply_to).data,
           });
         }
         const convList: Conversation[] = (convosRows ?? []).map((c) => ({
@@ -993,6 +1022,7 @@ function FurinaApp() {
           audio_emotion: m.audioEmotion ?? null,
           image_url: m.imageDataUrl && m.imageDataUrl.length < 300000 ? m.imageDataUrl : null,
           sticker_id: m.stickerId ?? null,
+          reply_to: m.replyTo ?? null,
         })),
       );
       // chunk to avoid payload limits
@@ -1019,6 +1049,7 @@ function FurinaApp() {
         audio_emotion: m.audioEmotion ?? null,
         image_url: m.imageDataUrl && m.imageDataUrl.length < 300000 ? m.imageDataUrl : null,
         sticker_id: m.stickerId ?? null,
+        reply_to: m.replyTo ?? null,
       });
       if (error) throw error;
     } catch (e) {
@@ -1197,13 +1228,35 @@ function FurinaApp() {
     }
   }
 
-  // ===== Send =====
-  async function sendMessage(text: string, retryMsgId?: string) {
+  function branchFrom(message: Msg) {
+    if (sending || !activeConvo) return;
+    const index = activeConvo.messages.findIndex((m) => m.id === message.id);
+    const original =
+      message.role === "user"
+        ? message
+        : activeConvo.messages
+            .slice(0, index)
+            .reverse()
+            .find((m) => m.role === "user");
+    if (!original) return;
+    setMessageMenu(null);
+    if (message.role === "assistant") void sendMessage(original.content, undefined, original);
+    else {
+      setEditingMessage(original);
+      setReplyTo(undefined);
+      setPendingImage(null);
+      setInput(original.imageDataUrl && original.content === "(gambar)" ? "" : original.content);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
+  }
+
+  // Edits and alternative answers create an independent conversation. The source stays intact.
+  async function sendMessage(text: string, retryMsgId?: string, fork?: Msg) {
     const trimmed = text.trim();
-    if (!trimmed && !pendingImage) return;
+    const source = activeConvo;
     if (
+      !source ||
       sendLock.current ||
-      !activeConvo ||
       !authReady ||
       !userId ||
       syncing ||
@@ -1211,22 +1264,95 @@ function FurinaApp() {
       syncFailed
     )
       return;
+    const replaySource = fork ?? (!retryMsgId ? editingMessage : null);
+    const retry = retryMsgId ? source.messages.find((m) => m.id === retryMsgId) : undefined;
+    if (retryMsgId && !retry) return;
+    const imageDataUrl = retry
+      ? retry.imageDataUrl
+      : fork
+        ? fork.imageDataUrl
+        : (pendingImage?.dataUrl ?? replaySource?.imageDataUrl);
+    if (!trimmed && !imageDataUrl) return;
     sendLock.current = true;
+    setSending(true);
 
-    const imageDataUrl = retryMsgId
-      ? messages.find((m) => m.id === retryMsgId)?.imageDataUrl
-      : pendingImage?.dataUrl;
-    const messageContent = trimmed || (imageDataUrl ? "(gambar)" : "");
+    let target = source;
+    if (replaySource) {
+      const index = source.messages.findIndex((m) => m.id === replaySource.id);
+      if (index < 0) {
+        sendLock.current = false;
+        setSending(false);
+        return;
+      }
+      const prefix = branchPrefix(source.messages, index, () => crypto.randomUUID());
+      target = {
+        ...newConversation(),
+        title: (trimmed || source.title).slice(0, 40) + " · Versi baru",
+        messages: prefix,
+      };
+      try {
+        if (authUser) {
+          const { error } = await supabase.rpc("create_furina_message_branch", {
+            branch_id: target.id,
+            branch_title: target.title,
+            prefix: prefix.map((m) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              status: m.status ?? "sent",
+              created_at: new Date(m.at).toISOString(),
+              audio_url: m.audioUrl ?? null,
+              audio_emotion: m.audioEmotion ?? null,
+              image_url: m.imageDataUrl && m.imageDataUrl.length < 300000 ? m.imageDataUrl : null,
+              sticker_id: m.stickerId ?? null,
+              reply_to: m.replyTo ?? null,
+            })),
+          });
+          if (error) throw error;
+        }
+        setConversations((prev) => [...prev, target]);
+        setActiveId(target.id);
+        stopTTS();
+      } catch {
+        toast.error("Versi baru belum dapat dibuat.");
+        sendLock.current = false;
+        setSending(false);
+        return;
+      }
+    }
+    const targetId = target.id;
+    const quote = replaySource?.replyTo
+      ? {
+          ...replaySource.replyTo,
+          id:
+            target.messages[source.messages.findIndex((m) => m.id === replaySource.replyTo?.id)]
+              ?.id ?? replaySource.replyTo.id,
+        }
+      : retry
+        ? retry.replyTo
+        : fork
+          ? undefined
+          : replyTo;
+    const messageContent = trimmed || "(gambar)";
+    const updateTarget = (update: (items: Msg[]) => Msg[]) => {
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === targetId ? { ...c, messages: update(c.messages), updatedAt: Date.now() } : c,
+        ),
+      );
+    };
+    const patch = (id: string, change: Partial<Msg>) =>
+      updateTarget((items) => items.map((m) => (m.id === id ? { ...m, ...change } : m)));
 
-    const userMessageTime = messages.find((m) => m.id === retryMsgId)?.at ?? Date.now();
+    const userMessageTime = retry?.at ?? Date.now();
     let userMsgId: string;
     const title =
-      activeConvo.title === "Percakapan baru"
+      target.title === "Percakapan baru"
         ? (trimmed || "Gambar baru").slice(0, 40).replace(/\s+/g, " ").trim()
-        : activeConvo.title;
+        : target.title;
     if (retryMsgId) {
       userMsgId = retryMsgId;
-      updateMessageById(retryMsgId, { status: "sending", failedPayload: undefined });
+      patch(retryMsgId, { status: "sending", failedPayload: undefined });
     } else {
       userMsgId = crypto.randomUUID();
       const userMsg: Msg = {
@@ -1236,32 +1362,37 @@ function FurinaApp() {
         at: userMessageTime,
         status: "sending",
         imageDataUrl,
+        replyTo: quote,
       };
-      updateActiveMessages((prev) => [...prev, userMsg]);
-      if (title !== activeConvo.title) {
-        setConversations((prev) => prev.map((c) => (c.id === activeId ? { ...c, title } : c)));
+      updateTarget((prev) => [...prev, userMsg]);
+      if (title !== target.title) {
+        setConversations((prev) => prev.map((c) => (c.id === targetId ? { ...c, title } : c)));
       }
       setInput("");
+      setReplyTo(undefined);
+      setEditingMessage(null);
       setPendingImage(null);
     }
 
-    setSending(true);
     try {
       if (authUser)
         await upsertSingleConversation(
           authUser.id,
-          { ...activeConvo, title, updatedAt: Date.now() },
+          { ...target, title, updatedAt: Date.now() },
           true,
         );
-      updateMessageById(userMsgId, { status: "sent" });
-      const currentMsgs = conversations.find((c) => c.id === activeId)?.messages ?? [];
+      patch(userMsgId, { status: "sent" });
+      const currentMsgs = retry
+        ? target.messages.slice(
+            0,
+            target.messages.findIndex((m) => m.id === retry.id),
+          )
+        : target.messages;
       const ctxMsgs = currentMsgs
         .filter((m) => m.status !== "failed")
         .slice(-12)
         .map((m) => ({ role: m.role, content: m.content || "" }));
-      if (!ctxMsgs.length || ctxMsgs[ctxMsgs.length - 1]?.content !== messageContent) {
-        ctxMsgs.push({ role: "user", content: messageContent });
-      }
+      ctxMsgs.push({ role: "user", content: messageContent });
 
       const lastAssistant = [...currentMsgs].reverse().find((m) => m.role === "assistant");
       const millisSinceLastAssistant = lastAssistant
@@ -1279,7 +1410,9 @@ function FurinaApp() {
           userId,
           imageDataUrl,
           millisSinceLastAssistant,
-          conversationId: activeId,
+          conversationId: targetId,
+          quote,
+          replay: !!replaySource,
           clientNow: Date.now(),
           tz: (() => {
             try {
@@ -1297,14 +1430,15 @@ function FurinaApp() {
         : [chatResult.reply];
 
       if (accountRef.current !== (authUser?.id ?? null)) return;
-      updateMessageById(userMsgId, { status: "read" });
+      patch(userMsgId, { status: "read" });
       if (authUser) {
-        await upsertSingleMessage(authUser.id, activeId, {
+        await upsertSingleMessage(authUser.id, targetId, {
           id: userMsgId,
           role: "user",
           content: messageContent,
           imageDataUrl,
           status: "read",
+          replyTo: quote,
           at: userMessageTime,
         });
       }
@@ -1330,15 +1464,16 @@ function FurinaApp() {
         };
         if (accountRef.current !== (authUser?.id ?? null)) return;
         aiMessages.push(aiMsg);
-        updateActiveMessages((prev) => [...prev, aiMsg]);
-        if (authUser && activeConvo) upsertSingleMessage(authUser.id, activeConvo.id, aiMsg);
+        updateTarget((prev) => [...prev, aiMsg]);
+        if (authUser) await upsertSingleMessage(authUser.id, targetId, aiMsg);
       }
 
       const lastAiMsg = aiMessages.at(-1);
-      if (lastAiMsg) preGenerateAudio(lastAiMsg);
+      if (lastAiMsg && !replaySource) preGenerateAudio(lastAiMsg);
+      if (replaySource) return;
 
       // Background: maybe summarize
-      const updatedConv = conversations.find((c) => c.id === activeId);
+      const updatedConv = { ...target, messages: currentMsgs };
       if (updatedConv && lastAiMsg)
         maybeSummarize({
           ...updatedConv,
@@ -1366,7 +1501,7 @@ function FurinaApp() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Gagal kirim";
       toast.error(msg);
-      updateMessageById(userMsgId, { status: "failed", failedPayload: trimmed });
+      patch(userMsgId, { status: "failed", failedPayload: trimmed });
     } finally {
       sendLock.current = false;
       setSending(false);
@@ -1374,7 +1509,9 @@ function FurinaApp() {
   }
 
   function retrySend(m: Msg) {
-    sendMessage(m.failedPayload ?? m.content, m.id);
+    const last = messages.at(-1);
+    if (last?.id === m.id) void sendMessage(m.failedPayload ?? m.content, m.id);
+    else void sendMessage(m.failedPayload ?? m.content, undefined, m);
   }
 
   // ===== TTS controls =====
@@ -2431,6 +2568,16 @@ function FurinaApp() {
                       )}
                     </section>
 
+                    {authUser ? (
+                      <BirthDateSettings key={authUser.id} userId={authUser.id} />
+                    ) : (
+                      <section className="settings-group space-y-2">
+                        <h3 className="text-sm font-medium">Tanggal lahir</h3>
+                        <p className="text-xs text-muted-foreground">
+                          Masuk untuk mengatur tanggal lahir.
+                        </p>
+                      </section>
+                    )}
                     <Separator />
 
                     <Button
@@ -2469,31 +2616,38 @@ function FurinaApp() {
                 key={m.id}
                 className={`flex w-full flex-col ${isUser ? "items-end" : "items-start"}`}
               >
-                <div
-                  className={`${isUser ? "bubble-user" : "bubble-ai"} w-fit max-w-[min(92%,640px)] rounded-2xl px-4 py-2.5 text-sm shadow-lg`}
-                >
-                  {m.imageDataUrl && (
-                    <button
-                      type="button"
-                      onClick={() => setLightboxUrl(m.imageDataUrl!)}
-                      className="mb-2 block w-full overflow-hidden rounded-lg"
-                      aria-label="Buka gambar"
-                    >
-                      <img
-                        src={m.imageDataUrl}
-                        alt="lampiran"
-                        className="max-h-64 w-full cursor-zoom-in rounded-lg object-cover transition hover:opacity-90"
-                        loading="lazy"
-                      />
-                    </button>
-                  )}
-                  {m.content && (
-                    <div className="whitespace-pre-wrap break-words leading-relaxed">
-                      {m.content}
-                    </div>
-                  )}
-                </div>
-
+                <MessageGesture onReply={() => beginReply(m)} onMenu={() => setMessageMenu(m)}>
+                  <div
+                    className={`${isUser ? "bubble-user" : "bubble-ai"} w-fit max-w-full rounded-2xl px-4 py-2.5 text-sm shadow-lg`}
+                  >
+                    {m.replyTo && (
+                      <blockquote className="message-quote">
+                        <strong>{m.replyTo.role === "user" ? "Kamu" : name}</strong>
+                        <span>{m.replyTo.excerpt}</span>
+                      </blockquote>
+                    )}
+                    {m.imageDataUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setLightboxUrl(m.imageDataUrl!)}
+                        className="mb-2 block w-full overflow-hidden rounded-lg"
+                        aria-label="Buka gambar"
+                      >
+                        <img
+                          src={m.imageDataUrl}
+                          alt="lampiran"
+                          className="max-h-64 w-full cursor-zoom-in rounded-lg object-cover transition hover:opacity-90"
+                          loading="lazy"
+                        />
+                      </button>
+                    )}
+                    {m.content && (
+                      <div className="whitespace-pre-wrap break-words leading-relaxed">
+                        {m.content}
+                      </div>
+                    )}
+                  </div>
+                </MessageGesture>
                 <div className="furina-message-meta mt-1 flex w-fit items-center gap-1.5 px-2">
                   <span
                     className="text-[10px] opacity-70 tabular-nums"
@@ -2503,6 +2657,14 @@ function FurinaApp() {
                   </span>
 
                   {isUser && <MsgStatusIcon status={m.status} />}
+                  <button
+                    type="button"
+                    className="message-more"
+                    aria-label="Opsi pesan"
+                    onClick={() => setMessageMenu(m)}
+                  >
+                    <Ellipsis size={16} />
+                  </button>
 
                   {isUser && m.status === "failed" && (
                     <button
@@ -2609,6 +2771,32 @@ function FurinaApp() {
       {/* Composer */}
       <div className="furina-composer">
         <div className="mx-auto max-w-3xl">
+          {(editingMessage || replyTo) && (
+            <div className="message-draft-quote glass-surface">
+              <blockquote className="message-quote">
+                <strong>
+                  {editingMessage
+                    ? "Edit sebagai versi baru"
+                    : replyTo?.role === "user"
+                      ? "Balas pesanmu"
+                      : `Balas ${name}`}
+                </strong>
+                <span>{editingMessage?.content ?? replyTo?.excerpt}</span>
+              </blockquote>
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label="Batalkan kutipan atau edit"
+                onClick={() => {
+                  if (editingMessage) setInput("");
+                  setEditingMessage(null);
+                  setReplyTo(undefined);
+                }}
+              >
+                <X size={16} />
+              </Button>
+            </div>
+          )}
           {pendingImage && (
             <div className="glass-surface mb-2 flex items-center gap-2 rounded-2xl p-2">
               <img
@@ -2682,7 +2870,7 @@ function FurinaApp() {
                 syncing ||
                 syncFailed ||
                 clearingChat ||
-                (!input.trim() && !pendingImage)
+                (!input.trim() && !pendingImage && !editingMessage?.imageDataUrl)
               }
               size="icon"
               className="furina-send h-11 w-11 shrink-0"
@@ -2695,6 +2883,65 @@ function FurinaApp() {
       </div>
 
       <Toaster theme={theme} position="bottom-center" closeButton />
+
+      <Dialog
+        open={!!messageMenu}
+        onOpenChange={(open) => {
+          if (!open) setMessageMenu(null);
+        }}
+      >
+        <DialogContent
+          className="message-actions glass-surface"
+          aria-describedby={undefined}
+          onCloseAutoFocus={(event) => {
+            if (document.activeElement === inputRef.current) event.preventDefault();
+          }}
+        >
+          <DialogTitle>Opsi pesan</DialogTitle>
+          {messageMenu && (
+            <>
+              <Button variant="ghost" onClick={() => beginReply(messageMenu)}>
+                <CornerUpLeft size={17} /> Balas
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(messageMenu.content);
+                    toast.success("Pesan disalin.");
+                    setMessageMenu(null);
+                  } catch {
+                    toast.error("Tidak dapat menyalin pesan.");
+                  }
+                }}
+                disabled={!messageMenu.content}
+              >
+                <Copy size={17} /> Salin
+              </Button>
+              {(messageMenu.role === "user" ||
+                messages
+                  .slice(0, messages.indexOf(messageMenu))
+                  .some((m) => m.role === "user")) && (
+                <Button
+                  variant="ghost"
+                  disabled={sending || syncing}
+                  onClick={() => branchFrom(messageMenu)}
+                >
+                  {messageMenu.role === "user" ? (
+                    <>
+                      <Pencil size={17} /> Edit dan kirim ulang
+                    </>
+                  ) : (
+                    <>
+                      <RotateCcw size={17} /> Buat balasan alternatif
+                    </>
+                  )}
+                </Button>
+              )}
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Image lightbox */}
       <Dialog
