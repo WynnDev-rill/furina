@@ -194,10 +194,10 @@ export function AiUsageSettings({ userId }: { userId?: string | null }) {
                     spellCheck={false}
                     value={secret}
                     onChange={(event) => setSecret(event.target.value)}
-                    maxLength={256}
+                    maxLength={300}
                     required
                   />
-                  <Button type="submit" disabled={busy || secret.trim().length < 20}>
+                  <Button type="submit" disabled={busy || !secret.trim()}>
                     Simpan
                   </Button>
                 </form>

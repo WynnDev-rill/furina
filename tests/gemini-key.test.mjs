@@ -2,10 +2,26 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   isInvalidGeminiKey,
+  normalizeGeminiKey,
   openGeminiKey,
   protectGeminiKey,
   useGeminiKeys,
 } from "../src/lib/gemini-key.ts";
+
+test("the save path accepts Google authorization and standard keys without altering the token", () => {
+  const authorizationKey = "AQ.synthetic-gemini-auth-key-test";
+  const standardKey = "AIza_synthetic-standard-key-test";
+  assert.equal(normalizeGeminiKey(" \u200b" + authorizationKey + "\n"), authorizationKey);
+  assert.equal(normalizeGeminiKey(standardKey), standardKey);
+  for (const malformed of [
+    "AQ.short",
+    "Bearer " + authorizationKey,
+    authorizationKey + "\r\nkey",
+    "x".repeat(257),
+  ]) {
+    assert.equal(normalizeGeminiKey(malformed), null);
+  }
+});
 
 test("encrypted credentials use a fresh nonce and are bound to the owner", async () => {
   const key = "test-credential";
