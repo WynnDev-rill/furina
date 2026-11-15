@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
-import { ageInstructions, birthdayContext, localCalendar, parseBirthDate } from "../src/lib/birth-date.ts";
+import {
+  ageInstructions,
+  birthdayContext,
+  localCalendar,
+  parseBirthDate,
+} from "../src/lib/birth-date.ts";
 import { branchPrefix, messageQuote } from "../src/lib/message-quote.ts";
 
 test("age changes at local midnight and rejects invalid or future dates", () => {
@@ -15,13 +20,19 @@ test("age changes at local midnight and rejects invalid or future dates", () => 
   assert.match(ageInstructions(), /jangan mendorong ketergantungan/i);
   assert.match(ageInstructions(17), /remaja/i);
   assert.match(ageInstructions(18), /tidak membuka akses/i);
+  assert.match(ageInstructions(21), /21 tahun.*jawab dengan angka ini/i);
+  assert.match(ageInstructions(), /jangan menebak angkanya/i);
 });
 
 test("a conversation branch has fresh IDs and only preserves the prefix", () => {
   const original = { id: randomUUID(), role: "assistant", content: "Sumber kutipan" };
   const quoted = {
     id: randomUUID(),
-    replyTo: messageQuote.parse({ id: original.id, role: original.role, excerpt: original.content }),
+    replyTo: messageQuote.parse({
+      id: original.id,
+      role: original.role,
+      excerpt: original.content,
+    }),
   };
   const [copy, linked] = branchPrefix([original, quoted, { id: randomUUID() }], 2, randomUUID);
   assert.notEqual(copy.id, original.id);

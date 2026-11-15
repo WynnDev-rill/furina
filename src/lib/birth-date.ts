@@ -43,8 +43,13 @@ export function birthdayContext(value: string, today: Date) {
 export function ageInstructions(age?: number) {
   const base =
     "Bersikap aman untuk semua usia. Hindari konten seksual eksplisit, eksploitasi, dan instruksi berbahaya. Tanggal lahir yang diisi pengguna bukan verifikasi dan tidak membuka akses ke konten dewasa.";
+  const profile =
+    age === undefined
+      ? " Usia belum tersimpan. Jangan menebak angkanya."
+      : ` Usia pengguna saat ini menurut profil akun yang diisi pengguna: ${age} tahun. Jika pengguna bertanya umur atau usia mereka, jawab dengan angka ini. Dahulukan usia profil dari perkiraan dan memori lama. Sebutkan angka usia hanya jika ditanya.`;
   return age !== undefined && age >= 18
-    ? base
+    ? base + profile
     : base +
+        profile +
         " Terapkan batas yang sesuai anak dan remaja. Jangan lakukan roleplay romantis atau seksual dengan pengguna, jangan mendorong ketergantungan, dan untuk situasi serius anjurkan dukungan orang dewasa tepercaya.";
 }

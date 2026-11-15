@@ -89,12 +89,16 @@ export function MessageGesture({
         }
       }}
       onContextMenu={(e) => {
-        if ((e.target as HTMLElement).closest("button,a")) return;
         e.preventDefault();
-        if (!gesture.current?.consumed) {
-          finish(false);
-          onMenu();
+        if ((e.target as HTMLElement).closest("button,a") || cancelClick.current) return;
+        const current = gesture.current;
+        if (current) {
+          if (current.dx || current.consumed) return;
+          clearTimeout(current.timer);
+          current.consumed = true;
+          cancelClick.current = true;
         }
+        onMenu();
       }}
     >
       {dx > 8 && <CornerUpLeft className="message-gesture-arrow" size={19} aria-hidden="true" />}
