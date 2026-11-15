@@ -53,3 +53,31 @@ export function ageInstructions(age?: number) {
         profile +
         " Terapkan batas yang sesuai anak dan remaja. Jangan lakukan roleplay romantis atau seksual dengan pengguna, jangan mendorong ketergantungan, dan untuk situasi serius anjurkan dukungan orang dewasa tepercaya.";
 }
+
+const birthdayTag = "<<<BIRTHDAY>>>";
+
+export function birthdayInstructions(daysUntil: number | undefined, offerGreeting: boolean) {
+  if (daysUntil === 0) {
+    const today = "\n\nKONTEKS ULANG TAHUN: Ulang tahun pengguna hari ini.";
+    return offerGreeting
+      ? today +
+          ` Jika momennya cocok, tulis satu ucapan singkat dengan suaramu sendiri, sesuai bahasa dan suasana percakapan. Awali dengan satu baris ${birthdayTag} diikuti isi ucapan pada baris yang sama, lalu jawab pesan pengguna di baris berikutnya seperti biasa. Kamu boleh melewati ucapan jika akan mengganggu. Tempatkan seluruh ucapan tambahan pada baris bertanda itu.`
+      : today +
+          " Jangan memulai ucapan ulang tahun lagi. Jika pengguna membahasnya, tanggapi seperti percakapan biasa.";
+  }
+  if (daysUntil !== undefined && daysUntil > 0 && daysUntil <= 7) {
+    return `\n\nKONTEKS ULANG TAHUN: Ulang tahun pengguna dalam ${daysUntil} hari menurut waktu pengguna. Boleh menyinggungnya secara alami jika relevan, misalnya saat membahas rencana. Jangan mengucapkan selamat sebelum harinya.`;
+  }
+  return "";
+}
+
+export function splitBirthdayReply(output: string) {
+  let greeting = "";
+  const reply = output
+    .replace(/^\s*<<<\s*BIRTHDAY\s*>>>[^\S\r\n]*(.*)$/gim, (_, line: string) => {
+      if (!greeting) greeting = line.trim();
+      return "";
+    })
+    .trim();
+  return { reply, greeting };
+}

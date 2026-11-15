@@ -4,8 +4,10 @@ import test from "node:test";
 import {
   ageInstructions,
   birthdayContext,
+  birthdayInstructions,
   localCalendar,
   parseBirthDate,
+  splitBirthdayReply,
 } from "../src/lib/birth-date.ts";
 import { branchPrefix, messageQuote } from "../src/lib/message-quote.ts";
 
@@ -39,4 +41,21 @@ test("a conversation branch has fresh IDs and only preserves the prefix", () => 
   assert.notEqual(linked.id, quoted.id);
   assert.equal(linked.replyTo.id, copy.id);
   assert.equal(quoted.replyTo.id, original.id);
+});
+
+test("birthday timing and optional model-written greeting stay separate from the reply", () => {
+  assert.match(birthdayInstructions(3, false), /dalam 3 hari.*jika relevan/i);
+  assert.equal(birthdayInstructions(8, false), "");
+  assert.match(birthdayInstructions(0, true), /<<<BIRTHDAY>>>/);
+  assert.doesNotMatch(birthdayInstructions(0, false), /<<<BIRTHDAY>>>/);
+  assert.deepEqual(
+    splitBirthdayReply(
+      "<<<BIRTHDAY>>> Semoga kuemu seenak yang kita bahas!\r\n\r\nKita lanjut ceritanya.",
+    ),
+    {
+      greeting: "Semoga kuemu seenak yang kita bahas!",
+      reply: "Kita lanjut ceritanya.",
+    },
+  );
+  assert.deepEqual(splitBirthdayReply("Aku dengarkan."), { greeting: "", reply: "Aku dengarkan." });
 });

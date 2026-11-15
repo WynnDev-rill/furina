@@ -42,13 +42,6 @@ export async function profileContext(userId: string, timezone?: string) {
     profile,
     birthday,
     prompt:
-      "\n\nAKSES DAN KONTEKS USIA: " +
-      ageInstructions(age) +
-      " Kelompok usia: " +
-      group +
-      "." +
-      (birthday && birthday.daysUntil > 0 && birthday.daysUntil <= 7
-        ? " Ulang tahun pengguna dalam satu minggu. Gunakan hanya sebagai konteks bila pengguna membahas ulang tahun. Hindari ucapan sebelum harinya."
-        : ""),
+      "\n\nAKSES DAN KONTEKS USIA: " + ageInstructions(age) + " Kelompok usia: " + group + ".",
   };
 }

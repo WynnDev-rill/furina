@@ -1,4 +1,4 @@
-import { parseBirthDate, localCalendar } from "@/lib/birth-date";
+import { birthdayInstructions, parseBirthDate, localCalendar, splitBirthdayReply } from "@/lib/birth-date";
 import { claimBirthday, loadBirthProfile, profileContext, saveBirthProfile } from "@/lib/user-profile.server";
 import { messageQuote } from "@/lib/message-quote";
 import { emptyIdentity, identityPrompt } from "@/lib/identity-core";
@@ -457,12 +457,20 @@ export const chatWithFurina = createServerFn({ method: "POST" })
       initiativeNote = `\n\nINISIATIF (opsional untuk giliran ini): setelah membalas topik utama, boleh tambahkan 1 bubble PENDEK yang lempar topik baru dari state internalmu, cerita kecil tentang dirimu sendiri, atau opini spontan. JANGAN kalau user baru tanya sesuatu yang spesifik & belum tuntas. JANGAN template "ada lagi?".`;
     }
 
+    const { profile, birthday, prompt: agePrompt } = await userProfile;
+    const birthdayDate = profile?.birth_date;
+    const greetingYear = birthday && birthdayDate && !data.replay &&
+      birthday.daysUntil === 0 && (profile.greeted_year ?? 0) < birthday.year
+      ? birthday.year
+      : null;
+    const birthdayPrompt = birthdayInstructions(birthday?.daysUntil, greetingYear !== null);
+
     const system = `${DEFAULT_PERSONA}
 ${data.systemPersona?.trim() ? "ARAHAN PERSONA PENGGUNA (sesuaikan ekspresi dan gaya selama konsisten dengan inti Furina): " + data.systemPersona.trim() : ""}
 Nama kamu: ${data.characterName}.
 ${langHint}
 
-KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((await identity).state)}${initiativeNote}${memoryContext}${entityContext}${styleNote}${lengthHint}${feedbackPrompt(data.responseFeedback)}${data.replay ? "\n\nVERSI ALTERNATIF: Gunakan urutan pesan yang diterima sebagai sumber utama. Abaikan memori yang bertentangan dengan alur itu." : ""}${(await userProfile).prompt}`;
+KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((await identity).state)}${initiativeNote}${memoryContext}${entityContext}${styleNote}${lengthHint}${feedbackPrompt(data.responseFeedback)}${data.replay ? "\n\nVERSI ALTERNATIF: Gunakan urutan pesan yang diterima sebagai sumber utama. Abaikan memori yang bertentangan dengan alur itu." : ""}${agePrompt}${birthdayPrompt}`;
 
 
     const built: Array<{ role: string; content: unknown }> = data.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
@@ -504,7 +512,7 @@ KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((
       throw new Error(`Chat failed: ${res.status} ${txt}`);
     }
     const json = await res.json();
-    const reply: string = json.choices?.[0]?.message?.content ?? "";
+    const { reply, greeting } = splitBirthdayReply(json.choices?.[0]?.message?.content ?? "");
 
     // Split multi-bubble output (max 3 bubbles)
     const bubbles = reply
@@ -530,22 +538,9 @@ KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((
       else await task;
     }
 
-    const { profile, birthday } = await userProfile;
-    if (!data.replay && reply.trim() && profile?.birth_date && birthday?.daysUntil === 0 &&
-        await claimBirthday(data.userId, profile.birth_date, birthday.year)) {
-      const lang = data.language === "auto" ? (/[぀-ヿ]/.test(userText) ? "ja" : "id") : data.language;
-      const greeting = { id: "Selamat ulang tahun! Semoga hari ini ada satu hal kecil yang bikin kamu tersenyum.",
-        en: "Happy birthday! I hope something today gives you a reason to smile.",
-        ja: "お誕生日おめでとう。今日、思わず笑顔になるようなことがあるといいね。" }[lang];
-      const account = await supabaseAdmin.auth.admin.getUserById(data.userId).catch(() => null);
-      const profileName = account?.data.user?.user_metadata?.given_name ??
-        account?.data.user?.user_metadata?.full_name;
-      const firstName = typeof profileName === "string" &&
-        /^[\p{L}\p{M}ʼ’'-]{1,36}$/u.test(profileName.trim().split(/\s+/)[0])
-        ? profileName.trim().split(/\s+/)[0]
-        : null;
-      const personalized = firstName && lang !== "ja" ? greeting.replace("!", ", " + firstName + "!") : greeting;
-      finalBubbles[0] = personalized + "\n\n" + finalBubbles[0];
+    if (greeting && reply && birthdayDate && greetingYear !== null &&
+        await claimBirthday(data.userId, birthdayDate, greetingYear)) {
+      finalBubbles[0] = greeting + "\n\n" + finalBubbles[0];
     }
 
     return { reply: finalBubbles.join("\n\n"), bubbles: finalBubbles };
