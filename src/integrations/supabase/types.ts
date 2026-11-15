@@ -153,6 +153,24 @@ export type Database = {
         }
         Relationships: []
       }
+      furina_ai_preferences: {
+        Row: { user_id: string; use_gemini: boolean }
+        Insert: { user_id: string; use_gemini?: boolean }
+        Update: { use_gemini?: boolean }
+        Relationships: []
+      }
+      furina_gemini_keys: {
+        Row: { id: string; user_id: string; encrypted_value: string; fingerprint: string; suffix: string; invalid: boolean; created_at: string }
+        Insert: { user_id: string; encrypted_value: string; fingerprint: string; suffix: string }
+        Update: { invalid?: boolean; encrypted_value?: string }
+        Relationships: []
+      }
+      furina_chat_usage: {
+        Row: { user_id: string; day: string; provider: string; requests: number; tokens: number }
+        Insert: { user_id: string; day: string; provider: string; requests?: number; tokens?: number }
+        Update: { requests?: number; tokens?: number }
+        Relationships: []
+      }
       furina_memory_settings: {
         Row: { user_id: string; use_saved: boolean; use_history: boolean; history_after: string | null }
         Insert: { user_id: string; use_saved?: boolean; use_history?: boolean; history_after?: string | null }
@@ -295,6 +313,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      save_furina_gemini_key: {
+        Args: { owner_id: string; secret_box: string; key_fingerprint: string; key_suffix: string }
+        Returns: string
+      }
+      record_furina_chat_usage: {
+        Args: { owner_id: string; usage_provider: string; total_tokens: number }
+        Returns: undefined
+      }
       merge_furina_memories: {
         Args: { owner_id: string; canonical_id: string; snapshots: Json; merged_content: string; merged_embedding: string }
         Returns: boolean

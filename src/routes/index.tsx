@@ -1,3 +1,5 @@
+import { AiUsageSettings } from "@/components/ai-usage-settings";
+import { UserMessageText } from "@/components/user-message-text";
 import { MemorySettings } from "@/components/memory-settings";
 import { BirthDateSettings } from "@/components/birth-date-settings";
 import { MessageGesture } from "@/components/message-gesture";
@@ -39,6 +41,7 @@ import {
   AudioLines,
   Bell,
   Shield,
+  Gauge,
   ThumbsUp,
   ThumbsDown,
 } from "lucide-react";
@@ -277,6 +280,12 @@ const settingsSections = [
     label: "Sapaan proaktif",
     description: "Atur kapan Furina menyapamu",
     icon: Bell,
+  },
+  {
+    id: "penggunaan",
+    label: "Penggunaan dan batasan",
+    description: "Penggunaan chat dan API key Gemini",
+    icon: Gauge,
   },
   {
     id: "akun",
@@ -2219,6 +2228,8 @@ function FurinaApp() {
                 )}
 
                 {/* AKUN TAB */}
+                {settingsSection === "penggunaan" && <AiUsageSettings key={authUser?.id} userId={authUser?.id} />}
+
                 {settingsSection === "akun" && (
                   <div className="settings-detail glass-surface">
                     <section className="settings-group space-y-2">
@@ -2347,11 +2358,13 @@ function FurinaApp() {
                             />
                           </button>
                         )}
-                        {m.content && (
+                        {m.content && (isUser ? (
+                          <UserMessageText content={m.content} />
+                        ) : (
                           <div className="whitespace-pre-wrap break-words leading-relaxed">
                             {m.content}
                           </div>
-                        )}
+                        ))}
                       </div>
                     </MessageGesture>
                   </PopoverAnchor>
