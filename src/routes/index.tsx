@@ -1,3 +1,4 @@
+import { MemorySettings } from "@/components/memory-settings";
 import { BirthDateSettings } from "@/components/birth-date-settings";
 import { MessageGesture } from "@/components/message-gesture";
 import { branchPrefix, messageQuote, type MessageQuote } from "@/lib/message-quote";
@@ -83,11 +84,6 @@ import {
   chatWithFurina,
   speakVoicevoxUrl,
   speakClone,
-  listMemories,
-  deleteMemory,
-  addMemory,
-  updateMemory,
-  clearAllMemories,
   migrateGuestMemories,
   summarizeConversation,
   updateStyleProfile,
@@ -296,11 +292,6 @@ function FurinaApp() {
   const chat = useServerFn(chatWithFurina);
   const ttsVV = useServerFn(speakVoicevoxUrl);
   const ttsClone = useServerFn(speakClone);
-  const listMemFn = useServerFn(listMemories);
-  const delMemFn = useServerFn(deleteMemory);
-  const addMemFn = useServerFn(addMemory);
-  const updateMemFn = useServerFn(updateMemory);
-  const clearMemFn = useServerFn(clearAllMemories);
   const migrateMemFn = useServerFn(migrateGuestMemories);
   const summarizeFn = useServerFn(summarizeConversation);
   const updateStyleFn = useServerFn(updateStyleProfile);
@@ -359,25 +350,6 @@ function FurinaApp() {
     previousSection.current = settingsSection;
   }, [openSettings, settingsSection]);
   const [openConvos, setOpenConvos] = useState(false);
-  const [memories, setMemories] = useState<
-    {
-      id: string;
-      content: string;
-      kind?: string;
-      importance?: number;
-      occurred_at?: string | null;
-      emotion?: string | null;
-      compressed?: boolean;
-    }[]
-  >([]);
-  const [newMem, setNewMem] = useState("");
-  const [editingMemId, setEditingMemId] = useState<string | null>(null);
-  const [editingMemContent, setEditingMemContent] = useState("");
-  const [editingMemImportance, setEditingMemImportance] = useState(5);
-  const [editingMemOccurred, setEditingMemOccurred] = useState<string>("");
-  const [memFilter, setMemFilter] = useState<string>("all");
-  const [memSearch, setMemSearch] = useState<string>("");
-
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
@@ -1215,12 +1187,14 @@ function FurinaApp() {
     const total = conv.messages.length;
     const last = conv.lastSummaryCount ?? 0;
     if (total - last < 20) return;
-    const transcript = conv.messages
+    const messages = conv.messages
       .slice(-30)
-      .map((m) => `${m.role === "user" ? "USER" : "FURINA"}: ${m.content}`)
-      .join("\n");
+      .map(({ role, content, at }) => ({ role, content, at }));
     try {
-      await summarizeFn({ data: { userId, conversationTitle: conv.title, transcript } });
+      const result = await summarizeFn({
+        data: { userId, conversationTitle: conv.title, messages },
+      });
+      if (!result.ok) return;
       setConversations((prev) =>
         prev.map((c) => (c.id === conv.id ? { ...c, lastSummaryCount: total } : c)),
       );
@@ -1392,8 +1366,8 @@ function FurinaApp() {
       const ctxMsgs = currentMsgs
         .filter((m) => m.status !== "failed")
         .slice(-12)
-        .map((m) => ({ role: m.role, content: m.content || "" }));
-      ctxMsgs.push({ role: "user", content: messageContent });
+        .map((m) => ({ role: m.role, content: m.content || "", at: m.at }));
+      ctxMsgs.push({ role: "user", content: messageContent, at: userMessageTime });
 
       const lastAssistant = [...currentMsgs].reverse().find((m) => m.role === "assistant");
       const millisSinceLastAssistant = lastAssistant
@@ -1627,15 +1601,6 @@ function FurinaApp() {
     }
   }
 
-  async function refreshMemories() {
-    try {
-      const { memories } = await listMemFn({ data: { userId } });
-      setMemories(memories);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal memuat memori");
-    }
-  }
-
   function handleSampleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1734,7 +1699,6 @@ function FurinaApp() {
     setSyncFailed(false);
     setInput("");
     setPendingImage(null);
-    setMemories([]);
     proactiveFiredRef.current = false;
     const fresh = [newConversation()];
     setConversations(fresh);
@@ -1920,7 +1884,6 @@ function FurinaApp() {
                           data-section={id}
                           onClick={() => {
                             setSettingsSection(id);
-                            if (id === "memori") void refreshMemories();
                           }}
                         >
                           <span className="settings-link-icon">
@@ -2076,271 +2039,7 @@ function FurinaApp() {
                   </div>
                 )}
 
-                {/* MEMORI TAB */}
-                {settingsSection === "memori" && (
-                  <div className="settings-detail glass-surface">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <Label>Memori (lintas-percakapan)</Label>
-                      <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={async () => {
-                            toast.info("Meringkas memori lama…");
-                            try {
-                              const r = (await compactMemFn({
-                                data: { userId, threshold: 20, batch: 15, force: true },
-                              })) as { ok: boolean; reason?: string; compacted?: number };
-                              if (r.ok) {
-                                toast.success(`${r.compacted} memori diringkas.`);
-                                refreshMemories();
-                              } else
-                                toast.info(
-                                  r.reason === "below-threshold"
-                                    ? "Belum banyak memori untuk diringkas."
-                                    : "Tidak ada yang diringkas.",
-                                );
-                            } catch (e) {
-                              toast.error(e instanceof Error ? e.message : "Gagal");
-                            }
-                          }}
-                        >
-                          Ringkas
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={async () => {
-                            if (!confirm("Hapus semua memori dan reset perkembangan Furina?"))
-                              return;
-                            await clearMemFn({ data: { userId } });
-                            refreshMemories();
-                            toast.success("Memori dibersihkan");
-                          }}
-                        >
-                          Hapus semua
-                        </Button>
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Fakta tentang kamu (otomatis dipelajari) + ringkasan percakapan lama. Memori
-                      lama otomatis diringkas biar hemat.
-                    </p>
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="Tambah fakta tentang dirimu…"
-                        value={newMem}
-                        onChange={(e) => setNewMem(e.target.value)}
-                      />
-                      <Button
-                        size="icon"
-                        onClick={async () => {
-                          if (newMem.trim().length < 3) return;
-                          try {
-                            await addMemFn({ data: { content: newMem.trim(), userId } });
-                            setNewMem("");
-                            refreshMemories();
-                          } catch (e) {
-                            toast.error(e instanceof Error ? e.message : "Failed");
-                          }
-                        }}
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                    </div>
-
-                    <div className="flex flex-wrap gap-1">
-                      {[
-                        { id: "all", label: "Semua" },
-                        { id: "fact", label: "Fakta" },
-                        { id: "episodic", label: "Kejadian" },
-                        { id: "preference", label: "Preferensi" },
-                        { id: "relation", label: "Relasi" },
-                        { id: "style", label: "Gaya" },
-                        { id: "summary", label: "Ringkasan" },
-                      ].map((f) => (
-                        <button
-                          key={f.id}
-                          onClick={() => setMemFilter(f.id)}
-                          className={`rounded-full border px-2 py-0.5 text-xs transition ${
-                            memFilter === f.id
-                              ? "border-primary bg-primary/15 text-primary"
-                              : "border-border text-muted-foreground hover:bg-muted"
-                          }`}
-                        >
-                          {f.label}
-                        </button>
-                      ))}
-                    </div>
-                    <Input
-                      placeholder="Cari memori…"
-                      value={memSearch}
-                      onChange={(e) => setMemSearch(e.target.value)}
-                      className="h-8 text-xs"
-                    />
-
-                    <div className="max-h-[50vh] space-y-1 overflow-y-auto rounded-md border p-2 text-sm">
-                      {(() => {
-                        const q = memSearch.trim().toLowerCase();
-                        const filtered = memories.filter((m) => {
-                          if (memFilter !== "all" && (m.kind ?? "fact") !== memFilter) return false;
-                          if (q && !m.content.toLowerCase().includes(q)) return false;
-                          return true;
-                        });
-                        if (filtered.length === 0)
-                          return <p className="text-muted-foreground">Tidak ada memori cocok.</p>;
-                        const kindColor: Record<string, string> = {
-                          fact: "bg-muted",
-                          episodic: "bg-blue-500/20 text-blue-600 dark:text-blue-300",
-                          preference: "bg-emerald-500/20 text-emerald-600 dark:text-emerald-300",
-                          relation: "bg-purple-500/20 text-purple-600 dark:text-purple-300",
-                          style: "bg-accent/40",
-                          summary: "bg-primary/20",
-                          meta_summary: "bg-primary/20",
-                        };
-                        return filtered.map((m) => {
-                          const isEditing = editingMemId === m.id;
-                          const kind = m.kind ?? "fact";
-                          return (
-                            <div key={m.id} className="rounded p-1.5 hover:bg-muted/60">
-                              {isEditing ? (
-                                <div className="space-y-2">
-                                  <Textarea
-                                    value={editingMemContent}
-                                    onChange={(e) => setEditingMemContent(e.target.value)}
-                                    rows={3}
-                                    className="text-sm"
-                                  />
-                                  <div className="flex items-center gap-2">
-                                    <Label className="text-xs text-muted-foreground">Penting</Label>
-                                    <Slider
-                                      value={[editingMemImportance]}
-                                      min={1}
-                                      max={10}
-                                      step={1}
-                                      onValueChange={(v) => setEditingMemImportance(v[0] ?? 5)}
-                                      className="flex-1"
-                                    />
-                                    <span className="w-6 text-right text-xs font-medium">
-                                      {editingMemImportance}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <Label className="text-xs text-muted-foreground">Tanggal</Label>
-                                    <Input
-                                      type="date"
-                                      value={editingMemOccurred}
-                                      onChange={(e) => setEditingMemOccurred(e.target.value)}
-                                      className="h-7 flex-1 text-xs"
-                                    />
-                                    {editingMemOccurred && (
-                                      <button
-                                        onClick={() => setEditingMemOccurred("")}
-                                        className="text-xs text-muted-foreground hover:text-destructive"
-                                      >
-                                        ×
-                                      </button>
-                                    )}
-                                  </div>
-                                  <div className="flex justify-end gap-2">
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={() => setEditingMemId(null)}
-                                    >
-                                      Batal
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      onClick={async () => {
-                                        if (editingMemContent.trim().length < 3) return;
-                                        try {
-                                          await updateMemFn({
-                                            data: {
-                                              id: m.id,
-                                              userId,
-                                              content: editingMemContent.trim(),
-                                              importance: editingMemImportance,
-                                              occurred_at: editingMemOccurred || null,
-                                            },
-                                          });
-                                          setEditingMemId(null);
-                                          refreshMemories();
-                                          toast.success("Memori diperbarui");
-                                        } catch (e) {
-                                          toast.error(
-                                            e instanceof Error ? e.message : "Gagal simpan",
-                                          );
-                                        }
-                                      }}
-                                    >
-                                      Simpan
-                                    </Button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="flex items-start gap-2">
-                                  <span
-                                    className={`mt-0.5 shrink-0 rounded px-1 text-[9px] font-semibold uppercase ${kindColor[kind] ?? "bg-muted"}`}
-                                  >
-                                    {kind}
-                                  </span>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="break-words">{m.content}</p>
-                                    {(m.occurred_at || m.emotion) && (
-                                      <p className="mt-0.5 text-xs text-muted-foreground">
-                                        {m.occurred_at && (
-                                          <>
-                                            📅 {new Date(m.occurred_at).toLocaleDateString("id-ID")}
-                                          </>
-                                        )}
-                                        {m.occurred_at && m.emotion && " · "}
-                                        {m.emotion && <>💭 {m.emotion}</>}
-                                      </p>
-                                    )}
-                                  </div>
-                                  <span
-                                    className="mt-0.5 rounded bg-muted px-1 text-[9px] text-muted-foreground"
-                                    title="Importance"
-                                  >
-                                    {m.importance ?? 5}
-                                  </span>
-                                  <button
-                                    onClick={() => {
-                                      setEditingMemId(m.id);
-                                      setEditingMemContent(m.content);
-                                      setEditingMemImportance(m.importance ?? 5);
-                                      setEditingMemOccurred(
-                                        m.occurred_at ? m.occurred_at.slice(0, 10) : "",
-                                      );
-                                    }}
-                                    className="text-muted-foreground hover:text-primary"
-                                    title="Edit"
-                                  >
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  </button>
-                                  <button
-                                    onClick={async () => {
-                                      await delMemFn({ data: { id: m.id, userId } });
-                                      refreshMemories();
-                                    }}
-                                    className="text-muted-foreground hover:text-destructive"
-                                    title="Hapus"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        });
-                      })()}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {memories.length} memori tersimpan.
-                    </p>
-                  </div>
-                )}
+                {settingsSection === "memori" && <MemorySettings key={userId} userId={userId} />}
 
                 {/* SUARA TAB */}
                 {settingsSection === "suara" && (
