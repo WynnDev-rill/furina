@@ -9,6 +9,7 @@
 - `src/routes/index.tsx` menangani percakapan, panel pengaturan, identitas tamu, pilihan suara, dan cache browser. `src/styles.css` memuat tema dan tata letak responsif.
 - `src/lib/furina.functions.ts` menjalankan chat, RAG, pengelolaan memori, sapaan, VOICEVOX, dan XTTS. `src/lib/furina-identity.server.ts` memverifikasi identitas sebelum operasi service-role terkait pengguna. Tamu lama memakai UUID acak privat sebagai kredensial dan UUID akun diverifikasi melalui Supabase Auth.
 - `src/start.ts` memasang middleware untuk meneruskan sesi Supabase dari browser. Simpan kredensial server di Lovable/Supabase. Tabel akun bergantung pada RLS. Pertahankan data pengguna dan migrasi historis.
+- Keep chat model failover ordering in a pure, independently tested helper so response-status policy stays isolated from the server chat handler.
 - `src/lib/android-auth.ts` menghubungkan login Lovable di browser Android dengan sesi WebView. Kunci dan payload OAuth hanya berada di fragmen URL, dan payload yang kembali terenkripsi. `MainActivity.java` hanya membuka konten Furina di WebView dan memicu browser sistem untuk autentikasi.
 - `webview-android/README.md` mencatat asal ikon, proses build Android, dan penandatanganan.
 

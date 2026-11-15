@@ -6,6 +6,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireFurinaIdentity, requireGuestId } from "@/lib/furina-identity.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { requestWithChatModelFallback } from "@/lib/model-fallback";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1";
 const CHARACTER_ID = "furina";
@@ -455,17 +456,19 @@ KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((
     }
 
 
-    const res = await fetch(`${GATEWAY}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Lovable-API-Key": apiKey(),
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [{ role: "system", content: system }, ...built],
+    const { response: res } = await requestWithChatModelFallback((model) =>
+      fetch(`${GATEWAY}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Lovable-API-Key": apiKey(),
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "system", content: system }, ...built],
+        }),
       }),
-    });
+    );
     if (!res.ok) {
       const txt = await res.text();
       if (res.status === 429) throw new Error("Rate limit. Coba lagi sebentar.");
