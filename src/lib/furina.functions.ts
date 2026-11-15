@@ -590,7 +590,7 @@ async function extractAndStoreMemory(userId: string, userMsg: string, assistantR
             `"occurred_at": "YYYY-MM-DD" atau null (kalau user nyebut waktu seperti "kemarin"/"minggu lalu", hitung relatif ke hari ini), ` +
             `"emotion": "joy"|"sad"|"anger"|"fear"|"love"|"neutral" (vibe user saat menyampaikannya)` +
             `}. ` +
-            `Kalau tidak ada hal layak ingat, output []. JANGAN ekstrak hal tentang AI/asisten.`,
+            `Kalau tidak ada hal layak ingat, output []. JANGAN ekstrak hal tentang AI/asisten, usia numerik, atau tanggal lahir pengguna. Profil akun mengelola usia dan tanggal lahir.`,
         },
         { role: "user", content: exchange },
       ],

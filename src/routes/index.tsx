@@ -52,6 +52,7 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -2607,7 +2608,7 @@ function FurinaApp() {
             </div>
           )}
           {messages.length > 0 && <div className="mt-auto" />}
-          {messages.map((m) => {
+          {messages.map((m, index) => {
             const isUser = m.role === "user";
             const isPlaying = playingId === m.id;
             const isLoading = loadingId === m.id;
@@ -2616,146 +2617,190 @@ function FurinaApp() {
                 key={m.id}
                 className={`flex w-full flex-col ${isUser ? "items-end" : "items-start"}`}
               >
-                <MessageGesture onReply={() => beginReply(m)} onMenu={() => setMessageMenu(m)}>
-                  <div
-                    className={`${isUser ? "bubble-user" : "bubble-ai"} w-fit max-w-full rounded-2xl px-4 py-2.5 text-sm shadow-lg`}
-                  >
-                    {m.replyTo && (
-                      <blockquote className="message-quote">
-                        <strong>{m.replyTo.role === "user" ? "Kamu" : name}</strong>
-                        <span>{m.replyTo.excerpt}</span>
-                      </blockquote>
-                    )}
-                    {m.imageDataUrl && (
-                      <button
-                        type="button"
-                        onClick={() => setLightboxUrl(m.imageDataUrl!)}
-                        className="mb-2 block w-full overflow-hidden rounded-lg"
-                        aria-label="Buka gambar"
+                <Popover
+                  open={messageMenu?.id === m.id}
+                  onOpenChange={(open) => setMessageMenu(open ? m : null)}
+                >
+                  <PopoverAnchor className="w-fit max-w-[min(92%,640px)]">
+                    <MessageGesture onReply={() => beginReply(m)} onMenu={() => setMessageMenu(m)}>
+                      <div
+                        className={`${isUser ? "bubble-user" : "bubble-ai"} w-fit max-w-full rounded-2xl px-4 py-2.5 text-sm shadow-lg`}
                       >
-                        <img
-                          src={m.imageDataUrl}
-                          alt="lampiran"
-                          className="max-h-64 w-full cursor-zoom-in rounded-lg object-cover transition hover:opacity-90"
-                          loading="lazy"
-                        />
+                        {m.replyTo && (
+                          <blockquote className="message-quote">
+                            <strong>{m.replyTo.role === "user" ? "Kamu" : name}</strong>
+                            <span>{m.replyTo.excerpt}</span>
+                          </blockquote>
+                        )}
+                        {m.imageDataUrl && (
+                          <button
+                            type="button"
+                            onClick={() => setLightboxUrl(m.imageDataUrl!)}
+                            className="mb-2 block w-full overflow-hidden rounded-lg"
+                            aria-label="Buka gambar"
+                          >
+                            <img
+                              src={m.imageDataUrl}
+                              alt="lampiran"
+                              className="max-h-64 w-full cursor-zoom-in rounded-lg object-cover transition hover:opacity-90"
+                              loading="lazy"
+                              draggable={false}
+                            />
+                          </button>
+                        )}
+                        {m.content && (
+                          <div className="whitespace-pre-wrap break-words leading-relaxed">
+                            {m.content}
+                          </div>
+                        )}
+                      </div>
+                    </MessageGesture>
+                  </PopoverAnchor>
+                  <div className="furina-message-meta mt-1 flex w-fit items-center gap-1.5 px-2">
+                    <span
+                      className="text-[10px] opacity-70 tabular-nums"
+                      title={new Date(m.at).toLocaleString()}
+                    >
+                      {fmtTime(m.at)}
+                    </span>
+
+                    {isUser && <MsgStatusIcon status={m.status} />}
+                    <PopoverTrigger asChild>
+                      <button type="button" className="message-more" aria-label="Opsi pesan">
+                        <Ellipsis size={16} />
+                      </button>
+                    </PopoverTrigger>
+
+                    {isUser && m.status === "failed" && (
+                      <button
+                        onClick={() => retrySend(m)}
+                        className="ml-1 inline-flex items-center gap-1 rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-red-500"
+                      >
+                        <RotateCcw className="h-2.5 w-2.5" /> Kirim ulang
                       </button>
                     )}
-                    {m.content && (
-                      <div className="whitespace-pre-wrap break-words leading-relaxed">
-                        {m.content}
+
+                    {!isUser && (
+                      <div className="flex items-center gap-1">
+                        {isLoading && (
+                          <span className="glass-chip inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px]">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Menyiapkan suara…
+                          </span>
+                        )}
+                        {!isLoading && !isPlaying && (
+                          <button
+                            onClick={() => playTTS(m)}
+                            className="glass-chip rounded-full p-1.5 transition hover:scale-105"
+                            aria-label="Putar"
+                            title={m.audioUrl ? "Putar (siap)" : "Putar (akan disiapkan)"}
+                          >
+                            <Play className="h-3 w-3" />
+                          </button>
+                        )}
+                        {!isLoading && isPlaying && !paused && (
+                          <button
+                            onClick={pauseTTS}
+                            className="glass-chip rounded-full p-1.5"
+                            aria-label="Jeda"
+                          >
+                            <Pause className="h-3 w-3" />
+                          </button>
+                        )}
+                        {!isLoading && isPlaying && paused && (
+                          <button
+                            onClick={resumeTTS}
+                            className="glass-chip rounded-full p-1.5"
+                            aria-label="Lanjutkan"
+                          >
+                            <Play className="h-3 w-3" />
+                          </button>
+                        )}
+                        {!isLoading && isPlaying && (
+                          <button
+                            onClick={stopTTS}
+                            className="glass-chip rounded-full p-1.5"
+                            aria-label="Berhenti"
+                          >
+                            <Square className="h-3 w-3" />
+                          </button>
+                        )}
+                        {m.content.trim() && (
+                          <div
+                            className="furina-feedback"
+                            role="group"
+                            aria-label="Penilaian jawaban"
+                          >
+                            {(
+                              [
+                                ["like", "Sukai jawaban", ThumbsUp],
+                                ["dislike", "Tidak suka jawaban", ThumbsDown],
+                              ] as const
+                            ).map(([rating, label, Icon]) => (
+                              <button
+                                key={rating}
+                                type="button"
+                                aria-label={label}
+                                aria-pressed={ratings[m.id] === rating}
+                                disabled={!feedbackKey || feedback.key !== feedbackKey}
+                                onClick={() => rateResponse(m.id, rating)}
+                              >
+                                <Icon size={14} aria-hidden="true" />
+                                {animatedRating === `${m.id}:${rating}` &&
+                                  ratings[m.id] === rating && (
+                                    <span
+                                      className={`rating-spark rating-${rating}`}
+                                      onAnimationEnd={() => setAnimatedRating(null)}
+                                      aria-hidden="true"
+                                    />
+                                  )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
-                </MessageGesture>
-                <div className="furina-message-meta mt-1 flex w-fit items-center gap-1.5 px-2">
-                  <span
-                    className="text-[10px] opacity-70 tabular-nums"
-                    title={new Date(m.at).toLocaleString()}
-                  >
-                    {fmtTime(m.at)}
-                  </span>
-
-                  {isUser && <MsgStatusIcon status={m.status} />}
-                  <button
-                    type="button"
-                    className="message-more"
+                  <PopoverContent
+                    className="message-actions glass-surface"
+                    align={isUser ? "end" : "start"}
+                    sideOffset={6}
+                    collisionPadding={12}
                     aria-label="Opsi pesan"
-                    onClick={() => setMessageMenu(m)}
+                    onCloseAutoFocus={(event) => {
+                      if (document.activeElement === inputRef.current) event.preventDefault();
+                    }}
                   >
-                    <Ellipsis size={16} />
-                  </button>
-
-                  {isUser && m.status === "failed" && (
-                    <button
-                      onClick={() => retrySend(m)}
-                      className="ml-1 inline-flex items-center gap-1 rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-red-500"
+                    <Button variant="ghost" onClick={() => beginReply(m)}>
+                      <CornerUpLeft size={16} /> Balas
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(m.content);
+                          setMessageMenu((current) => (current?.id === m.id ? null : current));
+                          toast.success("Pesan disalin.");
+                        } catch {
+                          toast.error("Tidak dapat menyalin pesan.");
+                        }
+                      }}
+                      disabled={!m.content}
                     >
-                      <RotateCcw className="h-2.5 w-2.5" /> Kirim ulang
-                    </button>
-                  )}
-
-                  {!isUser && (
-                    <div className="flex items-center gap-1">
-                      {isLoading && (
-                        <span className="glass-chip inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px]">
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                          Menyiapkan suara…
-                        </span>
-                      )}
-                      {!isLoading && !isPlaying && (
-                        <button
-                          onClick={() => playTTS(m)}
-                          className="glass-chip rounded-full p-1.5 transition hover:scale-105"
-                          aria-label="Putar"
-                          title={m.audioUrl ? "Putar (siap)" : "Putar (akan disiapkan)"}
-                        >
-                          <Play className="h-3 w-3" />
-                        </button>
-                      )}
-                      {!isLoading && isPlaying && !paused && (
-                        <button
-                          onClick={pauseTTS}
-                          className="glass-chip rounded-full p-1.5"
-                          aria-label="Jeda"
-                        >
-                          <Pause className="h-3 w-3" />
-                        </button>
-                      )}
-                      {!isLoading && isPlaying && paused && (
-                        <button
-                          onClick={resumeTTS}
-                          className="glass-chip rounded-full p-1.5"
-                          aria-label="Lanjutkan"
-                        >
-                          <Play className="h-3 w-3" />
-                        </button>
-                      )}
-                      {!isLoading && isPlaying && (
-                        <button
-                          onClick={stopTTS}
-                          className="glass-chip rounded-full p-1.5"
-                          aria-label="Berhenti"
-                        >
-                          <Square className="h-3 w-3" />
-                        </button>
-                      )}
-                      {m.content.trim() && (
-                        <div
-                          className="furina-feedback"
-                          role="group"
-                          aria-label="Penilaian jawaban"
-                        >
-                          {(
-                            [
-                              ["like", "Sukai jawaban", ThumbsUp],
-                              ["dislike", "Tidak suka jawaban", ThumbsDown],
-                            ] as const
-                          ).map(([rating, label, Icon]) => (
-                            <button
-                              key={rating}
-                              type="button"
-                              aria-label={label}
-                              aria-pressed={ratings[m.id] === rating}
-                              disabled={!feedbackKey || feedback.key !== feedbackKey}
-                              onClick={() => rateResponse(m.id, rating)}
-                            >
-                              <Icon size={14} aria-hidden="true" />
-                              {animatedRating === `${m.id}:${rating}` &&
-                                ratings[m.id] === rating && (
-                                  <span
-                                    className={`rating-spark rating-${rating}`}
-                                    onAnimationEnd={() => setAnimatedRating(null)}
-                                    aria-hidden="true"
-                                  />
-                                )}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                      <Copy size={16} /> Salin
+                    </Button>
+                    {(isUser || messages.slice(0, index).some((item) => item.role === "user")) && (
+                      <Button
+                        variant="ghost"
+                        disabled={sending || syncing}
+                        onClick={() => branchFrom(m)}
+                      >
+                        {isUser ? <Pencil size={16} /> : <RotateCcw size={16} />}
+                        {isUser ? "Edit dan kirim ulang" : "Balasan alternatif"}
+                      </Button>
+                    )}
+                  </PopoverContent>
+                </Popover>
               </div>
             );
           })}
@@ -2883,65 +2928,6 @@ function FurinaApp() {
       </div>
 
       <Toaster theme={theme} position="bottom-center" closeButton />
-
-      <Dialog
-        open={!!messageMenu}
-        onOpenChange={(open) => {
-          if (!open) setMessageMenu(null);
-        }}
-      >
-        <DialogContent
-          className="message-actions glass-surface"
-          aria-describedby={undefined}
-          onCloseAutoFocus={(event) => {
-            if (document.activeElement === inputRef.current) event.preventDefault();
-          }}
-        >
-          <DialogTitle>Opsi pesan</DialogTitle>
-          {messageMenu && (
-            <>
-              <Button variant="ghost" onClick={() => beginReply(messageMenu)}>
-                <CornerUpLeft size={17} /> Balas
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(messageMenu.content);
-                    toast.success("Pesan disalin.");
-                    setMessageMenu(null);
-                  } catch {
-                    toast.error("Tidak dapat menyalin pesan.");
-                  }
-                }}
-                disabled={!messageMenu.content}
-              >
-                <Copy size={17} /> Salin
-              </Button>
-              {(messageMenu.role === "user" ||
-                messages
-                  .slice(0, messages.indexOf(messageMenu))
-                  .some((m) => m.role === "user")) && (
-                <Button
-                  variant="ghost"
-                  disabled={sending || syncing}
-                  onClick={() => branchFrom(messageMenu)}
-                >
-                  {messageMenu.role === "user" ? (
-                    <>
-                      <Pencil size={17} /> Edit dan kirim ulang
-                    </>
-                  ) : (
-                    <>
-                      <RotateCcw size={17} /> Buat balasan alternatif
-                    </>
-                  )}
-                </Button>
-              )}
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
 
       {/* Image lightbox */}
       <Dialog
