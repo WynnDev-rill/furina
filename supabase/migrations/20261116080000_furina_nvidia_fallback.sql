@@ -25,8 +25,8 @@ returns trigger language plpgsql set search_path = ''
 as $$
 begin
   if new.content is distinct from old.content then
-    if new.embedding is not distinct from old.embedding then new.embedding = null; end if;
-    if new.nvidia_embedding is not distinct from old.nvidia_embedding then new.nvidia_embedding = null; end if;
+    if new.embedding::text is not distinct from old.embedding::text then new.embedding = null; end if;
+    if new.nvidia_embedding::text is not distinct from old.nvidia_embedding::text then new.nvidia_embedding = null; end if;
   end if;
   return new;
 end;
