@@ -43,7 +43,7 @@ export async function requestGeminiChat(userId: string, messages: unknown[]) {
         const key = await openGeminiKey(row.encrypted_value, userId, encryptionSecret());
         return fetch(`${GEMINI_BASE}/openai/chat/completions`, {
           method: "POST",
-          redirect: "error",
+          redirect: "manual",
           signal: AbortSignal.timeout(30000),
           headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
           body: JSON.stringify({ model: GEMINI_CHAT_MODEL, messages }),

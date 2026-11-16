@@ -55,7 +55,7 @@ export const addGeminiKey = createServerFn({ method: "POST" })
       validation = await fetch(`${GEMINI_BASE}/models/${GEMINI_CHAT_MODEL}`, {
         signal: AbortSignal.timeout(8000),
         headers: { "x-goog-api-key": key },
-        redirect: "error",
+        redirect: "manual",
       });
     } catch {
       throw new Error("Gemini belum dapat dihubungi. Coba lagi.");
