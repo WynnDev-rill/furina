@@ -17,12 +17,11 @@ export function isGeminiUnavailable(status: number) {
 }
 
 export async function requestWithProviderFallback(
-  directPreferred: boolean,
-  canUseGemini: boolean,
+  personalGeminiEnabled: boolean,
   requestGemini: () => Promise<Response | null>,
   requestLovable: () => Promise<Response>,
 ): Promise<{ response: Response; provider: ChatProvider }> {
-  if (directPreferred) {
+  if (personalGeminiEnabled) {
     const gemini = await requestGemini();
     const unavailable = !!gemini && isGeminiUnavailable(gemini.status);
     if (gemini && !unavailable && !isChatProviderFallbackStatus(gemini.status)) {
@@ -36,22 +35,17 @@ export async function requestWithProviderFallback(
     return { response: lovable, provider: "lovable" };
   }
 
-  const lovable = await requestLovable();
-  if (canUseGemini && isChatProviderFallbackStatus(lovable.status)) {
-    const gemini = await requestGemini();
-    if (gemini) return { response: gemini, provider: "gemini" };
-  }
-  return { response: lovable, provider: "lovable" };
+  return { response: await requestLovable(), provider: "lovable" };
 }
 
 function retryDelayMs(response: Response, retryIndex: number): number {
   const retryAfter = response.headers.get("retry-after");
   if (response.status === 429 && retryAfter) {
     const seconds = Number(retryAfter);
-    if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+    if (Number.isFinite(seconds) && seconds >= 0) return Math.min(1000, seconds * 1000);
 
     const retryAt = Date.parse(retryAfter);
-    if (Number.isFinite(retryAt)) return Math.max(0, retryAt - Date.now());
+    if (Number.isFinite(retryAt)) return Math.min(1000, Math.max(0, retryAt - Date.now()));
   }
 
   return 250 * 2 ** retryIndex + Math.floor(Math.random() * 250);

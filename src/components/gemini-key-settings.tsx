@@ -149,7 +149,7 @@ export function GeminiKeySettings({
       {userId && settings && settings.keys.length > 0 && !loadError && (
         <>
           <div className="flex items-center justify-between gap-3">
-            <Label htmlFor="furina-gemini-direct">Prioritaskan Gemini</Label>
+            <Label htmlFor="furina-gemini-direct">Gunakan API key Gemini</Label>
             <Switch
               id="furina-gemini-direct"
               checked={settings.enabled && settings.eligible}
@@ -165,7 +165,7 @@ export function GeminiKeySettings({
           </div>
           {settings.eligible && (
             <p className="text-xs text-muted-foreground">
-              {settings.enabled ? "Gemini digunakan lebih dulu. Lovable menjadi cadangan." : "Lovable digunakan lebih dulu. Gemini menjadi cadangan saat kuota Lovable habis."}
+              {settings.enabled ? "Gemini digunakan lebih dulu. Lovable menjadi cadangan." : "API key pribadi nonaktif. Chat menggunakan Lovable."}
             </p>
           )}
           <ul className="divide-y divide-border/50">
