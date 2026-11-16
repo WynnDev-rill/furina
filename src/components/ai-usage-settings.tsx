@@ -1,9 +1,11 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { ExternalLink, KeyRound, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Progress } from "@/components/ui/progress";
+import { formatResetCountdown, getUsageSharePercent } from "@/lib/ai-usage-stats";
 import {
   addGeminiKey,
   getAiUsage,
@@ -25,6 +27,13 @@ export function AiUsageSettings({ userId }: { userId?: string | null }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [loadAttempt, setLoadAttempt] = useState(0);
+  const [clock, setClock] = useState(Date.now());
+  const usageBasis = useMemo(() => {
+    if (!usage) return { total: 0, useTokens: false };
+    const tokens = usage.usage.reduce((sum, item) => sum + item.tokens, 0);
+    const requests = usage.usage.reduce((sum, item) => sum + item.requests, 0);
+    return { total: tokens || requests, useTokens: tokens > 0 };
+  }, [usage]);
 
   useEffect(() => {
     if (!userId) return;
@@ -41,6 +50,19 @@ export function AiUsageSettings({ userId }: { userId?: string | null }) {
       ignore = true;
     };
   }, [getUsage, userId, loadAttempt]);
+
+  useEffect(() => {
+    if (!usage) return;
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      setClock(now);
+      if (Date.parse(usage.resetAt) <= now) {
+        window.clearInterval(timer);
+        setLoadAttempt((attempt) => attempt + 1);
+      }
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [usage]);
 
   async function update(action: () => Promise<unknown>) {
     if (!userId || busy) return;
@@ -68,22 +90,49 @@ export function AiUsageSettings({ userId }: { userId?: string | null }) {
   return (
     <div className="space-y-3">
       <section className={panel}>
-        <h3 className="font-semibold">Penggunaan chat bulan ini</h3>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="font-semibold">Penggunaan chat bulan ini</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Persentase adalah porsi {usageBasis.useTokens ? "token" : "balasan"} yang tercatat, bukan batas kuota.
+            </p>
+          </div>
+          {usage && (
+            <p className="text-right text-xs text-muted-foreground">
+              Reset dalam <span className="font-medium text-foreground">{formatResetCountdown(usage.resetAt, clock)}</span>
+            </p>
+          )}
+        </div>
         {usage ? (
-          <dl className="divide-y divide-border/50">
-            {usage.usage.map(({ provider, requests, tokens }) => (
-              <div
-                key={provider}
-                className="flex flex-wrap items-baseline justify-between gap-x-3 py-2 text-sm"
-              >
-                <dt>{provider === "gemini" ? "Gemini langsung" : "Lovable AI Gateway"}</dt>
-                <dd className="text-muted-foreground">
-                  {number.format(requests)} balasan
-                  {tokens > 0 && ` · ${number.format(tokens)} token`}
-                </dd>
-              </div>
-            ))}
-          </dl>
+          <div className="divide-y divide-border/50">
+            {usage.usage.map(({ provider, requests, tokens }) => {
+              const percent = getUsageSharePercent(
+                usageBasis.useTokens ? tokens : requests,
+                usageBasis.total,
+              );
+              const label = provider === "gemini" ? "Gemini langsung" : "Lovable AI Gateway";
+              return (
+                <div key={provider} className="space-y-2 py-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
+                    <span className="font-medium">{label}</span>
+                    <span className="text-muted-foreground">
+                      {number.format(requests)} balasan · {number.format(tokens)} token
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Progress
+                      value={percent ?? 0}
+                      aria-label={`Porsi penggunaan ${label}`}
+                      className="h-2 flex-1"
+                    />
+                    <span className="w-10 text-right text-xs tabular-nums text-muted-foreground">
+                      {percent === null ? "—" : `${percent}%`}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         ) : (
           <p className="text-sm text-muted-foreground">
             {userId
@@ -93,9 +142,6 @@ export function AiUsageSettings({ userId }: { userId?: string | null }) {
               : "Masuk untuk melihat penggunaan akunmu."}
           </p>
         )}
-        <p className="text-xs text-muted-foreground">
-          Kuota resmi dan waktu reset tersedia di dasbor penyedia.
-        </p>
         <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
           <a
             href="https://lovable.dev/projects/1a1621d2-7cae-4972-8cdc-269778779da2"

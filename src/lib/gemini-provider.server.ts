@@ -32,7 +32,8 @@ export async function requestGeminiChat(userId: string, messages: unknown[]) {
     res = await useGeminiKeys(
       enabled.map((row) => row.id),
       async (id) => {
-        const row = enabled.find((item) => item.id === id)!;
+        const row = enabled.find((item) => item.id === id);
+        if (!row) throw new Error("API key Gemini tidak ditemukan.");
         const key = await openGeminiKey(row.encrypted_value, userId, encryptionSecret());
         return fetch(`${GEMINI_BASE}/openai/chat/completions`, {
           method: "POST",
@@ -47,7 +48,8 @@ export async function requestGeminiChat(userId: string, messages: unknown[]) {
         return isInvalidGeminiKey(response.status, (await response.text()).slice(0, 8192));
       },
       async (id) => {
-        const row = enabled.find((item) => item.id === id)!;
+        const row = enabled.find((item) => item.id === id);
+        if (!row) return;
         await supabaseAdmin
           .from("furina_gemini_keys")
           .update({ invalid: true })
@@ -59,23 +61,6 @@ export async function requestGeminiChat(userId: string, messages: unknown[]) {
   } catch {
     throw new Error("Gemini belum dapat dihubungi atau kuncinya perlu disimpan ulang.");
   }
-  if (!res)
-    throw new Error(
-      "Tidak ada API key Gemini yang valid. Tambahkan kunci baru atau pilih Lovable.",
-    );
-  if (res.status === 429) {
-    const retryAfter = res.headers.get("retry-after");
-    const seconds = retryAfter && /^\d{1,6}$/.test(retryAfter) ? Number(retryAfter) : null;
-    throw new Error(
-      seconds && seconds > 0
-        ? `Batas Gemini tercapai. Coba lagi dalam ${seconds} detik.`
-        : "Batas Gemini tercapai. Periksa kuota proyek di Google AI Studio.",
-    );
-  }
-  if (!res.ok)
-    throw new Error(
-      `Gemini menolak permintaan (${res.status}). Periksa akses model dan billing di AI Studio.`,
-    );
   return res;
 }
 

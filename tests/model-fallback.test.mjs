@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CHAT_MODEL_FALLBACK_ORDER, requestWithChatModelFallback } from "../src/lib/model-fallback.ts";
+import {
+  CHAT_MODEL_FALLBACK_ORDER,
+  isChatProviderFallbackStatus,
+  requestWithChatModelFallback,
+  requestWithProviderFallback,
+} from "../src/lib/model-fallback.ts";
 
 test("chat fallback starts with Gemini 3.8 Flash and uses the requested order", () => {
   assert.deepEqual(CHAT_MODEL_FALLBACK_ORDER, [
@@ -59,4 +64,66 @@ test("chat fallback returns the final retryable response after exhausting models
   assert.deepEqual(calledModels, CHAT_MODEL_FALLBACK_ORDER);
   assert.equal(result.model, "openai/gpt-5.4-mini");
   assert.equal(result.response.status, 503);
+});
+
+test("Lovable Gateway is primary and personal Gemini is used only after 429 or 402", async () => {
+  for (const status of [429, 402]) {
+    const calls = [];
+    const result = await requestWithProviderFallback(
+      false,
+      true,
+      async () => {
+        calls.push("gemini");
+        return new Response("personal", { status: 200 });
+      },
+      async () => {
+        calls.push("lovable");
+        return new Response("limited", { status });
+      },
+    );
+    assert.deepEqual(calls, ["lovable", "gemini"]);
+    assert.equal(result.provider, "gemini");
+    assert.equal(result.response.status, 200);
+  }
+});
+
+test("Gemini direct preference reverses priority and falls back to Lovable only on 429 or 402", async () => {
+  for (const status of [429, 402]) {
+    const calls = [];
+    const result = await requestWithProviderFallback(
+      true,
+      true,
+      async () => {
+        calls.push("gemini");
+        return new Response("limited", { status });
+      },
+      async () => {
+        calls.push("lovable");
+        return new Response("ok", { status: 200 });
+      },
+    );
+    assert.deepEqual(calls, ["gemini", "lovable"]);
+    assert.equal(result.provider, "lovable");
+  }
+});
+
+test("provider routing does not switch on unrelated errors", async () => {
+  for (const status of [400, 401, 403, 404, 500, 503]) {
+    assert.equal(isChatProviderFallbackStatus(status), false);
+    const calls = [];
+    const result = await requestWithProviderFallback(
+      false,
+      true,
+      async () => {
+        calls.push("gemini");
+        return new Response("unused", { status: 200 });
+      },
+      async () => {
+        calls.push("lovable");
+        return new Response("terminal", { status });
+      },
+    );
+    assert.deepEqual(calls, ["lovable"]);
+    assert.equal(result.response.status, status);
+  }
 });

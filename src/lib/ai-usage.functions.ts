@@ -11,6 +11,7 @@ import {
 import { isInvalidGeminiKey, normalizeGeminiKey, protectGeminiKey } from "./gemini-key";
 import { localCalendar } from "./birth-date";
 import { profileContext } from "./user-profile.server";
+import { nextJakartaMonthReset } from "./ai-usage-stats";
 
 const identity = z.object({ userId: z.string().uuid() });
 
@@ -18,7 +19,11 @@ export const getAiUsage = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => identity.parse(input))
   .handler(async ({ data: { userId } }) => {
     await requireFurinaIdentity(userId, true);
-    const day = localCalendar(new Date(), "Asia/Jakarta").toISOString().slice(0, 10);
+    const now = new Date();
+    const day = localCalendar(now, "Asia/Jakarta").toISOString().slice(0, 10);
+    const monthStart = day.slice(0, 7) + "-01";
+    const resetAt = nextJakartaMonthReset(now);
+    const resetDay = localCalendar(resetAt, "Asia/Jakarta").toISOString().slice(0, 10);
     const [enabled, keys, usage, profile] = await Promise.all([
       geminiEnabled(userId),
       supabaseAdmin
@@ -31,13 +36,14 @@ export const getAiUsage = createServerFn({ method: "POST" })
         .from("furina_chat_usage")
         .select("provider,requests,tokens")
         .eq("user_id", userId)
-        .gte("day", day.slice(0, 7) + "-01")
-        .lte("day", day),
+        .gte("day", monthStart)
+        .lt("day", resetDay),
       profileContext(userId),
     ]);
     if (keys.error || usage.error) throw new Error("Penggunaan AI belum dapat dimuat.");
     return {
       enabled,
+      resetAt: resetAt.toISOString(),
       keys: keys.data ?? [],
       eligible: (profile.birthday?.age ?? 0) >= 18,
       usage: (["lovable", "gemini"] as const).map((provider) =>

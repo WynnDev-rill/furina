@@ -13,7 +13,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireFurinaIdentity, requireGuestId } from "@/lib/furina-identity.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { requestWithChatModelFallback } from "@/lib/model-fallback";
+import { requestWithChatModelFallback, requestWithProviderFallback } from "@/lib/model-fallback";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1";
 const CHARACTER_ID = "furina";
@@ -298,7 +298,7 @@ export const chatWithFurina = createServerFn({ method: "POST" })
           query_vec: JSON.stringify(vec),
           use_saved: policy.use_saved,
           use_history: useHistory,
-          since_time: policy.history_after,
+          since_time: policy.history_after ?? "0001-01-01T00:00:00.000Z",
           row_count: 16,
         });
         const saved = (matches ?? []).filter((m) => m.saved).slice(0, 5);
@@ -425,16 +425,21 @@ KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((
 
 
     const messages = [{ role: "system", content: system }, ...built];
-    const direct = signedIn && (birthday?.age ?? 0) >= 18 && await geminiEnabled(data.userId)
-      ? await requestGeminiChat(data.userId, messages)
-      : null;
-    const res = direct ?? (await requestWithChatModelFallback((model) =>
+    const canUsePersonalGemini = signedIn && (birthday?.age ?? 0) >= 18;
+    const directPreferred = canUsePersonalGemini && await geminiEnabled(data.userId);
+    const requestGateway = () => requestWithChatModelFallback((model) =>
       fetch(`${GATEWAY}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
         body: JSON.stringify({ model, messages }),
       }),
-    )).response;
+    ).then((result) => result.response);
+    const { response: res, provider } = await requestWithProviderFallback(
+      directPreferred,
+      canUsePersonalGemini,
+      () => requestGeminiChat(data.userId, messages),
+      requestGateway,
+    );
     if (!res.ok) {
       const txt = await res.text();
       if (res.status === 429) throw new Error("Rate limit. Coba lagi sebentar.");
@@ -444,7 +449,7 @@ KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((
     const json = await res.json();
     const { reply, greeting } = splitBirthdayReply(json.choices?.[0]?.message?.content ?? "");
     if (signedIn && reply.trim()) {
-      await recordChatUsage(data.userId, direct ? "gemini" : "lovable", json.usage?.total_tokens).catch(() => {});
+      await recordChatUsage(data.userId, provider, json.usage?.total_tokens).catch(() => {});
     }
 
     // Split multi-bubble output (max 3 bubbles)
@@ -979,7 +984,7 @@ export const clearAllMemories = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await requireFurinaIdentity(data.userId);
     const { error } = await supabaseAdmin.rpc("forget_furina_memory", {
-      owner_id: data.userId, memory_id: null,
+      owner_id: data.userId, memory_id: null as unknown as string,
     });
     if (error) throw error;
     return { ok: true };
@@ -1082,7 +1087,8 @@ type MemorySnapshot = { id: string; content: string; kind: string; occurred_at: 
 
 async function nearbyMemories(userId: string, vec: string, since: string | null) {
   const { data, error } = await supabaseAdmin.rpc("find_furina_memories", {
-    owner_id: userId, query_vec: vec, use_saved: true, use_history: true, since_time: since, row_count: 24,
+    owner_id: userId, query_vec: vec, use_saved: true, use_history: true,
+    since_time: since ?? "0001-01-01T00:00:00.000Z", row_count: 24,
   });
   if (error) throw error;
   return data ?? [];

@@ -62,10 +62,15 @@ export async function useGeminiKeys<T extends { status: number }>(
   invalid: (response: T) => Promise<boolean>,
   revoke: (key: string) => Promise<void>,
 ) {
+  let lastRateLimited: T | null = null;
   for (const key of keys) {
     const response = await request(key);
-    if (response.status === 429 || !(await invalid(response))) return response;
+    if (response.status === 429) {
+      lastRateLimited = response;
+      continue;
+    }
+    if (!(await invalid(response))) return response;
     await revoke(key);
   }
-  return null;
+  return lastRateLimited;
 }

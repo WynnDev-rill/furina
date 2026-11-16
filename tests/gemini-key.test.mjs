@@ -58,8 +58,39 @@ test("rotation skips a credential Gemini confirms is invalid", async () => {
   assert.deepEqual(revoked, ["first"]);
 });
 
-test("provider quota and general access errors do not rotate keys", async () => {
-  for (const status of [429, 403, 503]) {
+test("Gemini key rotation tries the next key after a 429 quota response", async () => {
+  const attempts = [];
+  const response = await useGeminiKeys(
+    ["first", "second"],
+    async (key) => {
+      attempts.push(key);
+      return key === "first" ? { status: 429 } : { status: 200 };
+    },
+    async () => false,
+    async () => assert.fail(),
+  );
+  assert.deepEqual(attempts, ["first", "second"]);
+  assert.equal(response.status, 200);
+});
+
+test("Gemini rotation returns the last quota response after all keys are limited", async () => {
+  const attempts = [];
+  const response = await useGeminiKeys(
+    ["first", "second"],
+    async (key) => {
+      attempts.push(key);
+      return { status: 429, key };
+    },
+    async () => false,
+    async () => assert.fail(),
+  );
+  assert.deepEqual(attempts, ["first", "second"]);
+  assert.equal(response.status, 429);
+  assert.equal(response.key, "second");
+});
+
+test("general access and server errors do not rotate Gemini keys", async () => {
+  for (const status of [403, 503]) {
     const response = await useGeminiKeys(
       ["first", "second"],
       async (key) => {

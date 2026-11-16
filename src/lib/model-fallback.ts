@@ -6,6 +6,34 @@ export const CHAT_MODEL_FALLBACK_ORDER = [
 
 export type ChatModel = (typeof CHAT_MODEL_FALLBACK_ORDER)[number];
 
+export type ChatProvider = "gemini" | "lovable";
+
+export function isChatProviderFallbackStatus(status: number): boolean {
+  return status === 429 || status === 402;
+}
+
+export async function requestWithProviderFallback(
+  directPreferred: boolean,
+  canUseGemini: boolean,
+  requestGemini: () => Promise<Response | null>,
+  requestLovable: () => Promise<Response>,
+): Promise<{ response: Response; provider: ChatProvider }> {
+  if (directPreferred) {
+    const gemini = await requestGemini();
+    if (gemini && !isChatProviderFallbackStatus(gemini.status)) {
+      return { response: gemini, provider: "gemini" };
+    }
+    return { response: await requestLovable(), provider: "lovable" };
+  }
+
+  const lovable = await requestLovable();
+  if (canUseGemini && isChatProviderFallbackStatus(lovable.status)) {
+    const gemini = await requestGemini();
+    if (gemini) return { response: gemini, provider: "gemini" };
+  }
+  return { response: lovable, provider: "lovable" };
+}
+
 function retryDelayMs(response: Response, retryIndex: number): number {
   const retryAfter = response.headers.get("retry-after");
   if (response.status === 429 && retryAfter) {
