@@ -1,3 +1,5 @@
+import { requestBackgroundChain } from "./background-provider-routing";
+import { NVIDIA, NVIDIA_EMBEDDING, NVIDIA_TEXT } from "./nvidia-ai.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { encryptionSecret } from "./gemini-provider.server";
 import { openGeminiKey } from "./gemini-key";
@@ -25,74 +27,108 @@ function issueFor(provider: string, status: number) {
   return `${provider}: layanan belum tersedia.`;
 }
 
+export async function requestPersonalBackground(
+  userId: string,
+  provider: "openrouter" | "nvidia",
+  endpoint: BackgroundEndpoint,
+  payload: Record<string, unknown>,
+  timeoutMs = 15000,
+) {
+  const nvidia = provider === "nvidia";
+  const table = nvidia ? "furina_nvidia_keys" : "furina_openrouter_keys";
+  const keys = await fetchAllPages((from, to) =>
+    supabaseAdmin
+      .from(table)
+      .select("id,encrypted_value")
+      .eq("user_id", userId)
+      .eq("invalid", false)
+      .order("created_at")
+      .order("id")
+      .range(from, to),
+  );
+  const { input_type, ...body } = payload;
+  const requestBody =
+    endpoint === "embeddings"
+      ? nvidia
+        ? {
+            input: Array.isArray(body.input) ? body.input : [body.input],
+            model: NVIDIA_EMBEDDING,
+            input_type: input_type ?? "passage",
+            encoding_format: "float",
+            truncate: "END",
+          }
+        : { ...body, model: EMBEDDING_MODEL, dimensions: 1536 }
+      : nvidia
+        ? { ...body, model: NVIDIA_TEXT }
+        : { ...body, model: "openrouter/free", provider: { require_parameters: true } };
+  return requestOpenRouter(
+    keys,
+    (row) => openGeminiKey(row.encrypted_value, userId, encryptionSecret()).catch(() => null),
+    (key, signal) =>
+      fetch(`${nvidia ? NVIDIA : OPENROUTER}/${endpoint}`, {
+        method: "POST",
+        redirect: "manual",
+        signal,
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      }),
+    async (row) => {
+      await supabaseAdmin
+        .from(table)
+        .update({ invalid: true })
+        .eq("user_id", userId)
+        .eq("id", row.id)
+        .eq("encrypted_value", row.encrypted_value);
+    },
+    timeoutMs,
+  );
+}
+
 export async function requestBackgroundAi(
   userId: string | undefined,
   endpoint: BackgroundEndpoint,
   payload: Record<string, unknown>,
 ): Promise<Response> {
   const preferences = userId ? await readAiPreferences(userId) : null;
-  const useLovable = preferences?.lovable_background ?? true;
-  let issue: string | null = null;
-  let response: Response | null = null;
-  if (preferences?.use_openrouter && userId) {
-    try {
-      const keys = await fetchAllPages((from, to) =>
-        supabaseAdmin
-          .from("furina_openrouter_keys")
-          .select("id,encrypted_value")
-          .eq("user_id", userId)
-          .eq("invalid", false)
-          .order("created_at")
-          .order("id")
-          .range(from, to),
-      );
-      response = await requestOpenRouter(
-        keys,
-        (row) => openGeminiKey(row.encrypted_value, userId, encryptionSecret()).catch(() => null),
-        (key, signal) =>
-          fetch(`${OPENROUTER}/${endpoint}`, {
-            method: "POST",
-            redirect: "manual",
-            signal,
-            headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-            body: JSON.stringify(
-              endpoint === "embeddings"
-                ? { ...payload, model: EMBEDDING_MODEL, dimensions: 1536 }
-                : { ...payload, model: "openrouter/free", provider: { require_parameters: true } },
-            ),
-          }),
-        async (row) => {
-          await supabaseAdmin
-            .from("furina_openrouter_keys")
-            .update({ invalid: true })
-            .eq("user_id", userId)
-            .eq("id", row.id)
-            .eq("encrypted_value", row.encrypted_value);
-        },
-      );
-      if (!response?.ok)
-        issue = response
-          ? issueFor("OpenRouter", response.status)
-          : "OpenRouter: tambahkan API key aktif.";
-    } catch {
-      issue = "OpenRouter: layanan belum tersedia.";
-    }
-  }
-  if (!response?.ok && useLovable) {
-    const key = process.env.LOVABLE_API_KEY;
-    response = key
-      ? await fetch(`https://ai.gateway.lovable.dev/v1/${endpoint}`, {
+  const { input_type: _inputType, ...lovablePayload } = payload;
+  const {
+    response,
+    provider: used,
+    failures,
+  } = await requestBackgroundChain([
+    {
+      name: "OpenRouter",
+      enabled: !!userId && preferences?.use_openrouter,
+      request: async () =>
+        userId ? requestPersonalBackground(userId, "openrouter", endpoint, payload) : null,
+    },
+    {
+      name: "NVIDIA",
+      enabled: !!userId && preferences?.use_nvidia,
+      request: async () =>
+        userId ? requestPersonalBackground(userId, "nvidia", endpoint, payload) : null,
+    },
+    {
+      name: "Lovable",
+      enabled: preferences?.lovable_background ?? true,
+      request: async () => {
+        const key = process.env.LOVABLE_API_KEY;
+        if (!key) return new Response(null, { status: 503 });
+        return fetch(`https://ai.gateway.lovable.dev/v1/${endpoint}`, {
           method: "POST",
           redirect: "manual",
           signal: AbortSignal.timeout(12000),
           headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        }).catch(() => new Response(null, { status: 504 }))
-      : new Response(null, { status: 503 });
-    if (!response.ok)
-      issue = [issue, issueFor("Lovable", response.status)].filter(Boolean).join(" ");
-    else if (issue) issue += " Dibantu Lovable.";
-  }
+          body: JSON.stringify(lovablePayload),
+        }).catch(() => new Response(null, { status: 504 }));
+      },
+    },
+  ]);
+  const issues = failures.map(({ name, status }) =>
+    status === null ? `${name}: tambahkan API key aktif.` : issueFor(name, status),
+  );
+  if (issues.length && used) issues.push(`Dibantu ${used}.`);
+  const issue = issues.join(" ") || null;
   if (userId) {
     const column = endpoint === "embeddings" ? "embedding_issue" : "background_text_issue";
     if ((preferences?.[column] ?? null) !== issue) {
@@ -106,5 +142,8 @@ export async function requestBackgroundAi(
         );
     }
   }
-  return response ?? new Response(null, { status: 503 });
+  if (!used || !response) return response ?? new Response(null, { status: 503 });
+  const headers = new Headers(response.headers);
+  headers.set("x-furina-ai-provider", used);
+  return new Response(response.body, { status: response.status, headers });
 }

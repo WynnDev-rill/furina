@@ -1,4 +1,5 @@
-import { EMBEDDING_MODEL, readAiPreferences, requestBackgroundAi } from "@/lib/background-ai.server";
+import { embedMemory, indexMissingMemories } from "@/lib/memory-embeddings.server";
+import { readAiPreferences, requestBackgroundAi } from "@/lib/background-ai.server";
 import { fetchAllPages } from "@/lib/record-pagination";
 import type { GeminiChatMessage } from "@/lib/gemini-chat";
 import { recordChatUsage, requestGeminiChat } from "@/lib/gemini-provider.server";
@@ -25,16 +26,6 @@ function apiKey() {
   const k = process.env.LOVABLE_API_KEY;
   if (!k) throw new Error("LOVABLE_API_KEY not configured");
   return k;
-}
-
-async function embed(userId: string, text: string): Promise<number[]> {
-  const res = await requestBackgroundAi(userId, "embeddings", { model: EMBEDDING_MODEL, input: text });
-  if (!res.ok) throw new Error("Embedding memori belum tersedia. Periksa AI dan API Key.");
-  const vector: unknown = (await res.json()).data?.[0]?.embedding;
-  if (!Array.isArray(vector) || vector.length !== 1536 || !vector.every(Number.isFinite)) {
-    throw new Error("Penyedia mengembalikan embedding memori yang tidak valid.");
-  }
-  return vector;
 }
 
 // =================== Natural time formatting ===================
@@ -289,17 +280,19 @@ export const chatWithFurina = createServerFn({ method: "POST" })
     const personalGeminiEnabled = canUsePersonalGemini && preferences?.use_gemini === true;
     const lovableChat = preferences?.lovable_chat ?? true;
     if (!personalGeminiEnabled && !lovableChat) throw new Error("AI percakapan nonaktif. Aktifkan penyedia di AI dan API Key.");
-    const backgroundPaused = preferences?.lovable_background === false && !preferences.use_openrouter;
+    const backgroundPaused = preferences?.lovable_background === false && !preferences.use_openrouter && !preferences.use_nvidia;
     const policy = await policyPromise;
     const useHistory = policy.use_history && !data.replay;
     let memoryContext = "";
     let memoryUnavailable = false;
     if (!backgroundPaused && userText.trim() && (policy.use_saved || useHistory)) {
       try {
-        const vec = await embed(data.userId, userText.trim().slice(0, 500));
-        const { data: matches, error } = await supabaseAdmin.rpc("find_furina_memories", {
+        const vec = await embedMemory(data.userId, userText.trim().slice(0, 500), "query");
+        await indexMissingMemories(data.userId, vec.nvidia, policy.use_saved, useHistory, policy.history_after)
+          .catch((error) => console.warn("Memory indexing deferred", error));
+        const { data: matches, error } = await supabaseAdmin.rpc(vec.nvidia ? "find_furina_nvidia_memories" : "find_furina_memories", {
           owner_id: data.userId,
-          query_vec: JSON.stringify(vec),
+          query_vec: vec.value,
           use_saved: policy.use_saved,
           use_history: useHistory,
           since_time: policy.history_after ?? "0001-01-01T00:00:00.000Z",
@@ -946,10 +939,11 @@ export const addMemory = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await requireFurinaIdentity(data.userId);
-    const vec = await embed(data.userId, data.content);
+    const vec = await embedMemory(data.userId, data.content);
     const { error } = await supabaseAdmin.from("memories").insert({
       content: data.content,
-      embedding: vec as unknown as string,
+      embedding: vec.nvidia ? null : vec.value,
+      nvidia_embedding: vec.nvidia ? vec.value : null,
       user_id: data.userId,
       character_id: CHARACTER_ID,
       kind: "fact",
@@ -973,10 +967,10 @@ export const updateMemory = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await requireFurinaIdentity(data.userId);
-    const vec = await embed(data.userId, data.content);
-    const { data: corrected, error } = await supabaseAdmin.rpc("correct_furina_memory", {
+    const vec = await embedMemory(data.userId, data.content);
+    const { data: corrected, error } = await supabaseAdmin.rpc(vec.nvidia ? "correct_furina_nvidia_memory" : "correct_furina_memory", {
       owner_id: data.userId, memory_id: data.id, new_content: data.content,
-      new_embedding: JSON.stringify(vec),
+      new_embedding: vec.value,
     });
     if (error || !corrected) throw new Error("Memori tidak dapat disimpan.");
     return { ok: true };
@@ -1051,14 +1045,15 @@ export const updateStyleProfile = createServerFn({ method: "POST" })
     const profile: string = j.choices?.[0]?.message?.content?.trim() ?? "";
     if (!profile || profile.length < 20) return { ok: false, profile: "" };
 
+    const vec = await embedMemory(data.userId, profile);
     // Replace existing style memory (kind='style') — hanya 1 yang aktif
     await supabaseAdmin.from("memories").delete()
       .eq("user_id", data.userId).eq("character_id", CHARACTER_ID).eq("kind", "style").eq("saved", false).lte("created_at", startedAt);
 
-    const vec = await embed(data.userId, profile);
     await supabaseAdmin.from("memories").insert({
       content: profile,
-      embedding: vec as unknown as string,
+      embedding: vec.nvidia ? null : vec.value,
+      nvidia_embedding: vec.nvidia ? vec.value : null,
       user_id: data.userId,
       character_id: CHARACTER_ID,
       kind: "style",
@@ -1134,9 +1129,11 @@ async function mergeSimilarMemories(userId: string, source: MemorySnapshot, cand
   const [canonical] = selected.slice().sort((a, b) => a.id.localeCompare(b.id));
   const content = combineMemoryText(selected.map((m) => m.content));
   if (!content) return false;
+  const vector = await embedMemory(userId, content);
+  if (vector.nvidia) return false;
   const { data, error } = await supabaseAdmin.rpc("merge_furina_memories", {
     owner_id: userId, canonical_id: canonical.id, merged_content: content,
-    merged_embedding: JSON.stringify(await embed(userId, content)), snapshots: selected.map(
+    merged_embedding: vector.value, snapshots: selected.map(
       ({ id, content, kind, occurred_at }) => ({ id, content, kind, occurred_at }),
     ),
   });
@@ -1151,11 +1148,12 @@ async function storeLearnedMemory(
 ) {
   const policy = await readMemoryPolicy(userId);
   if (!policy.use_history || (policy.history_after && Date.parse(startedAt) <= Date.parse(policy.history_after))) return;
-  const vec = JSON.stringify(await embed(userId, note.content));
-  const nearby = await nearbyMemories(userId, vec, policy.history_after);
+  const vec = await embedMemory(userId, note.content);
+  const nearby = vec.nvidia ? [] : await nearbyMemories(userId, vec.value, policy.history_after);
   if (nearby.some((m) => sameMemoryScope(note, m) && memoryTextKey(note.content) === memoryTextKey(m.content))) return;
   const { data: inserted, error } = await supabaseAdmin.from("memories").insert({
-    ...note, user_id: userId, character_id: CHARACTER_ID, embedding: vec, created_at: startedAt,
+    ...note, user_id: userId, character_id: CHARACTER_ID,
+    embedding: vec.nvidia ? null : vec.value, nvidia_embedding: vec.nvidia ? vec.value : null, created_at: startedAt,
   }).select("id,content,kind,occurred_at").single();
   if (error) throw error;
   if (inserted) await mergeSimilarMemories(userId, inserted, nearby).catch((error) => {
@@ -1173,7 +1171,7 @@ export const compactMemories = createServerFn({ method: "POST" })
     const { data: rows, error } = await supabaseAdmin.rpc("claim_furina_memory_scan", { owner_id: data.userId });
     if (error) throw error;
     const note = rows?.[0];
-    if (!note) return { ok: false };
+    if (!note?.embedding) return { ok: false };
     const nearby = await nearbyMemories(data.userId, note.embedding, policy.history_after);
     return { ok: await mergeSimilarMemories(data.userId, note, nearby) };
   });

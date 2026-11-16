@@ -132,6 +132,7 @@ export type Database = {
         Row: {
           embedding_issue: string | null
           background_text_issue: string | null
+          use_nvidia: boolean
           use_openrouter: boolean
           lovable_background: boolean
           lovable_chat: boolean
@@ -141,6 +142,7 @@ export type Database = {
         Insert: {
           embedding_issue?: string | null
           background_text_issue?: string | null
+          use_nvidia?: boolean
           use_openrouter?: boolean
           lovable_background?: boolean
           lovable_chat?: boolean
@@ -150,6 +152,7 @@ export type Database = {
         Update: {
           embedding_issue?: string | null
           background_text_issue?: string | null
+          use_nvidia?: boolean
           use_openrouter?: boolean
           lovable_background?: boolean
           lovable_chat?: boolean
@@ -213,6 +216,36 @@ export type Database = {
         Relationships: []
       }
       furina_openrouter_keys: {
+        Row: {
+          created_at: string
+          encrypted_value: string
+          fingerprint: string
+          id: string
+          invalid: boolean
+          suffix: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          encrypted_value: string
+          fingerprint: string
+          id?: string
+          invalid?: boolean
+          suffix: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          encrypted_value?: string
+          fingerprint?: string
+          id?: string
+          invalid?: boolean
+          suffix?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      furina_nvidia_keys: {
         Row: {
           created_at: string
           encrypted_value: string
@@ -307,7 +340,8 @@ export type Database = {
           content: string
           created_at: string
           dedup_checked_at: string | null
-          embedding: string
+          nvidia_embedding: string | null
+          embedding: string | null
           emotion: string | null
           id: string
           importance: number
@@ -326,7 +360,8 @@ export type Database = {
           content: string
           created_at?: string
           dedup_checked_at?: string | null
-          embedding: string
+          nvidia_embedding?: string | null
+          embedding?: string | null
           emotion?: string | null
           id?: string
           importance?: number
@@ -345,7 +380,8 @@ export type Database = {
           content?: string
           created_at?: string
           dedup_checked_at?: string | null
-          embedding?: string
+          nvidia_embedding?: string | null
+          embedding?: string | null
           emotion?: string | null
           id?: string
           importance?: number
@@ -463,11 +499,38 @@ export type Database = {
         }
         Returns: boolean
       }
+      correct_furina_nvidia_memory: {
+        Args: {
+          memory_id: string
+          new_content: string
+          new_embedding: string
+          owner_id: string
+        }
+        Returns: boolean
+      }
       create_furina_message_branch: {
         Args: { branch_id: string; branch_title: string; prefix: Json }
         Returns: undefined
       }
       find_furina_memories: {
+        Args: {
+          owner_id: string
+          query_vec: string
+          row_count: number
+          since_time: string
+          use_history: boolean
+          use_saved: boolean
+        }
+        Returns: {
+          content: string
+          id: string
+          kind: string
+          occurred_at: string
+          saved: boolean
+          similarity: number
+        }[]
+      }
+      find_furina_nvidia_memories: {
         Args: {
           owner_id: string
           query_vec: string

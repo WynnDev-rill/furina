@@ -14,6 +14,10 @@ import {
   getOpenRouterKeySettings,
   removeOpenRouterKey,
   setOpenRouterProvider,
+  addNvidiaKey,
+  getNvidiaKeySettings,
+  removeNvidiaKey,
+  setNvidiaProvider,
 } from "@/lib/ai-usage.functions";
 
 type Settings = Awaited<ReturnType<typeof getGeminiKeySettings>>;
@@ -25,17 +29,36 @@ export function GeminiKeySettings({
 }: {
   userId?: string | null;
   openAccount: () => void;
-  provider?: "gemini" | "openrouter";
+  provider?: "gemini" | "openrouter" | "nvidia";
 }) {
-  const name = provider === "gemini" ? "Gemini" : "OpenRouter";
-  const getSettings = useServerFn(
-    provider === "gemini" ? getGeminiKeySettings : getOpenRouterKeySettings,
-  );
-  const addKey = useServerFn(provider === "gemini" ? addGeminiKey : addOpenRouterKey);
-  const removeKey = useServerFn(provider === "gemini" ? removeGeminiKey : removeOpenRouterKey);
-  const setProvider = useServerFn(
-    provider === "gemini" ? setGeminiProvider : setOpenRouterProvider,
-  );
+  const providers = {
+    gemini: {
+      name: "Gemini",
+      get: getGeminiKeySettings,
+      add: addGeminiKey,
+      remove: removeGeminiKey,
+      set: setGeminiProvider,
+    },
+    openrouter: {
+      name: "OpenRouter",
+      get: getOpenRouterKeySettings,
+      add: addOpenRouterKey,
+      remove: removeOpenRouterKey,
+      set: setOpenRouterProvider,
+    },
+    nvidia: {
+      name: "NVIDIA",
+      get: getNvidiaKeySettings,
+      add: addNvidiaKey,
+      remove: removeNvidiaKey,
+      set: setNvidiaProvider,
+    },
+  } as const;
+  const { name, get, add, remove, set } = providers[provider];
+  const getSettings = useServerFn(get);
+  const addKey = useServerFn(add);
+  const removeKey = useServerFn(remove);
+  const setProvider = useServerFn(set);
   const [settings, setSettings] = useState<Settings>();
   const [secret, setSecret] = useState("");
   const actionRunning = useRef(false);
@@ -176,7 +199,11 @@ export function GeminiKeySettings({
           </div>
           {settings.eligible && (
             <p className="text-xs text-muted-foreground">
-              {settings.enabled ? `${name} diprioritaskan.` : `API key ${name} nonaktif.`}
+              {settings.enabled
+                ? provider === "nvidia"
+                  ? "NVIDIA aktif untuk pekerjaan latar."
+                  : `${name} diprioritaskan.`
+                : `API key ${name} nonaktif.`}
             </p>
           )}
           <ul className="divide-y divide-border/50">

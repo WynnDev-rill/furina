@@ -20,6 +20,9 @@ export function AiChannelSettings({
   const getSettings = useServerFn(getAiChannelSettings);
   const change = useServerFn(setLovableChannel);
   const [settings, setSettings] = useState<Awaited<ReturnType<typeof getAiChannelSettings>>>();
+  const [backgroundProvider, setBackgroundProvider] = useState<"openrouter" | "nvidia">(
+    "openrouter",
+  );
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const running = useRef(false);
@@ -96,10 +99,28 @@ export function AiChannelSettings({
       <h4 className="px-4 text-xs text-muted-foreground">Percakapan utama</h4>
       <GeminiKeySettings userId={userId} openAccount={openAccount} />
       <h4 className="px-4 text-xs text-muted-foreground">Pekerjaan latar belakang</h4>
-      <GeminiKeySettings userId={userId} openAccount={openAccount} provider="openrouter" />
+      <div className="px-4">
+        <select
+          aria-label="Penyedia pekerjaan latar"
+          value={backgroundProvider}
+          onChange={(event) =>
+            setBackgroundProvider(event.target.value === "nvidia" ? "nvidia" : "openrouter")
+          }
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+        >
+          <option value="openrouter">OpenRouter</option>
+          <option value="nvidia">NVIDIA</option>
+        </select>
+      </div>
+      <GeminiKeySettings
+        key={backgroundProvider}
+        userId={userId}
+        openAccount={openAccount}
+        provider={backgroundProvider}
+      />
       <p className="px-4 text-xs text-muted-foreground">
-        OpenRouter memilih model teks gratis. Embedding memori memakai model tetap dan dapat
-        memerlukan kredit.
+        Urutan tugas latar: OpenRouter, NVIDIA, lalu Lovable jika aktif. Furina menyiapkan indeks
+        memori NVIDIA secara bertahap.
       </p>
     </div>
   );
