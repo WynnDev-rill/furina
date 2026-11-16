@@ -1,3 +1,4 @@
+import type { GeminiChatMessage } from "@/lib/gemini-chat";
 import { geminiEnabled, recordChatUsage, requestGeminiChat } from "@/lib/gemini-provider.server";
 import { combineMemoryText, memoryTextKey } from "@/lib/memory-dedup";
 import { historyAfter } from "@/lib/memory-policy";
@@ -13,7 +14,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireFurinaIdentity, requireGuestId } from "@/lib/furina-identity.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { requestWithChatModelFallback, requestWithProviderFallback } from "@/lib/model-fallback";
+import { isGeminiUnavailable, requestWithChatModelFallback, requestWithProviderFallback } from "@/lib/model-fallback";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1";
 const CHARACTER_ID = "furina";
@@ -405,7 +406,7 @@ ${langHint}
 KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((await identity).state)}${initiativeNote}${memoryContext}${entityContext}${lengthHint}${useHistory && !policy.history_after ? feedbackPrompt(data.responseFeedback) : ""}${data.replay ? "\n\nVERSI ALTERNATIF: Gunakan urutan pesan yang diterima sebagai sumber utama. Abaikan memori yang bertentangan dengan alur itu." : ""}${agePrompt}${birthdayPrompt}`;
 
 
-    const built: Array<{ role: string; content: unknown }> = historyAfter(data.messages.slice(0, -1), policy.history_after).map((m) => ({ role: m.role, content: m.content }));
+    const built: GeminiChatMessage[] = historyAfter(data.messages.slice(0, -1), policy.history_after).map((m) => ({ role: m.role, content: m.content }));
     const lastIdx = data.messages.length - 1;
     const original = data.messages[lastIdx];
     const last = data.quote && original.role === "user"
@@ -424,7 +425,7 @@ KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((
     }
 
 
-    const messages = [{ role: "system", content: system }, ...built];
+    const messages: GeminiChatMessage[] = [{ role: "system", content: system }, ...built];
     const canUsePersonalGemini = signedIn && (birthday?.age ?? 0) >= 18;
     const directPreferred = canUsePersonalGemini && await geminiEnabled(data.userId);
     const requestGateway = () => requestWithChatModelFallback((model) =>
@@ -441,6 +442,18 @@ KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((
       requestGateway,
     );
     if (!res.ok) {
+      if (provider === "gemini") {
+        if (isGeminiUnavailable(res.status)) {
+          throw new Error("Gemini sedang lambat atau sibuk. Coba kirim ulang.");
+        }
+        if (res.status === 422) throw new Error("Gemini tidak dapat membalas pesan ini. Coba ubah pesannya.");
+        if (res.status === 403 || res.status === 404) {
+          throw new Error("Akses model Gemini ditolak. Periksa proyek API key di Google AI Studio.");
+        }
+        if (res.status !== 429 && res.status !== 402) {
+          throw new Error(`Gemini menolak permintaan (${res.status}).`);
+        }
+      }
       const txt = await res.text();
       if (res.status === 429) throw new Error("Rate limit. Coba lagi sebentar.");
       if (res.status === 402) throw new Error("Kredit AI habis. Tambah kredit di Lovable Cloud.");

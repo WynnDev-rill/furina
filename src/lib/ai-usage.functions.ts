@@ -2,12 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { requireFurinaIdentity } from "./furina-identity.server";
-import {
-  geminiEnabled,
-  encryptionSecret,
-  GEMINI_BASE,
-  GEMINI_CHAT_MODEL,
-} from "./gemini-provider.server";
+import { geminiEnabled, encryptionSecret } from "./gemini-provider.server";
+import { validateGeminiModelAccess } from "./gemini-chat";
 import { isInvalidGeminiKey, normalizeGeminiKey, protectGeminiKey } from "./gemini-key";
 import { profileContext } from "./user-profile.server";
 import { fetchAllPages } from "./record-pagination";
@@ -50,16 +46,7 @@ export const addGeminiKey = createServerFn({ method: "POST" })
     if (((await profileContext(userId)).birthday?.age ?? 0) < 18) {
       throw new Error("API key Gemini tersedia untuk pengguna berusia 18 tahun ke atas.");
     }
-    let validation: Response;
-    try {
-      validation = await fetch(`${GEMINI_BASE}/models/${GEMINI_CHAT_MODEL}`, {
-        signal: AbortSignal.timeout(8000),
-        headers: { "x-goog-api-key": key },
-        redirect: "manual",
-      });
-    } catch {
-      throw new Error("Gemini belum dapat dihubungi. Coba lagi.");
-    }
+    const validation = await validateGeminiModelAccess(key);
     if (validation.status === 429) {
       throw new Error("Gemini sedang membatasi permintaan. Coba lagi setelah kuota tersedia.");
     }
@@ -74,7 +61,7 @@ export const addGeminiKey = createServerFn({ method: "POST" })
         );
       }
       throw new Error(
-        "API key belum bisa mengakses Gemini 3.8 Flash. Periksa akses model di proyek Google AI Studio.",
+        "API key belum bisa mengakses model chat Gemini. Periksa akses model di proyek Google AI Studio.",
       );
     }
     const { box, fingerprint } = await protectGeminiKey(key, userId, encryptionSecret());

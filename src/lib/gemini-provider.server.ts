@@ -1,9 +1,8 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { isInvalidGeminiKey, openGeminiKey, useGeminiKeys } from "./gemini-key";
 import { fetchAllPages } from "./record-pagination";
+import { requestGeminiCompletion, type GeminiChatMessage } from "./gemini-chat";
 
-export const GEMINI_CHAT_MODEL = "gemini-3.8-flash";
-export const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 export const encryptionSecret = () =>
   process.env.FURINA_GEMINI_ENCRYPTION_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 
@@ -17,7 +16,7 @@ export async function geminiEnabled(userId: string) {
   return data?.use_gemini ?? false;
 }
 
-export async function requestGeminiChat(userId: string, messages: unknown[]) {
+export async function requestGeminiChat(userId: string, messages: GeminiChatMessage[]) {
   const keys = await fetchAllPages((from, to) =>
     supabaseAdmin
       .from("furina_gemini_keys")
@@ -33,41 +32,31 @@ export async function requestGeminiChat(userId: string, messages: unknown[]) {
   if (!keys.length) return null;
 
   const keysById = new Map(keys.map((key) => [key.id, key]));
-  let res: Response | null;
-  try {
-    res = await useGeminiKeys(
-      [...keysById.keys()],
-      async (id) => {
-        const row = keysById.get(id);
-        if (!row) throw new Error("API key Gemini tidak ditemukan.");
-        const key = await openGeminiKey(row.encrypted_value, userId, encryptionSecret());
-        return fetch(`${GEMINI_BASE}/openai/chat/completions`, {
-          method: "POST",
-          redirect: "manual",
-          signal: AbortSignal.timeout(30000),
-          headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ model: GEMINI_CHAT_MODEL, messages }),
-        });
-      },
-      async (response) => {
-        if (![400, 401, 403].includes(response.status)) return false;
-        return isInvalidGeminiKey(response.status, (await response.text()).slice(0, 8192));
-      },
-      async (id) => {
-        const row = keysById.get(id);
-        if (!row) return;
-        await supabaseAdmin
-          .from("furina_gemini_keys")
-          .update({ invalid: true })
-          .eq("user_id", userId)
-          .eq("id", id)
-          .eq("encrypted_value", row.encrypted_value);
-      },
-    );
-  } catch {
-    throw new Error("Gemini belum dapat dihubungi atau kuncinya perlu disimpan ulang.");
-  }
-  return res;
+  const deadline = Date.now() + 30_000;
+  return useGeminiKeys(
+    [...keysById.keys()],
+    async (id) => {
+      const row = keysById.get(id)!;
+      const key = await openGeminiKey(row.encrypted_value, userId, encryptionSecret()).catch(
+        () => null,
+      );
+      if (!key) return null;
+      return requestGeminiCompletion(key, messages, deadline);
+    },
+    async (response) => {
+      if (![400, 401, 403].includes(response.status)) return false;
+      return isInvalidGeminiKey(response.status, (await response.clone().text()).slice(0, 8192));
+    },
+    async (id) => {
+      const row = keysById.get(id)!;
+      await supabaseAdmin
+        .from("furina_gemini_keys")
+        .update({ invalid: true })
+        .eq("user_id", userId)
+        .eq("id", id)
+        .eq("encrypted_value", row.encrypted_value);
+    },
+  );
 }
 
 export async function recordChatUsage(

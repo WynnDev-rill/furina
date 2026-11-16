@@ -12,6 +12,10 @@ export function isChatProviderFallbackStatus(status: number): boolean {
   return status === 429 || status === 402;
 }
 
+export function isGeminiUnavailable(status: number) {
+  return status === 500 || status === 502 || status === 503 || status === 504;
+}
+
 export async function requestWithProviderFallback(
   directPreferred: boolean,
   canUseGemini: boolean,
@@ -20,10 +24,16 @@ export async function requestWithProviderFallback(
 ): Promise<{ response: Response; provider: ChatProvider }> {
   if (directPreferred) {
     const gemini = await requestGemini();
-    if (gemini && !isChatProviderFallbackStatus(gemini.status)) {
+    const unavailable = !!gemini && isGeminiUnavailable(gemini.status);
+    if (gemini && !unavailable && !isChatProviderFallbackStatus(gemini.status)) {
       return { response: gemini, provider: "gemini" };
     }
-    return { response: await requestLovable(), provider: "lovable" };
+    const lovable = await requestLovable().catch((error) => {
+      if (unavailable && gemini) return gemini;
+      throw error;
+    });
+    if (unavailable && gemini && !lovable.ok) return { response: gemini, provider: "gemini" };
+    return { response: lovable, provider: "lovable" };
   }
 
   const lovable = await requestLovable();

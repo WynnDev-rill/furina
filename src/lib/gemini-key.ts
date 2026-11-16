@@ -58,13 +58,14 @@ export function isInvalidGeminiKey(status: number, reason: string) {
 
 export async function useGeminiKeys<T extends { status: number }>(
   keys: string[],
-  request: (key: string) => Promise<T>,
+  request: (key: string) => Promise<T | null>,
   invalid: (response: T) => Promise<boolean>,
   revoke: (key: string) => Promise<void>,
 ) {
   let lastRateLimited: T | null = null;
   for (const key of keys) {
     const response = await request(key);
+    if (!response) continue;
     if (response.status === 429) {
       lastRateLimited = response;
       continue;
