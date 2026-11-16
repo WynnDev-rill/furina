@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { isInvalidGeminiKey, openGeminiKey, useGeminiKeys } from "./gemini-key";
+import { fetchAllPages } from "./record-pagination";
 
 export const GEMINI_CHAT_MODEL = "gemini-3.8-flash";
 export const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
@@ -17,22 +18,27 @@ export async function geminiEnabled(userId: string) {
 }
 
 export async function requestGeminiChat(userId: string, messages: unknown[]) {
-  const { data, error } = await supabaseAdmin
-    .from("furina_gemini_keys")
-    .select("id,encrypted_value,invalid")
-    .eq("user_id", userId)
-    .order("created_at")
-    .order("id");
-  if (error) throw new Error("API key Gemini belum dapat dibaca.");
-  if (!data?.length) return null;
+  const keys = await fetchAllPages((from, to) =>
+    supabaseAdmin
+      .from("furina_gemini_keys")
+      .select("id,encrypted_value")
+      .eq("user_id", userId)
+      .eq("invalid", false)
+      .order("created_at")
+      .order("id")
+      .range(from, to),
+  ).catch(() => {
+    throw new Error("API key Gemini belum dapat dibaca.");
+  });
+  if (!keys.length) return null;
 
-  const enabled = data.filter((key) => !key.invalid);
+  const keysById = new Map(keys.map((key) => [key.id, key]));
   let res: Response | null;
   try {
     res = await useGeminiKeys(
-      enabled.map((row) => row.id),
+      [...keysById.keys()],
       async (id) => {
-        const row = enabled.find((item) => item.id === id);
+        const row = keysById.get(id);
         if (!row) throw new Error("API key Gemini tidak ditemukan.");
         const key = await openGeminiKey(row.encrypted_value, userId, encryptionSecret());
         return fetch(`${GEMINI_BASE}/openai/chat/completions`, {
@@ -48,7 +54,7 @@ export async function requestGeminiChat(userId: string, messages: unknown[]) {
         return isInvalidGeminiKey(response.status, (await response.text()).slice(0, 8192));
       },
       async (id) => {
-        const row = enabled.find((item) => item.id === id);
+        const row = keysById.get(id);
         if (!row) return;
         await supabaseAdmin
           .from("furina_gemini_keys")
