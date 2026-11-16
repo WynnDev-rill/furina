@@ -302,7 +302,8 @@ export const chatWithFurina = createServerFn({ method: "POST" })
     let memoryContext = "";
     let memoryUnavailable = false;
     if (userText.trim() && (policy.use_saved || useHistory)) {
-      const { terms, overview, yesterday } = recall;
+      const { overview, yesterday } = recall;
+      const terms = mode === "related" ? recall.terms : [];
       const day = localCalendar(new Date(), data.tz);
       if (yesterday) day.setUTCDate(day.getUTCDate() - 1);
       const oldestMessage = new Date(data.messages[0]?.at ?? NaN);
@@ -323,7 +324,7 @@ export const chatWithFurina = createServerFn({ method: "POST" })
         return matches ?? [];
       };
       const vectorMatches = async (): Promise<RecallEntry[]> => {
-        if (backgroundPaused || (yesterday && !terms.length) || intent.mode === "resume") return [];
+        if (backgroundPaused || (yesterday && !terms.length) || mode !== "related") return [];
         const vec = await embedMemory(data.userId, userText.trim().slice(0, 500), "query");
         await indexMissingMemories(data.userId, vec.nvidia, policy.use_saved, useHistory, policy.history_after)
           .catch((error) => console.warn("Memory indexing deferred", error));
