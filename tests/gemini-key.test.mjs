@@ -103,3 +103,18 @@ test("general access and server errors do not rotate Gemini keys", async () => {
     assert.equal(response.status, status);
   }
 });
+
+test("an unreadable saved credential does not block remaining keys or become revoked", async () => {
+  const attempts = [];
+  const response = await useGeminiKeys(
+    ["unreadable", "working"],
+    async (key) => {
+      attempts.push(key);
+      return key === "unreadable" ? null : { status: 200 };
+    },
+    async () => false,
+    async () => assert.fail("local unreadability does not mean Google revoked the key"),
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(attempts, ["unreadable", "working"]);
+});
