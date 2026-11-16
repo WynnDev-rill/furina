@@ -1,4 +1,4 @@
-import { continuationRequest, continuityPrompt, recentThreadsAmbiguous } from "@/lib/chat-continuity";
+import { continuationRequest, continuityPrompt, recentThreadsAmbiguous, shouldConsiderRecent } from "@/lib/chat-continuity";
 import { recallRecentThreads } from "@/lib/chat-continuity.server";
 import { recallContext, recallQuery, type RecallEntry } from "@/lib/memory-recall";
 import { embedMemory, indexMissingMemories } from "@/lib/memory-embeddings.server";
@@ -290,15 +290,17 @@ export const chatWithFurina = createServerFn({ method: "POST" })
     const intent = continuationRequest(userText, priorMessages.filter((m) => m.role === "user").map((m) => m.content));
     const { mode } = intent;
     const recall = recallQuery(userText);
-    const recentContext = useHistory && signedIn && !recall.yesterday && mode !== "active" &&
-        (mode === "resume" || intent.terms.length > 0)
-      ? recallRecentThreads(data.userId, intent.terms, data.conversationId)
-          .then((threads) => continuityPrompt(threads, mode))
-          .catch((error) => {
-            console.warn("Recent chat context unavailable", error);
-            return continuityPrompt([], mode);
-          })
-      : Promise.resolve(mode === "resume" && !data.replay ? continuityPrompt([], "resume") : "");
+    const recentCandidates = (terms: readonly string[]) =>
+      recallRecentThreads(data.userId, terms, data.conversationId).catch((error) => {
+        console.warn("Recent chat context unavailable", error);
+        return [];
+      });
+    const recentContext = useHistory && signedIn && !recall.yesterday && shouldConsiderRecent(userText)
+      ? Promise.all([
+          intent.terms.length ? recentCandidates(intent.terms) : Promise.resolve([]),
+          recentCandidates([]),
+        ]).then(([matched, latest]) => continuityPrompt(matched, latest, mode))
+      : Promise.resolve(mode === "resume" && !data.replay ? continuityPrompt([], [], "resume") : "");
     let memoryContext = "";
     let memoryUnavailable = false;
     if (userText.trim() && (policy.use_saved || useHistory)) {
@@ -429,12 +431,16 @@ export const chatWithFurina = createServerFn({ method: "POST" })
       : null;
     const birthdayPrompt = birthdayInstructions(birthday?.daysUntil, greetingYear !== null);
 
+    const latestContext = await recentContext;
+    const synthesisNote = memoryContext || latestContext
+      ? "\n\nPERSONALISASI: Kamu boleh menghubungkan beberapa sumber independen jika kaitannya membantu kebutuhan saat ini. Bedakan fakta yang dikonfirmasi, preferensi yang berulang, dan dugaan dari satu kejadian. Dahulukan koreksi eksplisit. Jika menyampaikan dugaan, gunakan bahasa tentatif dan beri ruang untuk dikoreksi. Jangan membuat diagnosis, menebak identitas sensitif, atau membawa hal pribadi yang tidak relevan. Jangan menyimpan dugaan dalam balasan sebagai fakta."
+      : "";
     const system = `${DEFAULT_PERSONA}
 ${data.systemPersona?.trim() ? "ARAHAN PERSONA PENGGUNA (sesuaikan ekspresi dan gaya selama konsisten dengan inti Furina): " + data.systemPersona.trim() : ""}
 Nama kamu: ${data.characterName}.
 ${langHint}
 
-KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((await identity).state)}${initiativeNote}${memoryContext}${await recentContext}${entityContext}${lengthHint}${useHistory && !policy.history_after ? feedbackPrompt(data.responseFeedback) : ""}${data.replay ? "\n\nVERSI ALTERNATIF: Gunakan urutan pesan yang diterima sebagai sumber utama. Abaikan memori yang bertentangan dengan alur itu." : ""}${agePrompt}${birthdayPrompt}`;
+KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((await identity).state)}${initiativeNote}${memoryContext}${latestContext}${synthesisNote}${entityContext}${lengthHint}${useHistory && !policy.history_after ? feedbackPrompt(data.responseFeedback) : ""}${data.replay ? "\n\nVERSI ALTERNATIF: Gunakan urutan pesan yang diterima sebagai sumber utama. Abaikan memori yang bertentangan dengan alur itu." : ""}${agePrompt}${birthdayPrompt}`;
 
 
     const built: GeminiChatMessage[] = priorMessages.map((m) => ({ role: m.role, content: m.content }));
@@ -1245,7 +1251,7 @@ export const proactiveGreeting = createServerFn({ method: "POST" })
       ? await recallRecentThreads(data.userId, []).catch(() => [])
       : [];
     const grounded = threads.length && !recentThreadsAmbiguous(threads)
-      ? "\nTopik terakhir (data historis): " + JSON.stringify(threads[0])
+      ? "\nTopik terakhir (data historis): " + JSON.stringify({ title: threads[0].title, turns: threads[0].turns, last_at: threads[0].last_at })
       : "";
     const sys = `Kamu adalah ${data.characterName}. Kamu baru sadar user kembali setelah tidak ngobrol ${hoursLabel}. Tulis SATU bubble singkat (5-25 kata) menyapa duluan — natural, sesuai konteks dan hubungan. Jangan tanya "kamu ke mana", jangan menyalahkan. Bisa sindir manja kalau lama sekali. Bahasa Indonesia santai. Sebut topik terakhir hanya jika ada tindak lanjut yang masih relevan dan terdokumentasi. Jangan singgung masalah sensitif atau pribadi dalam sapaan tanpa diminta. Jika ragu, sapa secara umum. TANPA <<<SPLIT>>>, TANPA emoji berlebih, TANPA narasi *aksi*.${identityPrompt(identity.state)}${data.systemPersona?.trim() ? "\nPersona pilihan pengguna, berlaku selama konsisten dengan inti Furina: " + data.systemPersona.trim() : ""}${profile.prompt}${grounded}`;
 
