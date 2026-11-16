@@ -1,4 +1,4 @@
-import { AiUsageSettings } from "@/components/ai-usage-settings";
+import { GeminiKeySettings } from "@/components/gemini-key-settings";
 import { UserMessageText } from "@/components/user-message-text";
 import { MemorySettings } from "@/components/memory-settings";
 import { BirthDateSettings } from "@/components/birth-date-settings";
@@ -41,7 +41,7 @@ import {
   AudioLines,
   Bell,
   Shield,
-  Gauge,
+  KeyRound,
   ThumbsUp,
   ThumbsDown,
 } from "lucide-react";
@@ -282,10 +282,10 @@ const settingsSections = [
     icon: Bell,
   },
   {
-    id: "penggunaan",
-    label: "Penggunaan dan batasan",
-    description: "Penggunaan chat dan API key Gemini",
-    icon: Gauge,
+    id: "api-key",
+    label: "API Key",
+    description: "Kelola API key Gemini",
+    icon: KeyRound,
   },
   {
     id: "akun",
@@ -2227,9 +2227,15 @@ function FurinaApp() {
                   </div>
                 )}
 
-                {/* AKUN TAB */}
-                {settingsSection === "penggunaan" && <AiUsageSettings key={authUser?.id} userId={authUser?.id} />}
+                {settingsSection === "api-key" && (
+                  <GeminiKeySettings
+                    key={authUser?.id}
+                    userId={authUser?.id}
+                    openAccount={() => setSettingsSection("akun")}
+                  />
+                )}
 
+                {/* AKUN TAB */}
                 {settingsSection === "akun" && (
                   <div className="settings-detail glass-surface">
                     <section className="settings-group space-y-2">

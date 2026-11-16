@@ -9,56 +9,31 @@ import {
   GEMINI_CHAT_MODEL,
 } from "./gemini-provider.server";
 import { isInvalidGeminiKey, normalizeGeminiKey, protectGeminiKey } from "./gemini-key";
-import { localCalendar } from "./birth-date";
 import { profileContext } from "./user-profile.server";
-import { nextJakartaMonthReset } from "./ai-usage-stats";
+import { fetchAllPages } from "./record-pagination";
 
 const identity = z.object({ userId: z.string().uuid() });
 
-export const getAiUsage = createServerFn({ method: "POST" })
+export const getGeminiKeySettings = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => identity.parse(input))
   .handler(async ({ data: { userId } }) => {
     await requireFurinaIdentity(userId, true);
-    const now = new Date();
-    const day = localCalendar(now, "Asia/Jakarta").toISOString().slice(0, 10);
-    const monthStart = day.slice(0, 7) + "-01";
-    const resetAt = nextJakartaMonthReset(now);
-    const resetDay = localCalendar(resetAt, "Asia/Jakarta").toISOString().slice(0, 10);
-    const [enabled, keys, usage, profile] = await Promise.all([
+    const [enabled, keys, profile] = await Promise.all([
       geminiEnabled(userId),
-      supabaseAdmin
-        .from("furina_gemini_keys")
-        .select("id,suffix,invalid")
-        .eq("user_id", userId)
-        .order("created_at")
-        .order("id"),
-      supabaseAdmin
-        .from("furina_chat_usage")
-        .select("provider,requests,tokens")
-        .eq("user_id", userId)
-        .gte("day", monthStart)
-        .lt("day", resetDay),
+      fetchAllPages((from, to) =>
+        supabaseAdmin
+          .from("furina_gemini_keys")
+          .select("id,suffix,invalid")
+          .eq("user_id", userId)
+          .order("created_at")
+          .order("id")
+          .range(from, to),
+      ).catch(() => {
+        throw new Error("Daftar API key belum dapat dimuat.");
+      }),
       profileContext(userId),
     ]);
-    if (keys.error || usage.error) throw new Error("Penggunaan AI belum dapat dimuat.");
-    return {
-      enabled,
-      resetAt: resetAt.toISOString(),
-      keys: keys.data ?? [],
-      eligible: (profile.birthday?.age ?? 0) >= 18,
-      usage: (["lovable", "gemini"] as const).map((provider) =>
-        (usage.data ?? [])
-          .filter((row) => row.provider === provider)
-          .reduce(
-            (sum, row) => ({
-              ...sum,
-              requests: sum.requests + Number(row.requests),
-              tokens: sum.tokens + Number(row.tokens),
-            }),
-            { provider, requests: 0, tokens: 0 },
-          ),
-      ),
-    };
+    return { enabled, keys, eligible: (profile.birthday?.age ?? 0) >= 18 };
   });
 
 export const addGeminiKey = createServerFn({ method: "POST" })
@@ -109,8 +84,7 @@ export const addGeminiKey = createServerFn({ method: "POST" })
       key_fingerprint: fingerprint,
       key_suffix: key.slice(-4),
     });
-    if (error) throw new Error("API key belum dapat disimpan.");
-    if (data === "full") throw new Error("Maksimal lima API key per akun.");
+    if (error || data !== "saved") throw new Error("API key belum dapat disimpan. Coba lagi.");
   });
 
 export const setGeminiProvider = createServerFn({ method: "POST" })
