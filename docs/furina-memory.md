@@ -20,7 +20,7 @@ Gemini langsung dan Lovable menerima konteks yang sudah disusun Furina. Pencaria
 
 ## Kelanjutan lintas chat
 
-Permintaan seperti “lanjut yang tadi” memakai percakapan aktif jika topiknya sudah jelas. Jika belum jelas, Furina mencari percakapan yang berisi pesan pengguna dalam 72 jam terakhir. Untuk topik yang disebutkan, kecocokan kata dan judul mempersempit kandidat. Maksimal dua percakapan dan empat cuplikan per percakapan masuk ke prompt. Jika beberapa topik yang sama-sama baru membuat maksud belum jelas, model diarahkan meminta klarifikasi singkat. Memori dan riwayat lama tetap bisa dicari berdasarkan topik.
+Permintaan seperti “lanjut yang tadi” memakai percakapan aktif jika topiknya sudah jelas. Jika belum jelas, Furina mencari percakapan yang berisi pesan pengguna dalam 72 jam terakhir. Untuk topik yang disebutkan, kecocokan kata dan judul mempersempit kandidat. Cara penyampaian pengguna tidak menjadi syarat untuk mengambil konteks. Furina menilai maksimal dua percakapan yang cocok dengan kata kunci dan dua kandidat terbaru. Konteks singkat ini melengkapi pencarian semantik memori. Jika beberapa topik yang sama-sama didukung akan menghasilkan jawaban berbeda, model diarahkan meminta klarifikasi. Kesimpulan dari beberapa sumber tetap diperlakukan sebagai dugaan sampai dikonfirmasi. Memori dan riwayat lama tetap bisa dicari berdasarkan topik.
 
 Sapaan proaktif memakai topik terbaru jika ada tindak lanjut yang jelas. Sintesis pada ringkasan percakapan mendahulukan keputusan yang dikonfirmasi dan status terbaru. Referensi [Dreaming](https://openai.com/index/chatgpt-memory-dreaming/) membahas kesinambungan dan kesegaran informasi. Furina memakai database untuk menemukan percakapan terbaru tanpa panggilan model tambahan.
 

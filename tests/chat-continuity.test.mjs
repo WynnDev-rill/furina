@@ -4,6 +4,7 @@ import {
   continuationRequest,
   continuityPrompt,
   recentThreadsAmbiguous,
+  shouldConsiderRecent,
 } from "../src/lib/chat-continuity.ts";
 
 test("a vague follow-up resumes across threads only when the active chat lacks a topic", () => {
@@ -34,18 +35,34 @@ test("a vague follow-up resumes across threads only when the active chat lacks a
   });
 });
 
-test("recent topics preserve distinctions between missing, ambiguous, and known context", () => {
+test("fresh candidates can support natural questions without a shared keyword or trigger phrase", () => {
   const top = {
+    id: "thread-a",
     title: "SmartClip",
     last_at: "2026-11-16T03:00:00Z",
     turns: [{ role: "user", text: "Tes ekspor belum selesai." }],
   };
-  const simultaneous = { title: "Furina", last_at: "2026-11-16T02:30:00Z", turns: [] };
-  const older = { ...simultaneous, last_at: "2026-11-15T23:00:00Z" };
-  assert.equal(recentThreadsAmbiguous([top, simultaneous]), true);
-  assert.equal(recentThreadsAmbiguous([top, older]), false);
-  assert.match(continuityPrompt([top, simultaneous], "resume"), /tanyakan pilihan/);
-  assert.match(continuityPrompt([top, older], "resume"), /Tes ekspor belum selesai/);
-  assert.match(continuityPrompt([], "resume"), /tanyakan topiknya/);
-  assert.equal(continuityPrompt([], "related"), "");
+  const another = {
+    id: "thread-b",
+    title: "Cara kerja",
+    last_at: "2026-11-16T02:30:00Z",
+    turns: [{ role: "user", text: "Aku lebih nyaman menguji satu fitur setiap sore." }],
+  };
+  assert.equal(shouldConsiderRecent("Perlu kubagi jadi dua tahap?"), true);
+  assert.equal(shouldConsiderRecent("Selamat pagi Furina!"), false);
+  assert.equal(shouldConsiderRecent("👍"), false);
+  assert.equal(recentThreadsAmbiguous([top, another]), true);
+  const context = continuityPrompt([], [top, another], "related");
+  assert.match(context, /Tes ekspor belum selesai/);
+  assert.match(context, /satu fitur setiap sore/);
+  assert.match(context, /rujukan tersirat/);
+  assert.match(context, /abaikan kandidat/);
+  assert.match(context, /dua tafsiran yang sama kuat/);
+  assert.doesNotMatch(context, /thread-a/);
+  const mixed = continuityPrompt([top], [top, another], "related");
+  assert.equal(mixed.split("Tes ekspor belum selesai").length, 2);
+  assert.match(mixed, /"matchedTopic":true/);
+  assert.match(mixed, /"matchedTopic":false/);
+  assert.match(continuityPrompt([], [], "resume"), /tanyakan secara singkat/);
+  assert.equal(continuityPrompt([], [], "related"), "");
 });

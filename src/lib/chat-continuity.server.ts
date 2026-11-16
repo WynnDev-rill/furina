@@ -11,5 +11,10 @@ export async function recallRecentThreads(
     excluded_thread: exclude ?? null,
   });
   if (error) throw error;
-  return (data ?? []).map(({ title, turns, last_at }) => ({ title, turns, last_at }));
+  return (data ?? []).map(({ thread_id, title, turns, last_at }) => ({
+    id: thread_id,
+    title,
+    turns,
+    last_at,
+  }));
 }
