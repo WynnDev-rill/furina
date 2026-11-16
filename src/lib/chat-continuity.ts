@@ -4,20 +4,26 @@ export function continuationRequest(text: string, previousUserMessages: string[]
   const request = text.trim();
   const terms = recallQuery(request).terms;
   const refersBack =
-    /\b(lanjut(?:kan)?|terusin|sebelumnya|tadi|barusan|langkah berikutnya|langkah selanjutnya|terus gimana|itu gimana|gimana jadinya|continue|pick up|where were we|what.s next)\b/i.test(
+    /\b(lanjut(?:kan)?|terusin|sebelumnya|tadi|barusan|langkah berikutnya|langkah selanjutnya|terus gimana|itu gimana|gimana jadinya|continue|pick up|where were we|what.s next|sampai (?:di )?mana|terakhir kita (?:bahas|bicarakan)|(?:bahas|obrolan|chat) terakhir|what did we discuss|keep going)\b/i.test(
       request,
     );
   if (!refersBack) return { mode: "related", terms } as const;
   const topicTerms = terms.filter(
     (term) =>
-      !/^(lanjut(?:kan)?|terusin|itu|gimana|langkah|berikutnya|selanjutnya|sampai|dimana|terus|barusan|jadinya|continue|pick|up|where|next|left|off|stop|only|proyek|project|saja|yuk|oke|dong|deh|ya|cukup|bagian)$/i.test(
+      !/^(lanjut(?:kan)?|terusin|itu|gimana|langkah|berikutnya|selanjutnya|sampai|dimana|terus|barusan|jadinya|continue|pick|up|where|next|left|off|stop|only|we|last|discuss|keep|going|proyek|project|saja|yuk|oke|dong|deh|ya|cukup|bagian)$/i.test(
         term,
       ),
   );
   if (topicTerms.length) return { mode: "related", terms: topicTerms } as const;
-  const activeHasTopic = previousUserMessages
-    .slice(-3)
-    .some((message) => recallQuery(message).terms.length >= 2);
+  const activeHasTopic = previousUserMessages.slice(-3).some((message) => {
+    if (
+      /^(?:halo|hai|hey|hi|oke|okay|terima kasih|makasih|selamat (?:pagi|siang|sore|malam))(?: (?:furina|ya|banget))*[!. ]*$/i.test(
+        message.trim(),
+      )
+    )
+      return false;
+    return recallQuery(message).terms.length >= 2;
+  });
   return { mode: activeHasTopic ? "active" : "resume", terms: [] } as const;
 }
 

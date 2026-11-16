@@ -107,7 +107,7 @@ export function AiChannelSettings({
             setBackgroundProvider(value === "nvidia" ? "nvidia" : "openrouter")
           }
         >
-          <SelectTrigger id="furina-background-provider">
+          <SelectTrigger id="furina-background-provider" className="settings-control">
             <SelectValue />
           </SelectTrigger>
           <SelectContent className="settings-select-menu">
