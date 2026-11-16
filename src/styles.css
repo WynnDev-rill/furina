@@ -503,6 +503,32 @@
   min-height: 42px;
   max-width: 100%;
 }
+.settings-detail :is([role="combobox"], input[type="date"]),
+.settings-control {
+  min-height: 44px;
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  background: var(--glass-hover);
+  box-shadow: inset 0 1px rgb(255 255 255 / 8%);
+}
+.settings-select-menu {
+  min-width: var(--radix-select-trigger-width, 8rem);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  background: var(--glass-fallback);
+  background: color-mix(in srgb, var(--glass-fallback) 90%, transparent);
+  color: var(--foreground);
+  -webkit-backdrop-filter: blur(18px) saturate(120%);
+  backdrop-filter: blur(18px) saturate(120%);
+}
+.settings-select-menu [role="option"] {
+  min-height: 42px;
+  border-radius: 9px;
+}
+.settings-select-menu [role="option"]:is([data-highlighted], [data-state="checked"]) {
+  background: var(--glass-hover);
+  color: var(--foreground);
+}
 .settings-detail :is(input, textarea) {
   font-size: 1rem;
 }
