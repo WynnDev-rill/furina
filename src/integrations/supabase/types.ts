@@ -130,14 +130,29 @@ export type Database = {
       }
       furina_ai_preferences: {
         Row: {
+          embedding_issue: string | null
+          background_text_issue: string | null
+          use_openrouter: boolean
+          lovable_background: boolean
+          lovable_chat: boolean
           use_gemini: boolean
           user_id: string
         }
         Insert: {
+          embedding_issue?: string | null
+          background_text_issue?: string | null
+          use_openrouter?: boolean
+          lovable_background?: boolean
+          lovable_chat?: boolean
           use_gemini?: boolean
           user_id: string
         }
         Update: {
+          embedding_issue?: string | null
+          background_text_issue?: string | null
+          use_openrouter?: boolean
+          lovable_background?: boolean
+          lovable_chat?: boolean
           use_gemini?: boolean
           user_id?: string
         }
@@ -168,6 +183,36 @@ export type Database = {
         Relationships: []
       }
       furina_gemini_keys: {
+        Row: {
+          created_at: string
+          encrypted_value: string
+          fingerprint: string
+          id: string
+          invalid: boolean
+          suffix: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          encrypted_value: string
+          fingerprint: string
+          id?: string
+          invalid?: boolean
+          suffix: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          encrypted_value?: string
+          fingerprint?: string
+          id?: string
+          invalid?: boolean
+          suffix?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      furina_openrouter_keys: {
         Row: {
           created_at: string
           encrypted_value: string

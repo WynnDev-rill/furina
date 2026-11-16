@@ -1,3 +1,4 @@
+import { requestBackgroundAi } from "./background-ai.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import {
@@ -61,7 +62,6 @@ export async function evolveIdentity(
   userId: string,
   source: Evidence,
   turn: { user: string; furina: string },
-  key: string,
   initial: Awaited<ReturnType<typeof loadIdentity>>,
 ) {
   if (!initial.state.enabled) return;
@@ -77,11 +77,7 @@ export async function evolveIdentity(
   const claimed = { ...snapshot.state, lastReview: source.at };
   if (!(await saveIdentity(userId, snapshot.revision, claimed))) return;
 
-  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    signal: AbortSignal.timeout(4200),
-    headers: { "Content-Type": "application/json", "Lovable-API-Key": key },
-    body: JSON.stringify({
+  const response = await requestBackgroundAi(userId, "chat/completions", {
       model: "google/gemini-2.5-flash-lite",
       temperature: 0.1,
       max_tokens: 420,
@@ -102,8 +98,7 @@ Kembalikan JSON {"observations":[{"key":"lower_snake_case","category":"preferenc
           }),
         },
       ],
-    }),
-  });
+    });
   if (!response.ok) return;
   const json = await response.json();
   const text: unknown = json.choices?.[0]?.message?.content;

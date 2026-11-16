@@ -10,6 +10,10 @@ import {
   getGeminiKeySettings,
   removeGeminiKey,
   setGeminiProvider,
+  addOpenRouterKey,
+  getOpenRouterKeySettings,
+  removeOpenRouterKey,
+  setOpenRouterProvider,
 } from "@/lib/ai-usage.functions";
 
 type Settings = Awaited<ReturnType<typeof getGeminiKeySettings>>;
@@ -17,14 +21,21 @@ type Settings = Awaited<ReturnType<typeof getGeminiKeySettings>>;
 export function GeminiKeySettings({
   userId,
   openAccount,
+  provider = "gemini",
 }: {
   userId?: string | null;
   openAccount: () => void;
+  provider?: "gemini" | "openrouter";
 }) {
-  const getSettings = useServerFn(getGeminiKeySettings);
-  const addKey = useServerFn(addGeminiKey);
-  const removeKey = useServerFn(removeGeminiKey);
-  const setProvider = useServerFn(setGeminiProvider);
+  const name = provider === "gemini" ? "Gemini" : "OpenRouter";
+  const getSettings = useServerFn(
+    provider === "gemini" ? getGeminiKeySettings : getOpenRouterKeySettings,
+  );
+  const addKey = useServerFn(provider === "gemini" ? addGeminiKey : addOpenRouterKey);
+  const removeKey = useServerFn(provider === "gemini" ? removeGeminiKey : removeOpenRouterKey);
+  const setProvider = useServerFn(
+    provider === "gemini" ? setGeminiProvider : setOpenRouterProvider,
+  );
   const [settings, setSettings] = useState<Settings>();
   const [secret, setSecret] = useState("");
   const actionRunning = useRef(false);
@@ -83,13 +94,13 @@ export function GeminiKeySettings({
   }
 
   return (
-    <section className="settings-group space-y-3 p-4" aria-label="API key Gemini">
+    <section className="settings-group space-y-3 p-4" aria-label={`API key ${name}`}>
       {!userId || settings?.eligible === false ? (
         <>
           <p className="text-sm text-muted-foreground">
             {userId
               ? "API key Gemini tersedia untuk usia 18+. Kamu bisa menambahkan tanggal lahir di Akun & data."
-              : "Masuk ke akun Furina untuk menambahkan API key Gemini."}
+              : `Masuk ke akun Furina untuk menambahkan API key ${name}.`}
           </p>
           <Button type="button" variant="outline" onClick={openAccount}>
             Buka Akun &amp; data
@@ -97,13 +108,13 @@ export function GeminiKeySettings({
         </>
       ) : (
         <form className="space-y-2" onSubmit={save}>
-          <Label htmlFor="furina-gemini-key">API key Gemini</Label>
+          <Label htmlFor={`furina-${provider}-key`}>API key {name}</Label>
           <div className="flex flex-wrap gap-2">
             <Input
-              id="furina-gemini-key"
+              id={`furina-${provider}-key`}
               className="min-w-32 flex-1"
               type="password"
-              placeholder="Tempel API key Gemini"
+              placeholder={`Tempel API key ${name}`}
               autoComplete="off"
               autoCapitalize="none"
               spellCheck={false}
@@ -146,12 +157,12 @@ export function GeminiKeySettings({
           </Button>
         </div>
       )}
-      {userId && settings && settings.keys.length > 0 && !loadError && (
+      {userId && settings && !loadError && (
         <>
           <div className="flex items-center justify-between gap-3">
-            <Label htmlFor="furina-gemini-direct">Gunakan API key Gemini</Label>
+            <Label htmlFor={`furina-${provider}-direct`}>Gunakan API key {name}</Label>
             <Switch
-              id="furina-gemini-direct"
+              id={`furina-${provider}-direct`}
               checked={settings.enabled && settings.eligible}
               disabled={
                 busy ||
@@ -165,7 +176,7 @@ export function GeminiKeySettings({
           </div>
           {settings.eligible && (
             <p className="text-xs text-muted-foreground">
-              {settings.enabled ? "Gemini digunakan lebih dulu. Lovable menjadi cadangan." : "API key pribadi nonaktif. Chat menggunakan Lovable."}
+              {settings.enabled ? `${name} diprioritaskan.` : `API key ${name} nonaktif.`}
             </p>
           )}
           <ul className="divide-y divide-border/50">

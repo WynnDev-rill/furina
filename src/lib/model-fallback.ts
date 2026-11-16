@@ -19,10 +19,11 @@ export function isGeminiUnavailable(status: number) {
 export async function requestWithProviderFallback(
   personalGeminiEnabled: boolean,
   requestGemini: () => Promise<Response | null>,
-  requestLovable: () => Promise<Response>,
+  requestLovable: (() => Promise<Response>) | null,
 ): Promise<{ response: Response; provider: ChatProvider }> {
   if (personalGeminiEnabled) {
     const gemini = await requestGemini();
+    if (!requestLovable) return { response: gemini ?? new Response(null, { status: 503 }), provider: "gemini" };
     const unavailable = !!gemini && isGeminiUnavailable(gemini.status);
     if (gemini && !unavailable && !isChatProviderFallbackStatus(gemini.status)) {
       return { response: gemini, provider: "gemini" };
@@ -35,7 +36,7 @@ export async function requestWithProviderFallback(
     return { response: lovable, provider: "lovable" };
   }
 
-  return { response: await requestLovable(), provider: "lovable" };
+  return { response: requestLovable ? await requestLovable() : new Response(null, { status: 503 }), provider: "lovable" };
 }
 
 function retryDelayMs(response: Response, retryIndex: number): number {
