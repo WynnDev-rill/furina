@@ -429,7 +429,7 @@ KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((
 
     const messages: GeminiChatMessage[] = [{ role: "system", content: system }, ...built];
     const canUsePersonalGemini = signedIn && (birthday?.age ?? 0) >= 18;
-    const directPreferred = canUsePersonalGemini && await geminiEnabled(data.userId);
+    const personalGeminiEnabled = canUsePersonalGemini && await geminiEnabled(data.userId);
     const requestGateway = () => requestWithChatModelFallback((model) =>
       fetch(`${GATEWAY}/chat/completions`, {
         signal: AbortSignal.timeout(20000),
@@ -439,8 +439,7 @@ KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((
       }),
     ).then((result) => result.response);
     const { response: res, provider } = await requestWithProviderFallback(
-      directPreferred,
-      canUsePersonalGemini,
+      personalGeminiEnabled,
       () => requestGeminiChat(data.userId, messages),
       requestGateway,
     );
@@ -457,7 +456,7 @@ KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((
           throw new Error(`Gemini menolak permintaan (${res.status}).`);
         }
       }
-      const txt = await res.text();
+      await res.body?.cancel().catch(() => undefined);
       if (res.status === 429) throw new Error("Rate limit. Coba lagi sebentar.");
       if (res.status === 402) throw new Error("Kredit AI habis. Tambah kredit di Lovable Cloud.");
       throw new Error(`Chat belum dapat diproses (${res.status}). Coba lagi.`);
