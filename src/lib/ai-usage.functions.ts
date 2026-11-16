@@ -1,3 +1,4 @@
+import { OPENROUTER, readAiPreferences } from "./background-ai.server";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
@@ -104,4 +105,130 @@ export const removeGeminiKey = createServerFn({ method: "POST" })
       .eq("user_id", userId)
       .eq("id", id);
     if (error) throw new Error("API key belum dapat dihapus.");
+  });
+
+export const getAiChannelSettings = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => identity.parse(input))
+  .handler(async ({ data: { userId } }) => {
+    await requireFurinaIdentity(userId, true);
+    const preferences = await readAiPreferences(userId);
+    const backgroundPaused =
+      preferences?.lovable_background === false && !preferences.use_openrouter;
+    return {
+      chat: preferences?.lovable_chat ?? true,
+      background: preferences?.lovable_background ?? true,
+      issues: backgroundPaused
+        ? ["Pekerjaan latar belakang nonaktif."]
+        : [
+            preferences?.background_text_issue &&
+              `Tugas teks · ${preferences.background_text_issue}`,
+            preferences?.embedding_issue && `Memori · ${preferences.embedding_issue}`,
+          ].filter(Boolean),
+    };
+  });
+
+export const setLovableChannel = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    identity.extend({ channel: z.enum(["chat", "background"]), enabled: z.boolean() }).parse(input),
+  )
+  .handler(async ({ data: { userId, channel, enabled } }) => {
+    await requireFurinaIdentity(userId, true);
+    const { error } = await supabaseAdmin
+      .from("furina_ai_preferences")
+      .upsert(
+        channel === "chat"
+          ? { user_id: userId, lovable_chat: enabled }
+          : { user_id: userId, lovable_background: enabled },
+        { onConflict: "user_id" },
+      );
+    if (error) throw new Error("Pengaturan Lovable belum dapat disimpan.");
+  });
+
+export const getOpenRouterKeySettings = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => identity.parse(input))
+  .handler(async ({ data: { userId } }) => {
+    await requireFurinaIdentity(userId, true);
+    const [preferences, keys] = await Promise.all([
+      readAiPreferences(userId),
+      fetchAllPages((from, to) =>
+        supabaseAdmin
+          .from("furina_openrouter_keys")
+          .select("id,suffix,invalid")
+          .eq("user_id", userId)
+          .order("created_at")
+          .order("id")
+          .range(from, to),
+      ),
+    ]);
+    return { enabled: preferences?.use_openrouter ?? false, keys, eligible: true };
+  });
+
+export const addOpenRouterKey = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    identity
+      .extend({
+        key: z
+          .string()
+          .trim()
+          .max(300)
+          .regex(/^sk-or-v1-[a-zA-Z0-9_-]+$/),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data: { userId, key } }) => {
+    await requireFurinaIdentity(userId, true);
+    const response = await fetch(`${OPENROUTER}/key`, {
+      redirect: "manual",
+      signal: AbortSignal.timeout(8000),
+      headers: { Authorization: `Bearer ${key}` },
+    }).catch(() => null);
+    if (!response?.ok)
+      throw new Error(
+        response?.status === 401
+          ? "OpenRouter menolak API key ini."
+          : "API key OpenRouter belum bisa diperiksa. Coba lagi.",
+      );
+    await response.body?.cancel().catch(() => undefined);
+    const { box, fingerprint } = await protectGeminiKey(key, userId, encryptionSecret());
+    const { error } = await supabaseAdmin.from("furina_openrouter_keys").upsert(
+      {
+        user_id: userId,
+        encrypted_value: box,
+        fingerprint,
+        suffix: key.slice(-4),
+        invalid: false,
+      },
+      { onConflict: "user_id,fingerprint" },
+    );
+    if (error) throw new Error("API key OpenRouter belum dapat disimpan.");
+  });
+
+export const setOpenRouterProvider = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => identity.extend({ enabled: z.boolean() }).parse(input))
+  .handler(async ({ data: { userId, enabled } }) => {
+    await requireFurinaIdentity(userId, true);
+    if (enabled) {
+      const { count, error } = await supabaseAdmin
+        .from("furina_openrouter_keys")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .eq("invalid", false);
+      if (error || !count) throw new Error("Tambahkan API key OpenRouter yang valid.");
+    }
+    const { error } = await supabaseAdmin
+      .from("furina_ai_preferences")
+      .upsert({ user_id: userId, use_openrouter: enabled }, { onConflict: "user_id" });
+    if (error) throw new Error("Pengaturan OpenRouter belum dapat disimpan.");
+  });
+
+export const removeOpenRouterKey = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => identity.extend({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data: { userId, id } }) => {
+    await requireFurinaIdentity(userId, true);
+    const { error } = await supabaseAdmin
+      .from("furina_openrouter_keys")
+      .delete()
+      .eq("user_id", userId)
+      .eq("id", id);
+    if (error) throw new Error("API key OpenRouter belum dapat dihapus.");
   });

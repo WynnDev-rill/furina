@@ -1,4 +1,4 @@
-import { GeminiKeySettings } from "@/components/gemini-key-settings";
+import { AiChannelSettings } from "@/components/ai-channel-settings";
 import { UserMessageText } from "@/components/user-message-text";
 import { MemorySettings } from "@/components/memory-settings";
 import { BirthDateSettings } from "@/components/birth-date-settings";
@@ -283,7 +283,7 @@ const settingsSections = [
   },
   {
     id: "api-key",
-    label: "API Key",
+    label: "AI dan API Key",
     description: "Kelola API key Gemini",
     icon: KeyRound,
   },
@@ -1183,7 +1183,7 @@ function FurinaApp() {
     if (!clean) return;
     try {
       const { mp3Url, emotion } = await ttsVV({
-        data: { text: clean.slice(0, 1200), speaker: vvSpeaker, speed, translateToJa: vvTranslate },
+        data: { userId, text: clean.slice(0, 1200), speaker: vvSpeaker, speed, translateToJa: vvTranslate },
       });
       updateMessageById(msg.id, { audioUrl: mp3Url, audioEmotion: emotion });
     } catch (e) {
@@ -1407,6 +1407,7 @@ function FurinaApp() {
           })(),
         },
       });
+      if (chatResult.aiNotice) toast.warning(chatResult.aiNotice);
 
       const bubbles: string[] = (chatResult as { bubbles?: string[]; reply: string }).bubbles
         ?.length
@@ -1537,6 +1538,7 @@ function FurinaApp() {
           if (provider === "voicevox") {
             const { mp3Url, emotion } = await ttsVV({
               data: {
+                userId,
                 text: clean.slice(0, 1200),
                 speaker: vvSpeaker,
                 speed,
@@ -1552,6 +1554,7 @@ function FurinaApp() {
               throw new Error("Belum ada sampel suara. Upload sampel di Pengaturan dulu.");
             const { audio, mime } = await ttsClone({
               data: {
+                userId,
                 text: clean.slice(0, 600),
                 sampleBase64: sampleB64,
                 sampleMime,
@@ -2228,7 +2231,7 @@ function FurinaApp() {
                 )}
 
                 {settingsSection === "api-key" && (
-                  <GeminiKeySettings
+                  <AiChannelSettings
                     key={authUser?.id}
                     userId={authUser?.id}
                     openAccount={() => setSettingsSection("akun")}
