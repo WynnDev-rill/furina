@@ -18,6 +18,12 @@ Furina menggabungkan kecocokan kata dan vektor pada catatan, lalu mencari cuplik
 
 Gemini langsung dan Lovable menerima konteks yang sudah disusun Furina. Pencarian teks dan penyimpanan koreksi tetap tersedia saat penyedia embedding gagal. Indeks vektor yang kosong diisi bertahap. Riwayat pengguna tamu yang hanya tersimpan di perangkat tersedia melalui konteks percakapan aktif.
 
+## Kelanjutan lintas chat
+
+Permintaan seperti “lanjut yang tadi” memakai percakapan aktif jika topiknya sudah jelas. Jika belum jelas, Furina mencari percakapan yang berisi pesan pengguna dalam 72 jam terakhir. Untuk topik yang disebutkan, kecocokan kata dan judul mempersempit kandidat. Maksimal dua percakapan dan empat cuplikan per percakapan masuk ke prompt. Jika beberapa topik yang sama-sama baru membuat maksud belum jelas, model diarahkan meminta klarifikasi singkat. Memori dan riwayat lama tetap bisa dicari berdasarkan topik.
+
+Sapaan proaktif memakai topik terbaru jika ada tindak lanjut yang jelas. Sintesis pada ringkasan percakapan mendahulukan keputusan yang dikonfirmasi dan status terbaru. Referensi [Dreaming](https://openai.com/index/chatgpt-memory-dreaming/) membahas kesinambungan dan kesegaran informasi. Furina memakai database untuk menemukan percakapan terbaru tanpa panggilan model tambahan.
+
 ## Penggabungan otomatis
 
 Catatan otomatis dengan isi identik tidak dibuat ulang. Untuk catatan yang sangat mirip, pencarian vektor menghasilkan kandidat dan model memeriksa apakah semua catatan merujuk pada fakta yang sama atau saling melengkapi. Perbedaan tanggal kejadian, konflik, dan keputusan yang meragukan menahan penggabungan. Isi unik dipertahankan, dan catatan eksplisit pengguna tetap dikelola pengguna. Pemindaian bertahap juga memeriksa catatan otomatis yang sudah aktif. Sumber yang tergabung tetap tersimpan di belakang satu catatan kanonik dan tidak diambil ulang saat merespons.

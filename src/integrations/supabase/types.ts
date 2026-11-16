@@ -512,6 +512,10 @@ export type Database = {
         Args: { branch_id: string; branch_title: string; prefix: Json }
         Returns: undefined
       }
+      recall_furina_recent: {
+        Args: { owner_id: string; search_terms: string[]; excluded_thread: string | null }
+        Returns: { thread_id: string; title: string; last_at: string; turns: Json }[]
+      }
       recall_furina_text: {
         Args: {
           owner_id: string

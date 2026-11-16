@@ -2000,7 +2000,7 @@ function FurinaApp() {
                         <SelectTrigger id="furina-language">
                           <SelectValue />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent className="settings-select-menu">
                           <SelectItem value="auto">Auto (mengikuti kamu)</SelectItem>
                           <SelectItem value="ja">日本語</SelectItem>
                           <SelectItem value="en">English</SelectItem>
@@ -2067,7 +2067,7 @@ function FurinaApp() {
                       <SelectTrigger id="furina-provider">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="settings-select-menu">
                         <SelectItem value="voicevox">
                           VOICEVOX — anime Jepang (gratis, stabil)
                         </SelectItem>
@@ -2090,7 +2090,7 @@ function FurinaApp() {
                           <SelectTrigger id="furina-speaker">
                             <SelectValue />
                           </SelectTrigger>
-                          <SelectContent>
+                          <SelectContent className="settings-select-menu">
                             {VV_SPEAKERS.map((s) => (
                               <SelectItem key={s.id} value={String(s.id)}>
                                 {s.label}
@@ -2139,7 +2139,7 @@ function FurinaApp() {
                           className="block w-full text-xs"
                         />
                         {hasCloneSample && (
-                          <div className="flex items-center justify-between rounded bg-background/60 px-2 py-1 text-xs">
+                          <div className="flex items-center justify-between settings-control flex-wrap rounded-lg px-2 py-1 text-xs">
                             <span className="truncate">
                               ✓ {cloneSampleName || "Sampel tersimpan"}
                             </span>

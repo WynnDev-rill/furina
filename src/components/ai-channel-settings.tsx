@@ -3,6 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { GeminiKeySettings } from "./gemini-key-settings";
 import { Switch } from "./ui/switch";
 import { Label } from "./ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { getAiChannelSettings, setLovableChannel } from "@/lib/ai-usage.functions";
 
 const channels = [
@@ -98,19 +99,22 @@ export function AiChannelSettings({
       <h3 className="px-4 text-sm font-semibold">AI opsional</h3>
       <h4 className="px-4 text-xs text-muted-foreground">Percakapan utama</h4>
       <GeminiKeySettings userId={userId} openAccount={openAccount} />
-      <h4 className="px-4 text-xs text-muted-foreground">Pekerjaan latar belakang</h4>
-      <div className="px-4">
-        <select
-          aria-label="Penyedia pekerjaan latar"
+      <div className="space-y-2 px-4">
+        <Label htmlFor="furina-background-provider">Pekerjaan latar belakang</Label>
+        <Select
           value={backgroundProvider}
-          onChange={(event) =>
-            setBackgroundProvider(event.target.value === "nvidia" ? "nvidia" : "openrouter")
+          onValueChange={(value) =>
+            setBackgroundProvider(value === "nvidia" ? "nvidia" : "openrouter")
           }
-          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
         >
-          <option value="openrouter">OpenRouter</option>
-          <option value="nvidia">NVIDIA</option>
-        </select>
+          <SelectTrigger id="furina-background-provider">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="settings-select-menu">
+            <SelectItem value="openrouter">OpenRouter</SelectItem>
+            <SelectItem value="nvidia">NVIDIA</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
       <GeminiKeySettings
         key={backgroundProvider}
@@ -119,8 +123,7 @@ export function AiChannelSettings({
         provider={backgroundProvider}
       />
       <p className="px-4 text-xs text-muted-foreground">
-        Urutan tugas latar: OpenRouter, NVIDIA, lalu Lovable jika aktif. Furina menyiapkan indeks
-        memori NVIDIA secara bertahap.
+        Urutan tugas latar saat penyedia aktif: OpenRouter, NVIDIA, lalu Lovable.
       </p>
     </div>
   );

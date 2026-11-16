@@ -5,7 +5,7 @@ const commonWords = new Set(
     "ke kemarin kita lebih lagi lupa mana masih mau memang memori memory mu my nggak nih pernah personal " +
     "pada recall remember saya sebutkan sebelumnya sekarang seperti soal sudah tahu tadi tak tentang the " +
     "tidak to tolong untuk waktu what yang yes you your yesterday and did for was were know me about from tell our " +
-    "obrolan ngobrol percakapan chat pernah bicarakan diskusikan terakhir kesukaan favorit"
+    "lanjut lanjutkan terusin obrolan ngobrol percakapan chat pernah bicarakan diskusikan terakhir kesukaan favorit"
   ).split(" "),
 );
 
