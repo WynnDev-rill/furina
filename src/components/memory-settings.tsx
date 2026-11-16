@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Bookmark, Ellipsis, History, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -50,6 +50,7 @@ export function MemorySettings({ userId }: { userId: string }) {
   const [view, setView] = useState<"summary" | "all">("summary");
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<{ id?: string; text: string } | null>(null);
+  const actionRunning = useRef(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState(false);
@@ -69,7 +70,8 @@ export function MemorySettings({ userId }: { userId: string }) {
   }, [list, userId, retry]);
 
   async function apply(action: () => Promise<unknown>, success: string, after?: () => void) {
-    if (busy) return;
+    if (actionRunning.current) return;
+    actionRunning.current = true;
     setBusy(true);
     setNotice("");
     try {
@@ -80,6 +82,7 @@ export function MemorySettings({ userId }: { userId: string }) {
     } catch {
       setNotice("Perubahan atau pemuatan ulang gagal. Coba lagi.");
     } finally {
+      actionRunning.current = false;
       setBusy(false);
     }
   }

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,7 @@ export function GeminiKeySettings({
   const setProvider = useServerFn(setGeminiProvider);
   const [settings, setSettings] = useState<Settings>();
   const [secret, setSecret] = useState("");
+  const actionRunning = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
@@ -50,7 +51,8 @@ export function GeminiKeySettings({
   }, [getSettings, userId, loadAttempt]);
 
   async function update(action: () => Promise<void>) {
-    if (!userId || busy) return;
+    if (!userId || actionRunning.current) return;
+    actionRunning.current = true;
     setBusy(true);
     setError("");
     setStatus("");
@@ -65,6 +67,7 @@ export function GeminiKeySettings({
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Perubahan belum dapat disimpan.");
     } finally {
+      actionRunning.current = false;
       setBusy(false);
     }
   }
@@ -146,7 +149,7 @@ export function GeminiKeySettings({
       {userId && settings && settings.keys.length > 0 && !loadError && (
         <>
           <div className="flex items-center justify-between gap-3">
-            <Label htmlFor="furina-gemini-direct">Gunakan Gemini langsung</Label>
+            <Label htmlFor="furina-gemini-direct">Prioritaskan Gemini</Label>
             <Switch
               id="furina-gemini-direct"
               checked={settings.enabled && settings.eligible}
@@ -160,9 +163,9 @@ export function GeminiKeySettings({
               }
             />
           </div>
-          {settings.eligible && settings.enabled && (
+          {settings.eligible && (
             <p className="text-xs text-muted-foreground">
-              Gemini menerima isi chat dan konteks yang relevan.
+              {settings.enabled ? "Gemini digunakan lebih dulu. Lovable menjadi cadangan." : "Lovable digunakan lebih dulu. Gemini menjadi cadangan saat kuota Lovable habis."}
             </p>
           )}
           <ul className="divide-y divide-border/50">
