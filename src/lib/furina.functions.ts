@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/record-pagination";
 import type { GeminiChatMessage } from "@/lib/gemini-chat";
 import { geminiEnabled, recordChatUsage, requestGeminiChat } from "@/lib/gemini-provider.server";
 import { combineMemoryText, memoryTextKey } from "@/lib/memory-dedup";
@@ -27,6 +28,7 @@ function apiKey() {
 
 async function embed(text: string): Promise<number[]> {
   const res = await fetch(`${GATEWAY}/embeddings`, {
+    signal: AbortSignal.timeout(20000),
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -430,6 +432,7 @@ KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((
     const directPreferred = canUsePersonalGemini && await geminiEnabled(data.userId);
     const requestGateway = () => requestWithChatModelFallback((model) =>
       fetch(`${GATEWAY}/chat/completions`, {
+        signal: AbortSignal.timeout(20000),
         method: "POST",
         headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
         body: JSON.stringify({ model, messages }),
@@ -457,7 +460,7 @@ KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((
       const txt = await res.text();
       if (res.status === 429) throw new Error("Rate limit. Coba lagi sebentar.");
       if (res.status === 402) throw new Error("Kredit AI habis. Tambah kredit di Lovable Cloud.");
-      throw new Error(`Chat failed: ${res.status} ${txt}`);
+      throw new Error(`Chat belum dapat diproses (${res.status}). Coba lagi.`);
     }
     const json = await res.json();
     const { reply, greeting } = splitBirthdayReply(json.choices?.[0]?.message?.content ?? "");
@@ -500,6 +503,7 @@ KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((
 
 async function extractAndStoreMemory(userId: string, userMsg: string, startedAt: string) {
   const res = await fetch(`${GATEWAY}/chat/completions`, {
+    signal: AbortSignal.timeout(20000),
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -558,6 +562,7 @@ const ALLOWED_ENT_TYPES = new Set(["person", "place", "hobby", "project", "pet",
 async function extractAndStoreEntities(userId: string, userMsg: string) {
   if (!userMsg || userMsg.trim().length < 6) return;
   const res = await fetch(`${GATEWAY}/chat/completions`, {
+    signal: AbortSignal.timeout(20000),
     method: "POST",
     headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
     body: JSON.stringify({
@@ -645,6 +650,7 @@ export const summarizeConversation = createServerFn({ method: "POST" })
       : data.transcript ?? "").slice(-20000);
     if (transcript.length < 50) return { ok: false };
     const res = await fetch(`${GATEWAY}/chat/completions`, {
+      signal: AbortSignal.timeout(20000),
       method: "POST",
       headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
       body: JSON.stringify({
@@ -699,6 +705,7 @@ const EMOTION_PROFILES: Record<Emotion, { pitch: number; intonation: number; spe
 
 async function detectEmotionAndTranslate(srcText: string): Promise<{ ja: string; emotion: Emotion }> {
   const res = await fetch(`${GATEWAY}/chat/completions`, {
+    signal: AbortSignal.timeout(20000),
     method: "POST",
     headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
     body: JSON.stringify({
@@ -921,16 +928,15 @@ export const listMemories = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await requireFurinaIdentity(data.userId);
     const policy = await readMemoryPolicy(data.userId);
-    let query = supabaseAdmin.from("memories")
-      .select("id,content,created_at,kind,saved,compressed")
-      .eq("user_id", data.userId).eq("character_id", CHARACTER_ID).neq("kind", "self");
-    query = query.is("merged_into", null);
-    if (policy.history_after) {
-      query = query.or(`saved.eq.true,created_at.gt.${policy.history_after}`);
-    }
-    const { data: rows, error } = await query.order("saved", { ascending: false })
-      .order("created_at", { ascending: false }).limit(500);
-    if (error) throw error;
+    const rows = await fetchAllPages((from, to) => {
+      let query = supabaseAdmin.from("memories")
+        .select("id,content,created_at,kind,saved,compressed")
+        .eq("user_id", data.userId).eq("character_id", CHARACTER_ID).neq("kind", "self")
+        .is("merged_into", null);
+      if (policy.history_after) query = query.or(`saved.eq.true,created_at.gt.${policy.history_after}`);
+      return query.order("saved", { ascending: false })
+        .order("created_at", { ascending: false }).order("id").range(from, to);
+    });
     return { memories: rows ?? [], policy };
   });
 
@@ -1046,6 +1052,7 @@ export const updateStyleProfile = createServerFn({ method: "POST" })
     if (!policy.use_history || policy.history_after) return { ok: false, reason: "history-unavailable" };
     const sample = data.userMessages.slice(-30).map((m, i) => `${i + 1}. ${m}`).join("\n");
     const res = await fetch(`${GATEWAY}/chat/completions`, {
+      signal: AbortSignal.timeout(20000),
       method: "POST",
       headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
       body: JSON.stringify({
@@ -1114,6 +1121,7 @@ function sameMemoryScope(a: Omit<MemorySnapshot, "id">, b: Omit<MemorySnapshot, 
 
 async function sameMemoryMeaning(selected: MemorySnapshot[], candidate: MemorySnapshot) {
   const res = await fetch(`${GATEWAY}/chat/completions`, {
+    signal: AbortSignal.timeout(20000),
     method: "POST",
     headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
     body: JSON.stringify({
@@ -1219,6 +1227,7 @@ export const proactiveGreeting = createServerFn({ method: "POST" })
     const sys = `Kamu adalah ${data.characterName}. Kamu baru sadar user kembali setelah tidak ngobrol ${hoursLabel}. Tulis SATU bubble singkat (5-25 kata) menyapa duluan — natural, sesuai konteks dan hubungan. Jangan tanya "kamu ke mana", jangan menyalahkan. Bisa sindir manja kalau lama sekali. Bahasa Indonesia santai. TANPA <<<SPLIT>>>, TANPA emoji berlebih, TANPA narasi *aksi*.${identityPrompt(identity.state)}${data.systemPersona?.trim() ? "\nPersona pilihan pengguna, berlaku selama konsisten dengan inti Furina: " + data.systemPersona.trim() : ""}${profile.prompt}`;
 
     const res = await fetch(`${GATEWAY}/chat/completions`, {
+      signal: AbortSignal.timeout(20000),
       method: "POST",
       headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey() },
       body: JSON.stringify({
