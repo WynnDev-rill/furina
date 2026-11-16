@@ -494,7 +494,7 @@ export type Database = {
         Args: {
           memory_id: string
           new_content: string
-          new_embedding: string
+          new_embedding: string | null
           owner_id: string
         }
         Returns: boolean
@@ -511,6 +511,25 @@ export type Database = {
       create_furina_message_branch: {
         Args: { branch_id: string; branch_title: string; prefix: Json }
         Returns: undefined
+      }
+      recall_furina_text: {
+        Args: {
+          owner_id: string
+          search_terms: string[]
+          include_saved: boolean
+          include_history: boolean
+          overview: boolean
+          history_day: string | null
+          timezone_name: string
+          active_thread: string | null
+          thread_window_since: string | null
+        }
+        Returns: {
+          id: string
+          source: "saved" | "learned" | "user" | "assistant"
+          content: string
+          occurred_at: string | null
+        }[]
       }
       find_furina_memories: {
         Args: {
