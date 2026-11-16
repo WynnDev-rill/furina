@@ -45,10 +45,23 @@ export function recallContext(semantic: RecallEntry[], lexical: RecallEntry[]) {
       return true;
     });
   const notes = (source: "saved" | "learned") => {
-    const byText = lexical.filter((row) => row.source === source);
-    const byMeaning = semantic.filter((row) => row.source === source);
+    const ranking = new Map<string, { row: RecallEntry; score: number }>();
+    for (const results of [lexical, semantic]) {
+      const ranked = new Set<string>();
+      let rank = 0;
+      for (const row of results) {
+        if (row.source !== source || ranked.has(row.id)) continue;
+        ranked.add(row.id);
+        rank++;
+        const previous = ranking.get(row.id);
+        ranking.set(row.id, {
+          row: previous && previous.row.content.length > row.content.length ? previous.row : row,
+          score: (previous?.score ?? 0) + 1 / (20 + rank),
+        });
+      }
+    }
     return unique(
-      [...byText.slice(0, 2), ...byMeaning.slice(0, 2), ...byText.slice(2), ...byMeaning.slice(2)],
+      [...ranking.values()].sort((a, b) => b.score - a.score).map(({ row }) => row),
       5,
     );
   };
