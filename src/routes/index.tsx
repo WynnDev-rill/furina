@@ -1,3 +1,4 @@
+import { recoverMessageStatuses } from "@/lib/message-status";
 import { AiChannelSettings } from "@/components/ai-channel-settings";
 import { UserMessageText } from "@/components/user-message-text";
 import { MemorySettings } from "@/components/memory-settings";
@@ -513,6 +514,18 @@ function FurinaApp() {
       const next = session?.user
         ? { id: session.user.id, email: session.user.email ?? undefined }
         : null;
+      let cacheOwner: string | null = null;
+      try {
+        cacheOwner = localStorage.getItem(STORAGE.cacheOwner);
+      } catch {
+        /* Storage may be unavailable. */
+      }
+      if (
+        !fromBrowser &&
+        ((accountRef.current && accountRef.current !== next?.id) ||
+          (cacheOwner && cacheOwner !== next?.id))
+      )
+        resetAccountData();
       accountRef.current = next?.id ?? null;
       setAuthUser((previous) =>
         previous?.id === next?.id && previous?.email === next?.email ? previous : next,
@@ -534,6 +547,8 @@ function FurinaApp() {
       sub.subscription.unsubscribe();
       window.removeEventListener("hashchange", consumeAndroidReturn);
     };
+    // This subscription mounts once; resetAccountData only uses setters, refs and constants.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -756,7 +771,7 @@ function FurinaApp() {
       if (!loaded.length) loaded = [newConversation()];
       loaded = loaded.map((c) => ({
         ...c,
-        messages: c.messages.map((m) => (m.status === "sending" ? { ...m, status: "failed" } : m)),
+        messages: recoverMessageStatuses(c.messages),
       }));
       setConversations(loaded);
       const savedActive = localStorage.getItem(STORAGE.activeId);
@@ -911,7 +926,7 @@ function FurinaApp() {
         const convList: Conversation[] = (convosRows ?? []).map((c) => ({
           id: c.id,
           title: c.title,
-          messages: byConv[c.id] ?? [],
+          messages: recoverMessageStatuses(byConv[c.id] ?? []),
           updatedAt: new Date(c.updated_at).getTime(),
         }));
         if (!convList.length) convList.push(newConversation());
@@ -1018,25 +1033,21 @@ function FurinaApp() {
   }
 
   async function upsertSingleMessage(uid: string, convId: string, m: Msg) {
-    try {
-      const { error } = await supabase.from("messages").upsert({
-        id: m.id,
-        conversation_id: convId,
-        user_id: uid,
-        role: m.role,
-        content: m.content,
-        status: m.status ?? "sent",
-        created_at: new Date(m.at).toISOString(),
-        audio_url: m.audioUrl ?? null,
-        audio_emotion: m.audioEmotion ?? null,
-        image_url: m.imageDataUrl && m.imageDataUrl.length < 300000 ? m.imageDataUrl : null,
-        sticker_id: m.stickerId ?? null,
-        reply_to: m.replyTo ?? null,
-      });
-      if (error) throw error;
-    } catch (e) {
-      console.warn("message upsert:", e);
-    }
+    const { error } = await supabase.from("messages").upsert({
+      id: m.id,
+      conversation_id: convId,
+      user_id: uid,
+      role: m.role,
+      content: m.content,
+      status: m.status ?? "sent",
+      created_at: new Date(m.at).toISOString(),
+      audio_url: m.audioUrl ?? null,
+      audio_emotion: m.audioEmotion ?? null,
+      image_url: m.imageDataUrl && m.imageDataUrl.length < 300000 ? m.imageDataUrl : null,
+      sticker_id: m.stickerId ?? null,
+      reply_to: m.replyTo ?? null,
+    });
+    if (error) throw error;
   }
 
   async function upsertSingleConversation(uid: string, c: Conversation, required = false) {
@@ -1358,6 +1369,17 @@ function FurinaApp() {
       setPendingImage(null);
     }
 
+    const userMessage: Msg = {
+      id: userMsgId,
+      role: "user",
+      content: messageContent,
+      imageDataUrl,
+      status: "sending",
+      replyTo: quote,
+      at: userMessageTime,
+    };
+    const warnUnsynced = () =>
+      toast.warning("Pesan belum tersinkron ke akun. Simpan salinan chat sebelum memuat ulang.");
     try {
       if (authUser)
         await upsertSingleConversation(
@@ -1365,6 +1387,7 @@ function FurinaApp() {
           { ...target, title, updatedAt: Date.now() },
           true,
         );
+      if (authUser) await upsertSingleMessage(authUser.id, targetId, userMessage);
       patch(userMsgId, { status: "sent" });
       const currentMsgs = retry
         ? target.messages.slice(
@@ -1417,15 +1440,9 @@ function FurinaApp() {
       if (accountRef.current !== (authUser?.id ?? null)) return;
       patch(userMsgId, { status: "read" });
       if (authUser) {
-        await upsertSingleMessage(authUser.id, targetId, {
-          id: userMsgId,
-          role: "user",
-          content: messageContent,
-          imageDataUrl,
-          status: "read",
-          replyTo: quote,
-          at: userMessageTime,
-        });
+        await upsertSingleMessage(authUser.id, targetId, { ...userMessage, status: "read" }).catch(
+          warnUnsynced,
+        );
       }
       try {
         localStorage.setItem(lastActivityKey, String(Date.now()));
@@ -1450,7 +1467,7 @@ function FurinaApp() {
         if (accountRef.current !== (authUser?.id ?? null)) return;
         aiMessages.push(aiMsg);
         updateTarget((prev) => [...prev, aiMsg]);
-        if (authUser) await upsertSingleMessage(authUser.id, targetId, aiMsg);
+        if (authUser) await upsertSingleMessage(authUser.id, targetId, aiMsg).catch(warnUnsynced);
       }
 
       const lastAiMsg = aiMessages.at(-1);
@@ -1486,7 +1503,14 @@ function FurinaApp() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Gagal kirim";
       toast.error(msg);
+      if (accountRef.current !== (authUser?.id ?? null)) return;
       patch(userMsgId, { status: "failed", failedPayload: trimmed });
+      if (authUser) {
+        await upsertSingleMessage(authUser.id, targetId, {
+          ...userMessage,
+          status: "failed",
+        }).catch(warnUnsynced);
+      }
     } finally {
       sendLock.current = false;
       setSending(false);
@@ -1681,19 +1705,12 @@ function FurinaApp() {
     }
   }
 
-  async function logout() {
-    if (sending || syncing) return;
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      toast.error("Gagal keluar dari akun.");
-      return;
-    }
+  function resetAccountData() {
     stopTTS();
     cloudHydratedRef.current = false;
-    // Wipe ALL furina:* keys from this browser → guest comes back blank
+    // Account content must not become guest data after session expiry.
     clearAllFurinaLocal();
     // Reset state to defaults
-    setAuthUser(null);
     setBg(furinaDefault);
     setName("Furina");
     setPersona("");
@@ -1709,6 +1726,12 @@ function FurinaApp() {
     setProactiveEnabled(true);
     setProactiveIdleHours(6);
     setSyncFailed(false);
+    setSyncing(false);
+    setReplyTo(undefined);
+    setEditingMessage(null);
+    setMessageMenu(null);
+    setLightboxUrl(null);
+    setCore(null);
     setInput("");
     setPendingImage(null);
     proactiveFiredRef.current = false;
@@ -1716,6 +1739,15 @@ function FurinaApp() {
     setConversations(fresh);
     setActiveId(fresh[0].id);
     lastSyncedAuthIdRef.current = null;
+  }
+
+  async function logout() {
+    if (sending || syncing) return;
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      toast.error("Gagal keluar dari akun.");
+      return;
+    }
     toast.success("Sudah logout. Mode guest mulai bersih.");
   }
 

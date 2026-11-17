@@ -828,13 +828,14 @@ const CloneInput = z.object({
 // Space: https://coqui-xtts.hf.space  (anonymous, rate-limited, free).
 async function callXttsSpace(text: string, sampleBase64: string, sampleMime: string, lang: string): Promise<string> {
   const base = "https://coqui-xtts.hf.space";
+  const signal = AbortSignal.timeout(90_000);
 
   // Step 1: upload sample file (multipart) → get server path
   const sampleBytes = Uint8Array.from(atob(sampleBase64), (c) => c.charCodeAt(0));
   const sampleBlob = new Blob([sampleBytes], { type: sampleMime || "audio/wav" });
   const fd = new FormData();
   fd.append("files", sampleBlob, "sample.wav");
-  const upRes = await fetch(`${base}/gradio_api/upload`, { method: "POST", body: fd });
+  const upRes = await fetch(`${base}/gradio_api/upload`, { method: "POST", body: fd, signal });
   if (!upRes.ok) throw new Error(`Upload sampel gagal: ${upRes.status}`);
   const upJson = (await upRes.json()) as string[];
   const uploadedPath = upJson[0];
@@ -843,6 +844,7 @@ async function callXttsSpace(text: string, sampleBase64: string, sampleMime: str
   // Step 2: queue prediction. XTTS expects [text, language, audio_file, mic_file, use_mic, cleanup, agree]
   const callRes = await fetch(`${base}/gradio_api/call/predict`, {
     method: "POST",
+    signal,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       data: [
@@ -865,39 +867,43 @@ async function callXttsSpace(text: string, sampleBase64: string, sampleMime: str
   if (!eventId) throw new Error("XTTS: event_id tidak diterima");
 
   // Step 3: poll SSE stream for result
-  const sseRes = await fetch(`${base}/gradio_api/call/predict/${eventId}`);
+  const sseRes = await fetch(`${base}/gradio_api/call/predict/${eventId}`, { signal });
   if (!sseRes.ok || !sseRes.body) throw new Error(`XTTS stream gagal: ${sseRes.status}`);
   const reader = sseRes.body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
-  const deadline = Date.now() + 90_000;
-  while (Date.now() < deadline) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const events = buf.split("\n\n");
-    buf = events.pop() ?? "";
-    for (const ev of events) {
-      const lines = ev.split("\n");
-      const eventLine = lines.find((l) => l.startsWith("event:"))?.slice(6).trim();
-      const dataLine = lines.find((l) => l.startsWith("data:"))?.slice(5).trim();
-      if (!dataLine) continue;
-      if (eventLine === "error") throw new Error(`XTTS error: ${dataLine.slice(0, 200)}`);
-      if (eventLine === "complete") {
-        try {
-          const parsed = JSON.parse(dataLine);
-          // parsed is array; first item is audio file descriptor { url, path } or string url
-          const out = Array.isArray(parsed) ? parsed[0] : parsed;
-          const url = typeof out === "string" ? out : out?.url ?? out?.path;
-          if (!url) throw new Error("XTTS: tidak ada URL audio di hasil");
-          return url.startsWith("http") ? url : `${base}/gradio_api/file=${url}`;
-        } catch (e) {
-          throw new Error(`XTTS parse hasil gagal: ${(e as Error).message}`);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const events = buf.split(/\r?\n\r?\n/);
+      buf = events.pop() ?? "";
+      for (const ev of events) {
+        const lines = ev.split("\n");
+        const eventLine = lines.find((l) => l.startsWith("event:"))?.slice(6).trim();
+        const dataLine = lines.find((l) => l.startsWith("data:"))?.slice(5).trim();
+        if (!dataLine) continue;
+        if (eventLine === "error") throw new Error(`XTTS error: ${dataLine.slice(0, 200)}`);
+        if (eventLine === "complete") {
+          try {
+            const parsed = JSON.parse(dataLine);
+            // parsed is array; first item is audio file descriptor { url, path } or string url
+            const out = Array.isArray(parsed) ? parsed[0] : parsed;
+            const url = typeof out === "string" ? out : out?.url ?? out?.path;
+            if (!url) throw new Error("XTTS: tidak ada URL audio di hasil");
+            return url.startsWith("http") ? url : `${base}/gradio_api/file=${url}`;
+          } catch (e) {
+            throw new Error(`XTTS parse hasil gagal: ${(e as Error).message}`);
+          }
         }
       }
     }
+    throw new Error("XTTS timeout (Space sibuk, coba lagi 30 detik)");
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
   }
-  throw new Error("XTTS timeout (Space sibuk, coba lagi 30 detik)");
 }
 
 export const speakClone = createServerFn({ method: "POST" })
@@ -915,7 +921,7 @@ export const speakClone = createServerFn({ method: "POST" })
     try {
       const audioUrl = await callXttsSpace(text, data.sampleBase64, data.sampleMime, data.language);
       // Stream audio back to frontend as base64 so it works regardless of CORS
-      const audioRes = await fetch(audioUrl);
+      const audioRes = await fetch(audioUrl, { signal: AbortSignal.timeout(15000) });
       if (!audioRes.ok) throw new Error(`Fetch hasil audio gagal: ${audioRes.status}`);
       const buf = await audioRes.arrayBuffer();
       return {
