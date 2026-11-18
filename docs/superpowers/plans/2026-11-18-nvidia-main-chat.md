@@ -33,7 +33,7 @@
 - [x] **Catalog and routing core:** Add pure catalog parsing/ranking and bounded sticky model/key routing. Test free intersection, freshness, cooldowns, Retry-After, busy/missing/timeout/empty/terminal responses, images and single-response behavior before implementation.
 - [x] **Persistence/server integration:** Add additive migration, main-chat key settings endpoints, encrypted storage and persisted active model/cooldowns; update types and usage provider constraint. Test isolated migration and owner-only access. Integrate NVIDIA using the same assembled chat messages.
 - [x] **Settings UI:** Add Gemini/NVIDIA dropdown, reuse the current key card, independent activation/removal and model status. Verify mobile widths 320/412 and desktop 1024, glass styles, keyboard/focus and account-switch behavior.
-- [ ] **Verification/handoff:** Run full test suite, TypeScript, frozen install/build and affected-file lint. Perform independent code review, update AGENTS.md and docs, and create a PR with results and deployment/migration steps. Never commit the supplied test key.
+- [x] **Verification/handoff:** Run full test suite, TypeScript, frozen install/build and affected-file lint. Perform independent code review, update AGENTS.md and docs, and create a PR with results and deployment/migration steps. Never commit the supplied test key.
 
 ## Verification ledger
 
@@ -42,3 +42,5 @@
 - Independent review findings fixed with regression tests: public model-list authentication false positive, moderation/refusal, HTTP 408/503 Retry-After/402 backoff, lazy discovery/fresh eligibility, inactive last key, unreadable key quarantine, image capability metadata, and stale UI polling.
 - AVAILABLE=false was not treated as hosted endpoint withdrawal: NVIDIA's own client uses it for downloadable NIM. PREVIEW and authenticated inference are the hosted controls; live MiniMax completions succeeded with AVAILABLE=false.
 - Live tests used only hidden-stdin credentials, synthetic dialogs and a public icon. Validation succeeded, fake key failed, fault-injected failover retained the successful model on the next message, and image inference succeeded.
+
+- Release preparation: PR #238 created. Migration 20261118021140 applied atomically to the existing Furina Lovable database and recorded in migration history. Targeted metadata checks confirmed RLS, no anon/authenticated table/RPC access, service-role access, and zero stored main-chat keys. No production account fixture or supplied key was inserted.

@@ -67,3 +67,7 @@ Hasil akhir: **111/111 tes Node lolos**, pemeriksaan TypeScript dan production b
 - Probe nyata dengan key uji: inferensi validasi kecil berhasil; key palsu ditolak; fallback setelah 503 buatan berhasil ke Nemotron Ultra dan model tetap dipakai pada giliran berikutnya; inferensi gambar berhasil melalui Super VL. Hanya konten sintetis dan ikon publik dipakai.
 - Jalankan `FURINA_PG_TEST_CONTAINER=furina-nvidia-schema-test node --test tests/*.test.mjs`, `bunx tsc --noEmit`, `bun run build`, serta browser test yang dicatat di AGENTS.md.
 - APK/perangkat Android fisik dan login Google produksi tidak diuji. UI browser diverifikasi pada fixture, bukan sesi Supabase pengguna nyata. Lint repo masih mempunyai utang format/rule lama; pemeriksaan file baru dan komponen yang diubah dijalankan terpisah.
+
+## Catatan rilis
+
+Perubahan disiapkan di [PR #238](https://github.com/WynnDev-rill/furina/pull/238). Migrasi `20261118021140` sudah diterapkan secara atomik pada database Furina yang terhubung ke Lovable dan tercatat di riwayat migrasi. Verifikasi sesudah migrasi memastikan RLS aktif, role anon/authenticated tidak memiliki akses tabel maupun RPC, service role memiliki akses, dan tabel key percakapan masih kosong. Tidak ada akun pengguna atau key uji yang dipakai sebagai fixture produksi.
