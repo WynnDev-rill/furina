@@ -38,3 +38,6 @@ dist-ssr
 /.agents/skills/impeccable/scripts/impeccable-engine*
 **/__pycache__/
 !/graphify-out/graph.html
+
+# Local Supabase CLI metadata
+/supabase/.temp/

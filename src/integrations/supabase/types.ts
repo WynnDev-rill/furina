@@ -130,6 +130,8 @@ export type Database = {
       }
       furina_ai_preferences: {
         Row: {
+          chat_provider: string
+          use_nvidia_chat: boolean
           embedding_issue: string | null
           background_text_issue: string | null
           use_nvidia: boolean
@@ -140,6 +142,8 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          chat_provider?: string
+          use_nvidia_chat?: boolean
           embedding_issue?: string | null
           background_text_issue?: string | null
           use_nvidia?: boolean
@@ -150,6 +154,8 @@ export type Database = {
           user_id: string
         }
         Update: {
+          chat_provider?: string
+          use_nvidia_chat?: boolean
           embedding_issue?: string | null
           background_text_issue?: string | null
           use_nvidia?: boolean
@@ -183,6 +189,45 @@ export type Database = {
           tokens?: number
           user_id?: string
         }
+        Relationships: []
+      }
+      furina_nvidia_chat_keys: {
+        Row: {
+          enabled: boolean
+          created_at: string
+          encrypted_value: string
+          fingerprint: string
+          id: string
+          invalid: boolean
+          suffix: string
+          user_id: string
+        }
+        Insert: {
+          enabled?: boolean
+          created_at?: string
+          encrypted_value: string
+          fingerprint: string
+          id?: string
+          invalid?: boolean
+          suffix: string
+          user_id: string
+        }
+        Update: {
+          enabled?: boolean
+          created_at?: string
+          encrypted_value?: string
+          fingerprint?: string
+          id?: string
+          invalid?: boolean
+          suffix?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      furina_nvidia_chat_state: {
+        Row: { user_id: string; active_model: string | null; active_key_id: string | null; cooldowns: Json; last_notice: string | null; updated_at: string }
+        Insert: { user_id: string; active_model?: string | null; active_key_id?: string | null; cooldowns?: Json; last_notice?: string | null; updated_at?: string }
+        Update: { user_id?: string; active_model?: string | null; active_key_id?: string | null; cooldowns?: Json; last_notice?: string | null; updated_at?: string }
         Relationships: []
       }
       furina_gemini_keys: {
@@ -471,6 +516,11 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      save_furina_nvidia_chat_state: {
+        Args: { owner_id: string; model_id: string | null; key_id: string | null; blocked_until: Json; notice: string | null }
+        Returns: undefined
+      }
+
       claim_furina_memory_scan: {
         Args: { owner_id: string }
         Returns: {

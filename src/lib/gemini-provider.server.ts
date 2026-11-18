@@ -61,7 +61,7 @@ export async function requestGeminiChat(userId: string, messages: GeminiChatMess
 
 export async function recordChatUsage(
   userId: string,
-  provider: "gemini" | "lovable",
+  provider: "gemini" | "lovable" | "nvidia",
   total: unknown,
 ) {
   const tokens =

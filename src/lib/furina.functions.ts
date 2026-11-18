@@ -1,3 +1,5 @@
+import { mainChatProvider } from "@/lib/main-chat-provider";
+import { requestNvidiaChat } from "@/lib/nvidia-chat.server";
 import { continuationRequest, continuityPrompt, recentThreadsAmbiguous, shouldConsiderRecent } from "@/lib/chat-continuity";
 import { recallRecentThreads } from "@/lib/chat-continuity.server";
 import { recallContext, recallQuery, type RecallEntry } from "@/lib/memory-recall";
@@ -280,9 +282,8 @@ export const chatWithFurina = createServerFn({ method: "POST" })
     const { profile, birthday, prompt: agePrompt } = await userProfile;
     const canUsePersonalGemini = signedIn && (birthday?.age ?? 0) >= 18;
     const preferences = signedIn ? await readAiPreferences(data.userId) : null;
-    const personalGeminiEnabled = canUsePersonalGemini && preferences?.use_gemini === true;
-    const lovableChat = preferences?.lovable_chat ?? true;
-    if (!personalGeminiEnabled && !lovableChat) throw new Error("AI percakapan nonaktif. Aktifkan penyedia di AI dan API Key.");
+    const { nvidia: nvidiaChat, personalGeminiEnabled, lovableChat } = mainChatProvider(preferences, signedIn, canUsePersonalGemini);
+    if (!nvidiaChat && !personalGeminiEnabled && !lovableChat) throw new Error("AI percakapan nonaktif. Aktifkan penyedia di AI dan API Key.");
     const backgroundPaused = preferences?.lovable_background === false && !preferences.use_openrouter && !preferences.use_nvidia;
     const policy = await policyPromise;
     const useHistory = policy.use_history && !data.replay;
@@ -471,11 +472,27 @@ KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((
         body: JSON.stringify({ model, messages }),
       }),
     ).then((result) => result.response);
-    const { response: res, provider } = await requestWithProviderFallback(
-      personalGeminiEnabled,
-      () => requestGeminiChat(data.userId, messages),
-      lovableChat ? requestGateway : null,
-    );
+    const routed = nvidiaChat
+      ? await requestNvidiaChat(data.userId, messages)
+      : { ...(await requestWithProviderFallback(
+          personalGeminiEnabled,
+          () => requestGeminiChat(data.userId, messages),
+          lovableChat ? requestGateway : null,
+        )), model: null, notice: "" };
+    const { response: res, provider } = routed;
+    if (provider === "nvidia" && !res.ok) {
+      await res.body?.cancel().catch(() => undefined);
+      if (res.status === 402) throw new Error("Kuota uji coba NVIDIA habis. Tidak beralih ke penyedia berbayar.");
+      if (res.status === 401) throw new Error("API key NVIDIA ditolak. Periksa key di AI dan API Key.");
+      if (res.status === 409) throw new Error("Pengaturan NVIDIA berubah saat pesan diproses. Coba kirim ulang.");
+      if (res.status === 429) {
+        const retry = Number(res.headers.get("retry-after"));
+        throw new Error(`NVIDIA sedang membatasi permintaan.${retry > 0 ? ` Coba lagi sekitar ${retry} detik.` : " Coba lagi nanti."}`);
+      }
+      if (res.status === 400 || res.status === 422)
+        throw new Error("Model NVIDIA belum dapat membalas pesan atau lampiran ini. Coba ubah pesannya.");
+      throw new Error("NVIDIA sedang sibuk atau model gratis belum tersedia. Coba lagi nanti.");
+    }
     if (!res.ok) {
       if (provider === "gemini") {
         if (isGeminiUnavailable(res.status)) {
@@ -535,10 +552,11 @@ KONTEKS WAKTU: ${realtimeContextString()}${timeNote}${gapNote}${identityPrompt((
     }
 
     const aiNotice = [
+      routed.notice,
       personalGeminiEnabled && provider === "lovable" ? "Gemini belum tersedia. Balasan memakai Lovable." : "",
       memoryUnavailable ? "Sebagian memori belum bisa dicari. Coba lagi sebentar." : "",
     ].filter(Boolean).join(" ");
-    return { reply: finalBubbles.join("\n\n"), bubbles: finalBubbles, aiNotice };
+    return { reply: finalBubbles.join("\n\n"), bubbles: finalBubbles, aiNotice, aiModel: routed.model, aiProvider: provider };
   });
 
 

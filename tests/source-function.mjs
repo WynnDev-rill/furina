@@ -53,3 +53,32 @@ export function sourceCallback(path, method, dependencies = {}) {
     ...Object.values(dependencies),
   );
 }
+
+export function sourceServerHandler(path, exportedName, dependencies = {}) {
+  const source = ts.createSourceFile(
+    path,
+    readFileSync(new URL(path, import.meta.url), "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  let callback;
+  function visit(node) {
+    if (
+      ts.isVariableDeclaration(node) &&
+      node.name.getText(source) === exportedName &&
+      node.initializer &&
+      ts.isCallExpression(node.initializer)
+    )
+      callback = node.initializer.arguments[0];
+    else ts.forEachChild(node, visit);
+  }
+  visit(source);
+  if (!callback) throw new Error(`Missing server handler ${exportedName}`);
+  const code = ts.transpileModule(`const handler = ${callback.getText(source)};`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
+  }).outputText;
+  return new Function(...Object.keys(dependencies), `${code}; return handler;`)(
+    ...Object.values(dependencies),
+  );
+}

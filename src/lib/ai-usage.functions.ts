@@ -118,6 +118,7 @@ export const getAiChannelSettings = createServerFn({ method: "POST" })
       !preferences.use_openrouter &&
       !preferences.use_nvidia;
     return {
+      mainProvider: preferences?.chat_provider === "nvidia" ? "nvidia" as const : "gemini" as const,
       chat: preferences?.lovable_chat ?? true,
       background: preferences?.lovable_background ?? true,
       issues: backgroundPaused
