@@ -6,8 +6,6 @@ import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { getAiChannelSettings, setLovableChannel } from "@/lib/ai-usage.functions";
 
-import { setChatProviderSelection } from "@/lib/nvidia-chat-settings.functions";
-
 const channels = [
   ["chat", "Percakapan utama"],
   ["background", "Pekerjaan latar belakang"],
@@ -22,8 +20,6 @@ export function AiChannelSettings({
 }) {
   const getSettings = useServerFn(getAiChannelSettings);
   const change = useServerFn(setLovableChannel);
-  const selectChatProvider = useServerFn(setChatProviderSelection);
-  const [mainProvider, setMainProvider] = useState<"gemini" | "nvidia">("gemini");
   const [settings, setSettings] = useState<Awaited<ReturnType<typeof getAiChannelSettings>>>();
   const [backgroundProvider, setBackgroundProvider] = useState<"openrouter" | "nvidia">(
     "openrouter",
@@ -43,7 +39,6 @@ export function AiChannelSettings({
         const result = await getSettings({ data: { userId } });
         if (current && !running.current && generation === readGeneration.current) {
           setSettings(result);
-          setMainProvider(result.mainProvider);
           setError("");
         }
       } catch {
@@ -70,24 +65,6 @@ export function AiChannelSettings({
       setSettings((previous) => (previous ? { ...previous, [channel]: enabled } : previous));
     } catch {
       setError("Pengaturan Lovable belum dapat disimpan.");
-    } finally {
-      running.current = false;
-      setBusy(false);
-    }
-  }
-
-  async function selectMainProvider(value: string) {
-    if (!userId || running.current || (value !== "gemini" && value !== "nvidia")) return;
-    running.current = true;
-    readGeneration.current++;
-    setBusy(true);
-    setError("");
-    try {
-      await selectChatProvider({ data: { userId, provider: value } });
-      setMainProvider(value);
-      setSettings((previous) => (previous ? { ...previous, mainProvider: value } : previous));
-    } catch {
-      setError("Penyedia percakapan belum dapat disimpan.");
     } finally {
       running.current = false;
       setBusy(false);
@@ -124,28 +101,8 @@ export function AiChannelSettings({
         ))}
       </section>
       <h3 className="px-4 text-sm font-semibold">AI opsional</h3>
-      <div className="space-y-2 px-4">
-        <Label htmlFor="furina-main-provider">Percakapan utama</Label>
-        <Select
-          value={mainProvider}
-          onValueChange={(value) => void selectMainProvider(value)}
-          disabled={!settings || busy}
-        >
-          <SelectTrigger id="furina-main-provider" className="settings-control">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="settings-select-menu">
-            <SelectItem value="gemini">Gemini</SelectItem>
-            <SelectItem value="nvidia">NVIDIA NIM</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      <GeminiKeySettings
-        key={mainProvider}
-        userId={userId}
-        openAccount={openAccount}
-        provider={mainProvider === "nvidia" ? "nvidia-chat" : "gemini"}
-      />
+      <h4 className="px-4 text-sm text-muted-foreground">Percakapan utama</h4>
+      <GeminiKeySettings userId={userId} openAccount={openAccount} provider="gemini" />
       <div className="space-y-2 px-4">
         <Label htmlFor="furina-background-provider">Pekerjaan latar belakang</Label>
         <Select

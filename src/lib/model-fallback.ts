@@ -23,20 +23,29 @@ export async function requestWithProviderFallback(
 ): Promise<{ response: Response; provider: ChatProvider }> {
   if (personalGeminiEnabled) {
     const gemini = await requestGemini();
-    if (!requestLovable) return { response: gemini ?? new Response(null, { status: 503 }), provider: "gemini" };
+    if (!requestLovable)
+      return { response: gemini ?? new Response(null, { status: 503 }), provider: "gemini" };
     const unavailable = !!gemini && isGeminiUnavailable(gemini.status);
     if (gemini && !unavailable && !isChatProviderFallbackStatus(gemini.status)) {
       return { response: gemini, provider: "gemini" };
     }
-    const lovable = await requestLovable().catch((error) => {
+    const lovable = await requestLovable().catch(async (error) => {
       if (unavailable && gemini) return gemini;
+      await gemini?.body?.cancel().catch(() => undefined);
       throw error;
     });
-    if (unavailable && gemini && !lovable.ok) return { response: gemini, provider: "gemini" };
+    if (unavailable && gemini && !lovable.ok) {
+      if (lovable !== gemini) await lovable.body?.cancel().catch(() => undefined);
+      return { response: gemini, provider: "gemini" };
+    }
+    await gemini?.body?.cancel().catch(() => undefined);
     return { response: lovable, provider: "lovable" };
   }
 
-  return { response: requestLovable ? await requestLovable() : new Response(null, { status: 503 }), provider: "lovable" };
+  return {
+    response: requestLovable ? await requestLovable() : new Response(null, { status: 503 }),
+    provider: "lovable",
+  };
 }
 
 function retryDelayMs(response: Response, retryIndex: number): number {
@@ -57,7 +66,10 @@ export async function requestWithChatModelFallback(
 ): Promise<{ response: Response; model: ChatModel }> {
   for (const [index, model] of CHAT_MODEL_FALLBACK_ORDER.entries()) {
     const response = await request(model);
-    if ((response.status !== 429 && response.status !== 503) || index === CHAT_MODEL_FALLBACK_ORDER.length - 1) {
+    if (
+      (response.status !== 429 && response.status !== 503) ||
+      index === CHAT_MODEL_FALLBACK_ORDER.length - 1
+    ) {
       return { response, model };
     }
 

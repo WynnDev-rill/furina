@@ -83,15 +83,6 @@ async function call(provider, status = 200) {
     realtimeContextString: () => "Waktu uji tetap.",
     computeTimeCtx: () => ({ hari: "Rabu", periode: "pagi", hour: 8, weekend: false }),
     feedbackPrompt: () => "",
-    requestNvidiaChat: async (_id, messages) => {
-      captured = messages;
-      return {
-        response: response(),
-        provider: "nvidia",
-        model: "minimaxai/minimax-m3.1-flash",
-        notice: "",
-      };
-    },
     requestGeminiChat: async (_id, messages) => {
       captured = messages;
       return response();
@@ -126,7 +117,7 @@ async function call(provider, status = 200) {
   const result = await handler({ data: input });
   return { result, captured, usage, gateway };
 }
-test("main handler uses the same full Furina persona, saved memory, quote, history, image and age context after switching Gemini to NVIDIA", async () => {
+test("main handler uses the same full Furina persona, saved memory, quote, history, image and age context for existing Gemini settings and retired NVIDIA preferences", async () => {
   const gemini = await call("gemini");
   const nvidia = await call("nvidia");
   assert.deepEqual(nvidia.captured, gemini.captured);
@@ -140,6 +131,7 @@ test("main handler uses the same full Furina persona, saved memory, quote, histo
   assert.match(nvidia.captured.at(-1).content[0].text, /Kita periksa perlahan/);
   assert.equal(nvidia.usage, 1);
   assert.equal(nvidia.gateway, 0);
-  assert.equal(nvidia.result.aiModel, "minimaxai/minimax-m3.1-flash");
+  assert.equal(nvidia.result.aiProvider, "gemini");
+  assert.equal(nvidia.result.aiModel, null);
   assert.equal(nvidia.result.bubbles.length, 2);
 });

@@ -14,7 +14,7 @@ if (!modulePath)
   );
 const { chromium } = await import(modulePath);
 const root = resolve(import.meta.dirname, "..");
-const temporary = await mkdtemp(join(tmpdir(), "furina-nvidia-ui-"));
+const temporary = await mkdtemp(join(tmpdir(), "furina-ai-ui-"));
 const api = join(root, "tests/fixtures/ai-settings-api.ts");
 await writeFile(
   join(temporary, "index.html"),
@@ -34,7 +34,6 @@ const server = await createServer({
   resolve: {
     alias: [
       { find: "@/lib/ai-usage.functions", replacement: api },
-      { find: "@/lib/nvidia-chat-settings.functions", replacement: api },
       {
         find: "@tanstack/react-start",
         replacement: join(root, "tests/fixtures/server-fn-hook.ts"),
@@ -66,51 +65,37 @@ try {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("http://127.0.0.1:8082");
-  const main = page.getByRole("combobox", { name: "Percakapan utama", exact: true });
-  await main.waitFor();
-  await main.click();
-  await page.getByRole("option", { name: "NVIDIA NIM", exact: true }).click();
-  await page.locator("#furina-nvidia-chat-key").waitFor();
-  assert.match(await page.getByRole("status").first().textContent(), /Model aktif/);
+  const input = page.locator("#furina-gemini-key");
+  await input.waitFor();
   assert.equal(
-    await page
-      .getByRole("combobox", { name: "Pekerjaan latar belakang", exact: true })
-      .textContent(),
-    "OpenRouter",
+    await page.getByRole("combobox", { name: "Percakapan utama", exact: true }).count(),
+    0,
   );
-  await page.locator("#furina-nvidia-chat-key").fill("nvapi-synthetic-ui-1234");
+  assert.equal(await page.getByText("NVIDIA NIM", { exact: true }).count(), 0);
+  await input.fill("synthetic-gemini-key-1234");
   await page
-    .getByRole("region", { name: "API key NVIDIA NIM", exact: true })
+    .getByRole("region", { name: "API key Gemini", exact: true })
     .getByRole("button", { name: "Simpan", exact: true })
     .click();
   await page.getByRole("button", { name: "Hapus API key berakhiran 1234" }).waitFor();
-  assert.equal(await page.locator("#furina-nvidia-chat-key").inputValue(), "");
-  const keySwitch = page.getByRole("switch", { name: "Aktifkan API key berakhiran 1234" });
-  await keySwitch.click();
-  await page.waitForFunction(
-    () =>
-      document
-        .querySelector('[aria-label="Aktifkan API key berakhiran 1234"]')
-        ?.getAttribute("aria-checked") === "false",
-  );
-  await page.evaluate(() => {
-    window.__furinaSettingsFixture.holdNextKeys = true;
-    window.__furinaPollCallbacks.at(-1)();
-  });
-  await page.waitForFunction(() => window.__furinaSettingsFixture.pending > 0);
+  assert.equal(await input.inputValue(), "");
   await page.getByRole("button", { name: "Hapus API key berakhiran 1234" }).click();
   await page
     .getByRole("button", { name: "Hapus API key berakhiran 1234" })
     .waitFor({ state: "detached" });
-  await page.evaluate(() => window.__furinaSettingsFixture.release());
-  await page.evaluate(
-    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
-  );
-  assert.equal(
-    await page.getByRole("button", { name: "Hapus API key berakhiran 1234" }).count(),
-    0,
-    "stale key poll must not restore a deleted key",
-  );
+  const providerToggle = page.getByRole("switch", { name: "Gunakan API key Gemini", exact: true });
+  await providerToggle.click();
+  await page.getByText("API key Gemini nonaktif.", { exact: true }).waitFor();
+  await providerToggle.click();
+  await page.getByText("Gemini diprioritaskan.", { exact: true }).waitFor();
+  const background = page.getByRole("combobox", { name: "Pekerjaan latar belakang", exact: true });
+  await background.click();
+  await page.getByRole("option", { name: "NVIDIA", exact: true }).click();
+  await page.locator("#furina-nvidia-key").waitFor();
+  assert.equal(await input.count(), 1);
+  await background.click();
+  await page.getByRole("option", { name: "OpenRouter", exact: true }).click();
+  await page.locator("#furina-openrouter-key").waitFor();
   for (const theme of ["dark", "light"]) {
     await page.evaluate(
       (theme) => document.documentElement.classList.toggle("dark", theme === "dark"),
@@ -123,7 +108,7 @@ try {
         false,
         `overflow ${theme}/${width}`,
       );
-      const input = page.locator("#furina-nvidia-chat-key");
+      const input = page.locator("#furina-gemini-key");
       await input.focus();
       await page.keyboard.type("nvapi-keyboard");
       assert.equal(await input.inputValue(), "nvapi-keyboard");
@@ -140,38 +125,35 @@ try {
       await page.screenshot({ path: join(temporary, `${theme}-${width}.png`), fullPage: true });
     }
   }
-  const providerToggle = page.getByRole("switch", {
-    name: "Gunakan API key NVIDIA NIM",
-    exact: true,
-  });
-  await providerToggle.click();
-  await page.getByRole("status").filter({ hasText: "Model terakhir" }).waitFor();
-  await providerToggle.click();
-  await page.getByRole("status").filter({ hasText: "Model aktif" }).waitFor();
   await page.evaluate(() => {
     window.__furinaSettingsFixture.holdNextChannel = true;
     window.__furinaPollCallbacks[0]();
   });
   await page.waitForFunction(() => window.__furinaSettingsFixture.pending > 0);
-  await main.focus();
-  await page.keyboard.press("Space");
-  await page.getByRole("option", { name: "Gemini", exact: true }).click();
-  await page.locator("#furina-gemini-key").waitFor();
+  const channelToggle = page.locator("#lovable-chat");
+  await channelToggle.click();
+  await page.waitForFunction(
+    () => document.querySelector("#lovable-chat")?.getAttribute("aria-checked") === "true",
+  );
   await page.evaluate(() => window.__furinaSettingsFixture.release());
   await page.evaluate(
     () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
   );
   assert.equal(
-    await page.locator("#furina-gemini-key").count(),
-    1,
-    "stale channel poll must not revert a provider change",
+    await channelToggle.getAttribute("aria-checked"),
+    "true",
+    "stale polling cannot undo a saved toggle",
   );
-  assert.equal(
-    await page
-      .getByRole("combobox", { name: "Pekerjaan latar belakang", exact: true })
-      .textContent(),
-    "OpenRouter",
-  );
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await input.focus();
+  await input.evaluate((el) => {
+    el.dispatchEvent(new CompositionEvent("compositionstart", { data: "" }));
+    el.dispatchEvent(new CompositionEvent("compositionend", { data: "フリーナ" }));
+  });
+  await input.fill("フリーナ");
+  assert.equal(await input.inputValue(), "フリーナ");
+  await input.fill("");
+  await page.keyboard.press("Tab");
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify({
@@ -179,14 +161,16 @@ try {
       widths: [320, 412, 1024],
       themes: ["dark", "light"],
       checks: [
-        "provider switch",
+        "retired main provider absent",
         "key add/clear",
-        "per-key disable",
+        "Gemini activation",
         "key delete",
         "independent background",
         "keyboard",
         "no overflow",
         "glass tokens",
+        "poll race",
+        "reduced motion and composition",
       ],
       screenshots: temporary,
     }),

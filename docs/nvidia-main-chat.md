@@ -1,3 +1,5 @@
+> Catatan historis: NVIDIA untuk percakapan utama dihentikan pada 21 November 2026. NVIDIA pekerjaan latar tetap tersedia. Lihat `docs/ai-provider-audit-2026-11-21.md`.
+
 # NVIDIA NIM untuk percakapan utama
 
 Ditinjau 18 November 2026. Pilihan berada di **Pengaturan → AI dan API Key → AI opsional → Percakapan utama → NVIDIA NIM**. Masukkan key lalu Simpan; validasi yang berhasil mengaktifkan NVIDIA. Tambahkan beberapa key bila diperlukan, gunakan sakelar per-key atau sakelar penyedia, dan hapus key dengan tombol yang sudah ada. Key percakapan terpisah dari key pekerjaan latar.

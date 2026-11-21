@@ -1,36 +1,33 @@
-// Browser-test boundary only: no network, real accounts or actual API keys.
-const state = {
-  mainProvider: "gemini",
-  chat: false,
-  background: false,
-  issues: [] as string[],
-  nvidia: {
-    enabled: true,
-    eligible: true,
-    model: "minimaxai/minimax-m3.1-flash",
-    notice: null,
-    keys: [{ id: "test-a", suffix: "abcd", invalid: false, enabled: true }],
-  },
+// Browser boundary only: no network, accounts, or actual API keys.
+const channels = { chat: false, background: false, issues: [] as string[] };
+type KeySettings = {
+  enabled: boolean;
+  eligible: boolean;
+  keys: { id: string; suffix: string; invalid: boolean }[];
 };
-const copy = <T>(value: T): T => structuredClone(value);
-const pendingChannels: (() => void)[] = [];
-const pendingKeys: (() => void)[] = [];
+const gemini: KeySettings = {
+  enabled: true,
+  eligible: true,
+  keys: [{ id: "test-a", suffix: "abcd", invalid: false }],
+};
+const openrouter: KeySettings = { enabled: false, eligible: true, keys: [] };
+const nvidia: KeySettings = { enabled: false, eligible: true, keys: [] };
+const pending: (() => void)[] = [];
 const controls = {
   holdNextChannel: false,
-  holdNextKeys: false,
   get pending() {
-    return pendingChannels.length + pendingKeys.length;
+    return pending.length;
   },
   release() {
-    for (const resolve of [...pendingChannels.splice(0), ...pendingKeys.splice(0)]) resolve();
+    for (const resolve of pending.splice(0)) resolve();
   },
 };
 Object.assign(globalThis, { __furinaSettingsFixture: controls });
 export const getAiChannelSettings = async () => {
-  const value = copy(state);
+  const value = structuredClone(channels);
   if (controls.holdNextChannel) {
     controls.holdNextChannel = false;
-    await new Promise<void>((resolve) => pendingChannels.push(resolve));
+    await new Promise<void>((resolve) => pending.push(resolve));
   }
   return value;
 };
@@ -39,50 +36,32 @@ export const setLovableChannel = async ({
 }: {
   data: { channel: "chat" | "background"; enabled: boolean };
 }) => {
-  state[data.channel] = data.enabled;
+  channels[data.channel] = data.enabled;
 };
-export const setChatProviderSelection = async ({ data }: { data: { provider: string } }) => {
-  state.mainProvider = data.provider;
-};
-export const getNvidiaChatKeySettings = async () => {
-  const value = copy(state.nvidia);
-  if (controls.holdNextKeys) {
-    controls.holdNextKeys = false;
-    await new Promise<void>((resolve) => pendingKeys.push(resolve));
-  }
-  return value;
-};
-export const setNvidiaChatProvider = async ({ data }: { data: { enabled: boolean } }) => {
-  state.nvidia.enabled = data.enabled;
-};
-export const addNvidiaChatKey = async ({ data }: { data: { key: string } }) => {
-  state.nvidia.keys.push({
-    id: "test-b",
-    suffix: data.key.slice(-4),
-    invalid: false,
-    enabled: true,
-  });
-};
-export const removeNvidiaChatKey = async ({ data }: { data: { id: string } }) => {
-  state.nvidia.keys = state.nvidia.keys.filter((key) => key.id !== data.id);
-};
-export const setNvidiaChatKeyEnabled = async ({
-  data,
-}: {
-  data: { id: string; enabled: boolean };
-}) => {
-  const key = state.nvidia.keys.find((key) => key.id === data.id);
-  if (key) key.enabled = data.enabled;
-};
-export const getGeminiKeySettings = async () => ({ enabled: false, eligible: true, keys: [] });
-export const getOpenRouterKeySettings = getGeminiKeySettings;
-export const getNvidiaKeySettings = getGeminiKeySettings;
-export const addGeminiKey = async () => {};
-export const removeGeminiKey = addGeminiKey;
-export const setGeminiProvider = addGeminiKey;
-export const addOpenRouterKey = addGeminiKey;
-export const removeOpenRouterKey = addGeminiKey;
-export const setOpenRouterProvider = addGeminiKey;
-export const addNvidiaKey = addGeminiKey;
-export const removeNvidiaKey = addGeminiKey;
-export const setNvidiaProvider = addGeminiKey;
+const functions = (settings: KeySettings) => ({
+  get: async () => structuredClone(settings),
+  add: async ({ data }: { data: { key: string } }) => {
+    settings.keys.push({ id: "test-b", suffix: data.key.slice(-4), invalid: false });
+  },
+  remove: async ({ data }: { data: { id: string } }) => {
+    settings.keys = settings.keys.filter((key) => key.id !== data.id);
+  },
+  set: async ({ data }: { data: { enabled: boolean } }) => {
+    settings.enabled = data.enabled;
+  },
+});
+const g = functions(gemini),
+  o = functions(openrouter),
+  n = functions(nvidia);
+export const getGeminiKeySettings = g.get,
+  addGeminiKey = g.add,
+  removeGeminiKey = g.remove,
+  setGeminiProvider = g.set;
+export const getOpenRouterKeySettings = o.get,
+  addOpenRouterKey = o.add,
+  removeOpenRouterKey = o.remove,
+  setOpenRouterProvider = o.set;
+export const getNvidiaKeySettings = n.get,
+  addNvidiaKey = n.add,
+  removeNvidiaKey = n.remove,
+  setNvidiaProvider = n.set;
