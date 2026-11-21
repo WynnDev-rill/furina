@@ -20,20 +20,10 @@ import {
   setNvidiaProvider,
 } from "@/lib/ai-usage.functions";
 
-import {
-  addNvidiaChatKey,
-  getNvidiaChatKeySettings,
-  removeNvidiaChatKey,
-  setNvidiaChatProvider,
-  setNvidiaChatKeyEnabled,
-} from "@/lib/nvidia-chat-settings.functions";
-
 type Settings = {
   enabled: boolean;
   eligible: boolean;
-  keys: { id: string; suffix: string; invalid: boolean; enabled?: boolean }[];
-  model?: string | null;
-  notice?: string | null;
+  keys: { id: string; suffix: string; invalid: boolean }[];
 };
 
 export function GeminiKeySettings({
@@ -43,7 +33,7 @@ export function GeminiKeySettings({
 }: {
   userId?: string | null;
   openAccount: () => void;
-  provider?: "gemini" | "openrouter" | "nvidia" | "nvidia-chat";
+  provider?: "gemini" | "openrouter" | "nvidia";
 }) {
   const providers = {
     gemini: {
@@ -60,13 +50,6 @@ export function GeminiKeySettings({
       remove: removeOpenRouterKey,
       set: setOpenRouterProvider,
     },
-    "nvidia-chat": {
-      name: "NVIDIA NIM",
-      get: getNvidiaChatKeySettings,
-      add: addNvidiaChatKey,
-      remove: removeNvidiaChatKey,
-      set: setNvidiaChatProvider,
-    },
     nvidia: {
       name: "NVIDIA",
       get: getNvidiaKeySettings,
@@ -80,7 +63,6 @@ export function GeminiKeySettings({
   const addKey = useServerFn(add);
   const removeKey = useServerFn(remove);
   const setProvider = useServerFn(set);
-  const changeKeyEnabled = useServerFn(setNvidiaChatKeyEnabled);
   const [settings, setSettings] = useState<Settings>();
   const [secret, setSecret] = useState("");
   const actionRunning = useRef(false);
@@ -110,10 +92,8 @@ export function GeminiKeySettings({
       );
     };
     reload();
-    const timer = provider === "nvidia-chat" ? window.setInterval(reload, 12000) : null;
     return () => {
       ignore = true;
-      if (timer !== null) window.clearInterval(timer);
     };
   }, [getSettings, userId, loadAttempt, provider]);
 
@@ -224,8 +204,7 @@ export function GeminiKeySettings({
               disabled={
                 busy ||
                 !settings.eligible ||
-                (!settings.enabled &&
-                  !settings.keys.some((key) => !key.invalid && key.enabled !== false))
+                (!settings.enabled && !settings.keys.some((key) => !key.invalid))
               }
               onCheckedChange={(enabled) =>
                 void update(() => setProvider({ data: { userId, enabled } }))
@@ -235,37 +214,11 @@ export function GeminiKeySettings({
           {settings.eligible && (
             <p className="text-xs text-muted-foreground">
               {settings.enabled
-                ? provider === "nvidia-chat"
-                  ? "NVIDIA aktif untuk percakapan utama. Tanpa fallback berbayar."
-                  : provider === "nvidia"
-                    ? "NVIDIA aktif untuk pekerjaan latar."
-                    : `${name} diprioritaskan.`
+                ? provider === "nvidia"
+                  ? "NVIDIA aktif untuk pekerjaan latar."
+                  : `${name} diprioritaskan.`
                 : `API key ${name} nonaktif.`}
             </p>
-          )}
-          {provider === "nvidia-chat" && (
-            <div className="space-y-2 text-xs text-muted-foreground">
-              <p role="status" className="break-words">
-                {settings.enabled ? "Model aktif" : "Model terakhir"}:{" "}
-                <span className="break-all">
-                  {settings.model ?? "Otomatis saat percakapan pertama"}
-                </span>
-              </p>
-              <p>Model yang berhasil dipertahankan. Model dan key berganti saat diperlukan.</p>
-              {settings.notice && <p role="status">{settings.notice}</p>}
-              <p>Key dan aktivasi percakapan terpisah dari pekerjaan latar.</p>
-              <p>
-                Endpoint gratis NVIDIA untuk prototyping/evaluasi, dengan batas penggunaan.{" "}
-                <a
-                  className="underline"
-                  href="https://docs.api.nvidia.com/nim/docs/product"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Ketentuan NVIDIA
-                </a>
-              </p>
-            </div>
           )}
           <ul className="divide-y divide-border/50">
             {settings.keys.map((key) => (
@@ -278,18 +231,6 @@ export function GeminiKeySettings({
                   {key.invalid && <span className="ml-2 text-muted-foreground">Tidak aktif</span>}
                 </span>
                 <div className="flex shrink-0 items-center gap-2">
-                  {provider === "nvidia-chat" && (
-                    <Switch
-                      checked={key.enabled !== false && !key.invalid}
-                      disabled={busy || key.invalid}
-                      aria-label={`Aktifkan API key berakhiran ${key.suffix}`}
-                      onCheckedChange={(enabled) =>
-                        void update(() =>
-                          changeKeyEnabled({ data: { userId, id: key.id, enabled } }),
-                        )
-                      }
-                    />
-                  )}
                   <Button
                     type="button"
                     variant="ghost"

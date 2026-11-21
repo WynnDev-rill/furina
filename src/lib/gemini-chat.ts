@@ -71,6 +71,12 @@ export async function requestGeminiCompletion(
         if (!response.ok) return response;
         const payload: GeminiReply | null = await response.json().catch(() => null);
         const candidate = payload?.candidates?.[0];
+        const blocked =
+          payload?.promptFeedback?.blockReason ||
+          /SAFETY|RECITATION|PROHIBITED_CONTENT|BLOCKLIST|SPII|IMAGE_PROHIBITED_CONTENT/.test(
+            candidate?.finishReason ?? "",
+          );
+        if (blocked) return new Response(null, { status: 422 });
         const content = candidate?.content?.parts
           ?.filter((part) => !part.thought && typeof part.text === "string")
           .map((part) => part.text)
@@ -81,12 +87,7 @@ export async function requestGeminiCompletion(
             usage: { total_tokens: payload?.usageMetadata?.totalTokenCount },
           });
         }
-        const blocked =
-          payload?.promptFeedback?.blockReason ||
-          /SAFETY|RECITATION|PROHIBITED_CONTENT|BLOCKLIST|SPII|IMAGE_PROHIBITED_CONTENT/.test(
-            candidate?.finishReason ?? "",
-          );
-        return new Response(null, { status: blocked ? 422 : 502 });
+        return new Response(null, { status: 502 });
       },
       () => new Response(null, { status: 504 }),
     );

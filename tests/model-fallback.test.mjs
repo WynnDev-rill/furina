@@ -129,12 +129,16 @@ test("Gemini overload falls back to Lovable and preserves the Gemini cause if bo
   for (const status of [500, 502, 503, 504]) {
     const gemini = new Response(null, { status });
     const recovered = await requestWithProviderFallback(
-      true, async () => gemini, async () => new Response("ok"),
+      true,
+      async () => gemini,
+      async () => new Response("ok"),
     );
     assert.equal(recovered.provider, "lovable");
     assert.equal(recovered.response.status, 200);
     const failed = await requestWithProviderFallback(
-      true, async () => gemini, async () => new Response(null, { status: 402 }),
+      true,
+      async () => gemini,
+      async () => new Response(null, { status: 402 }),
     );
     assert.equal(failed.provider, "gemini");
     assert.equal(failed.response, gemini);
@@ -145,8 +149,62 @@ test("Gemini safety and access errors do not forward the chat to Lovable", async
   for (const status of [400, 403, 422]) {
     const response = new Response(null, { status });
     const result = await requestWithProviderFallback(
-      true, async () => response, async () => assert.fail("unexpected fallback"),
+      true,
+      async () => response,
+      async () => assert.fail("unexpected fallback"),
     );
     assert.equal(result.response, response);
+  }
+});
+
+test("provider fallback releases only discarded responses", async () => {
+  for (const gatewayStatus of [200, 503]) {
+    const cancelled = [];
+    const stream = (name) =>
+      new ReadableStream({
+        cancel() {
+          cancelled.push(name);
+        },
+      });
+    const gemini = new Response(stream("gemini"), { status: 503 });
+    const gateway = new Response(stream("lovable"), { status: gatewayStatus });
+    const result = await requestWithProviderFallback(
+      true,
+      async () => gemini,
+      async () => gateway,
+    );
+    assert.equal(result.response, gatewayStatus === 200 ? gateway : gemini);
+    assert.deepEqual(cancelled, [gatewayStatus === 200 ? "gemini" : "lovable"]);
+    await result.response.body.cancel();
+  }
+});
+
+test("a thrown gateway request releases quota responses and preserves unavailable Gemini causes", async () => {
+  for (const status of [429, 503]) {
+    let cancelled = false;
+    const gemini = new Response(
+      new ReadableStream({
+        cancel() {
+          cancelled = true;
+        },
+      }),
+      { status },
+    );
+    const run = () =>
+      requestWithProviderFallback(
+        true,
+        async () => gemini,
+        async () => {
+          throw new Error("transport");
+        },
+      );
+    if (status === 429) {
+      await assert.rejects(run(), /transport/);
+      assert.equal(cancelled, true);
+    } else {
+      assert.equal((await run()).response, gemini);
+      assert.equal(cancelled, false);
+      await gemini.body.cancel();
+    }
   }
 });

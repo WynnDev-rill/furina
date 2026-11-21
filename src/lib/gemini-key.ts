@@ -56,7 +56,7 @@ export function isInvalidGeminiKey(status: number, reason: string) {
   );
 }
 
-export async function useGeminiKeys<T extends { status: number }>(
+export async function useGeminiKeys<T extends { status: number; body?: ReadableStream | null }>(
   keys: string[],
   request: (key: string) => Promise<T | null>,
   invalid: (response: T) => Promise<boolean>,
@@ -67,10 +67,15 @@ export async function useGeminiKeys<T extends { status: number }>(
     const response = await request(key);
     if (!response) continue;
     if (response.status === 429) {
+      await lastRateLimited?.body?.cancel().catch(() => undefined);
       lastRateLimited = response;
       continue;
     }
-    if (!(await invalid(response))) return response;
+    if (!(await invalid(response))) {
+      await lastRateLimited?.body?.cancel().catch(() => undefined);
+      return response;
+    }
+    await response.body?.cancel().catch(() => undefined);
     await revoke(key);
   }
   return lastRateLimited;

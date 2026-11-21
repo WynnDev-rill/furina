@@ -118,3 +118,32 @@ test("an unreadable saved credential does not block remaining keys or become rev
   assert.equal(response.status, 200);
   assert.deepEqual(attempts, ["unreadable", "working"]);
 });
+
+test("key rotation releases rejected and superseded quota streams, keeping the returned response readable", async () => {
+  const cancelled = [];
+  const responses = [401, 429, 429, 200].map(
+    (status, index) =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(String(index)));
+          },
+          cancel() {
+            cancelled.push(index);
+          },
+        }),
+        { status },
+      ),
+  );
+  const result = await useGeminiKeys(
+    ["0", "1", "2", "3"],
+    async (key) => responses[Number(key)],
+    async (res) => res.status === 401,
+    async () => {},
+  );
+  assert.equal(result, responses[3]);
+  assert.deepEqual(cancelled.sort(), [0, 1, 2]);
+  const reader = result.body.getReader();
+  assert.equal(new TextDecoder().decode((await reader.read()).value), "3");
+  await reader.cancel();
+});

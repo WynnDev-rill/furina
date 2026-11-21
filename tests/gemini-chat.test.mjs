@@ -108,3 +108,33 @@ test("Gemini quota, credential and safety responses do not trigger model retry",
     assert.equal(response.status, expected);
   }
 });
+
+test("a blocked Gemini candidate never exposes partial text or retries", async () => {
+  for (const feedback of [
+    { finishReason: "SAFETY" },
+    { finishReason: "RECITATION" },
+    { blockReason: "SAFETY" },
+  ]) {
+    let calls = 0;
+    const response = await requestGeminiCompletion(
+      "synthetic",
+      messages,
+      Date.now() + 5000,
+      async () => {
+        calls++;
+        return Response.json({
+          promptFeedback: { blockReason: feedback.blockReason },
+          candidates: [
+            {
+              finishReason: feedback.finishReason,
+              content: { parts: [{ text: "partial blocked reply" }] },
+            },
+          ],
+        });
+      },
+    );
+    assert.equal(response.status, 422);
+    assert.equal(calls, 1);
+    assert.equal(await response.text(), "");
+  }
+});

@@ -118,7 +118,6 @@ export const getAiChannelSettings = createServerFn({ method: "POST" })
       !preferences.use_openrouter &&
       !preferences.use_nvidia;
     return {
-      mainProvider: preferences?.chat_provider === "nvidia" ? "nvidia" as const : "gemini" as const,
       chat: preferences?.lovable_chat ?? true,
       background: preferences?.lovable_background ?? true,
       issues: backgroundPaused
@@ -270,23 +269,51 @@ export const addNvidiaKey = createServerFn({ method: "POST" })
   )
   .handler(async ({ data: { userId, key } }) => {
     await requireFurinaIdentity(userId, true);
-    const response = await fetch(`${NVIDIA}/models`, {
-      redirect: "manual",
-      signal: AbortSignal.timeout(8000),
-      headers: { Authorization: `Bearer ${key}` },
-    }).catch(() => null);
-    if (!response?.ok)
-      throw new Error(
-        response?.status === 401
-          ? "NVIDIA menolak API key ini."
-          : "API key NVIDIA belum bisa diperiksa. Coba lagi.",
-      );
-    const models: { id?: string }[] = (await response.json()).data ?? [];
-    if (
-      !models.some(({ id }) => id === NVIDIA_TEXT) ||
-      !models.some(({ id }) => id === NVIDIA_EMBEDDING)
-    ) {
-      throw new Error("Key NVIDIA belum punya akses ke model teks dan embedding Furina.");
+    // The model catalog is public; only authenticated inference proves access.
+    const deadline = Date.now() + 16000;
+    for (const endpoint of ["chat/completions", "embeddings"] as const) {
+      const response = await fetch(`${NVIDIA}/${endpoint}`, {
+        method: "POST",
+        redirect: "manual",
+        signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify(
+          endpoint === "embeddings"
+            ? {
+                model: NVIDIA_EMBEDDING,
+                input: ["OK"],
+                input_type: "passage",
+                encoding_format: "float",
+                truncate: "END",
+              }
+            : {
+                model: NVIDIA_TEXT,
+                messages: [{ role: "user", content: "Reply only OK." }],
+                max_tokens: 32,
+                stream: false,
+                chat_template_kwargs: { enable_thinking: false },
+              },
+        ),
+      }).catch(() => null);
+      if (!response?.ok) {
+        await response?.body?.cancel().catch(() => undefined);
+        if (response?.status === 401 || response?.status === 403)
+          throw new Error("NVIDIA menolak API key atau akses model ini.");
+        if (response?.status === 402 || response?.status === 429)
+          throw new Error("Kuota NVIDIA belum tersedia. Coba lagi setelah kuota tersedia.");
+        throw new Error("Akses model NVIDIA belum bisa diperiksa. Coba lagi.");
+      }
+      const payload = await response.json().catch(() => null);
+      const valid =
+        endpoint === "embeddings"
+          ? Array.isArray(payload?.data?.[0]?.embedding) &&
+            payload.data[0].embedding.length === 2048 &&
+            payload.data[0].embedding.every(
+              (value: unknown) => typeof value === "number" && Number.isFinite(value),
+            )
+          : typeof payload?.choices?.[0]?.message?.content === "string" &&
+            !!payload.choices[0].message.content.trim();
+      if (!valid) throw new Error("Model NVIDIA belum memberikan respons yang valid. Coba lagi.");
     }
     const { box, fingerprint } = await protectGeminiKey(key, userId, encryptionSecret());
     const { error } = await supabaseAdmin.from("furina_nvidia_keys").upsert(
